@@ -11,7 +11,7 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./portal.css?v=5.38.0">
+  <link rel="stylesheet" href="./portal.css?v=5.39.0">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -158,7 +158,7 @@
         <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
           <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
             <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
-              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.38.0" title="Fleet Control — διαχείριση στόλου"></iframe>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.39.0" title="Fleet Control — διαχείριση στόλου"></iframe>
           </div>
           <details class="fleet-availability-panel fleet-availability-bottom">
             <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
@@ -172,6 +172,8 @@
             <div><span class="overline">ΕΛΕΓΧΟΣ ΤΙΜΟΛΟΓΙΩΝ</span><h2>Τιμολόγια service</h2><p>Τα QR που ολοκληρώθηκαν στον Server και τα αρχεία που χρειάζονται επιβεβαίωση.</p></div>
             <div class="toolbar-filters"><select id="invoiceStatusFilter" aria-label="Φίλτρο τιμολογίων"><option value="">Όλα</option><option value="new">Νέα</option><option value="processing">Σε επεξεργασία</option><option value="needs_review">Προς έλεγχο</option><option value="warning">Με προειδοποίηση</option><option value="confirmed">Ολοκληρωμένα</option><option value="error">Με σφάλμα</option></select><select id="invoicePlateFilter" aria-label="Ομαδοποίηση ανά πινακίδα"><option value="">Όλες οι πινακίδες</option></select><button id="reprocessInvoices" class="secondary-button invoice-reprocess-all-button" type="button">↻ Νέα ανάγνωση όλων</button><button id="refreshInvoices" class="secondary-button" type="button">Ανανέωση</button></div>
           </div>
+          <div class="report-types invoice-view-tabs" role="group" aria-label="Προβολή τιμολογίων"><button type="button" class="active" data-invoice-view="review" aria-pressed="true">Έλεγχος τιμολογίων</button><button type="button" data-invoice-view="files" aria-pressed="false">▤ Λίστα τιμολογίων</button></div>
+          <input id="invoiceFileSearch" class="invoice-file-search" type="search" placeholder="Αναζήτηση πινακίδας ή αρχείου" aria-label="Αναζήτηση στη λίστα τιμολογίων" hidden>
           <div id="invoiceBulkProgress" class="invoice-bulk-progress is-hidden" aria-live="polite" aria-busy="false">
             <div class="invoice-bulk-progress-ring" style="--progress:0" aria-label="0%">
               <canvas class="invoice-progress-canvas invoice-bulk-progress-canvas" data-wiggly-progress data-progress="0" data-status="processing" width="124" height="124" aria-hidden="true"></canvas>
@@ -284,6 +286,17 @@
 
   <dialog id="employeeDetailDialog" class="app-dialog wide-dialog"><div class="dialog-head"><div><span class="overline">ΚΑΡΤΕΛΑ ΕΡΓΑΖΟΜΕΝΟΥ</span><h2 id="employeeDetailTitle">—</h2></div><button type="button" data-close="employeeDetailDialog">×</button></div><div id="employeeDetailTabs" class="report-types employee-detail-tabs"><button class="active" data-employee-detail-tab="details" type="button">Στοιχεία</button><button data-employee-detail-tab="shifts" data-tab-permission="shifts.view" type="button">Βάρδιες</button><button data-employee-detail-tab="payroll" data-tab-permission="payroll.view" type="button">Μισθοδοσία</button><button data-employee-detail-tab="schedules" data-tab-permission="schedules.view" type="button">Πρόγραμμα</button><button data-employee-detail-tab="permissions" type="button">Δικαιώματα</button><button data-employee-detail-tab="history" data-tab-permission="audit.view" type="button">Ιστορικό</button></div><div id="employeeDetailContent" class="employee-detail-content"></div></dialog>
 
+  <dialog id="invoiceReprocessDialog" class="app-dialog invoice-reprocess-dialog" aria-labelledby="invoiceReprocessTitle" aria-describedby="invoiceReprocessCount"><div class="dialog-body">
+    <div class="dialog-head"><div><span class="overline">ΝΕΑ ΑΝΑΓΝΩΣΗ ΟΛΩΝ</span><h2 id="invoiceReprocessTitle">Πώς θέλεις να διαβαστούν;</h2></div><button type="button" data-close="invoiceReprocessDialog" aria-label="Κλείσιμο">×</button></div>
+    <p id="invoiceReprocessCount" class="helper-copy"></p>
+    <div class="invoice-reading-options">
+      <button type="button" class="invoice-reading-option" data-invoice-reprocess-mode="server-first"><span class="invoice-reading-icon" aria-hidden="true">◇</span><span><small>ΠΡΟΤΕΙΝΟΜΕΝΟ</small><strong>Server πρώτα</strong><span>Τοπική ανάγνωση. Workers AI μόνο όταν τα στοιχεία δεν είναι αξιόπιστα.</span></span><b aria-hidden="true">→</b></button>
+      <button type="button" class="invoice-reading-option invoice-reading-ai" data-invoice-reprocess-mode="workers-ai"><span class="invoice-reading-icon" aria-hidden="true">⚡</span><span><small>ΓΙΑ ΟΛΑ ΤΑ ΤΙΜΟΛΟΓΙΑ</small><strong>Μόνο Workers AI</strong><span>Υποχρεωτική ανάγνωση με AI, χωρίς τοπικό έλεγχο. Χρησιμοποιεί Workers AI για κάθε αρχείο.</span></span><b aria-hidden="true">→</b></button>
+    </div>
+    <p class="helper-copy">Ο Server πρέπει να είναι συνδεδεμένος. Η διαδικασία συνεχίζεται στο παρασκήνιο.</p>
+    <div class="dialog-actions"><button type="button" class="ghost-button" data-close="invoiceReprocessDialog">Άκυρο</button></div>
+  </div></dialog>
+
   <dialog id="invoiceReviewDialog" class="app-dialog wide-dialog invoice-review-dialog"><form id="invoiceReviewForm" method="dialog" novalidate>
     <div class="dialog-head"><div><span class="overline">ΕΠΙΒΕΒΑΙΩΣΗ OCR</span><h2>Έλεγχος τιμολογίου</h2></div><button type="button" data-close="invoiceReviewDialog">×</button></div>
     <input id="invoiceReviewId" type="hidden"><input id="invoiceReviewBikeId" type="hidden"><input id="invoiceReviewEntryId" type="hidden"><input id="invoiceReviewKey" type="hidden">
@@ -317,7 +330,7 @@
   <dialog id="installGuideDialog" class="app-dialog install-guide-dialog"><div class="dialog-body"><div class="dialog-head"><div><span class="overline">iPHONE / iPAD</span><h2>Εγκατάσταση Web App</h2></div><button id="installGuideClose" type="button" aria-label="Κλείσιμο">×</button></div><p id="iosInstallIntro" class="helper-copy">Δεν χρειάζεται αρχείο IPA. Το Fleet Control εγκαθίσταται ως Web App από το Safari.</p><ol class="install-steps"><li><b>1</b><span>Άνοιξε αυτή τη σελίδα στο <strong>Safari</strong>.</span></li><li><b>2</b><span>Πάτησε <strong>Κοινοποίηση</strong> και μετά <strong>Προσθήκη στην οθόνη Αφετηρίας</strong>.</span></li><li><b>3</b><span>Ενεργοποίησε <strong>Άνοιγμα ως εφαρμογή Web</strong> και πάτησε <strong>Προσθήκη</strong>.</span></li></ol><div class="install-guide-actions"><button id="iosShareButton" class="primary-button" type="button">Άνοιγμα κοινοποίησης</button><button id="iosCopyLink" class="secondary-button" type="button">Αντιγραφή συνδέσμου</button></div><p id="iosInstallStatus" class="security-note">Μετά την προσθήκη θα εμφανιστεί κανονικό εικονίδιο Fleet Control στην Αφετηρία.</p></div></dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./fleet-config.js?v=5.38.0"></script>
-  <script src="./portal.js?v=5.38.0"></script>
+  <script src="./fleet-config.js?v=5.39.0"></script>
+  <script src="./portal.js?v=5.39.0"></script>
 </body>
 </html>

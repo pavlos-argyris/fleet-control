@@ -74,7 +74,7 @@
     viewLoadedAt: {}, weekData: null, scheduleBuilderMode: "shift", templateEditingId: null,
     lastScheduleConflict: null, scheduleEditingId: null, scheduleEditConflict: null,
     scheduleImportRows: null, scheduleImportPreview: null, dashboard: null,
-    dashboardDetailTarget: "", coverage: null, coverageDay: 0, recycle: [], invoiceDocuments: [], invoiceReprocessBusy: false, invoiceReprocessProgress: null, invoiceReprocessHideTimer: 0, invoiceReprocessActiveIds: [], invoiceReprocessPreviousFilter: "", invoiceReprocessBatchId: "", invoiceReprocessOwner: false, invoiceReprocessSyncRunning: false, invoiceReprocessCompletedBatchId: "", apiTimings: [], employeeAllowedPermissions: [
+    dashboardDetailTarget: "", coverage: null, coverageDay: 0, recycle: [], invoiceDocuments: [], invoiceView: "review", invoiceCollapsedGroups: new Set(), invoiceGroupAnimationUntil: 0, invoiceGroupRenderTimer: 0, invoiceReprocessStarting: false, invoiceReprocessBusy: false, invoiceReprocessProgress: null, invoiceReprocessHideTimer: 0, invoiceReprocessActiveIds: [], invoiceReprocessPreviousFilter: "", invoiceReprocessBatchId: "", invoiceReprocessOwner: false, invoiceReprocessSyncRunning: false, invoiceReprocessCompletedBatchId: "", apiTimings: [], employeeAllowedPermissions: [
       "clock_in_out", "select_vehicle", "view_own_history", "view_hours",
       "view_history", "view_kilometers", "view_pay", "request_correction"
     ]
@@ -2746,20 +2746,118 @@
       .replace(/[^A-Z0-9Α-Ω]/g, "");
   }
 
+  function invoiceDocumentDateKey(item) {
+    const raw = String(item && item.invoiceData && item.invoiceData.invoiceDate || "").trim();
+    const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:$|T)/);
+    const local = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    const parts = iso ? [iso[1], iso[2], iso[3]] : local ? [local[3], local[2], local[1]] : null;
+    if (!parts) return "";
+    const year = Number(parts[0]), month = Number(parts[1]), day = Number(parts[2]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+      ? parts[0] + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0") : "";
+  }
+
+  function invoiceFileGroups(records, selectedPlate, search) {
+    const groups = new Map(), seen = new Set();
+    const query = String(search || "").trim().toLocaleLowerCase("el");
+    const queryPlate = invoicePlateKey(query);
+    (records || []).forEach(function (item) {
+      if (!item || !item.key || seen.has(String(item.key))) return;
+      if (item.contentType !== "application/pdf" && !/\.pdf$/i.test(item.name || "")) return;
+      const plate = String(item.bikeName || item.invoiceData && item.invoiceData.plate || "").trim();
+      const label = plate || "Χωρίς πινακίδα";
+      const key = invoicePlateKey(plate) || "unknown";
+      if (selectedPlate && selectedPlate !== key) return;
+      if (query && !(label + " " + (item.name || "")).toLocaleLowerCase("el").includes(query)
+          && (!queryPlate || !invoicePlateKey(label).includes(queryPlate))) return;
+      seen.add(String(item.key));
+      if (!groups.has(key)) groups.set(key, { key: key, label: label, items: [] });
+      groups.get(key).items.push(item);
+    });
+    return Array.from(groups.values()).sort(function (a, b) { return a.label.localeCompare(b.label, "el"); }).map(function (group) {
+      group.items.sort(function (a, b) {
+        // Oldest invoice first. Unknown invoice dates stay at the end; the
+        // upload date is only a tie breaker, never presented as an invoice date.
+        return (invoiceDocumentDateKey(a) || "9999").localeCompare(invoiceDocumentDateKey(b) || "9999")
+          || String(a.uploadedAt || "").localeCompare(String(b.uploadedAt || ""))
+          || String(a.name || "").localeCompare(String(b.name || ""), "el")
+          || String(a.key).localeCompare(String(b.key));
+      });
+      return group;
+    });
+  }
+
+  function invoiceGroupMarkup(key, label, items, meta, content, view) {
+    const groupId = view + ":" + key;
+    const collapsed = state.invoiceCollapsedGroups.has(groupId);
+    const bodyId = "invoice-group-" + view + "-" + encodeURIComponent(key);
+    return '<section class="invoice-plate-group' + (collapsed ? ' is-collapsed' : '') + '" data-invoice-group="' + escapeHtml(groupId) + '"><button type="button" class="invoice-plate-toggle" data-invoice-group-toggle="' + escapeHtml(groupId) + '" aria-expanded="' + (!collapsed) + '" aria-controls="' + escapeHtml(bodyId) + '"><span><strong>' + escapeHtml(label) + '</strong><small>' + items.length + (items.length === 1 ? ' τιμολόγιο' : ' τιμολόγια') + '</small></span><small>' + escapeHtml(meta || '') + '</small></button><div id="' + escapeHtml(bodyId) + '" class="invoice-group-body"' + (collapsed ? ' inert' : '') + '><div class="invoice-group-clip"><div class="invoice-plate-items">' + content + '</div></div></div></section>';
+  }
+
+  function toggleInvoiceGroup(button) {
+    const key = button.dataset.invoiceGroupToggle;
+    const group = button.closest("[data-invoice-group]");
+    if (!group) return;
+    const collapsed = !state.invoiceCollapsedGroups.has(key);
+    if (collapsed) state.invoiceCollapsedGroups.add(key); else state.invoiceCollapsedGroups.delete(key);
+    group.classList.toggle("is-collapsed", collapsed);
+    button.setAttribute("aria-expanded", String(!collapsed));
+    const body = group.querySelector(".invoice-group-body");
+    if (body) body.inert = collapsed;
+    const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    state.invoiceGroupAnimationUntil = reduced ? 0 : Date.now() + 380;
+  }
+
+  function setInvoiceView(view) {
+    state.invoiceView = view === "files" ? "files" : "review";
+    document.querySelectorAll("[data-invoice-view]").forEach(function (button) {
+      const active = button.dataset.invoiceView === state.invoiceView;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    renderInvoiceQueue();
+  }
+
+  function renderInvoiceFileList(records, selectedPlate) {
+    const groups = invoiceFileGroups(records, selectedPlate, $("invoiceFileSearch")?.value);
+    const root = $("invoiceQueueList");
+    if (!root) return;
+    root.innerHTML = groups.length ? groups.map(function (group) {
+      const rows = group.items.map(function (item) {
+        return '<div class="invoice-file-row"><span class="invoice-file-icon" aria-hidden="true">▤</span><strong>' + escapeHtml(item.name || "Τιμολόγιο.pdf") + '</strong><div class="invoice-file-actions"><button type="button" class="secondary-button" data-invoice-open="' + escapeHtml(item.id) + '" aria-label="' + escapeHtml('Άνοιγμα ' + item.name) + '">Άνοιγμα</button><button type="button" class="secondary-button" data-invoice-download="' + escapeHtml(item.id) + '" aria-label="' + escapeHtml('Λήψη ' + item.name) + '">Λήψη</button></div></div>';
+      }).join("");
+      return invoiceGroupMarkup(group.key, group.label, group.items, "", rows, "files");
+    }).join("") : '<div class="invoice-queue-empty"><span>▤</span><strong>Δεν βρέθηκαν αποθηκευμένα PDF.</strong><p>Εδώ εμφανίζονται όλα τα διαθέσιμα αρχεία, ανεξάρτητα από την κατάσταση ελέγχου τους.</p></div>';
+  }
+
   function renderInvoiceQueue() {
+    // Polling must not replace an accordion midway through its transition.
+    const remaining = state.invoiceGroupAnimationUntil - Date.now();
+    if (remaining > 0) {
+      if (!state.invoiceGroupRenderTimer) state.invoiceGroupRenderTimer = window.setTimeout(function () {
+        state.invoiceGroupRenderTimer = 0;
+        renderInvoiceQueue();
+      }, remaining + 15);
+      return;
+    }
+    const filesView = state.invoiceView === "files";
+    if ($("invoiceStatusFilter")) $("invoiceStatusFilter").hidden = filesView;
+    if ($("invoiceQueueSummary")) $("invoiceQueueSummary").hidden = filesView;
+    if ($("invoiceFileSearch")) $("invoiceFileSearch").hidden = !filesView;
     const records = Array.isArray(state.invoiceDocuments) ? state.invoiceDocuments : [];
     const filter = String($("invoiceStatusFilter")?.value || "");
     if ($("reprocessInvoices")) {
       $("reprocessInvoices").hidden = !can("fleet.manage");
-      $("reprocessInvoices").disabled = Boolean(state.invoiceReprocessBusy);
+      $("reprocessInvoices").disabled = Boolean(state.invoiceReprocessBusy || state.invoiceReprocessStarting);
       const progress = state.invoiceReprocessProgress;
       const progressLabel = progress && !progress.done ? " " + Math.min(Number(progress.current || 0) + 1, Number(progress.total || 1)) + "/" + Number(progress.total || 1) : "";
       $("reprocessInvoices").textContent = state.invoiceReprocessBusy ? "↻ Νέα ανάγνωση" + progressLabel + "…" : "↻ Νέα ανάγνωση όλων";
     }
     renderInvoiceBulkProgress();
     const plateSelect = $("invoicePlateFilter");
-    const plateKey = function (item) { return invoicePlateKey(item && item.invoiceData && item.invoiceData.plateResolution === "kept-current" ? item.bikeName : item && item.invoiceData && item.invoiceData.plate) || invoicePlateKey(item && item.bikeName) || "unknown"; };
-    const plateLabel = function (item) { return String(item && item.invoiceData && item.invoiceData.plateResolution === "kept-current" ? item.bikeName : item && item.invoiceData && item.invoiceData.plate || item && item.bikeName || "Χωρίς πινακίδα").trim(); };
+    const plateKey = function (item) { if (filesView) return invoicePlateKey(item && item.bikeName || item && item.invoiceData && item.invoiceData.plate) || "unknown"; return invoicePlateKey(item && item.invoiceData && item.invoiceData.plateResolution === "kept-current" ? item.bikeName : item && item.invoiceData && item.invoiceData.plate) || invoicePlateKey(item && item.bikeName) || "unknown"; };
+    const plateLabel = function (item) { if (filesView) return String(item && item.bikeName || item && item.invoiceData && item.invoiceData.plate || "Χωρίς πινακίδα"); return String(item && item.invoiceData && item.invoiceData.plateResolution === "kept-current" ? item.bikeName : item && item.invoiceData && item.invoiceData.plate || item && item.bikeName || "Χωρίς πινακίδα").trim(); };
     const plateMap = new Map();
     records.forEach(function (item) { const key = plateKey(item); if (!plateMap.has(key)) plateMap.set(key, plateLabel(item)); });
     const selectedPlate = plateSelect ? String(plateSelect.value || "") : "";
@@ -2767,6 +2865,7 @@
       plateSelect.innerHTML = '<option value="">Όλες οι πινακίδες</option>' + Array.from(plateMap.entries()).sort(function (a, b) { return a[1].localeCompare(b[1], "el"); }).map(function (pair) { return '<option value="' + escapeHtml(pair[0]) + '">' + escapeHtml(pair[1]) + '</option>'; }).join("");
       plateSelect.value = plateMap.has(selectedPlate) ? selectedPlate : "";
     }
+    if (filesView) return void renderInvoiceFileList(records, plateSelect?.value || "");
     const statusMatch = function (item) {
       if (!filter) return true;
       if (filter === "new") return Boolean(item.isNew);
@@ -2829,7 +2928,7 @@
       const deleteHtml = can("fleet.manage") ? '<button class="secondary-button invoice-delete-button" type="button" data-invoice-delete="' + escapeHtml(item.id) + '">Διαγραφή</button>' : '';
       return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? 'PDF διαθέσιμο' : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα PDF</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη PDF</button>' + deleteHtml + '</div></article>';
     };
-    $("invoiceQueueList").innerHTML = Array.from(grouped.values()).sort(function (a, b) { return a.label.localeCompare(b.label, "el"); }).map(function (group) {
+    $("invoiceQueueList").innerHTML = Array.from(grouped.entries()).map(function (pair) { return Object.assign({ key: pair[0] }, pair[1]); }).sort(function (a, b) { return a.label.localeCompare(b.label, "el"); }).map(function (group) {
       group.items.sort(function (left, right) {
         const newDifference = Number(Boolean(right.isNew)) - Number(Boolean(left.isNew));
         if (newDifference) return newDifference;
@@ -2838,7 +2937,7 @@
         return String(right.serviceDate || right.uploadedAt || "").localeCompare(String(left.serviceDate || left.uploadedAt || ""));
       });
       const warningCount = group.items.filter(function (item) { return Array.isArray(item.warnings) && item.warnings.length; }).length;
-      return '<details class="invoice-plate-group" open><summary><span><strong>' + escapeHtml(group.label) + '</strong><small>' + group.items.length + (group.items.length === 1 ? ' τιμολόγιο' : ' τιμολόγια') + '</small></span><small>' + (warningCount ? warningCount + ' προειδοποιήσεις' : 'Χωρίς προειδοποίηση') + '</small></summary><div class="invoice-plate-items">' + group.items.map(renderCard).join("") + '</div></details>';
+      return invoiceGroupMarkup(group.key, group.label, group.items, warningCount ? warningCount + " προειδοποιήσεις" : "Χωρίς προειδοποίηση", group.items.map(renderCard).join(""), "review");
     }).join("");
     refreshWigglyProgressRings($("invoiceQueueList"));
   }
@@ -2867,7 +2966,7 @@
       current: completed,
       total: total,
       currentStartedAt: value.currentStartedAt || value.updatedAt || value.startedAt || "",
-      title: done ? (status === "error" ? "Η νέα ανάγνωση σταμάτησε" : "Η νέα ανάγνωση ολοκληρώθηκε") : "Κοινή νέα ανάγνωση τιμολογίων",
+      title: done ? (status === "error" ? "Η νέα ανάγνωση σταμάτησε" : "Η νέα ανάγνωση ολοκληρώθηκε") : value.mode === "workers-ai" ? "Νέα ανάγνωση · Workers AI" : "Νέα ανάγνωση · Server πρώτα",
       detail: completed + "/" + total + " · " + name,
       status: finalStatus,
       failed: status === "error" || failed > 0,
@@ -3107,19 +3206,34 @@
     }
   }
 
-  async function reprocessAllInvoiceDocuments() {
+  function chooseInvoiceReprocessMode() {
+    if (state.invoiceReprocessBusy || state.invoiceReprocessStarting) return;
+    const records = (state.invoiceDocuments || []).filter(function (item) { return item && item.key; });
+    if (!records.length) return void toast("Δεν υπάρχουν αποθηκευμένα PDF για νέα ανάγνωση.");
+    $("invoiceReprocessCount").textContent = records.length + " τιμολόγια θα διαβαστούν ξανά. Οι επιβεβαιωμένες διορθώσεις σου διατηρούνται.";
+    $("invoiceReprocessDialog").showModal();
+  }
+
+  async function reprocessAllInvoiceDocuments(mode) {
+    if (!["server-first", "workers-ai"].includes(mode)) return;
+    if (state.invoiceReprocessStarting) return;
     if (state.invoiceReprocessBusy) return;
     const records = (state.invoiceDocuments || []).filter(function (item) { return item && item.key; });
     if (!records.length) return void toast("Δεν υπάρχουν αποθηκευμένα PDF για νέα ανάγνωση.");
-    if (!window.confirm("Θα ξαναδιαβαστούν από την αρχή όλα τα " + records.length + " τιμολόγια με αποθηκευμένο PDF. Τα επιβεβαιωμένα χειροκίνητα στοιχεία δεν θα αντικατασταθούν. Συνέχεια;")) return;
+    state.invoiceReprocessStarting = true;
+    $("invoiceReprocessDialog").close();
+    renderInvoiceQueue();
     let started;
     try {
       started = await api("/api/admin/service-documents/reprocess-batch", {
         method: "POST",
-        body: { action: "start", batchId: invoiceBatchClientId(), total: records.length, items: records.map(function (item) { return { id: String(item.id || ""), key: String(item.key || ""), name: String(item.name || "Τιμολόγιο") }; }) }
+        body: { action: "start", mode: mode, batchId: invoiceBatchClientId(), total: records.length, items: records.map(function (item) { return { id: String(item.id || ""), key: String(item.key || ""), name: String(item.name || "Τιμολόγιο") }; }) }
       });
     } catch (error) {
       return void toast(error.message);
+    } finally {
+      state.invoiceReprocessStarting = false;
+      renderInvoiceQueue();
     }
     if (!started.started || !started.batch) {
       applyRemoteInvoiceReprocessBatch(started.batch || null);
@@ -3141,7 +3255,7 @@
       return Object.assign({}, item, { status: "processing", progress: 5, progressStage: "Σε αναμονή για νέα ανάγνωση" });
     });
     state.invoiceReprocessBusy = true;
-    state.invoiceReprocessProgress = { current: 0, total: records.length, startedAt: Date.now(), currentStartedAt: Date.now(), title: "Νέα ανάγνωση τιμολογίων", detail: "Προετοιμασία…", status: "Η πρόοδος συγχρονίζεται από τον Server σε όλες τις συνδέσεις." };
+    state.invoiceReprocessProgress = { current: 0, total: records.length, startedAt: Date.now(), currentStartedAt: Date.now(), title: mode === "workers-ai" ? "Νέα ανάγνωση · Workers AI" : "Νέα ανάγνωση · Server πρώτα", detail: "Προετοιμασία…", status: "Η πρόοδος συγχρονίζεται από τον Server σε όλες τις συνδέσεις." };
     renderInvoiceQueue();
     // The batch is now an Android Server operation. The portal only starts it
     // and watches the D1 setting, so all open web/APK connections see the same
@@ -4021,12 +4135,13 @@
     $("deleteTemplateButton").addEventListener("click", disableTemplate);
     $("refreshShifts").addEventListener("click", loadShifts);
     $("refreshInvoices").addEventListener("click", loadInvoices);
+    $("invoiceFileSearch").addEventListener("input", renderInvoiceQueue);
     $("invoiceStatusFilter").addEventListener("change", renderInvoiceQueue);
     if ($("invoicePlateFilter")) $("invoicePlateFilter").addEventListener("change", renderInvoiceQueue);
     $("invoiceReviewForm").addEventListener("submit", saveAdminInvoiceReview);
     $("invoiceReviewOpen").addEventListener("click", function () { openInvoiceDocument(state.invoiceReviewDocument, false); });
     $("invoiceReviewDownload").addEventListener("click", function () { openInvoiceDocument(state.invoiceReviewDocument, true); });
-    if ($("reprocessInvoices")) $("reprocessInvoices").addEventListener("click", reprocessAllInvoiceDocuments);
+    if ($("reprocessInvoices")) $("reprocessInvoices").addEventListener("click", chooseInvoiceReprocessMode);
     if ($("invoiceReviewMove")) $("invoiceReviewMove").addEventListener("click", function () { state.invoiceReviewTransferChoice = "move"; saveAdminInvoiceReview(); });
     if ($("invoiceReviewKeep")) $("invoiceReviewKeep").addEventListener("click", function () { state.invoiceReviewTransferChoice = "keep"; saveAdminInvoiceReview(); });
     $("manualClockInButton").addEventListener("click", manualClockIn);
@@ -4181,6 +4296,12 @@
       if (invoiceForceAi) return void forceInvoiceAiDocument(invoiceForceAi.dataset.invoiceForceAi);
       const invoiceDelete = event.target.closest("[data-invoice-delete]");
       if (invoiceDelete) return void deleteInvoiceDocument(invoiceDelete.dataset.invoiceDelete);
+      const invoiceGroup = event.target.closest("[data-invoice-group-toggle]");
+      if (invoiceGroup) return void toggleInvoiceGroup(invoiceGroup);
+      const invoiceView = event.target.closest("[data-invoice-view]");
+      if (invoiceView) return void setInvoiceView(invoiceView.dataset.invoiceView);
+      const invoiceMode = event.target.closest("[data-invoice-reprocess-mode]");
+      if (invoiceMode) return void reprocessAllInvoiceDocuments(invoiceMode.dataset.invoiceReprocessMode);
       const invoiceOpen = event.target.closest("[data-invoice-open]");
       if (invoiceOpen) return void openInvoiceDocument(invoiceDocumentById(invoiceOpen.dataset.invoiceOpen), false);
       const invoiceDownload = event.target.closest("[data-invoice-download]");

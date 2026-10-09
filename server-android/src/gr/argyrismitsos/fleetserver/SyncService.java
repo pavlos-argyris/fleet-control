@@ -403,6 +403,7 @@ public final class SyncService extends Service {
         }
         int count = Math.min(workerCount, window.length());
         String batchId = batch.optString("id", "");
+        final boolean forceWorkersAi = "workers-ai".equals(batch.optString("mode", "server-first"));
         if (batchId.length() == 0) throw new Exception("Η νέα ανάγνωση δεν έχει έγκυρη εργασία.");
 
         List<String> activeNames = new ArrayList<String>();
@@ -420,6 +421,7 @@ public final class SyncService extends Service {
                 results.add(workers.submit(new Callable<JSONObject>() {
                     @Override
                     public JSONObject call() throws Exception {
+                        if (forceWorkersAi) return new JSONObject();
                         return readInvoiceLocally(base, item, headers);
                     }
                 }));
@@ -440,7 +442,10 @@ public final class SyncService extends Service {
                 body.put("localOcr", localOcr);
                 result = FleetHttp.sendJson(base + "/api/server/service-documents/reprocess-batch", "POST", body, headers);
                 JSONObject next = result.optJSONObject("batch");
-                if (result.optBoolean("fallbackUsed", false)) {
+                if (forceWorkersAi && result.optBoolean("aiUsed", false)) {
+                    updateNotification("Νέα ανάγνωση: υποχρεωτικά Workers AI");
+                    saveInvoiceReprocessState(preferences, next == null ? batch : next, "Workers AI: " + name);
+                } else if (result.optBoolean("fallbackUsed", false)) {
                     updateNotification("Νέα ανάγνωση: τοπικό αμφίβολο στοιχείο • fallback Workers AI");
                     saveInvoiceReprocessState(preferences, next == null ? batch : next, "Fallback Workers AI: " + name);
                 } else if (result.optBoolean("skipped", false)) {

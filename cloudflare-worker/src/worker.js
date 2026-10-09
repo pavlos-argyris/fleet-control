@@ -971,6 +971,10 @@ async function applyServiceDocumentReprocess(env, request, actor, snapshot, flee
     : mergeServerInvoiceData(current, fresh);
   const now = new Date().toISOString();
   data.ocrReprocessedAt = now;
+  // Keep human-entered invoice fields; refresh metadata of the latest attempt.
+  for (const field of ["ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence"]) {
+    if (fresh[field] !== undefined) data[field] = fresh[field];
+  }
   data.reviewStatus = current.reviewStatus || data.reviewStatus || "";
   if (current.confirmedAt) data.confirmedAt = current.confirmedAt;
   if (current.reviewedBy) data.reviewedBy = current.reviewedBy;
@@ -1126,6 +1130,8 @@ async function invoiceReprocessBatch(request, env) {
   const body = await request.json().catch(() => ({}));
   const action = cleanText(body.action, 30).toLowerCase();
   if (action === "start") {
+    const mode = body.mode || "server-first";
+    if (!["server-first", "workers-ai"].includes(mode)) return json({ error: "Μη έγκυρος τρόπος ανάγνωσης." }, 400);
     if (current && current.status === "processing" && nowMs - invoiceBatchTime(current.updatedAt) <= INVOICE_REPROCESS_BATCH_STALE_MS) {
       return json({ ok: true, started: false, owner: false, batch: current });
     }
@@ -1139,6 +1145,7 @@ async function invoiceReprocessBatch(request, env) {
     const batch = {
       id: cleanText(body.batchId, 120) || crypto.randomUUID(),
       status: "processing",
+      mode,
       total,
       items,
       completed: 0,
@@ -1330,13 +1337,15 @@ async function serverInvoiceReprocessBatch(request, env) {
   let failed = false;
   let skipped = false;
   let fallbackUsed = false;
+  const forceWorkersAi = current.mode === "workers-ai";
+  let aiUsed = false;
   let ocrWarning = "";
   if (bike && entry && attachment && entry.type !== "check") {
     const local = normalizeServiceDocumentOcr(body.localOcr);
     const localStatus = String(local?.localReadStatus || "").toLowerCase();
     const localConfidence = cleanInteger(local?.ocrConfidence, 0, 100, 0);
     const localConfident = Boolean(local && (localStatus === "confident" || (localConfidence >= 70 && invoiceWorkItems(local).length > 0)));
-    let extracted = localConfident ? normalizeServiceDocumentOcr({
+    let extracted = !forceWorkersAi && localConfident ? normalizeServiceDocumentOcr({
       ...local,
       source: "server-local",
       ocrSource: "server-local",
@@ -1344,9 +1353,11 @@ async function serverInvoiceReprocessBatch(request, env) {
       ocrFallbackReason: "",
       ocrFallbackError: ""
     }) : null;
-    const fallbackReason = local?.ocrFallbackReason || (local ? "Η τοπική ανάγνωση βρήκε αμφίβολα στοιχεία." : "Η τοπική ανάγνωση του Server απέτυχε.");
+    const fallbackReason = forceWorkersAi ? "Επιλέχθηκε υποχρεωτική ανάγνωση με Workers AI."
+      : local?.ocrFallbackReason || (local ? "Η τοπική ανάγνωση βρήκε αμφίβολα στοιχεία." : "Η τοπική ανάγνωση του Server απέτυχε.");
     if (!extracted) {
-      fallbackUsed = true;
+      fallbackUsed = !forceWorkersAi;
+      aiUsed = true;
       try {
         const bucket = env.SERVICE_DOCS || env.RELEASES;
         const object = await bucket?.get(key);
@@ -1356,18 +1367,18 @@ async function serverInvoiceReprocessBatch(request, env) {
         extracted = normalizeServiceDocumentOcr({
           ...extracted,
           ocrSource: "cloudflare-ai",
-          ocrFallbackUsed: true,
+          ocrFallbackUsed: fallbackUsed,
           ocrFallbackReason: fallbackReason,
           ocrFallbackError: "",
           localReadStatus: localStatus || "failed"
         });
       } catch (error) {
         failed = true;
-        ocrWarning = error?.message || "Δεν ολοκληρώθηκε το fallback στο Workers AI.";
+        ocrWarning = error?.message || "Δεν ολοκληρώθηκε η ανάγνωση με Workers AI.";
         extracted = normalizeServiceDocumentOcr({
-          ...(local || {}),
-          ocrSource: "server-local",
-          ocrFallbackUsed: true,
+          ...(forceWorkersAi ? {} : local || {}),
+          ocrSource: forceWorkersAi ? "cloudflare-ai" : "server-local",
+          ocrFallbackUsed: fallbackUsed,
           ocrFallbackReason: fallbackReason,
           ocrFallbackError: ocrWarning
         });
@@ -1396,6 +1407,7 @@ async function serverInvoiceReprocessBatch(request, env) {
     completed: nextCompleted,
     failed: nextFailed,
     fallbackCount: Math.max(Number(current.fallbackCount) || 0, Number(current.fallbackCount) || 0) + (fallbackUsed ? 1 : 0),
+    aiCount: Math.max(0, Number(current.aiCount) || 0) + (aiUsed ? 1 : 0),
     skipped: Math.max(Number(current.skipped) || 0, Number(current.skipped) || 0) + (skipped ? 1 : 0),
     currentIndex: nextIndex,
     currentName: nextIndex < items.length ? String(items[nextIndex]?.name || "Επόμενο τιμολόγιο") : "Ολοκληρώθηκε η νέα ανάγνωση",
@@ -1429,7 +1441,7 @@ async function serverInvoiceReprocessBatch(request, env) {
     });
   }
   await setSetting(env, INVOICE_REPROCESS_BATCH_SETTING, JSON.stringify(next));
-  return json({ ok: true, batch: next, complete: next.status !== "processing", fallbackUsed, skipped, failed, error: ocrWarning });
+  return json({ ok: true, batch: next, complete: next.status !== "processing", fallbackUsed, aiUsed, skipped, failed, error: ocrWarning });
 }
 
 async function extractStoredInvoiceOcr(env, bytes, type, filename) {

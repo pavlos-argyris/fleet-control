@@ -647,6 +647,7 @@ const batchStarted = ok(await call("/api/admin/service-documents/reprocess-batch
   body: { action: "start", batchId: "simulation-invoice-batch", total: 3 }
 }), 201, "start shared invoice reprocess batch");
 assert.equal(batchStarted.started, true);
+assert.equal(batchStarted.batch.mode, "server-first");
 const batchDuplicate = ok(await call("/api/admin/service-documents/reprocess-batch", {
   method: "POST",
   token: ownerToken,
@@ -703,6 +704,47 @@ const invoiceAttachments = parallelInvoices.map((result) => ok(result, 201, "par
 let multiFleet = ok(await call("/api/sync", { token: ownerToken }));
 assert.equal(olderEntryFrom(multiFleet).attachments.length, 2, "Parallel uploads must preserve both references.");
 assert.equal(new Set(olderEntryFrom(multiFleet).attachments.map((file) => file.name)).size, 2);
+// Batch mode is authoritative even when an older Server supplies confident
+// local data. Forced AI failure must not silently accept that local result.
+let markdownCalls = 0, extractionCalls = 0;
+env.AI = {
+  toMarkdown: async () => { markdownCalls++; return { data: "Πινακίδα: BTO-756\nΑλλαγή λαδιών", format: "markdown" }; },
+  run: async () => { extractionCalls++; return { response: JSON.stringify({ invoiceNumber: "WORKERS-AI", plate: "BTO-756", odometerKm: "9000", workPerformed: "Αλλαγή λαδιών", totalAmount: "9" }) }; }
+};
+const confidentLocalRead = { invoiceNumber: "LOCAL-ONLY", localReadStatus: "confident", ocrConfidence: 99, workPerformed: "Γενικός έλεγχος", odometerKm: "9000" };
+async function runReadingBatch(mode, localOcr, key = invoiceAttachments[0].key) {
+  const id = "mode-test-" + crypto.randomUUID();
+  const started = ok(await call("/api/admin/service-documents/reprocess-batch", { method: "POST", token: ownerToken,
+    body: { action: "start", batchId: id, mode, items: [{ key, name: "invoice.pdf" }] } }), 201, "start mode batch");
+  assert.equal(started.batch.mode, mode);
+  const next = ok(await call("/api/server/service-documents/reprocess-batch", { server: true }), 200, "server gets batch mode");
+  assert.equal(next.batch.mode, mode);
+  return ok(await call("/api/server/service-documents/reprocess-batch", { method: "POST", server: true,
+    body: { action: "result", batchId: id, key, localOcr, mode: "server-first" } }), 200, "server applies batch result");
+}
+ok(await call("/api/admin/service-documents/reprocess-batch", { method: "POST", token: ownerToken,
+  body: { action: "start", mode: "invalid", items: [{ key: invoiceAttachments[0].key }] } }), 400, "reject unknown mode");
+const localBatch = await runReadingBatch("server-first", confidentLocalRead);
+assert.equal(localBatch.fallbackUsed, false); assert.equal(localBatch.aiUsed, false);
+assert.equal(markdownCalls, 0); assert.equal(extractionCalls, 0);
+const fallbackBatch = await runReadingBatch("server-first", { localReadStatus: "ambiguous", ocrConfidence: 20 });
+assert.equal(fallbackBatch.fallbackUsed, true); assert.equal(fallbackBatch.aiUsed, true);
+assert.equal(markdownCalls, 1); assert.equal(extractionCalls, 1);
+const forcedBatch = await runReadingBatch("workers-ai", confidentLocalRead);
+assert.equal(forcedBatch.aiUsed, true); assert.equal(forcedBatch.fallbackUsed, false);
+assert.equal(forcedBatch.batch.aiCount, 1); assert.equal(forcedBatch.batch.status, "completed");
+assert.equal(markdownCalls, 2); assert.equal(extractionCalls, 2);
+let modeFleet = ok(await call("/api/sync", { token: ownerToken }));
+let modeDoc = olderEntryFrom(modeFleet).attachments.find(file => file.key === invoiceAttachments[0].key);
+assert.equal(modeDoc.ocr.invoiceNumber, "WORKERS-AI"); assert.equal(modeDoc.ocr.ocrSource, "cloudflare-ai");
+env.AI.toMarkdown = async () => { throw new Error("Simulated AI unavailability"); };
+const failedForced = await runReadingBatch("workers-ai", { ...confidentLocalRead, invoiceNumber: "SHOULD-NOT-BE-ACCEPTED" });
+assert.equal(failedForced.failed, true); assert.equal(failedForced.batch.status, "completed_with_errors");
+modeFleet = ok(await call("/api/sync", { token: ownerToken }));
+modeDoc = olderEntryFrom(modeFleet).attachments.find(file => file.key === invoiceAttachments[0].key);
+assert.equal(modeDoc.ocr.invoiceNumber, "WORKERS-AI"); assert.match(modeDoc.ocrError, /unavailability/);
+delete env.AI;
+
 const invoiceReviewed = ok(await call("/api/admin/service-documents/review", {
   method: "POST", token: ownerToken,
   body: { bikeId: regressionBike.id, entryId: "older-service", key: invoiceAttachments[0].key,
