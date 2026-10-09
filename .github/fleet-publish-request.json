@@ -1,4 +1,9 @@
 {
   "schemaVersion": 1,
-  "mode": "disabled"
+  "mode": "verify",
+  "requestId": "fleet-17ca41ba-eac8-4518-a42c-6b6bb48439b9",
+  "sourceCommit": "e7605d478b350d3de3506bbf7376f14d87ab8e3f",
+  "releaseVersion": "5.37.2",
+  "requestedAt": "2026-10-09T21:29:46.586Z",
+  "reason": "Δοκιμή της αυτόματης εκκίνησης που ζήτησε ο χρήστης, χωρίς παραγωγική δημοσίευση"
 }
