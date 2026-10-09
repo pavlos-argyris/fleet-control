@@ -908,3 +908,5 @@ html.fleet-detail-mode body { overflow: hidden; }
   .data-table { font-size: 9px; }
   body::before { display: block; margin-bottom: 18px; content: "Fleet Control — Αναφορά"; font-size: 24px; font-weight: 850; }
 }
+
+.invoice-user-correction { display: inline-block; font-size: 11px; font-weight: 500; color: #356d58; margin: 4px 6px 4px 0; }

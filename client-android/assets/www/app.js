@@ -747,11 +747,12 @@
   function normalizeInvoiceData(value) {
     if (!value || typeof value !== "object") return null;
     const result = {};
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"].forEach(function (field) {
       if (value[field] != null && String(value[field]).trim()) result[field] = String(value[field]).trim().slice(0, field === "rawText" ? 12000 : 2000);
     });
     if (Array.isArray(value.parts)) result.parts = value.parts.map(function (part) { return invoiceLineText(part, 500); }).filter(Boolean).slice(0, 50);
     if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map(function (part) { return invoiceLineText(part, 500); }).filter(Boolean).slice(0, 50);
+    if (result.plate && !result.confirmedAt && !/^[ABEZHIKMNOPTYX]{3}[0-9]{3,4}$/.test(invoicePlateKey(result.plate))) delete result.plate;
     return Object.keys(result).length ? result : null;
   }
 
@@ -759,7 +760,7 @@
     const first = normalizeInvoiceData(primary) || {};
     const second = normalizeInvoiceData(fallback) || {};
     const merged = { ...second, ...first };
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"].forEach(function (field) {
       if (!String(first[field] || "").trim() && String(second[field] || "").trim()) merged[field] = second[field];
     });
     if (!Array.isArray(first.parts) && Array.isArray(second.parts)) merged.parts = second.parts;
@@ -771,7 +772,7 @@
     if (!attachment) return null;
     const ocr = normalizeInvoiceData(attachment.ocr) || {};
     const qr = normalizeInvoiceData(attachment.qrData) || {};
-    const merged = mergeInvoiceData(qr, ocr) || {};
+    const merged = mergeInvoiceData(ocr, qr) || {};
     if (!merged.qrUrl && attachment.qrUrl) merged.qrUrl = attachment.qrUrl;
     if (!merged.source) merged.source = attachment.qrUrl ? "qr+ocr" : "ocr";
     return normalizeInvoiceData(merged);
@@ -812,12 +813,23 @@
       .slice(0, 50);
   }
 
+  function cleanInvoiceWorkText(value) {
+    const text = String(value || "");
+    const folded = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const match = /οροι\s+πληρωμης|τροπος\s+πληρωμης|πληρωμης\s+συναλλαγης|τοις\s+μετρητοις|payment\s+terms|cash\s+payment/.exec(folded);
+    if (!match) return text.trim();
+    // Convert the folded index back to the original, preserving Greek accents.
+    let index = 0, length = 0;
+    for (const letter of text) { if (length >= match.index) break; index += letter.length; length += letter.normalize("NFD").replace(/[\u0300-\u036f]/g, "").length; }
+    return text.slice(0, index).replace(/[\s:;·—–-]+$/, "").trim();
+  }
+
   function invoiceWorkItems(data) {
     const values = [];
     values.push.apply(values, splitImportedWork(data && data.workPerformed));
     if (Array.isArray(data && data.lineItems)) values.push.apply(values, data.lineItems);
     if (Array.isArray(data && data.parts)) values.push.apply(values, data.parts);
-    return values.map(function (item) { return invoiceLineText(item, 180); }).filter(Boolean).slice(0, 50);
+    return values.map(function (item) { return cleanInvoiceWorkText(invoiceLineText(item, 180)); }).filter(Boolean).slice(0, 50);
   }
 
   function taskKey(value) {
@@ -845,7 +857,7 @@
         .trim();
     };
     const add = function (raw) {
-      const task = invoiceLineText(raw, 180);
+      const task = cleanInvoiceWorkText(invoiceLineText(raw, 180));
       if (!task) return;
       const oilIndex = result.findIndex(function (item) { return isOilTask(item); });
       if (isOilTask(task) && oilIndex >= 0) {
@@ -947,7 +959,9 @@
     const warnings = [];
     const invoicePlate = invoicePlateKey(data && data.plate);
     const selectedPlate = invoicePlateKey(bike && bike.name);
-    if (data && data.plate && bike && bike.name && invoicePlate !== selectedPlate) {
+    const plateResolved = data && data.confirmedAt && data.plateResolution === "kept-current" &&
+      data.plateResolutionBikeId === String(bike && bike.id) && data.plateResolutionPlate === selectedPlate && data.plateResolutionRead === invoicePlate;
+    if (data && data.plate && bike && bike.name && invoicePlate !== selectedPlate && !plateResolved) {
       warnings.push("Η πινακίδα του τιμολογίου (" + data.plate + ") δεν ταιριάζει με το επιλεγμένο μηχανάκι (" + bike.name + ").");
     }
     const invoiceKm = parseInvoiceKm(data && data.odometerKm);
@@ -962,11 +976,17 @@
     const data = mergeInvoiceData(reviewData, attachment ? attachment.ocr : entry && entry.invoiceData);
     if (!bike || !entry || !data) return;
     const now = new Date().toISOString();
+    if (reviewData.applyServiceKmCorrection === true && data.confirmedAt && data.serviceKmAfterCorrection && Number(data.serviceKmBeforeCorrection) === Number(entry.km)) {
+      entry.km = parseInvoiceKm(data.serviceKmAfterCorrection);
+      bike.historyCorrectedAt = now;
+      recalculateCorrectedBike(bike);
+    }
     appendInvoiceWork(entry, data);
     entry.invoiceData = data;
     if (data.supplier) entry.workshop = data.supplier;
     if (attachment) {
       attachment.ocr = mergeInvoiceData(data, attachment.ocr);
+      attachment.qrData = data;
       if (data.qrUrl) attachment.qrUrl = data.qrUrl;
       attachment.name = invoiceDisplayName(bike, data, entry, attachment);
       ensureAttachmentQr(attachment, data.qrUrl);
@@ -2027,7 +2047,9 @@
       const costMarkup = isService && serviceCost !== "—"
         ? '<p class="history-cost"><strong>Κόστος service:</strong> ' + escapeHtml(serviceCost) + '</p>'
         : "";
-      const mismatchWarnings = isService ? invoiceWarnings(bike, entry, entryInvoiceData || {}) : [];
+      const mismatchWarnings = isService ? Array.from(new Set((entry.attachments || []).length
+        ? entry.attachments.flatMap(function (file) { return invoiceWarnings(bike, entry, invoiceDataFromAttachment(file) || {}); })
+        : invoiceWarnings(bike, entry, entryInvoiceData || {}))) : [];
       const warningMarkup = mismatchWarnings.length
         ? '<div class="history-invoice-warning" role="alert">' + mismatchWarnings.map(function (item) { return '⚠ ' + escapeHtml(item); }).join('<br>') + '</div>'
         : "";
@@ -2063,6 +2085,7 @@
             ${workshop}
             ${costMarkup}
             ${warningMarkup}
+            ${entryInvoiceData && entryInvoiceData.correctedByUserAt ? '<small class="invoice-user-correction">✓ Ελέγχθηκε / διορθώθηκε από χρήστη</small>' : ""}
             ${oilBadge}
             ${majorBadge}
             ${sourceBadge}
@@ -2526,6 +2549,7 @@
   function invoiceReviewPayload(attachment) {
     const data = invoiceDataFromAttachment(attachment) || {};
     return {
+      ...data,
       supplier: String(data.supplier || "").trim(),
       invoiceNumber: String(data.invoiceNumber || "").trim(),
       invoiceDate: String(data.invoiceDate || "").trim(),
@@ -2581,6 +2605,8 @@
         elements.invoiceReviewDialog.removeEventListener("close", onClose);
         if (!accepted) return resolve(null);
         const result = {
+          ...initial,
+          correctedByUserAt: new Date().toISOString(),
           supplier: elements.invoiceReviewSupplier.value.trim(),
           invoiceNumber: elements.invoiceReviewNumber.value.trim(),
           invoiceDate: elements.invoiceReviewDate.value.trim(),
@@ -2599,9 +2625,28 @@
           qrUrl: initial.qrUrl,
           confirmedAt: new Date().toISOString()
         };
-        resolve(normalizeInvoiceData(result));
+        resolve(Object.assign(normalizeInvoiceData(result), { applyServiceKmCorrection: Boolean(initial.serviceKmAfterCorrection) }));
       };
-      const onSubmit = function (event) { event.preventDefault(); finish(true); };
+      const onSubmit = function (event) {
+        event.preventDefault();
+        delete initial.serviceKmBeforeCorrection;
+        delete initial.serviceKmAfterCorrection;
+        const nextKm = parseInvoiceKm(elements.invoiceReviewOdometerKm.value);
+        if (nextKm > 2000000000) { elements.invoiceReviewError.textContent = "Γράψε σωστά τα χιλιόμετρα."; return; }
+        if (nextKm && nextKm !== Number(entry.km)) {
+          if (!window.confirm("Να διορθωθούν τα χιλιόμετρα του service από " + formatKm(entry.km) + " σε " + formatKm(nextKm) + ";")) return;
+          initial.serviceKmBeforeCorrection = String(entry.km);
+          initial.serviceKmAfterCorrection = String(nextKm);
+        }
+        if (elements.invoiceReviewPlate.value && invoicePlateKey(elements.invoiceReviewPlate.value) !== invoicePlateKey(bike.name)) {
+          if (!window.confirm("Η πινακίδα διαφέρει. Να κρατηθεί το τιμολόγιο στο " + bike.name + ";")) return;
+          initial.plateResolution = "kept-current";
+          initial.plateResolutionBikeId = String(bike.id);
+          initial.plateResolutionPlate = invoicePlateKey(bike.name);
+          initial.plateResolutionRead = invoicePlateKey(elements.invoiceReviewPlate.value);
+        }
+        finish(true);
+      };
       const onKeep = function () { finish(false); };
       const onCancel = function (event) { event.preventDefault(); finish(false); };
       const onClose = function () { finish(false); };
@@ -3405,7 +3450,7 @@
   }
 
   function reportInvoiceBlock(file, entry) {
-    const data = mergeInvoiceData(entry && entry.invoiceData, file && (file.qrData || file.ocr)) || {};
+    const data = mergeInvoiceData(invoiceDataFromAttachment(file), (entry && entry.attachments || []).length <= 1 ? entry && entry.invoiceData : null) || {};
     const qrValue = (file && (file.qrUrl || file.qrValue)) || data.qrUrl;
     const qr = reportQrSvg(qrValue);
     const meta = [
@@ -3430,11 +3475,50 @@
   }
 
   function reportCost(entry) {
-    if (entry && entry.cost) return entry.cost;
+    const files = Array.isArray(entry && entry.attachments) ? entry.attachments : [];
+    const seen = new Set();
+    const amounts = [];
+    let missing = false;
+    files.forEach(function (file, index) {
+      const key = String(file.key || file.id || index);
+      if (seen.has(key)) return;
+      seen.add(key);
+      const data = invoiceDataFromAttachment(file) || {};
+      const cents = invoiceMoneyCents(data.totalAmount);
+      if (cents !== null) amounts.push(cents); else missing = true;
+    });
+    if (amounts.length) return ((amounts.reduce(function (total, cents) { return total + cents; }, 0)) / 100).toLocaleString("el-GR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €" + (missing ? " · εκκρεμεί κόστος τιμολογίου" : "");
     const data = normalizeInvoiceData(entry && entry.invoiceData) || {};
-    if (data.totalAmount) return data.totalAmount;
-    const attachment = Array.isArray(entry && entry.attachments) ? entry.attachments.find(function (file) { return file.ocr && file.ocr.totalAmount; }) : null;
-    return attachment && attachment.ocr ? attachment.ocr.totalAmount : "—";
+    return entry && entry.cost || (files.length <= 1 && data.totalAmount) || "—";
+  }
+
+  function invoiceMoneyCents(value) {
+    let text = String(value == null ? "" : value).replace(/€|EUR|ευρώ|\s/gi, "");
+    if (!/^\d+(?:[.,]\d+)*$/.test(text)) return null;
+    const last = Math.max(text.lastIndexOf(","), text.lastIndexOf("."));
+    const decimal = last >= 0 && text.length - last - 1 <= 2;
+    let whole = decimal ? text.slice(0, last) : text;
+    const fraction = decimal ? text.slice(last + 1).padEnd(2, "0") : "00";
+    if (decimal && whole.includes(text[last])) return null;
+    if (/[.,]/.test(whole) && !/^\d{1,3}(?:[.,]\d{3})+$/.test(whole)) return null;
+    whole = whole.replace(/[.,]/g, "");
+    const cents = Number(whole) * 100 + Number(fraction);
+    return Number.isSafeInteger(cents) ? cents : null;
+  }
+
+  function reportServiceDateCell(entry) {
+    const seen = new Set();
+    const files = Array.isArray(entry.attachments) ? entry.attachments : [];
+    const dataList = files.length ? files.map(invoiceDataFromAttachment) : [entry.invoiceData];
+    dataList.forEach(function (data) {
+      const value = String(data && data.invoiceDate || "").trim();
+      if (!value) return;
+      const valid = /^\d{4}-\d{2}-\d{2}/.test(value) || /(^|\D)\d{1,2}[./-]\d{1,2}[./-]\d{4}(?:\D|$)/.test(value);
+      seen.add(valid ? formatDate(invoiceDateForName(value, "")) : value);
+    });
+    return '<strong>' + escapeHtml(formatDate(entry.date)) + '</strong>' + Array.from(seen).map(function (date) {
+      return '<small class="report-invoice-date">Τιμολόγιο: ' + escapeHtml(date) + '</small>';
+    }).join("");
   }
 
   function reportHeaderMarkup(title, subtitle, items) {
@@ -3448,7 +3532,7 @@
         ? '<ul class="report-task-list report-task-list-compact">' + tasks.map(function (task) { return '<li>' + escapeHtml(task) + '</li>'; }).join("") + '</ul>'
         : "—";
       const supplier = serviceSupplier(entry);
-      return `<tr><td>${escapeHtml(formatDate(entry.date))}</td><td>${escapeHtml(formatKm(entry.km))}</td><td>${taskMarkup}</td><td>${escapeHtml(supplier ? supplier.value : "—")}</td><td>${escapeHtml(reportCost(entry))}</td><td>${reportInvoiceCell(entry)}</td></tr>`;
+      return `<tr><td>${reportServiceDateCell(entry)}</td><td>${escapeHtml(formatKm(entry.km))}</td><td>${taskMarkup}</td><td>${escapeHtml(supplier ? supplier.value : "—")}</td><td>${escapeHtml(reportCost(entry))}</td><td>${reportInvoiceCell(entry)}</td></tr>`;
     }).join("");
   }
 

@@ -560,15 +560,20 @@ public final class LocalInvoiceReader {
     }
 
     private static String findPlate(String text) {
-        String labelled = findRegex(text, "(?iu)(?:πινακίδα|πινακιδα|αρ\\.?\\s*κυκλ\\.?|plate|registration)[^A-ZΑ-Ω0-9]{0,30}([A-ZΑ-Ω]{2,3}[- ]?\\d{3,4})");
+        String letters = "[ABEZHIKMNOPTYXΑΒΕΖΗΙΚΜΝΟΡΤΥΧ]{3}";
+        String candidate = "(" + letters + "[ \\t-]*\\d{3,4})(?![A-ZΑ-Ω0-9])";
+        String labelled = findRegex(text, "(?iu)(?:πινακίδα|πινακιδα|αρ\\.?\\s*κυκλ\\.?|plate|registration)[^A-ZΑ-Ω0-9]{0,30}" + candidate);
         if (labelled.length() > 0) return normalizePlate(labelled);
-        String general = findRegex(text, "(?iu)(?<![A-ZΑ-Ω])([A-ZΑ-Ω]{2,3}[- ]?\\d{3,4})(?![A-ZΑ-Ω0-9])");
-        return normalizePlate(general);
+        // Unlabelled matches are accepted only inside invoice comments,
+        // never from an item code, model, invoice number or supplier header.
+        String comments = findComments(text);
+        String contextual = findRegex(comments, "(?iu)(?<![A-ZΑ-Ω0-9])" + candidate);
+        return normalizePlate(contextual);
     }
 
     private static String normalizePlate(String value) {
         String compact = String.valueOf(value == null ? "" : value).replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
-        Matcher matcher = Pattern.compile("^([A-ZΑ-Ω]{2,3})-?(\\d{3,4})$").matcher(compact);
+        Matcher matcher = Pattern.compile("^([ABEZHIKMNOPTYXΑΒΕΖΗΙΚΜΝΟΡΤΥΧ]{3})-?(\\d{3,4})$").matcher(compact);
         return matcher.find() ? matcher.group(1) + "-" + matcher.group(2) : compact;
     }
 
@@ -685,6 +690,7 @@ public final class LocalInvoiceReader {
         StringBuilder current = new StringBuilder();
         for (String line : lines) {
             String normalized = line.replaceAll("^[-•*·]+\\s*", "").trim();
+            normalized = cleanInvoiceWorkText(normalized);
             String value = normalized.toLowerCase(Locale.ROOT);
             if (normalized.length() < 3 || normalized.length() > 180) continue;
             if (value.matches("(?iu).*(?:τιμολόγιο|τιμολογιο|ημερομηνία|ημερομηνια|πελάτης|πελατης|διεύθυνση|διευθυνση|σύνολο|συνολο|πληρωτέο|πληρωτεο|αφμ|τηλέφωνο|τηλεφωνο|σελίδα|σελιδα|page|subtotal|vat|φπα|καθαρή αξία|καθαρη αξια).*")) continue;
@@ -717,8 +723,14 @@ public final class LocalInvoiceReader {
                 && !value.matches("(?iu).*(?:σύνολο|συνολο|τιμή|τιμη|ποσότητα|ποσοτητα|φπα|vat).*");
     }
 
+    private static String cleanInvoiceWorkText(String value) {
+        String text = value == null ? "" : value;
+        Matcher matcher = Pattern.compile("(?iu)όροι\\s+πληρωμής|οροι\\s+πληρωμης|τρόπος\\s+πληρωμής|τροπος\\s+πληρωμης|πληρωμής\\s+συναλλαγής|πληρωμης\\s+συναλλαγης|τοίς\\s+μετρητοίς|τοις\\s+μετρητοις|payment\\s+terms|cash\\s+payment").matcher(text);
+        return (matcher.find() ? text.substring(0, matcher.start()) : text).replaceAll("[\\s:;·—–-]+$", "").trim();
+    }
+
     private static String cleanWorkLine(String value) {
-        String cleaned = removeLeadingInvoiceCodes(value)
+        String cleaned = removeLeadingInvoiceCodes(cleanInvoiceWorkText(value))
                 .replaceFirst("(?iu)\\s+[0-9]+[,.][0-9]{2}\\s+(?:τεμάχια|τεμαχια|h87).*?$", "")
                 .replaceAll("\\s+", " ").trim();
         return cleaned.length() > 150 ? cleaned.substring(0, 150).trim() : cleaned;
@@ -738,7 +750,7 @@ public final class LocalInvoiceReader {
                 if (value.matches("(?iu).*(?:κωδικός.*περιγραφή|κωδικος.*περιγραφη|cpv.*περιγραφή|cpv.*περιγραφη).*")) inItems = true;
                 else if (!startsItem) continue;
             }
-            if (value.matches("(?iu).*(?:εκπτώσεις\\s*/\\s*χρεώσεις|εκπτωσεις\\s*/\\s*χρεωσεις|ανάλυση\\s+φπα|αναλυση\\s+φπα|στοιχεία\\s+πληρωμής|στοιχεια\\s+πληρωμης|σχόλια|σχολια).*")) {
+            if (cleanInvoiceWorkText(normalized).length() == 0 || value.matches("(?iu).*(?:εκπτώσεις\\s*/\\s*χρεώσεις|εκπτωσεις\\s*/\\s*χρεωσεις|ανάλυση\\s+φπα|αναλυση\\s+φπα|στοιχεία\\s+πληρωμής|στοιχεια\\s+πληρωμης|σχόλια|σχολια).*")) {
                 if (current.length() > 0) unique.add(current.toString());
                 break;
             }
@@ -774,7 +786,7 @@ public final class LocalInvoiceReader {
     }
 
     private static String cleanInvoiceItem(String value) {
-        String cleaned = String.valueOf(value == null ? "" : value).replaceAll("\\s+", " ").trim();
+        String cleaned = cleanInvoiceWorkText(value).replaceAll("\\s+", " ").trim();
         for (int attempt = 0; attempt < 3; attempt++) {
             int separator = cleaned.indexOf(' ');
             if (separator <= 0) break;

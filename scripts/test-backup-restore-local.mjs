@@ -664,6 +664,65 @@ const batchComplete = ok(await call("/api/admin/service-documents/reprocess-batc
 }), 200, "complete shared invoice reprocess batch");
 assert.equal(batchComplete.batch.status, "completed");
 
+// Review fixes operate on a separate synthetic vehicle, never production data.
+{
+  const before = ok(await call("/api/sync", { token: ownerToken }));
+  const reviewBike = {
+    id: "invoice-review-regression", name: "ΒΤΟ 756", intervalKm: 3000,
+    lastServiceKm: 10000, currentKm: 12000, createdAt: iso(Date.now()), updatedAt: iso(Date.now()),
+    history: [
+      { id: "oil", type: "service", km: 10000, date: "2026-10-08", oilChanged: true, tasks: ["Αλλαγή λαδιών"] },
+      { id: "check", type: "check", km: 12000, date: "2026-10-09" },
+      { id: "review", type: "service", km: 9000, date: "2026-10-01", oilChanged: false, tasks: ["Γενικός έλεγχος"], attachments: [] }
+    ]
+  };
+  before.bikes.push(reviewBike);
+  ok(await call("/api/sync", { method: "POST", token: ownerToken, body: before }));
+  const uploadForm = new FormData();
+  uploadForm.append("bikeId", reviewBike.id); uploadForm.append("entryId", "review");
+  uploadForm.append("file", new Blob(["%PDF-1.4\n%%EOF"], { type: "application/pdf" }), "review.pdf");
+  const document = ok(await callRaw("/api/service-documents", { method: "POST", token: ownerToken, body: uploadForm }), 201).attachment;
+  const payload = { bikeId: reviewBike.id, entryId: "review", key: document.key, keepOnCurrent: true,
+    updateServiceKm: true, expectedServiceKm: 9000,
+    invoiceData: { plate: "BTO-757", odometerKm: "9100", totalAmount: "50", invoiceDate: "2026-10-02",
+      workPerformed: "Αλλαγή τακακιών\nΌροι Πληρωμής Συναλλαγής Τοίς Μετρητοίς", ocrFallbackUsed: "true" },
+    tasks: ["Γενικός έλεγχος", "Όροι Πληρωμής Συναλλαγής Τοίς Μετρητοίς"] };
+  const saved = ok(await call("/api/admin/service-documents/review", { method: "POST", token: ownerToken, body: payload }));
+  assert.equal(saved.document.status, "confirmed");
+  assert.deepEqual(saved.document.warnings, []);
+  assert.equal(saved.document.invoiceData.plate, "BTO-757", "Keep the original reading for audit");
+  assert.equal(saved.document.invoiceData.plateResolution, "kept-current");
+  assert.ok(saved.document.invoiceData.correctedByUserAt);
+  assert.equal(saved.document.invoiceData.serviceKmBeforeCorrection, "9000");
+  assert.equal(saved.document.invoiceData.serviceKmAfterCorrection, "9100");
+  assert.equal(saved.document.serviceKm, 9100);
+  assert.equal(saved.bike.lastServiceKm, 10000);
+  assert.equal(saved.bike.currentKm, 12000);
+  assert.equal(saved.bike.nextServiceKm, 13000);
+  assert.equal(saved.document.serviceDate, "2026-10-01");
+  assert.equal(saved.document.invoiceData.invoiceDate, "2026-10-02");
+  assert.ok(saved.document.tasks.includes("Αλλαγή τακακιών"));
+  assert.ok(saved.document.tasks.every(task => !task.includes("Πληρωμής")));
+  const staleVersion = ok(await call("/api/sync", { token: ownerToken })).version;
+  ok(await call("/api/admin/service-documents/review", { method: "POST", token: ownerToken, body: payload }), 409,
+    "Stale confirmation must not overwrite a newer mileage");
+  assert.equal(ok(await call("/api/sync", { token: ownerToken })).version, staleVersion);
+  const reread = ok(await call("/api/admin/service-documents/reprocess", { method: "POST", token: ownerToken, body: { key: document.key } }));
+  assert.equal(reread.document.status, "confirmed");
+  assert.equal(reread.document.invoiceData.plateResolution, "kept-current");
+  assert.equal(reread.document.serviceKm, 9100);
+  assert.equal(reread.document.invoiceData.totalAmount, "50");
+  const listed = ok(await call("/api/admin/service-documents", { token: ownerToken })).documents.find(item => item.key === document.key);
+  assert.equal(listed.status, "confirmed");
+  assert.equal(listed.invoiceData.correctedByUserAt, saved.document.invoiceData.correctedByUserAt);
+  // A subsequent different plate cannot reuse the previous acceptance.
+  const changed = ok(await call("/api/admin/service-documents/review", { method: "POST", token: ownerToken,
+    body: { bikeId: reviewBike.id, entryId: "review", key: document.key, invoiceData: { plate: "BTO-758" } } }));
+  assert.equal(changed.document.status, "warning");
+  assert.ok(changed.document.warnings.some(item => item.type === "plate"));
+  console.log("OK invoice review API: explicit keep, completed status, durable user badge, confirmed manual mileage correction, stale protection and reprocessing preservation");
+}
+
 const uploaded = ok(await call("/api/admin/releases/client", {
   method: "PUT",
   server: true,

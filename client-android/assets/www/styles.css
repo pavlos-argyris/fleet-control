@@ -3416,3 +3416,6 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
   .history-report-content .report-qr-wrap svg { width: 58px; height: 58px; }
   .history-report-footer { margin-top: 12px; }
 }
+
+.invoice-user-correction { display: inline-block; font-size: 11px; font-weight: 500; color: #356d58; margin: 4px 6px 4px 0; }
+.report-invoice-date { display: block; margin-top: 5px; color: #536176; font-size: 11px; }

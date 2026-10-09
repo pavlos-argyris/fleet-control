@@ -9,8 +9,9 @@ const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const publicRoot = path.join(projectRoot, "cloudflare-worker", "public");
-const previewRoot = path.join(projectRoot, "preview");
+const previewRoot = path.join(projectRoot, "verification", "ui");
 
+const releaseConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, "release-config.json"), "utf8"));
 const now = new Date().toISOString();
 const user = {
   id: "ui-owner",
@@ -30,7 +31,10 @@ const employeeUser = {
 };
 const bikes = [
   { id: "bike-ok", name: "ΜΗΧ-01", intervalKm: 3000, lastServiceKm: 10000, currentKm: 11650, nextServiceKm: 13000, lastCheckedAt: "2026-09-08", createdAt: now, updatedAt: now, history: [] },
-  { id: "bike-soon", name: "ΜΗΧ-07", intervalKm: 2500, lastServiceKm: 15000, currentKm: 17220, nextServiceKm: 17500, lastCheckedAt: "2026-09-08", createdAt: now, updatedAt: now, history: [{ id: "service-1", type: "service", km: 15000, date: "2026-08-12", tasks: ["Αλλαγή λαδιών", "Γενικός έλεγχος"], notes: "Αλλαγή λαδιών\nΓενικός έλεγχος", workshop: "Δοκιμαστικό συνεργείο", oilChanged: true, createdAt: now, updatedAt: now }] },
+  { id: "bike-soon", name: "ΜΗΧ-07", intervalKm: 2500, lastServiceKm: 15000, currentKm: 17220, nextServiceKm: 17500, lastCheckedAt: "2026-09-08", createdAt: now, updatedAt: now, history: [{ id: "service-1", type: "service", km: 15000, date: "2026-08-12", tasks: ["Αλλαγή λαδιών", "Γενικός έλεγχος"], notes: "Αλλαγή λαδιών\nΓενικός έλεγχος", workshop: "Δοκιμαστικό συνεργείο", cost: "9", attachments: [
+    { id: "invoice-one", key: "service-documents/bike-soon/service-1/one.pdf", name: "invoice-one.pdf", ocr: { totalAmount: "9,00", invoiceDate: "2026-08-13", workPerformed: "Αλλαγή λαδιών\nΌροι Πληρωμής Συναλλαγής Τοίς Μετρητοίς" } },
+    { id: "invoice-two", key: "service-documents/bike-soon/service-1/two.pdf", name: "invoice-two.pdf", ocr: { totalAmount: "50,00", invoiceDate: "2026-08-14", workPerformed: "Γενικός έλεγχος" } }
+  ], oilChanged: true, createdAt: now, updatedAt: now }] },
   { id: "bike-urgent", name: "ΜΗΧ-12", intervalKm: 3000, lastServiceKm: 20000, currentKm: 22920, nextServiceKm: 23000, lastCheckedAt: "2026-09-07", createdAt: now, updatedAt: now, history: [] },
   { id: "bike-overdue", name: "ΜΗΧ-18", intervalKm: 2000, lastServiceKm: 30000, currentKm: 32240, nextServiceKm: 32000, lastCheckedAt: "2026-09-06", createdAt: now, updatedAt: now, history: [] }
 ];
@@ -83,7 +87,7 @@ assert.ok(portalSource.includes('id="iosShareButton"') && portalScriptSource.inc
 assert.ok(portalScriptSource.includes("confirmedExpiry") && portalScriptSource.includes("Η συνεδρία σου διατηρήθηκε"), "Ένα προσωρινό πρόβλημα δικτύου δεν πρέπει να διαγράφει τη συνεδρία.");
 assert.ok(portalScriptSource.includes("employee-identity") && portalStylesSource.includes(".employee-card-actions { position: static"), "Οι κάρτες διαχείρισης εργαζομένων πρέπει να έχουν ανεξάρτητες περιοχές ονόματος και ενεργειών.");
 assert.ok(portalStylesSource.includes("@media (max-width: 480px)") && portalStylesSource.includes(".clock-preview-row"), "Λείπει η ασφαλής mobile διάταξη της προεπισκόπησης Clock In.");
-assert.ok(portalSource.includes("portal.css?v=5.36.7") && portalSource.includes("portal.js?v=5.36.7"), "Η έκδοση 5.36.7 πρέπει να παρακάμπτει την παλιά web cache.");
+assert.ok(portalSource.includes("portal.css?v=" + releaseConfig.web.version) && portalSource.includes("portal.js?v=" + releaseConfig.web.version), "Η τρέχουσα έκδοση πρέπει να παρακάμπτει την παλιά web cache.");
 assert.ok(workforceSource.includes("function resolveEmployeeAssignedVehicleId") && workforceSource.includes("body?.assignedVehicleId !== undefined ? body.assignedVehicleId : existing?.assigned_vehicle_id"), "Η ρητή αφαίρεση μόνιμης μηχανής πρέπει να αποθηκεύεται ως κενή ανάθεση.");
 assert.ok(workforceSource.includes("function effectiveScheduleVehicleId") && workforceSource.includes("const vehicleId = effectiveScheduleVehicleId(raw, employee)"), "Το πρόγραμμα πρέπει να εφαρμόζει τη μόνιμη ανάθεση μηχανής πριν τον έλεγχο σύγκρουσης.");
 assert.ok(workforceSource.includes("uses_own_vehicle") && workforceSource.includes("ownVehicleShiftId") && workforceSource.includes("initial_km, out_of_schedule"), "Ο Worker πρέπει να υποστηρίζει εργαζόμενο με ιδιόκτητο μηχανάκι χωρίς registry μηχανής.");
@@ -100,14 +104,14 @@ assert.ok(workforceSource.includes("overtime_approved_by_name") && workforceSour
 assert.ok(workforceSource.includes('hasPermission(actor.permissions, "payroll.manage")') && portalScriptSource.includes('can("payroll.manage")'), "Ο Payroll Manager πρέπει να μπορεί να εγκρίνει υπερωρία χωρίς πρόσβαση σε όλες τις ενέργειες βάρδιας.");
 assert.ok(portalScriptSource.includes('"missed-clock-ins"') && portalScriptSource.includes("activeClockInPreview") && portalScriptSource.includes("missedClockInPreview"), "Το Dashboard πρέπει να εμφανίζει χωριστά ενεργά και καθυστερημένα Clock In.");
 assert.ok(workforceSource.includes("loadScheduleConflictRows") && workforceSource.includes("const existingRows = await loadScheduleConflictRows"), "Το πρόγραμμα πρέπει να προφορτώνει τα σχετικά rows πριν ελέγξει συγκρούσεις.");
-assert.ok(workerSource.includes('RUNTIME_SCHEMA_VERSION = "5.0.42"') && workerSource.includes("withServerTiming") && workerSource.includes("STATUS_RESPONSE_CACHE_MS") && workerSource.includes("/api/admin/service-documents/reprocess") && workerSource.includes("/api/admin/service-documents/reprocess-batch") && workerSource.includes("/api/server/service-documents/reprocess-batch") && workerSource.includes("/api/service-documents"), "Ο Worker πρέπει να έχει versioned index, κοινή server batch πρόοδο τιμολογίων, διαγραφή/επανεπεξεργασία, status cache και Server-Timing.");
+assert.ok(/RUNTIME_SCHEMA_VERSION = "[0-9]+\.[0-9]+\.[0-9]+"/.test(workerSource) && workerSource.includes("withServerTiming") && workerSource.includes("STATUS_RESPONSE_CACHE_MS") && workerSource.includes("/api/admin/service-documents/reprocess") && workerSource.includes("/api/admin/service-documents/reprocess-batch") && workerSource.includes("/api/server/service-documents/reprocess-batch") && workerSource.includes("/api/service-documents"), "Ο Worker πρέπει να έχει versioned index, κοινή server batch πρόοδο τιμολογίων, διαγραφή/επανεπεξεργασία, status cache και Server-Timing.");
 assert.ok(appSource.includes("function qrTimestampMs") && appSource.includes("Χρόνος: >10:00") && portalScriptSource.includes("function invoiceElapsedLabel") && portalScriptSource.includes("lastAttemptAt || data.qrProcessingStartedAt"), "Ο χρόνος τιμολογίου πρέπει να ξεκινά από την τελευταία προσπάθεια και να μην εμφανίζει τεράστιους αριθμούς.");
 assert.ok(workerSource.includes("payload.requestedAt = now") && workerSource.includes("payload.retryRequestedAt = now"), "Η επανάληψη τιμολογίου πρέπει να μη χρησιμοποιεί την αρχική ημερομηνία ως χρόνο έναρξης.");
 assert.ok(workforceSource.includes("missedClockIns: missedRows") && workforceSource.includes("missedEmployees.size"), "Το Dashboard API πρέπει να επιστρέφει τις πραγματικές καθυστερήσεις Clock In.");
 assert.ok(indexSource.indexOf('class="fleet-overview"') < indexSource.indexOf('id="fleetAlert"'), "Η προειδοποίηση service πρέπει να εμφανίζεται κάτω από τα κουτάκια Fleet.");
 assert.ok(!indexSource.includes('class="sync-dot"') && !appSource.includes("intro.appendChild(actions)"), "Το ενσωματωμένο Fleet δεν πρέπει να εμφανίζει πράσινη τελεία ή κλειδαριά.");
 assert.ok(!portalScriptSource.includes('>Καρτέλα</button>'), "Η ασαφής ενέργεια Καρτέλα πρέπει να έχει αντικατασταθεί από Προβολή.");
-assert.ok(androidManifestSource.includes('android:versionCode="47"') && androidManifestSource.includes('android:versionName="5.36.7"') && androidManifestSource.includes('android.permission.ACCESS_NETWORK_STATE') && androidManifestSource.includes('android:allowBackup="false"'), "Το Android hotfix πρέπει να περιλαμβάνει την άδεια δικτύου, την έκδοση 5.36.7 και απενεργοποιημένο Android backup.");
+assert.ok(androidManifestSource.includes('android:versionCode="' + releaseConfig.client.versionCode + '"') && androidManifestSource.includes('android:versionName="' + releaseConfig.client.version + '"') && androidManifestSource.includes('android.permission.ACCESS_NETWORK_STATE') && androidManifestSource.includes('android:allowBackup="false"'), "Το Android hotfix πρέπει να περιλαμβάνει την άδεια δικτύου, την τρέχουσα έκδοση και απενεργοποιημένο Android backup.");
 assert.ok(androidManifestSource.includes('android.permission.CAMERA') && clientActivitySource.includes("onPermissionRequest") && clientActivitySource.includes("RESOURCE_VIDEO_CAPTURE"), "Το Android Client πρέπει να μπορεί να δώσει άδεια κάμερας στο QR scanner.");
 assert.ok(androidAlertJobSource.includes("setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)") && androidAlertJobSource.includes("catch (RuntimeException ignored)"), "Ο JobScheduler των ειδοποιήσεων πρέπει να μην τερματίζει την εφαρμογή.");
 assert.ok(clientActivitySource.includes("periodicUpdateCheck") && clientActivitySource.includes("postDelayed(periodicUpdateCheck, UPDATE_CHECK_INTERVAL_MS)"), "Το Client πρέπει να ελέγχει περιοδικά για ενημερώσεις όσο είναι ανοιχτό.");
@@ -140,7 +144,7 @@ assert.ok(appSource.includes("return remainingA - remainingB") && appSource.incl
 assert.ok(workforceSource.includes("mileage_check_stale") && workforceSource.includes("alerts-v4"), "Ο Worker πρέπει να δημιουργεί και να επαναφέρει ειδοποιήσεις παλιού ελέγχου χιλιομέτρων.");
 assert.ok(indexSource.includes('class="fleet-alert alert-button') && appSource.includes("openMileageCheckOverview") && appSource.includes("elements.fleetAlert.addEventListener") && appSource.includes("data-mileage-check=\"stale\"") && stylesSource.includes(".mileage-check-badge"), "Οι ειδοποιήσεις service/χιλιομέτρων πρέπει να είναι διαδραστικές και οι καθυστερημένοι έλεγχοι να έχουν εικονίδιο στη λίστα.");
 assert.ok(portalSource.includes('id="resolveAllAlerts"') && portalScriptSource.includes("resolveAllAlerts") && portalScriptSource.includes("alertsRequiringAction") && portalScriptSource.includes('"/api/admin/alerts/"'), "Οι ειδοποιήσεις πρέπει να έχουν ασφαλή μαζική ολοκλήρωση, αφήνοντας ανοικτές όσες απαιτούν έγκριση ή έλεγχο.");
-assert.ok(serviceWorkerSource.includes('CACHE_NAME = "fleet-control-v5-36-7"'), "Το Service Worker πρέπει να αλλάξει cache για να φορτώσει τη διόρθωση 5.36.7.");
+assert.ok(serviceWorkerSource.includes('CACHE_NAME = "fleet-control-v' + releaseConfig.web.version.replaceAll(".", "-") + '"'), "Το Service Worker πρέπει να αλλάξει cache για να φορτώσει την τρέχουσα διόρθωση.");
 assert.ok(appSource.includes("qr-progress-ring") && appSource.includes("retryQrDocumentJob") && appSource.includes("invoiceLineText"), "Το Client πρέπει να δείχνει ομαλή πρόοδο QR, επανάληψη και ασφαλή ανάγνωση γραμμών OCR.");
 assert.ok(appSource.includes("refreshVisibleQrProgress") && appSource.includes("setInterval(refreshVisibleQrProgress, 3000)"), "Το Client πρέπει να ενημερώνει ζωντανά την πρόοδο QR χωρίς refresh.");
 assert.ok(portalScriptSource.includes("invoiceProgressMarkup") && portalScriptSource.includes("markInvoiceSeen") && portalScriptSource.includes("retryInvoiceDocument") && portalSource.includes('value="new"'), "Το Admin Panel πρέπει να έχει ένδειξη νέου τιμολογίου, πρόοδο και επανάληψη.");
@@ -312,6 +316,20 @@ try {
   assert.equal(fullScreen.availabilityHidden, true, "Η διαθεσιμότητα πρέπει να κρύβεται στην καρτέλα μηχανής.");
   assert.ok(fullScreen.top <= 1 && fullScreen.height >= fullScreen.viewport - 1, "Η καρτέλα μηχανής πρέπει να καλύπτει όλη την οθόνη.");
   await page.screenshot({ path: path.join(previewRoot, "fleet-ui-detail-v5.17.png"), fullPage: false });
+  assert.match(await frame.locator("#detailHistory .history-cost").innerText(), /59,00/);
+  assert.doesNotMatch(await frame.locator("#detailHistory .service-task-list").innerText(), /Πληρωμής/);
+  await frame.locator("#detailExportButton").click();
+  await frame.locator("#historyReportDialog").waitFor({ state: "visible" });
+  const dateCell = frame.locator("#historyReportBody tbody tr td").first();
+  const dateText = await dateCell.innerText();
+  assert.ok(dateText.indexOf("12/08/2026") < dateText.indexOf("13/08/2026"));
+  assert.match(dateText, /Τιμολόγιο: 13\/08\/2026/);
+  assert.match(dateText, /Τιμολόγιο: 14\/08\/2026/);
+  assert.equal(await dateCell.locator(".report-invoice-date").count(), 2);
+  assert.match(await frame.locator("#historyReportBody tbody tr td").nth(4).innerText(), /59,00/);
+  await page.screenshot({ path: path.join(previewRoot, "invoice-dates-and-cost.png"), fullPage: false });
+  await frame.locator('[data-close-dialog="historyReportDialog"]').click();
+
 
   await frame.locator("#detailCheckButton").click();
   await frame.locator("#quickCheckView").waitFor({ state: "visible" });

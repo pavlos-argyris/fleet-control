@@ -225,6 +225,7 @@ async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
     const entry = (Array.isArray(bike.history) ? bike.history : []).find((item) => String(item.id) === String(entryId));
     if (!entry || entry.type === "check") return { attached: false, version: snapshot.version };
     const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
+    if (attachment.ocr) attachment.ocr = refineInvoicePlateForFleet(attachment.ocr, fleet.bikes);
     const duplicate = attachments.some((item) => String(item.key) === String(attachment.key));
     if (!duplicate && attachments.length >= MAX_SERVICE_ATTACHMENTS) return {
       attached: false, version: snapshot.version, status: 409,
@@ -429,10 +430,11 @@ async function ocrServiceDocument(request, env) {
   } else {
     return json({ error: "Υποστηρίζονται μόνο PDF, JPG, PNG ή WEBP." }, 415);
   }
+  extracted = refineInvoicePlateForFleet(extracted, (await readSnapshot(env)).data.bikes);
   return json({ ok: true, extracted, source, requiresConfirmation: true });
 }
 
-const INVOICE_EXTRACTION_PROMPT = "Εξήγαγε σε JSON τα πεδία supplier, invoiceNumber, invoiceDate, mark, plate, odometerKm, workPerformed, lineItems, parts, laborAmount, vatAmount, totalAmount, comments, notes. Οι γραμμές του τιμολογίου είναι οι πραγματικές εργασίες ή ανταλλακτικά: βάλε κάθε ξεχωριστή γραμμή και στα lineItems ή parts, χωρίς να τις ενώσεις σε μία παράγραφο. Το workPerformed να είναι επίσης λίστα γραμμών χωρισμένων με νέα γραμμή. Αν το τιμολόγιο γράφει λάδι ή προϊόν λαδιού, κράτησε και την ακριβή ονομασία. Στα lineItems, parts και workPerformed κράτησε μόνο την περιγραφή της εργασίας ή του ανταλλακτικού και όχι τον κωδικό είδους/SKU/κωδικό αναφοράς που προηγείται. Αν δεν υπάρχει πεδίο, βάλε κενό string ή κενή λίστα. Επέστρεψε μόνο JSON και μην επινοήσεις στοιχεία.";
+const INVOICE_EXTRACTION_PROMPT = "Εξήγαγε σε JSON τα πεδία supplier, invoiceNumber, invoiceDate, mark, plate, odometerKm, workPerformed, lineItems, parts, laborAmount, vatAmount, totalAmount, comments, notes. Οι γραμμές του τιμολογίου είναι οι πραγματικές εργασίες ή ανταλλακτικά: βάλε κάθε ξεχωριστή γραμμή και στα lineItems ή parts, χωρίς να τις ενώσεις σε μία παράγραφο. Το workPerformed να είναι επίσης λίστα γραμμών χωρισμένων με νέα γραμμή. Αν το τιμολόγιο γράφει λάδι ή προϊόν λαδιού, κράτησε και την ακριβή ονομασία. Στα lineItems, parts και workPerformed κράτησε μόνο την περιγραφή της εργασίας ή του ανταλλακτικού και όχι τον κωδικό είδους/SKU/κωδικό αναφοράς που προηγείται. Αν δεν υπάρχει πεδίο, βάλε κενό string ή κενή λίστα. Μην προσθέτεις όρους πληρωμής, τρόπο πληρωμής, τοίς μετρητοίς ή κείμενο συναλλαγής στις εργασίες/ανταλλακτικά. Η πινακίδα διαβάζεται μόνο από σαφές πεδίο πινακίδας/αριθμού κυκλοφορίας ή σχόλια οχήματος: τρία γράμματα από ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ ή τα αντίστοιχα λατινικά και 3–4 ψηφία. Μην θεωρείς κωδικούς ειδών, μοντέλα, αριθμούς παραστατικών ή διευθύνσεις ως πινακίδες. Αν δεν είναι σαφές, βάλε κενή πινακίδα. Επέστρεψε μόνο JSON και μην επινοήσεις στοιχεία.";
 
 function aiResponseText(response) {
   return String(response?.result || response?.response || response?.choices?.[0]?.message?.content || "");
@@ -804,7 +806,7 @@ function mergeServerInvoiceData(...values) {
 }
 
 function adminServiceDocumentStatus(attachment, data, warnings) {
-  if (attachment?.ocrError) return "error";
+  if (attachment?.ocrError && !data?.confirmedAt) return "error";
   if (warnings.length) return "warning";
   if (data?.confirmedAt) return "confirmed";
   if (data && Object.keys(data).length) return "needs_review";
@@ -827,7 +829,8 @@ function serviceDocumentTransferOptions(currentBikeId, data, bikes) {
 
 function invoiceDataForServiceDocument(entry, attachment) {
   const fallback = !attachment || (entry?.attachments || []).length <= 1 ? entry?.invoiceData : null;
-  return mergeServerInvoiceData(fallback, attachment?.qrData, attachment?.ocr);
+  const data = mergeServerInvoiceData(fallback, attachment?.qrData, attachment?.ocr);
+  return data.confirmedAt ? data : normalizeServiceDocumentOcr(data) || {};
 }
 
 function adminServiceDocumentRecord(bike, entry, attachment, pending = null, allBikes = []) {
@@ -955,11 +958,11 @@ async function markAdminServiceDocumentSeen(request, env) {
 }
 
 async function applyServiceDocumentReprocess(env, request, actor, snapshot, fleet, bike, entry, attachment, current, extracted, ocrWarning, options = {}) {
-  const fresh = normalizeServiceDocumentOcr({
+  const fresh = refineInvoicePlateForFleet(normalizeServiceDocumentOcr({
     ...(extracted || current),
     qrUrl: attachment.qrUrl || current.qrUrl || "",
     source: extracted?.source || current.source || options.source || "reprocessed"
-  }) || {};
+  }) || {}, fleet.bikes);
   const confirmed = Boolean(current.confirmedAt || current.reviewStatus === "confirmed");
   // Manual corrections remain authoritative after confirmation. For an
   // unconfirmed invoice the new extraction replaces the old one.
@@ -1465,7 +1468,8 @@ async function reviewAdminServiceDocument(request, env) {
   const attachment = entry && (entry.attachments || []).find((item) => String(item.key) === key);
   if (!bike || !entry || !attachment || entry.type === "check") return json({ error: "Το τιμολόγιο ή το service δεν βρέθηκε." }, 404);
   const submitted = body.invoiceData && typeof body.invoiceData === "object" ? body.invoiceData : {};
-  const data = mergeServerInvoiceData(invoiceDataForServiceDocument(entry, attachment), submitted);
+  const original = invoiceDataForServiceDocument(entry, attachment);
+  const data = mergeServerInvoiceData(original, submitted);
   const submittedTasks = Array.isArray(body.tasks) ? body.tasks : entry.tasks;
   const tasks = mergeInvoiceTasks(submittedTasks, invoiceWorkItems(data));
   const now = new Date().toISOString();
@@ -1473,6 +1477,32 @@ async function reviewAdminServiceDocument(request, env) {
   data.reviewSeenAt = data.reviewSeenAt || attachment.reviewSeenAt || now;
   data.reviewedBy = cleanText(actor.full_name || actor.fullName || actor.username || actor.id || "admin", 120);
   data.reviewStatus = "confirmed";
+
+  const destinationBikeId = !body.keepOnCurrent && body.moveToBikeId && body.moveToEntryId ? cleanText(body.moveToBikeId, 100) : bikeId;
+  const destinationEntryId = !body.keepOnCurrent && body.moveToBikeId && body.moveToEntryId ? cleanText(body.moveToEntryId, 100) : entryId;
+  const destinationBike = fleet.bikes.find((item) => String(item.id) === destinationBikeId);
+  const destinationEntry = destinationBike?.history?.find((item) => String(item.id) === destinationEntryId);
+  if (!destinationBike || !destinationEntry || destinationEntry.type === "check") return json({ error: "Το service προορισμού δεν βρέθηκε." }, 404);
+  if (body.updateServiceKm === true) {
+    const invoiceKm = invoiceOdometer(data.odometerKm);
+    if (!invoiceKm || invoiceKm > 2_000_000_000) return json({ error: "Γράψε σωστά τα χιλιόμετρα του τιμολογίου." }, 400);
+    if (Number(body.expectedServiceKm) !== Number(destinationEntry.km)) return json({ error: "Τα χιλιόμετρα του service άλλαξαν. Άνοιξε ξανά τον έλεγχο και επιβεβαίωσε τη διόρθωση." }, 409);
+    data.serviceKmBeforeCorrection = String(destinationEntry.km);
+    data.serviceKmAfterCorrection = String(invoiceKm);
+    destinationEntry.km = invoiceKm;
+    destinationBike.historyCorrectedAt = now;
+    destinationBike.odometerFloorKm = await workforceOdometerFloor(env, destinationBikeId);
+    data.correctedByUserAt = now;
+  }
+  if (body.keepOnCurrent === true && data.plate && invoicePlateKey(data.plate) !== invoicePlateKey(bike.name)) {
+    data.plateResolution = "kept-current";
+    data.plateResolutionBikeId = bikeId;
+    data.plateResolutionPlate = invoicePlateKey(bike.name);
+    data.plateResolutionRead = invoicePlateKey(data.plate);
+    data.correctedByUserAt = now;
+  }
+  if (["plate", "odometerKm", "totalAmount", "workPerformed", "invoiceDate"].some((field) =>
+    Object.hasOwn(submitted, field) && String(submitted[field] || "").trim() !== String(original[field] || "").trim())) data.correctedByUserAt = now;
 
   const moveToBikeId = cleanText(body.moveToBikeId, 100);
   const moveToEntryId = cleanText(body.moveToEntryId, 100);
@@ -1502,6 +1532,8 @@ async function reviewAdminServiceDocument(request, env) {
 
     const movedAttachment = JSON.parse(JSON.stringify(attachment));
     movedAttachment.ocr = data;
+    movedAttachment.qrData = data;
+    movedAttachment.ocrError = "";
     movedAttachment.reviewSeenAt = data.reviewSeenAt;
     movedAttachment.name = uniqueInvoiceDisplayName(buildInvoiceDisplayName(targetBike.name, data.invoiceDate, targetEntry.date, attachment.name), targetEntry.attachments, attachment.key);
     targetEntry.attachments = (targetEntry.attachments || []).filter((item) => String(item.key) !== key).concat([movedAttachment]);
@@ -1516,7 +1548,8 @@ async function reviewAdminServiceDocument(request, env) {
     const normalizedTarget = normalizeBike(targetBike);
     fleet.bikes[bikeIndex] = normalizedSource;
     fleet.bikes[targetBikeIndex] = normalizedTarget;
-    const stored = await writeSnapshot(env, normalizeFleet(fleet), "admin-service-document-move", snapshot.version + 1);
+    const stored = await writeServiceReviewSnapshot(env, normalizeFleet(fleet), "admin-service-document-move", snapshot.version);
+    if (!stored) return json({ error: "Το service ενημερώθηκε ταυτόχρονα. Άνοιξε ξανά τον έλεγχο πριν αποθηκεύσεις." }, 409);
     const sourceOperationId = crypto.randomUUID();
     const targetOperationId = crypto.randomUUID();
     const registry = (item) => env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
@@ -1545,12 +1578,15 @@ async function reviewAdminServiceDocument(request, env) {
   if (data.supplier) entry.workshop = data.supplier;
   entry.invoiceData = data;
   attachment.ocr = data;
+  attachment.qrData = data;
+  attachment.ocrError = "";
   attachment.reviewSeenAt = data.reviewSeenAt;
   attachment.name = uniqueInvoiceDisplayName(buildInvoiceDisplayName(bike.name, data.invoiceDate, entry.date, attachment.name), entry.attachments, attachment.key);
   entry.updatedAt = now;
   bike.updatedAt = now;
   fleet.bikes[bikeIndex] = normalizeBike(bike);
-  const stored = await writeSnapshot(env, normalizeFleet(fleet), "admin-service-document-review", snapshot.version + 1);
+  const stored = await writeServiceReviewSnapshot(env, normalizeFleet(fleet), "admin-service-document-review", snapshot.version);
+  if (!stored) return json({ error: "Το service ενημερώθηκε ταυτόχρονα. Άνοιξε ξανά τον έλεγχο πριν αποθηκεύσεις." }, 409);
   const operationId = crypto.randomUUID();
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
@@ -1562,7 +1598,7 @@ async function reviewAdminServiceDocument(request, env) {
   ]);
   const warnings = serviceDocumentWarnings(bike, entry, data);
   await recordExternalAudit(env, request, actor, "service_document_reviewed", "service_document", key,
-    { bikeId, entryId, invoiceData: attachment.ocr }, { bikeId, entryId, invoiceData: data, warnings },
+    { bikeId, entryId, invoiceData: original }, { bikeId, entryId, invoiceData: data, warnings },
     "Επιβεβαίωση και διόρθωση στοιχείων τιμολογίου", false);
   return json({ ok: true, bike: fleet.bikes[bikeIndex], document: adminServiceDocumentRecord(fleet.bikes[bikeIndex], entry, attachment, null, fleet.bikes), version: stored.version, operationId });
 }
@@ -1795,12 +1831,23 @@ function splitInvoiceWork(value) {
     .slice(0, 50);
 }
 
+function cleanInvoiceWorkText(value) {
+  const text = String(value || "");
+  const folded = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const match = /οροι\s+πληρωμης|τροπος\s+πληρωμης|πληρωμης\s+συναλλαγης|τοις\s+μετρητοις|payment\s+terms|cash\s+payment/.exec(folded);
+  if (!match) return text.trim();
+  // Convert the folded index back to the original, preserving Greek accents.
+  let index = 0, length = 0;
+  for (const letter of text) { if (length >= match.index) break; index += letter.length; length += letter.normalize("NFD").replace(/[\u0300-\u036f]/g, "").length; }
+  return text.slice(0, index).replace(/[\s:;·—–-]+$/, "").trim();
+}
+
 function invoiceWorkItems(data) {
   const values = [];
   values.push(...splitInvoiceWork(data?.workPerformed));
   values.push(...(Array.isArray(data?.lineItems) ? data.lineItems : []));
   values.push(...(Array.isArray(data?.parts) ? data.parts : []));
-  return values.map((item) => invoiceLineText(item, 180)).filter(Boolean).slice(0, 50);
+  return values.map((item) => cleanInvoiceWorkText(invoiceLineText(item, 180))).filter(Boolean).slice(0, 50);
 }
 
 function stripInvoicePartCode(value) {
@@ -1838,7 +1885,7 @@ function mergeInvoiceTasks(existing, imported) {
     .replace(/λαδι(?:ών|ων|α)/ig, "")
     .replace(/[–—:;,·]+/g, " ").replace(/\s+/g, " ").trim();
   const add = (raw) => {
-    const task = invoiceLineText(raw, 180);
+    const task = cleanInvoiceWorkText(invoiceLineText(raw, 180));
     if (!task) return;
     const oilIndex = result.findIndex((item) => isOilTask(item));
     if (isOilTask(task) && oilIndex >= 0) {
@@ -1872,11 +1919,41 @@ function invoicePlateKey(value) {
     .replace(/[^A-Z0-9Α-Ω]/g, "");
 }
 
+function strictInvoicePlate(value) {
+  const key = invoicePlateKey(value);
+  return /^[ABEZHIKMNOPTYX]{3}[0-9]{3,4}$/.test(key) ? key.slice(0, 3) + "-" + key.slice(3) : "";
+}
+
+function hasInvoicePlateContext(rawText, key) {
+  const text = String(rawText || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const contexts = text.match(/(?:πινακιδα|αρ\.?\s*κυκλ\.?|plate|registration|σχολια|comments)[^\n]{0,120}(?:\n[^\n]{0,40})?/g) || [];
+  return contexts.some((context) => invoicePlateKey(context).includes(key));
+}
+
+function refineInvoicePlateForFleet(data, bikes) {
+  if (!data || data.confirmedAt || !data.plate) return data;
+  const key = invoicePlateKey(data.plate);
+  const fleet = Array.isArray(bikes) ? bikes : [];
+  if (fleet.some((bike) => invoicePlateKey(bike.name) === key)) return data;
+  // A single letter typo is tolerated only in an explicitly labelled plate
+  // or comments, with identical digits and one unique registered vehicle.
+  if (!hasInvoicePlateContext(data.rawText, key)) return data;
+  const candidates = fleet.filter((bike) => {
+    const candidate = invoicePlateKey(bike.name);
+    return /^[ABEZHIKMNOPTYX]{3}[0-9]{3,4}$/.test(candidate) && candidate.slice(3) === key.slice(3) &&
+      [...candidate.slice(0, 3)].filter((letter, index) => letter !== key[index]).length === 1;
+  });
+  if (candidates.length !== 1) return data;
+  return { ...data, plate: strictInvoicePlate(candidates[0].name), plateAutoCorrectedFrom: data.plate };
+}
+
 function serviceDocumentWarnings(bike, entry, data) {
   const warnings = [];
   const invoicePlate = invoicePlateKey(data?.plate);
   const selectedPlate = invoicePlateKey(bike?.name);
-  if (data?.plate && bike?.name && invoicePlate !== selectedPlate) {
+  const plateResolved = data?.confirmedAt && data?.plateResolution === "kept-current" &&
+    data.plateResolutionBikeId === String(bike?.id) && data.plateResolutionPlate === selectedPlate && data.plateResolutionRead === invoicePlate;
+  if (data?.plate && bike?.name && invoicePlate !== selectedPlate && !plateResolved) {
     warnings.push({ type: "plate", label: "Διαφορετική πινακίδα", message: `Το τιμολόγιο γράφει ${data.plate}, ενώ το service είναι συνδεδεμένο με ${bike.name}.` });
   }
   const invoiceKm = invoiceOdometer(data?.odometerKm);
@@ -1884,7 +1961,7 @@ function serviceDocumentWarnings(bike, entry, data) {
   if (invoiceKm && serviceKm && invoiceKm !== serviceKm) {
     warnings.push({ type: "odometer", label: "Διαφορετικά χιλιόμετρα", message: `Το τιμολόγιο γράφει ${invoiceKm.toLocaleString("el-GR")} χλμ., ενώ το service έχει ${serviceKm.toLocaleString("el-GR")} χλμ.` });
   }
-  if (String(data?.ocrFallbackUsed || "").toLowerCase() === "true") {
+  if (!data?.confirmedAt && String(data?.ocrFallbackUsed || "").toLowerCase() === "true") {
     const reason = cleanText(data?.ocrFallbackReason, 240) || "Η τοπική ανάγνωση ήταν αμφίβολη ή απέτυχε.";
     const manual = /^Ζητήθηκε χειροκίνητα/i.test(reason);
     warnings.push({
@@ -1893,7 +1970,7 @@ function serviceDocumentWarnings(bike, entry, data) {
       message: `${reason} ${manual ? "Χρησιμοποιήθηκε Workers AI κατόπιν εντολής." : "Έγινε αυτόματο fallback στο Workers AI."}`
     });
   }
-  if (String(data?.ocrFallbackError || "").trim()) {
+  if (!data?.confirmedAt && String(data?.ocrFallbackError || "").trim()) {
     warnings.push({ type: "ocr-fallback-error", label: "Χρειάζεται έλεγχος OCR", message: cleanText(data.ocrFallbackError, 300) });
   }
   return warnings;
@@ -1902,7 +1979,7 @@ function serviceDocumentWarnings(bike, entry, data) {
 function normalizeInvoiceWorkPerformed(value, limit = 2000) {
   const source = Array.isArray(value) ? value : [value];
   const items = source.flatMap((item) => splitInvoiceWork(item))
-    .map((item) => invoiceLineText(item, 500))
+    .map((item) => cleanInvoiceWorkText(invoiceLineText(item, 500)))
     .filter(Boolean)
     .slice(0, 50);
   return cleanText(items.join("\n"), limit);
@@ -1911,7 +1988,7 @@ function normalizeInvoiceWorkPerformed(value, limit = 2000) {
 function normalizeServiceInvoiceData(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = {};
-  for (const field of ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt"]) {
+  for (const field of ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"]) {
     if (value[field] == null) continue;
     if (field === "qrProcessingProgress") {
       result[field] = String(cleanInteger(value[field], 0, 100, 5));
@@ -1933,15 +2010,15 @@ function normalizeServiceInvoiceData(value) {
     if (cleanText(String(value[field]), 2000)) result[field] = cleanText(String(value[field]), 2000);
   }
   if (value.rawText != null) result.rawText = cleanText(String(value.rawText), 12000);
-  if (Array.isArray(value.parts)) result.parts = value.parts.map((part) => invoiceLineText(part, 500)).filter(Boolean).slice(0, 50);
-  if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map((part) => invoiceLineText(part, 500)).filter(Boolean).slice(0, 50);
+  if (Array.isArray(value.parts)) result.parts = value.parts.map((part) => cleanInvoiceWorkText(invoiceLineText(part, 500))).filter(Boolean).slice(0, 50);
+  if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map((part) => cleanInvoiceWorkText(invoiceLineText(part, 500))).filter(Boolean).slice(0, 50);
   return Object.keys(result).length ? result : null;
 }
 
 function normalizeServiceDocumentOcr(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = {};
-  for (const field of ["rawText", "supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt"]) {
+  for (const field of ["rawText", "supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"]) {
     if (value[field] == null) continue;
     if (field === "qrProcessingProgress") {
       result[field] = String(cleanInteger(value[field], 0, 100, 5));
@@ -1963,8 +2040,14 @@ function normalizeServiceDocumentOcr(value) {
     const cleaned = cleanText(String(value[field]), field === "rawText" ? 12000 : 1000);
     if (cleaned) result[field] = cleaned;
   }
-  if (Array.isArray(value.parts)) result.parts = value.parts.map((part) => invoiceLineText(part, 500)).filter(Boolean).slice(0, 50);
-  if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map((part) => invoiceLineText(part, 500)).filter(Boolean).slice(0, 50);
+  if (Array.isArray(value.parts)) result.parts = value.parts.map((part) => cleanInvoiceWorkText(invoiceLineText(part, 500))).filter(Boolean).slice(0, 50);
+  if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map((part) => cleanInvoiceWorkText(invoiceLineText(part, 500))).filter(Boolean).slice(0, 50);
+  if (result.plate && !result.confirmedAt) {
+    const plate = strictInvoicePlate(result.plate);
+    const textEvidence = result.rawText && !/^\s*[{[]/.test(result.rawText);
+    if (plate && (!textEvidence || hasInvoicePlateContext(result.rawText, invoicePlateKey(plate)))) result.plate = plate;
+    else delete result.plate;
+  }
   return Object.keys(result).length ? result : null;
 }
 
@@ -2206,6 +2289,14 @@ async function writeSnapshot(env, fleet, source, requestedVersion) {
   await env.DB.prepare("UPDATE fleet_snapshot SET version = ?, data = ?, source = ?, updated_at = ? WHERE id = 1")
     .bind(version, JSON.stringify(fleet), source, now).run();
   return { version, source, updatedAt: now, data: fleet };
+}
+
+async function writeServiceReviewSnapshot(env, fleet, source, expectedVersion) {
+  const version = expectedVersion + 1;
+  const now = new Date().toISOString();
+  const result = await env.DB.prepare("UPDATE fleet_snapshot SET version = ?, data = ?, source = ?, updated_at = ? WHERE id = 1 AND version = ?")
+    .bind(version, JSON.stringify(fleet), source, now, expectedVersion).run();
+  return Number(result.meta?.changes || 0) > 0 ? { version, source, updatedAt: now, data: fleet } : null;
 }
 
 async function getSetting(env, key) {
@@ -3061,7 +3152,7 @@ function contentTypeFor(path) {
   return ({ html: "text/html; charset=utf-8", css: "text/css; charset=utf-8", js: "text/javascript; charset=utf-8", json: "application/json; charset=utf-8", svg: "image/svg+xml", png: "image/png", webmanifest: "application/manifest+json" })[extension] || "application/octet-stream";
 }
 
-export { mergeBike, normalizeBike, normalizeFleet };
+export { mergeBike, normalizeBike, normalizeFleet, normalizeServiceDocumentOcr, serviceDocumentWarnings, refineInvoicePlateForFleet, cleanInvoiceWorkText };
 
 async function uploadWebAsset(request, env, path) {
   if (!await serverAuthorized(request, env)) return json({ error: "Μη έγκυρος server." }, 401);

@@ -1,6 +1,6 @@
 # Fleet Control — πλήρες έργο και OTA
 
-Έκδοση πακέτου 5.37.2 · Client/Web 5.37.0 · Server 2.1.1 · Worker 5.1.0
+Έκδοση πακέτου 5.38.0 · Client/Web 5.38.0 · Server 2.1.2 · Worker 5.2.0
 
 Ιδιωτικό αποθετήριο: [pavlos-argyris/fleet-control](https://github.com/pavlos-argyris/fleet-control).
 
@@ -9,6 +9,8 @@
 Ξεκίνησε από [αρχική σύνδεση GitHub/OTA](docs/GITHUB_OTA_SETUP_GR.md). Για ανεξάρτητη ανάπτυξη και build διάβασε [οδηγίες κατασκευής](docs/BUILD_AND_HANDOFF_GR.md). Οι [σημειώσεις έκδοσης](docs/RELEASE_NOTES_CURRENT.md) περιγράφουν αλλαγές και πραγματικούς ελέγχους.
 
 Για τις επόμενες εκδόσεις διάβασε [αυτόματη δημοσίευση από ChatGPT ή Cursor](docs/AUTOMATIC_PUBLISH_GR.md). Μια ξεχωριστή εντολή στο GitHub ξεκινά το workflow αυτόματα και δημοσιεύει το συγκεκριμένο commit που πέρασε τους ελέγχους. Τα συνηθισμένα push κώδικα ενεργοποιούν ελέγχους.
+
+Η ενημέρωση 5.38.0 διορθώνει τα έξι σημεία τιμολογίων/service. Διάβασε τις [οδηγίες εγκατάστασης και ελέγχων](docs/INVOICE_UPDATE_5.38.0_GR.md). Χρειάζονται Server, Client, Web και Worker της νέας έκδοσης· το push πηγών δεν αποτελεί παραγωγική δημοσίευση.
 
 Για το επόμενο βήμα στα Windows, το [Setup OTA](docs/OTA_NEXT_STEP_WINDOWS_GR.md) καταχωρίζει τα ιδιωτικά secrets και διαβάζει τα υπάρχοντα Cloudflare bindings χωρίς δημοσίευση update.
 

@@ -9,6 +9,7 @@ node --test scripts/test-publish-request.mjs
 node scripts/test-ota-releases.mjs
 node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
+node scripts/test-invoice-improvements.mjs
 node scripts/test-payroll-regressions.mjs
 node scripts/test-schedule-regressions.mjs
 node scripts/test-admin-simulations.mjs

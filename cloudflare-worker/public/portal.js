@@ -2442,6 +2442,17 @@
     return stripInvoicePartCode(String(value).replace(/\[object Object\]/g, "").trim().slice(0, max));
   }
 
+  function cleanInvoiceWorkText(value) {
+    const text = String(value || "");
+    const folded = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const match = /οροι\s+πληρωμης|τροπος\s+πληρωμης|πληρωμης\s+συναλλαγης|τοις\s+μετρητοις|payment\s+terms|cash\s+payment/.exec(folded);
+    if (!match) return text.trim();
+    // Convert the folded index back to the original, preserving Greek accents.
+    let index = 0, length = 0;
+    for (const letter of text) { if (length >= match.index) break; index += letter.length; length += letter.normalize("NFD").replace(/[\u0300-\u036f]/g, "").length; }
+    return text.slice(0, index).replace(/[\s:;·—–-]+$/, "").trim();
+  }
+
   function portalMergeInvoiceTasks(values) {
     const result = [];
     const isOil = function (value) {
@@ -2458,7 +2469,7 @@
         .replace(/[–—:;,·]+/g, " ").replace(/\s+/g, " ").trim();
     };
     (Array.isArray(values) ? values : []).forEach(function (raw) {
-      const task = portalLineText(raw, 180);
+      const task = cleanInvoiceWorkText(portalLineText(raw, 180));
       if (!task) return;
       const oilIndex = result.findIndex(isOil);
       if (isOil(task) && oilIndex >= 0) {
@@ -2747,8 +2758,8 @@
     }
     renderInvoiceBulkProgress();
     const plateSelect = $("invoicePlateFilter");
-    const plateKey = function (item) { return invoicePlateKey(item && item.invoiceData && item.invoiceData.plate) || invoicePlateKey(item && item.bikeName) || "unknown"; };
-    const plateLabel = function (item) { return String(item && item.invoiceData && item.invoiceData.plate || item && item.bikeName || "Χωρίς πινακίδα").trim(); };
+    const plateKey = function (item) { return invoicePlateKey(item && item.invoiceData && item.invoiceData.plateResolution === "kept-current" ? item.bikeName : item && item.invoiceData && item.invoiceData.plate) || invoicePlateKey(item && item.bikeName) || "unknown"; };
+    const plateLabel = function (item) { return String(item && item.invoiceData && item.invoiceData.plateResolution === "kept-current" ? item.bikeName : item && item.invoiceData && item.invoiceData.plate || item && item.bikeName || "Χωρίς πινακίδα").trim(); };
     const plateMap = new Map();
     records.forEach(function (item) { const key = plateKey(item); if (!plateMap.has(key)) plateMap.set(key, plateLabel(item)); });
     const selectedPlate = plateSelect ? String(plateSelect.value || "") : "";
@@ -2810,12 +2821,13 @@
       const invoiceMeta = [data.supplier || "Προμηθευτής —", data.invoiceNumber || "Αρ. —", data.totalAmount || "Κόστος —"].join(" • ");
       const showProgress = busy || item.status === "error" || (!hasPdf && item.qrUrl);
       const progressHtml = showProgress ? invoiceProgressMarkup(item) : '';
+      const correctionBadge = data.correctedByUserAt ? '<span class="invoice-user-correction">✓ Διορθώθηκε από χρήστη</span>' : "";
       const newBadge = item.isNew ? '<span class="invoice-new-badge">ΝΕΟ</span>' : '';
       const retryJobId = item.jobId || data.qrJobId || '';
       const retryHtml = retryJobId && (item.canRetry || ["error", "delayed"].includes(String(item.status))) ? '<button class="secondary-button invoice-retry-button" type="button" data-invoice-retry="' + escapeHtml(retryJobId) + '" data-invoice-retry-record="' + escapeHtml(item.id) + '">Επανάληψη</button>' : '';
       const forceAiHtml = hasPdf && can("fleet.manage") ? '<button class="secondary-button invoice-force-ai-button" type="button" data-invoice-force-ai="' + escapeHtml(item.id) + '" ' + (state.invoiceReprocessBusy ? 'disabled' : '') + '>⚡ Workers AI</button>' : '';
       const deleteHtml = can("fleet.manage") ? '<button class="secondary-button invoice-delete-button" type="button" data-invoice-delete="' + escapeHtml(item.id) + '">Διαγραφή</button>' : '';
-      return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? 'PDF διαθέσιμο' : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα PDF</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη PDF</button>' + deleteHtml + '</div></article>';
+      return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? 'PDF διαθέσιμο' : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα PDF</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη PDF</button>' + deleteHtml + '</div></article>';
     };
     $("invoiceQueueList").innerHTML = Array.from(grouped.values()).sort(function (a, b) { return a.label.localeCompare(b.label, "el"); }).map(function (group) {
       group.items.sort(function (left, right) {
@@ -3218,6 +3230,7 @@
     if (event && event.preventDefault) event.preventDefault();
     const record = state.invoiceReviewDocument;
     if (!record || !record.key) return void ($("invoiceReviewError").textContent = "Το PDF δεν είναι ακόμη διαθέσιμο για επιβεβαίωση.");
+    if ($("invoiceReviewSave").disabled) return;
     const data = record.invoiceData || {};
     const tasks = String($("invoiceReviewTasks").value || "").split(/\r?\n|\s*[•;]+\s*/).map(function (item) { return item.trim(); }).filter(Boolean).slice(0, 30);
     const invoiceData = Object.assign({}, data, {
@@ -3241,6 +3254,13 @@
     if (state.invoiceReviewTransferChoice === "move" && (!moveToBikeId || !moveToEntryId)) {
       return void ($("invoiceReviewError").textContent = "Επίλεξε μηχανάκι και service προορισμού.");
     }
+    const destination = state.invoiceReviewTransferChoice === "move"
+      ? (record.transferOptions || []).find(function (item) { return String(item.bikeId) === moveToBikeId && String(item.entryId) === moveToEntryId; }) : record;
+    if (!destination) return void ($("invoiceReviewError").textContent = "Το service προορισμού δεν βρέθηκε.");
+    const invoiceKm = Number(String(invoiceData.odometerKm || "").replace(/[^0-9]/g, ""));
+    if (invoiceKm > 2000000000) return void ($("invoiceReviewError").textContent = "Γράψε σωστά τα χιλιόμετρα.");
+    const updateServiceKm = invoiceKm > 0 && invoiceKm !== Number(destination.serviceKm);
+    if (updateServiceKm && !window.confirm("Να διορθωθούν τα χιλιόμετρα του service από " + km(destination.serviceKm) + " σε " + km(invoiceKm) + ";")) return;
     const button = $("invoiceReviewSave");
     button.disabled = true;
     $("invoiceReviewError").textContent = "";
@@ -3248,11 +3268,15 @@
       const result = await api("/api/admin/service-documents/review", { method: "POST", body: {
         bikeId: record.bikeId, entryId: record.entryId, key: record.key, invoiceData: invoiceData, tasks: tasks,
         keepOnCurrent: state.invoiceReviewTransferChoice === "keep",
+        updateServiceKm: updateServiceKm,
+        expectedServiceKm: updateServiceKm ? Number(destination.serviceKm) : undefined,
         moveToBikeId: moveToBikeId || undefined,
         moveToEntryId: moveToEntryId || undefined
       } });
       state.invoiceDocuments = state.invoiceDocuments.filter(function (item) { return String(item.id) !== String(record.id) && String(item.key) !== String(result.movedFromKey || ""); });
       if (result.document) state.invoiceDocuments.push(result.document);
+      // Every invoice on this service uses the corrected manual mileage.
+      await loadInvoices().catch(function () { toast("Αποθηκεύτηκε. Ανανέωσε τη λίστα τιμολογίων για τις υπόλοιπες αλλαγές."); });
       $("invoiceReviewDialog").close();
       renderInvoiceQueue();
       toast("Τα στοιχεία του τιμολογίου επιβεβαιώθηκαν και αποθηκεύτηκαν.");

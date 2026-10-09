@@ -64,6 +64,7 @@ jobs:
         working-directory: cloudflare-worker
       - run: bash scripts/check-all.sh
       - run: bash scripts/unpack-toolchain.sh
+      - run: node scripts/test-local-invoice-reader.mjs
       - name: Restore original signing key
         env:
           FLEET_KEYSTORE_BASE64: ${{ secrets.FLEET_KEYSTORE_BASE64 }}
