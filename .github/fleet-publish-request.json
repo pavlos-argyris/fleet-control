@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-69af4c60-18fc-41df-92ae-90fa0c4a89df",
-  "sourceCommit": "fa8b1c804e88729d797f86d31eea2a247214de6d",
-  "releaseVersion": "5.39.0",
-  "requestedAt": "2026-10-09T22:10:59.026Z",
-  "reason": "Ο χρήστης ζήτησε τις αλλαγές τιμολογίων και αυτόματη δημοσίευση της νέας έκδοσης μόλις ολοκληρωθούν και ελεγχθούν."
+  "requestId": "fleet-cbd2d9df-6cae-4d1e-b1c2-0d09615001f1",
+  "sourceCommit": "8eb26bbe358f0bfc8d9c92761e89a64bd5acc8a0",
+  "releaseVersion": "5.39.1",
+  "requestedAt": "2026-10-09T22:47:25.027Z",
+  "reason": "Ο χρήστης ζήτησε διορθώσεις Server/OTA/σύνδεσης, bullets, Server S24 Ultra, χρονολογική λίστα service και σταθερό scrolling σε όλη την εφαρμογή, και αυτόματη δημοσίευση μετά την ολοκλήρωση."
 }
