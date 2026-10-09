@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="Fleet Control — προσωπική διαχείριση στόλου και συντήρησης.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fleet Control">
+  <title>Fleet Control</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css?v=5.36.7">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-logo" aria-hidden="true">
+        <span>FC</span>
+        <i></i>
+      </div>
+      <div class="title-wrap">
+        <h1>Fleet Control</h1>
+        <p>Στόλος &amp; συντήρηση</p>
+      </div>
+      <div class="topbar-actions">
+        <div id="syncIndicator" class="sync-indicator syncing" role="status" aria-live="polite">
+          <span id="syncStatus">Σύνδεση…</span>
+        </div>
+        <button id="webAccessButton" class="access-button" type="button" aria-label="Ξεκλείδωμα αλλαγών">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v10H6z"/></svg>
+          <span id="webAccessLabel">Μόνο προβολή</span>
+        </button>
+        <button id="downloadApkButton" class="install-button is-hidden" type="button" aria-label="Λήψη τελευταίου Client APK">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+          <span>Client APK</span>
+        </button>
+        <button id="installButton" class="install-button is-hidden" type="button" aria-label="Εγκατάσταση εφαρμογής">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+          <span>Εγκατάσταση</span>
+        </button>
+      </div>
+    </header>
+
+    <main id="app">
+      <section id="homeView" class="view">
+        <div class="fleet-page-intro">
+          <div>
+            <span class="eyebrow">ΔΙΑΧΕΙΡΙΣΗ ΣΤΟΛΟΥ</span>
+            <h2>Fleet Control</h2>
+            <p id="overviewMessage">Όλα οργανωμένα σε ένα σημείο.</p>
+          </div>
+          <span class="fleet-live-chip">Ζωντανός συγχρονισμός</span>
+        </div>
+
+        <section class="fleet-overview" aria-label="Σύνοψη στόλου">
+          <button class="overview-stat" type="button" data-overview-filter="all" aria-label="Προβολή όλων των μηχανών του στόλου">
+            <span class="overview-stat-icon teal-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg></span>
+            <span class="overview-stat-copy"><small>Σύνολο στόλου</small><strong id="bikeCount">0</strong><em>έως 40 μηχανάκια</em></span>
+          </button>
+          <button class="overview-stat" type="button" data-overview-filter="ok" aria-label="Προβολή μηχανών σε κανονική λειτουργία">
+            <span class="overview-stat-icon blue-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></span>
+            <span class="overview-stat-copy"><small>Κανονική λειτουργία</small><strong id="healthyCount">0</strong><em>χωρίς εκκρεμότητα</em></span>
+          </button>
+          <button id="attentionMeter" class="overview-stat attention-meter" type="button" data-overview-filter="attention" aria-label="Προβολή μηχανών που πλησιάζουν το service">
+            <span class="overview-stat-icon amber-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg></span>
+            <span class="overview-stat-copy"><small>Πλησιάζει service</small><strong id="attentionCount">0</strong><em>χρειάζονται έλεγχο</em></span>
+          </button>
+          <button class="overview-stat overdue-stat" type="button" data-overview-filter="overdue" aria-label="Προβολή εκπρόθεσμων μηχανών">
+            <span class="overview-stat-icon red-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3 3-3Z"/></svg></span>
+            <span class="overview-stat-copy"><small>Εκπρόθεσμα</small><strong id="overdueCount">0</strong><em>πέρασαν το όριο</em></span>
+          </button>
+        </section>
+
+        <button id="fleetAlert" class="fleet-alert alert-button is-hidden" type="button" aria-live="polite" aria-label="Προβολή μηχανών που χρειάζονται service">
+          <div class="alert-symbol">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 4h.01M10.3 4.5 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.5a2 2 0 0 0-3.4 0Z"/></svg>
+          </div>
+          <div>
+            <strong id="fleetAlertTitle"></strong>
+            <p id="fleetAlertText"></p>
+          </div>
+        </button>
+
+        <button id="mileageCheckAlert" class="fleet-alert mileage-check-alert alert-button is-hidden" type="button" aria-live="polite" aria-label="Προβολή μηχανών που χρειάζονται έλεγχο χιλιομέτρων">
+          <div class="alert-symbol">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          </div>
+          <div>
+            <strong id="mileageCheckAlertTitle"></strong>
+            <p id="mileageCheckAlertText"></p>
+          </div>
+        </button>
+
+        <section class="quick-check-card quick-check-launcher">
+          <div class="section-title-row">
+            <div class="section-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg>
+            </div>
+            <div>
+              <span class="eyebrow">ΓΡΗΓΟΡΗ ΕΝΗΜΕΡΩΣΗ</span>
+              <h2>Έλεγχος χιλιομέτρων</h2>
+              <p>Άνοιξε την πλήρη οθόνη για να καταχωρήσεις την τωρινή ένδειξη.</p>
+            </div>
+          </div>
+          <button id="openQuickCheckButton" class="primary-button full" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg>
+            Έλεγχος χιλιομέτρων
+          </button>
+        </section>
+
+        <section class="fleet-list-panel">
+          <div class="list-heading">
+            <div>
+              <span class="eyebrow">ΚΑΤΑΣΤΑΣΗ ΣΤΟΛΟΥ</span>
+              <h2>Τα μηχανάκια μου</h2>
+            </div>
+            <div class="list-heading-actions"><span id="listStatus" class="list-status">0 οχήματα</span></div>
+          </div>
+
+          <section id="emptyState" class="empty-state">
+            <div class="empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M5 17h2l2-5h6l2 5h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M8.5 12 10 8h4l1.5 4M4 12h3m10 0h3"/></svg>
+            </div>
+            <h3>Ο στόλος είναι ακόμη κενός</h3>
+            <p>Πρόσθεσε το πρώτο μηχανάκι και όρισε κάθε πόσα χιλιόμετρα κάνει σέρβις.</p>
+          </section>
+
+          <section id="bikeList" class="bike-list" aria-label="Λίστα μηχανών"></section>
+          <div class="fleet-export-footer">
+            <div><span class="eyebrow">ΑΝΑΦΟΡΑ ΣΤΟΛΟΥ</span><strong>Εξαγωγή πλήρους ιστορικού</strong><small>Επίλεξε όσα μηχανάκια θέλεις και δημιούργησε ένα ενιαίο PDF.</small></div>
+            <button id="exportFleetButton" class="fleet-export-button" type="button"><span>▤</span><strong>Συγκεντρωτικό PDF στόλου</strong><i>→</i></button>
+          </div>
+        </section>
+
+        <div class="fleet-settings-grid">
+          <button id="pinSettingsButton" class="pin-settings-button is-hidden" type="button">
+            <span class="pin-settings-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v10H6zM12 15v2"/></svg>
+            </span>
+            <span>
+              <strong>PIN διαδικτυακής έκδοσης</strong>
+              <small>Όρισε ή άλλαξε το PIN των αλλαγών</small>
+            </span>
+            <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+
+          <button id="connectionSettingsButton" class="pin-settings-button is-hidden" type="button">
+            <span class="pin-settings-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5a10 10 0 0 1 14 0M8 16a6 6 0 0 1 8 0M11 19.5a2 2 0 0 1 2 0"/></svg>
+            </span>
+            <span>
+              <strong>Σύνδεση &amp; backup</strong>
+              <small>Server URL, έλεγχος σύνδεσης και αντίγραφο τώρα</small>
+            </span>
+            <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        </div>
+
+        <section id="archivedBikesSection" class="archived-bikes-section is-hidden" aria-labelledby="archivedBikesTitle">
+          <div class="archived-bikes-heading">
+            <div>
+              <span class="eyebrow">ΑΣΦΑΛΕΙΑ ΣΤΟΛΟΥ</span>
+              <h2 id="archivedBikesTitle">Διαγραμμένα μηχανάκια</h2>
+              <p>Οι μηχανές δεν διαγράφονται οριστικά και μπορούν να ανακτηθούν.</p>
+            </div>
+            <button id="refreshArchivedButton" class="secondary-action compact-action" type="button">Ανανέωση</button>
+          </div>
+          <div id="archivedBikeList" class="archived-bike-list"></div>
+        </section>
+
+        <button id="addBikeButton" class="add-bike-bottom" type="button">
+          <span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </span>
+          <div>
+            <strong>Νέο μηχανάκι</strong>
+            <small>Πρόσθεσε όχημα στον στόλο</small>
+          </div>
+          <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </section>
+
+      <section id="quickCheckView" class="view is-hidden quick-check-full-view" aria-live="polite">
+        <div class="detail-nav quick-check-nav">
+          <button id="quickCheckBackButton" class="round-button" type="button" aria-label="Επιστροφή">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <div>
+            <span class="eyebrow">ΕΛΕΓΧΟΣ ΧΙΛΙΟΜΕΤΡΩΝ</span>
+            <h2>Νέα ενημέρωση</h2>
+            <p class="quick-check-nav-note">Καταχώρησε την τωρινή ένδειξη της μηχανής.</p>
+          </div>
+          <span class="full-view-label">ΠΛΗΡΗΣ ΟΘΟΝΗ</span>
+        </div>
+
+        <section class="quick-check-full-panel">
+          <div class="quick-check-full-heading">
+            <div class="section-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg>
+            </div>
+            <div>
+              <span class="eyebrow">ΚΑΤΑΓΡΑΦΗ ΣΤΟΛΟΥ</span>
+              <h2>Πόσα χιλιόμετρα έχει τώρα;</h2>
+              <p>Η καταχώρηση ενημερώνει μόνο την ένδειξη και την υπενθύμιση service.</p>
+            </div>
+          </div>
+          <form id="quickCheckForm" class="quick-check-full-form" novalidate>
+            <label class="field">
+              <span>Ποιο μηχανάκι έλεγξες;</span>
+              <input id="quickBikeSelect" type="hidden" value="">
+              <button id="quickBikePicker" class="bike-picker-trigger" type="button">
+                <span class="picker-bike-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg>
+                </span>
+                <span class="picker-copy">
+                  <strong id="quickBikePickerLabel">Διάλεξε μηχανάκι</strong>
+                  <small id="quickBikePickerMeta">Πάτησε για να ανοίξει η λίστα</small>
+                </span>
+                <span id="quickBikePickerStatus" class="picker-status is-hidden"></span>
+                <svg class="picker-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </label>
+            <div id="quickMajorHint" class="major-service-hint is-hidden" role="status" aria-live="polite"></div>
+            <label class="field">
+              <span>Τωρινά χιλιόμετρα</span>
+              <div class="input-with-suffix">
+                <input id="quickCurrentKm" type="number" min="0" step="1" inputmode="numeric" placeholder="π.χ. 18.450" required>
+                <span>χλμ.</span>
+              </div>
+            </label>
+            <div class="quick-check-full-actions">
+              <button class="primary-button full" type="submit">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+                Αποθήκευση ελέγχου
+              </button>
+            </div>
+            <p id="quickCheckError" class="form-error" role="alert"></p>
+          </form>
+          <div id="quickCheckResult" class="check-result is-hidden" role="status" aria-live="polite"></div>
+        </section>
+      </section>
+
+      <section id="detailView" class="view is-hidden" aria-live="polite">
+        <div class="detail-nav">
+          <button id="detailBackButton" class="round-button" type="button" aria-label="Επιστροφή">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <div>
+            <span class="eyebrow">ΚΑΡΤΕΛΑ ΜΗΧΑΝΗΣ</span>
+            <h2 id="detailName">—</h2>
+          </div>
+          <button id="detailEditButton" class="round-button" type="button" aria-label="Επεξεργασία μηχανής">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.5-1 10-10-3.5-3.5-10 10L4 20ZM13.8 6.7l3.5 3.5"/></svg>
+          </button>
+        </div>
+
+        <section id="detailStatusCard" class="detail-status-card">
+          <div class="detail-status-top">
+            <span id="detailStatusBadge" class="status-badge">—</span>
+            <span id="detailLastCheck">—</span>
+          </div>
+          <div class="detail-primary-metric">
+            <span>Χιλιόμετρα τώρα</span>
+            <strong id="detailCurrentKm">—</strong>
+          </div>
+          <div class="detail-metric-grid">
+            <div>
+              <span>Επόμενο σέρβις</span>
+              <strong id="detailNextService">—</strong>
+            </div>
+            <div>
+              <span>Απομένουν</span>
+              <strong id="detailRemaining">—</strong>
+            </div>
+            <div>
+              <span>Τελευταία αλλαγή λαδιών</span>
+              <strong id="detailLastService">—</strong>
+            </div>
+            <div>
+              <span>Διάστημα λαδιών</span>
+              <strong id="detailInterval">—</strong>
+            </div>
+          </div>
+          <div class="detail-major-service">
+            <span class="major-service-symbol" aria-hidden="true">10K</span>
+            <span>
+              <strong id="detailMajorService">—</strong>
+              <small id="detailMajorServiceHint" class="detail-major-hint">—</small>
+            </span>
+          </div>
+        </section>
+
+        <div class="detail-actions">
+          <button id="detailCheckButton" class="secondary-action" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg>
+            Ενημέρωση χλμ.
+          </button>
+          <button id="detailServiceButton" class="primary-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3 3-3Z"/></svg>
+            Νέο σέρβις
+          </button>
+          <button id="detailExportButton" class="secondary-action" type="button">Εξαγωγή ιστορικού PDF</button>
+          <button id="detailArchiveButton" class="danger-button detail-archive-button is-hidden" type="button">
+            Διαγραφή από τον στόλο
+          </button>
+        </div>
+
+        <section class="history-section">
+          <div class="list-heading detail-heading">
+            <div>
+              <span class="eyebrow">ΟΛΕΣ ΟΙ ΚΙΝΗΣΕΙΣ</span>
+              <h2>Πλήρες ιστορικό</h2>
+            </div>
+            <span id="historyCount" class="list-status">0 εγγραφές</span>
+          </div>
+          <div class="history-filters" role="tablist" aria-label="Φίλτρο ιστορικού">
+            <button class="active" type="button" role="tab" aria-selected="true" data-history-filter="service">Σέρβις</button>
+            <button type="button" role="tab" aria-selected="false" data-history-filter="check">Έλεγχοι χλμ.</button>
+            <button type="button" role="tab" aria-selected="false" data-history-filter="all">Όλα</button>
+          </div>
+          <div id="detailHistory" class="history-list"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="bikeDialog" class="app-dialog">
+    <form id="bikeForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">ΣΤΟΙΧΕΙΑ ΟΧΗΜΑΤΟΣ</span>
+          <h2 id="bikeDialogTitle">Νέο μηχανάκι</h2>
+        </div>
+        <button class="close-button" type="button" data-close-dialog="bikeDialog" aria-label="Κλείσιμο">×</button>
+      </div>
+      <input id="bikeId" type="hidden">
+      <label class="field">
+        <span>Κωδικός ή πινακίδα</span>
+        <input id="bikeName" type="text" maxlength="30" placeholder="π.χ. ΜΗΧ-01 ή ΤΚΑ 1234" autocomplete="off" required>
+      </label>
+      <label class="field">
+        <span>Αλλαγή λαδιών κάθε</span>
+        <div class="input-with-suffix">
+          <input id="serviceInterval" type="number" min="1" step="1" inputmode="numeric" placeholder="3000" required>
+          <span>χλμ.</span>
+        </div>
+      </label>
+      <label class="field">
+        <span>Χιλιόμετρα τελευταίας αλλαγής λαδιών</span>
+        <div class="input-with-suffix">
+          <input id="lastServiceKm" type="number" min="0" step="1" inputmode="numeric" placeholder="12500" required>
+          <span>χλμ.</span>
+        </div>
+      </label>
+      <div id="nextPreview" class="next-preview" aria-live="polite">
+        <span>Επόμενο σέρβις</span>
+        <strong>—</strong>
+      </div>
+      <p id="bikeFormError" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="ghost-button" type="button" data-close-dialog="bikeDialog">Άκυρο</button>
+        <button class="primary-button grow" type="submit">Αποθήκευση</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="bikePickerDialog" class="app-dialog picker-dialog">
+    <div class="dialog-header">
+      <div>
+        <span class="eyebrow">ΓΡΗΓΟΡΗ ΕΠΙΛΟΓΗ</span>
+        <h2>Διάλεξε μηχανάκι</h2>
+      </div>
+      <button class="close-button" type="button" data-close-dialog="bikePickerDialog" aria-label="Κλείσιμο">×</button>
+    </div>
+    <label class="picker-search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.4-4.4M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"/></svg>
+      <input id="bikePickerSearch" type="search" placeholder="Αναζήτηση πινακίδας ή κωδικού" autocomplete="off">
+    </label>
+    <div id="bikePickerList" class="picker-bike-list"></div>
+  </dialog>
+
+  <dialog id="overviewDialog" class="app-dialog overview-dialog">
+    <div class="dialog-header">
+      <div>
+        <span class="eyebrow">ΑΝΑΛΥΤΙΚΗ ΕΙΚΟΝΑ</span>
+        <h2 id="overviewDialogTitle">Σύνολο στόλου</h2>
+        <p id="overviewDialogContext" class="dialog-context"></p>
+      </div>
+      <button class="close-button" type="button" data-close-dialog="overviewDialog" aria-label="Κλείσιμο">×</button>
+    </div>
+    <div id="overviewDialogList" class="overview-bike-list"></div>
+  </dialog>
+
+  <dialog id="fleetExportDialog" class="app-dialog overview-dialog">
+    <div class="dialog-header">
+      <div><span class="eyebrow">ΑΝΑΦΟΡΑ ΣΤΟΛΟΥ</span><h2>Εξαγωγή ιστορικού service</h2><p class="dialog-context">Επίλεξε ένα ή περισσότερα μηχανάκια.</p></div>
+      <button class="close-button" type="button" data-close-dialog="fleetExportDialog" aria-label="Κλείσιμο">×</button>
+    </div>
+    <div class="fleet-export-toolbar"><button id="fleetExportSelectAll" class="ghost-button" type="button">Επιλογή όλων</button><span id="fleetExportSelectionCount">0 επιλεγμένα</span></div>
+    <div id="fleetExportList" class="overview-bike-list fleet-export-list"></div>
+    <div class="dialog-actions"><button class="ghost-button" type="button" data-close-dialog="fleetExportDialog">Άκυρο</button><button id="createFleetExportButton" class="primary-button grow" type="button">Δημιουργία PDF</button></div>
+  </dialog>
+
+  <dialog id="historyReportDialog" class="history-report-dialog">
+    <div class="history-report-shell">
+      <div class="history-report-toolbar">
+        <div>
+          <span class="eyebrow">ΠΛΗΡΕΣ ΙΣΤΟΡΙΚΟ SERVICE</span>
+          <h2 id="historyReportTitle">Ιστορικό service</h2>
+          <p>Οι επισκευές προέρχονται από τις καταχωρήσεις και τα OCR στοιχεία των τιμολογίων.</p>
+        </div>
+        <div class="history-report-toolbar-actions">
+          <button id="historyReportPrintButton" class="primary-button" type="button">Εκτύπωση / PDF</button>
+          <button id="historyReportCloseButton" class="ghost-button" type="button">Πίσω</button>
+        </div>
+      </div>
+      <div id="historyReportBody" class="history-report-body"></div>
+    </div>
+  </dialog>
+
+  <dialog id="unlockDialog" class="app-dialog pin-dialog">
+    <form id="unlockForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">ΠΡΟΣΤΑΣΙΑ ΑΛΛΑΓΩΝ</span>
+          <h2>Ξεκλείδωμα με PIN</h2>
+          <p class="dialog-context">Η προβολή είναι ελεύθερη. Το PIN χρειάζεται μόνο για καταχωρήσεις και αλλαγές.</p>
+        </div>
+        <button class="close-button" type="button" data-close-dialog="unlockDialog" aria-label="Κλείσιμο">×</button>
+      </div>
+      <label class="field">
+        <span>PIN</span>
+        <input id="unlockPin" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="6" placeholder="••••••" autocomplete="current-password" required>
+      </label>
+      <p id="unlockError" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="ghost-button" type="button" data-close-dialog="unlockDialog">Άκυρο</button>
+        <button id="unlockSubmitButton" class="primary-button grow" type="submit">Ξεκλείδωμα</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="pinSettingsDialog" class="app-dialog pin-dialog">
+    <form id="pinSettingsForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">ΑΣΦΑΛΕΙΑ WEB</span>
+          <h2>Αλλαγή PIN</h2>
+          <p class="dialog-context">Το νέο PIN θα ισχύει αμέσως στη διαδικτυακή έκδοση.</p>
+        </div>
+        <button class="close-button" type="button" data-close-dialog="pinSettingsDialog" aria-label="Κλείσιμο">×</button>
+      </div>
+      <label class="field">
+        <span>Νέο PIN (4–6 αριθμοί)</span>
+        <input id="newPin" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="6" placeholder="••••••" autocomplete="new-password" required>
+      </label>
+      <label class="field">
+        <span>Επανάληψη νέου PIN</span>
+        <input id="confirmPin" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="6" placeholder="••••••" autocomplete="new-password" required>
+      </label>
+      <p id="pinSettingsError" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="ghost-button" type="button" data-close-dialog="pinSettingsDialog">Άκυρο</button>
+        <button id="pinSettingsSubmitButton" class="primary-button grow" type="submit">Αποθήκευση PIN</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="connectionSettingsDialog" class="app-dialog pin-dialog">
+    <form id="connectionSettingsForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">ΚΕΝΤΡΙΚΟΣ SERVER</span>
+          <h2>Σύνδεση &amp; αντίγραφα</h2>
+          <p class="dialog-context">Ο Client συνεχίζει να λειτουργεί και χωρίς σύνδεση. Οι εκκρεμείς αλλαγές στέλνονται αυτόματα όταν υπάρχει ίντερνετ.</p>
+        </div>
+        <button class="close-button" type="button" data-close-dialog="connectionSettingsDialog" aria-label="Κλείσιμο">×</button>
+      </div>
+      <label class="field">
+        <span>Διεύθυνση server</span>
+        <input id="serverUrlInput" type="url" inputmode="url" autocomplete="off" placeholder="https://fleet-control.example.workers.dev" required>
+      </label>
+      <div id="serverTestResult" class="check-result is-hidden" role="status" aria-live="polite"></div>
+      <div class="dialog-actions stacked-actions">
+        <button id="testServerButton" class="ghost-button grow" type="button">Έλεγχος σύνδεσης</button>
+        <button id="requestBackupButton" class="ghost-button grow" type="button">Backup τώρα</button>
+      </div>
+      <button id="legacyImportButton" class="legacy-import-button" type="button">Μεταφορά δεδομένων από την παλιά εφαρμογή</button>
+      <p id="connectionSettingsError" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="ghost-button" type="button" data-close-dialog="connectionSettingsDialog">Άκυρο</button>
+        <button id="saveServerButton" class="primary-button grow" type="submit">Αποθήκευση</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="serviceDialog" class="app-dialog">
+    <form id="serviceForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">ΝΕΑ ΚΑΤΑΧΩΡΗΣΗ</span>
+          <h2>Καταχώρηση σέρβις</h2>
+          <p id="serviceBikeName" class="dialog-context"></p>
+        </div>
+        <button class="close-button" type="button" data-close-dialog="serviceDialog" aria-label="Κλείσιμο">×</button>
+      </div>
+      <input id="serviceBikeId" type="hidden">
+      <label class="field">
+        <span>Στα πόσα χιλιόμετρα έγινε;</span>
+        <div class="input-with-suffix">
+          <input id="serviceKm" type="number" min="0" step="1" inputmode="numeric" placeholder="15500" required>
+          <span>χλμ.</span>
+        </div>
+      </label>
+      <label class="field">
+        <span>Ημερομηνία</span>
+        <input id="serviceDate" type="date" required>
+      </label>
+      <p id="serviceMileageWarning" class="invoice-review-warning is-hidden" role="status"></p>
+      <label class="field">
+        <span>Συνεργείο <small>(προαιρετικό)</small></span>
+        <input id="serviceWorkshop" type="text" maxlength="120" placeholder="Όνομα συνεργείου" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Κόστος service <small>(προαιρετικό)</small></span>
+        <input id="serviceCost" type="text" inputmode="decimal" maxlength="60" placeholder="π.χ. 34,00 €" autocomplete="off">
+      </label>
+      <fieldset class="field service-task-field">
+        <legend>Τι έγινε στο σέρβις;</legend>
+          <div class="service-task-grid">
+            <label><input id="serviceOilChanged" name="serviceTask" type="checkbox" value="Αλλαγή λαδιών"> Αλλαγή λαδιών</label>
+            <label class="major-service-option"><input id="serviceMajorService" name="serviceTask" type="checkbox" value="Μεγάλο service"> Μεγάλο service</label>
+            <label><input name="serviceTask" type="checkbox" value="Γενικός έλεγχος"> Γενικός έλεγχος</label>
+          <label><input name="serviceTask" type="checkbox" value="Αλλαγή φίλτρου"> Αλλαγή φίλτρου</label>
+          <label><input name="serviceTask" type="checkbox" value="Τακάκια φρένων"> Τακάκια φρένων</label>
+          <label><input name="serviceTask" type="checkbox" value="Μπουζί"> Μπουζί</label>
+          <label><input name="serviceTask" type="checkbox" value="Ελαστικά"> Ελαστικά</label>
+        </div>
+      </fieldset>
+      <div id="serviceMajorHint" class="major-service-hint" role="status" aria-live="polite"></div>
+      <label class="field">
+        <span>Άλλες εργασίες <small>(μία σε κάθε γραμμή)</small></span>
+        <textarea id="serviceNotes" rows="3" maxlength="500" placeholder="π.χ. Ρύθμιση αλυσίδας&#10;Αλλαγή λάμπας"></textarea>
+      </label>
+      <div id="serviceNextPreview" class="next-preview" aria-live="polite">
+        <span>Επόμενο σέρβις λαδιών</span>
+        <strong>—</strong>
+      </div>
+      <p class="oil-rule-note">Μόνο η «Αλλαγή λαδιών» ξεκινά νέο κύκλο για το επόμενο σέρβις.</p>
+      <div class="field invoice-upload-field">
+        <span>Τιμολόγια <small>(προαιρετικά)</small></span>
+        <span class="invoice-picker">
+          <input id="serviceInvoiceFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif" multiple>
+          <input id="serviceInvoiceQrValue" type="hidden">
+          <div class="invoice-picker-actions">
+            <button id="serviceQrScanButton" class="invoice-qr-button" type="button">⌁ <span>Σκάναρε QR</span></button>
+          <label class="invoice-picker-button" for="serviceInvoiceFile">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>
+            <span>Φωτογραφία ή PDF</span>
+          </label>
+          </div>
+          <span id="serviceInvoiceQrStatus" class="invoice-qr-status" role="status"></span>
+          <span id="serviceInvoiceFileName" class="invoice-file-name">Δεν έχει επιλεγεί αρχείο</span>
+        </span>
+        <small>Μπορείς να επιλέξεις πολλά PDF/φωτογραφίες: έως 10 τιμολόγια ανά service και 15 MB ανά αρχείο. Το QR αφορά το πρώτο επιλεγμένο τιμολόγιο.</small>
+      </div>
+      <p id="serviceFormError" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="ghost-button" type="button" data-close-dialog="serviceDialog">Άκυρο</button>
+        <button class="primary-button grow" type="submit">Καταχώρηση</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="checkDialog" class="app-dialog">
+    <form id="checkDialogForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">ΕΛΕΓΧΟΣ ΧΙΛΙΟΜΕΤΡΩΝ</span>
+          <h2 id="checkDialogBikeName">—</h2>
+        </div>
+        <button class="close-button" type="button" data-close-dialog="checkDialog" aria-label="Κλείσιμο">×</button>
+      </div>
+      <input id="checkDialogBikeId" type="hidden">
+      <label class="field">
+        <span>Χιλιόμετρα τώρα</span>
+        <div class="input-with-suffix">
+          <input id="checkDialogKm" type="number" min="0" step="1" inputmode="numeric" required>
+          <span>χλμ.</span>
+        </div>
+      </label>
+      <p id="checkDialogError" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="ghost-button" type="button" data-close-dialog="checkDialog">Άκυρο</button>
+        <button class="primary-button grow" type="submit">Αποθήκευση</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="historyEntryDialog" class="app-dialog history-edit-dialog">
+    <form id="historyEntryForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">ΔΙΟΡΘΩΣΗ ΙΣΤΟΡΙΚΟΥ</span>
+          <h2 id="historyEntryDialogTitle">Επεξεργασία καταχώρησης</h2>
+          <p id="historyEntryContext" class="dialog-context">—</p>
+        </div>
+        <button class="close-button" type="button" data-close-dialog="historyEntryDialog" aria-label="Κλείσιμο">×</button>
+      </div>
+      <input id="historyEntryBikeId" type="hidden">
+      <input id="historyEntryId" type="hidden">
+      <input id="historyEntryType" type="hidden">
+      <div class="history-edit-grid">
+        <label class="field">
+          <span>Χιλιόμετρα</span>
+          <div class="input-with-suffix">
+            <input id="historyEntryKm" type="number" min="0" step="1" inputmode="numeric" required>
+            <span>χλμ.</span>
+          </div>
+        </label>
+        <label class="field">
+          <span>Ημερομηνία</span>
+          <input id="historyEntryDate" type="date" required>
+        </label>
+      </div>
+      <div id="historyEntryServiceFields">
+        <label class="field">
+          <span>Συνεργείο <small>(προαιρετικό)</small></span>
+          <input id="historyEntryWorkshop" type="text" maxlength="120" placeholder="Όνομα συνεργείου" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Κόστος service <small>(προαιρετικό)</small></span>
+          <input id="historyEntryCost" type="text" inputmode="decimal" maxlength="60" placeholder="π.χ. 34,00 €" autocomplete="off">
+        </label>
+        <fieldset class="field service-task-field">
+          <legend>Τι έγινε στο σέρβις;</legend>
+          <div class="service-task-grid">
+            <label><input id="historyEntryOilChanged" name="historyEntryTask" type="checkbox" value="Αλλαγή λαδιών"> Αλλαγή λαδιών</label>
+            <label class="major-service-option"><input id="historyEntryMajorService" name="historyEntryTask" type="checkbox" value="Μεγάλο service"> Μεγάλο service</label>
+            <label><input name="historyEntryTask" type="checkbox" value="Γενικός έλεγχος"> Γενικός έλεγχος</label>
+            <label><input name="historyEntryTask" type="checkbox" value="Αλλαγή φίλτρου"> Αλλαγή φίλτρου</label>
+            <label><input name="historyEntryTask" type="checkbox" value="Τακάκια φρένων"> Τακάκια φρένων</label>
+            <label><input name="historyEntryTask" type="checkbox" value="Μπουζί"> Μπουζί</label>
+            <label><input name="historyEntryTask" type="checkbox" value="Ελαστικά"> Ελαστικά</label>
+          </div>
+        </fieldset>
+        <label class="field">
+          <span>Άλλες εργασίες <small>(μία σε κάθε γραμμή)</small></span>
+          <textarea id="historyEntryNotes" rows="3" maxlength="500"></textarea>
+        </label>
+        <p class="oil-rule-note">Αν αφαιρεθεί η «Αλλαγή λαδιών», το επόμενο σέρβις υπολογίζεται ξανά από την προηγούμενη αλλαγή.</p>
+      </div>
+      <div class="field invoice-upload-field">
+        <span>Προσθήκη τιμολογίων <small>(προαιρετικά)</small></span>
+        <span class="invoice-picker">
+          <input id="historyEntryInvoiceFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif" multiple>
+          <input id="historyEntryInvoiceQrValue" type="hidden">
+          <div class="invoice-picker-actions">
+            <button id="historyEntryQrScanButton" class="invoice-qr-button" type="button">⌁ <span>Σκάναρε QR</span></button>
+          <label class="invoice-picker-button" for="historyEntryInvoiceFile">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>
+            <span>Φωτογραφία ή PDF</span>
+          </label>
+          </div>
+          <span id="historyEntryInvoiceQrStatus" class="invoice-qr-status" role="status"></span>
+          <span id="historyEntryInvoiceFileName" class="invoice-file-name">Δεν έχει επιλεγεί αρχείο</span>
+        </span>
+        <small>Πρόσθεσε QR ή πολλά PDF/φωτογραφίες και σε παλιό service, έως 10 τιμολόγια συνολικά. Η αποστολή συνεχίζεται στο παρασκήνιο μετά την αποθήκευση.</small>
+      </div>
+      <label class="field">
+        <span>Σημείωση διόρθωσης <small>(προαιρετικό)</small></span>
+        <textarea id="historyEntryReason" rows="2" maxlength="500" placeholder="π.χ. Λανθασμένη ένδειξη χιλιομέτρων"></textarea>
+      </label>
+      <p id="historyEntryError" class="form-error" role="alert"></p>
+      <div class="dialog-actions history-edit-actions">
+        <button id="historyEntryDeleteButton" class="danger-button" type="button">Διαγραφή</button>
+        <button class="ghost-button" type="button" data-close-dialog="historyEntryDialog">Άκυρο</button>
+        <button id="historyEntrySaveButton" class="primary-button grow" type="submit">Αποθήκευση αλλαγών</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="invoiceReviewDialog" class="app-dialog invoice-review-dialog">
+    <form id="invoiceReviewForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">ΕΛΕΓΧΟΣ ΗΛΕΚΤΡΟΝΙΚΟΥ ΤΙΜΟΛΟΓΙΟΥ</span>
+          <h2>Επιβεβαίωση στοιχείων</h2>
+          <p id="invoiceReviewContext" class="dialog-context">Έλεγξε όσα αντλήθηκαν πριν αποθηκευτούν.</p>
+        </div>
+        <button class="close-button" type="button" data-close-dialog="invoiceReviewDialog" aria-label="Κλείσιμο">×</button>
+      </div>
+      <div id="invoiceReviewSource" class="invoice-review-source" role="status"></div>
+      <div id="invoiceReviewMismatch" class="invoice-review-warning is-hidden" role="alert"></div>
+      <div class="invoice-review-grid">
+        <label class="field">
+          <span>Πινακίδα</span>
+          <input id="invoiceReviewPlate" type="text" maxlength="40" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Χιλιόμετρα</span>
+          <div class="input-with-suffix">
+            <input id="invoiceReviewOdometerKm" type="number" min="0" step="1" inputmode="numeric">
+            <span>χλμ.</span>
+          </div>
+        </label>
+        <label class="field">
+          <span>Προμηθευτής</span>
+          <input id="invoiceReviewSupplier" type="text" maxlength="200" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Αριθμός τιμολογίου</span>
+          <input id="invoiceReviewNumber" type="text" maxlength="120" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Ημερομηνία τιμολογίου</span>
+          <input id="invoiceReviewDate" type="text" maxlength="40" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Συνολικό κόστος</span>
+          <input id="invoiceReviewTotal" type="text" maxlength="60" autocomplete="off">
+        </label>
+      </div>
+      <label class="field">
+        <span>Εργασίες / περιγραφή service</span>
+        <textarea id="invoiceReviewWorkPerformed" rows="4" maxlength="1500"></textarea>
+      </label>
+      <label class="field">
+        <span>Σχόλια</span>
+        <textarea id="invoiceReviewComments" rows="3" maxlength="1000"></textarea>
+      </label>
+      <details id="invoiceReviewRawDetails" class="invoice-raw-details">
+        <summary>Πλήρες κείμενο που διαβάστηκε</summary>
+        <pre id="invoiceReviewRawText"></pre>
+      </details>
+      <p id="invoiceReviewError" class="form-error" role="alert"></p>
+      <div class="dialog-actions invoice-review-actions">
+        <button id="invoiceReviewKeepFileButton" class="ghost-button" type="button">Κράτησε μόνο το αρχείο</button>
+        <button id="invoiceReviewSaveButton" class="primary-button grow" type="submit">Αποθήκευση στοιχείων</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="qrScannerDialog" class="app-dialog qr-scanner-dialog">
+    <form id="qrScannerForm" method="dialog" novalidate>
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">QR ΤΙΜΟΛΟΓΙΟΥ</span>
+          <h2>Σκάναρε τον κωδικό</h2>
+          <p class="dialog-context">Κράτησε το QR μέσα στο πλαίσιο.</p>
+        </div>
+        <button id="qrScannerCloseButton" class="close-button" type="button" aria-label="Κλείσιμο">×</button>
+      </div>
+      <div class="qr-scanner-frame">
+        <video id="qrScannerVideo" autoplay muted playsinline></video>
+        <span class="qr-scanner-corner top-left"></span>
+        <span class="qr-scanner-corner top-right"></span>
+        <span class="qr-scanner-corner bottom-left"></span>
+        <span class="qr-scanner-corner bottom-right"></span>
+      </div>
+      <p id="qrScannerStatus" class="qr-scanner-status" role="status">Ενεργοποίηση κάμερας…</p>
+      <p id="qrScannerError" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="qrScannerManualButton" class="secondary-button grow" type="button">Χρήση φωτογραφίας/PDF</button>
+        <button id="qrScannerCancelButton" class="ghost-button" type="button">Άκυρο</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./fleet-config.js?v=5.36.7" defer></script>
+  <script src="./vendor/jsQR.js?v=5.36.7" defer></script>
+  <script src="./vendor/qrcode-generator.js?v=5.36.7" defer></script>
+  <script src="./app.js?v=5.36.7" defer></script>
+</body>
+</html>

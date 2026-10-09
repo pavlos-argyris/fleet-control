@@ -1,0 +1,798 @@
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+
+import worker from "../cloudflare-worker/src/worker.js";
+import { zonedLocalToUtc } from "../cloudflare-worker/src/workforce-core.js";
+
+const BASE_URL = "https://simulation.invalid";
+const SERVER_KEY = "simulation-server-key";
+const PIN_PEPPER = "simulation-pin-pepper";
+
+function plainRow(row) {
+  return row == null ? null : Object.fromEntries(Object.entries(row));
+}
+
+class D1Statement {
+  constructor(db, sql, args = []) {
+    this.db = db;
+    this.sql = sql;
+    this.args = args;
+  }
+
+  bind(...args) {
+    return new D1Statement(this.db, this.sql, args);
+  }
+
+  all(...args) {
+    const rows = this.db.prepare(this.sql).all(...(this.args.length ? this.args : args));
+    return Promise.resolve({ results: rows.map(plainRow) });
+  }
+
+  first(...args) {
+    const row = this.db.prepare(this.sql).get(...(this.args.length ? this.args : args));
+    return Promise.resolve(plainRow(row));
+  }
+
+  run(...args) {
+    const result = this.db.prepare(this.sql).run(...(this.args.length ? this.args : args));
+    return Promise.resolve({ meta: {
+      changes: Number(result.changes || 0),
+      last_row_id: Number(result.lastInsertRowid || 0)
+    } });
+  }
+}
+
+class D1Simulation {
+  constructor() {
+    this.sqlite = new DatabaseSync(":memory:");
+    this.sqlite.exec("PRAGMA foreign_keys = ON;");
+  }
+
+  exec(sql) {
+    this.sqlite.exec(sql);
+    return Promise.resolve({});
+  }
+
+  prepare(sql) {
+    return new D1Statement(this.sqlite, sql);
+  }
+
+  async batch(statements) {
+    this.sqlite.exec("BEGIN");
+    try {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      this.sqlite.exec("COMMIT");
+      return results;
+    } catch (error) {
+      this.sqlite.exec("ROLLBACK");
+      throw error;
+    }
+  }
+}
+
+class R2Simulation {
+  constructor() {
+    this.objects = new Map();
+  }
+
+  async put(key, value, options = {}) {
+    const bytes = value instanceof Uint8Array
+      ? value
+      : value instanceof ArrayBuffer
+        ? new Uint8Array(value)
+        : new Uint8Array(await new Response(value).arrayBuffer());
+    this.objects.set(key, { bytes, httpMetadata: options.httpMetadata || {} });
+    return { size: bytes.byteLength, httpMetadata: options.httpMetadata || {} };
+  }
+
+  async head(key) {
+    const item = this.objects.get(key);
+    return item ? { size: item.bytes.byteLength, httpMetadata: item.httpMetadata } : null;
+  }
+
+  async delete(key) {
+    this.objects.delete(key);
+  }
+
+  async get(key) {
+    const item = this.objects.get(key);
+    if (!item) return null;
+    return {
+      body: new Response(item.bytes).body,
+      size: item.bytes.byteLength,
+      httpMetadata: item.httpMetadata,
+      arrayBuffer: async () => item.bytes.buffer.slice(item.bytes.byteOffset, item.bytes.byteOffset + item.bytes.byteLength),
+      writeHttpMetadata(headers) {
+        for (const [key, value] of Object.entries(item.httpMetadata || {})) {
+          const header = key.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase());
+          if (value) headers.set(header, value);
+        }
+      }
+    };
+  }
+}
+
+const db = new D1Simulation();
+const releases = new R2Simulation();
+const env = {
+  DB: db,
+  RELEASES: releases,
+  ASSETS: { fetch: async () => new Response("not found", { status: 404 }) },
+  SERVER_KEY,
+  PIN_PEPPER,
+  CLIENT_KEY: "simulation-client-key"
+};
+
+async function call(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
+  if (options.server) headers.set("X-Fleet-Server-Key", SERVER_KEY);
+  let body = options.body;
+  if (body !== undefined) {
+    body = typeof body === "string" ? body : JSON.stringify(body);
+    headers.set("Content-Type", "application/json");
+  }
+  const response = await worker.fetch(new Request(`${BASE_URL}${path}`, {
+    method: options.method || "GET",
+    headers,
+    body
+  }), env);
+  const raw = await response.text();
+  let data = {};
+  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { raw }; }
+  return { status: response.status, data, headers: response.headers };
+}
+
+async function callRaw(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
+  if (options.server) headers.set("X-Fleet-Server-Key", SERVER_KEY);
+  const response = await worker.fetch(new Request(`${BASE_URL}${path}`, {
+    method: options.method || "GET",
+    headers,
+    body: options.body
+  }), env);
+  const raw = await response.arrayBuffer();
+  let data = {};
+  try { data = raw.byteLength ? JSON.parse(new TextDecoder().decode(raw)) : {}; } catch { data = { bytes: raw.byteLength }; }
+  return { status: response.status, data, headers: response.headers, bytes: raw };
+}
+
+function ok(result, expectedStatus = 200, label = "request") {
+  assert.equal(result.status, expectedStatus, `${label}: ${JSON.stringify(result.data)}`);
+  return result.data;
+}
+
+function fails(result, expectedStatus, expectedCode, label) {
+  assert.equal(result.status, expectedStatus, `${label}: ${JSON.stringify(result.data)}`);
+  if (expectedCode) assert.equal(result.data.code, expectedCode, `${label}: error code`);
+}
+
+function datePart(ms = Date.now()) {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function localDatePart(ms = Date.now()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Athens",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(ms));
+}
+
+function addDays(date, amount) {
+  const value = new Date(`${date}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + amount);
+  return value.toISOString().slice(0, 10);
+}
+
+function monday(date) {
+  const value = new Date(`${date}T12:00:00Z`);
+  const day = value.getUTCDay() || 7;
+  value.setUTCDate(value.getUTCDate() - day + 1);
+  return value.toISOString().slice(0, 10);
+}
+
+function iso(ms) {
+  return new Date(ms).toISOString();
+}
+
+async function seedFleet() {
+  ok(await call("/api/sync", {
+    method: "POST",
+    token: ownerToken,
+    body: {
+      version: 1,
+      bikes: [
+        { id: "bike-1", name: "ΜΗΧ-01", currentKm: 100, intervalKm: 3000, lastServiceKm: 0, history: [] },
+        { id: "bike-2", name: "ΜΗΧ-02", currentKm: 200, intervalKm: 3000, lastServiceKm: 0, history: [] },
+        { id: "bike-3", name: "ΜΗΧ-03", currentKm: 300, intervalKm: 3000, lastServiceKm: 0, history: [] }
+      ]
+    }
+  }), 200, "seed fleet");
+}
+
+async function createEmployee(input) {
+  const data = ok(await call("/api/admin/employees", {
+    method: "POST",
+    token: ownerToken,
+    body: {
+      role: "employee",
+      active: true,
+      showSchedule: true,
+      showActualClockIn: true,
+      showActualClockOut: true,
+      showPayableHours: true,
+      showPaymentAmount: true,
+      showShiftKilometers: true,
+      ...input
+    }
+  }), 201, `create ${input.username}`);
+  return data.employee;
+}
+
+async function login(username, password) {
+  const data = ok(await call("/api/auth/user-login", {
+    method: "POST",
+    body: { username, password, platform: "web", deviceId: `simulation-${username}`, deviceName: `Simulation ${username}` }
+  }), 200, `login ${username}`);
+  assert.ok(data.token, `token for ${username}`);
+  return data.token;
+}
+
+let ownerToken;
+
+ok(await call("/api/auth/bootstrap-status"), 200, "bootstrap status");
+fails(await call("/api/workforce/dashboard"), 401, "login_required", "protected endpoint without login");
+const boot = ok(await call("/api/auth/bootstrap", {
+  method: "POST",
+  server: true,
+  body: { fullName: "Owner Admin", username: "owner", password: "Owner-Password-123", deviceId: "simulation-owner" }
+}), 200, "bootstrap owner");
+ownerToken = boot.token;
+assert.equal(boot.user.role, "owner");
+ok(await call("/api/auth/me", { token: ownerToken }), 200, "owner session");
+await seedFleet();
+
+const employeeA = await createEmployee({ fullName: "Διανομέας Α", username: "driver-a", password: "Driver-A-123", assignedVehicleId: "bike-1" });
+const employeeB = await createEmployee({ fullName: "Διανομέας Β", username: "driver-b", password: "Driver-B-123", assignedVehicleId: "bike-1" });
+const employeeOwn = await createEmployee({ fullName: "Ιδιόκτητος Γ", username: "driver-own", password: "Driver-C-123", usesOwnVehicle: true });
+ok(await call("/api/admin/vehicles/bike-3/archive", {
+  method: "POST",
+  token: ownerToken,
+  body: { confirmArchive: true, reason: "Έλεγχος archive/restore" }
+}), 200, "archive unused vehicle");
+const archivedVehicles = ok(await call("/api/admin/vehicles/archived", { token: ownerToken }), 200, "list archived vehicles");
+assert.ok(archivedVehicles.vehicles.some((item) => item.id === "bike-3"));
+const archivedAssignment = await call("/api/admin/employees", {
+  method: "POST",
+  token: ownerToken,
+  body: { fullName: "Δεν πρέπει να δημιουργηθεί", username: "archived-driver", password: "Driver-D-123", assignedVehicleId: "bike-3" }
+});
+fails(archivedAssignment, 400, null, "assign archived vehicle");
+ok(await call("/api/admin/vehicles/bike-3/restore", {
+  method: "POST",
+  token: ownerToken,
+  body: { reason: "Επαναφορά μετά το test" }
+}), 200, "restore archived vehicle");
+
+const scheduleDate = addDays(monday(datePart(Date.now() + 14 * 86400000)), 1);
+const scheduleA = ok(await call("/api/admin/schedules", {
+  method: "POST",
+  token: ownerToken,
+  body: { employeeIds: [employeeA.id], startDate: scheduleDate, endDate: scheduleDate, startTime: "15:00", endTime: "17:00" }
+}), 201, "schedule driver A");
+assert.equal(scheduleA.created, 1);
+const invalidEqualTimeSchedule = await call("/api/admin/schedules", {
+  method: "POST",
+  token: ownerToken,
+  body: { employeeIds: [employeeOwn.id], startDate: scheduleDate, endDate: scheduleDate, startTime: "17:00", endTime: "17:00" }
+});
+fails(invalidEqualTimeSchedule, 400, null, "reject equal schedule start and end");
+const conflict = await call("/api/admin/schedules", {
+  method: "POST",
+  token: ownerToken,
+  body: { employeeIds: [employeeB.id], startDate: scheduleDate, endDate: scheduleDate, startTime: "15:00", endTime: "17:00" }
+});
+fails(conflict, 409, "vehicle_schedule_conflict", "overlapping permanent vehicle assignment");
+
+ok(await call(`/api/admin/employees/${employeeB.id}`, {
+  method: "PUT",
+  token: ownerToken,
+  body: { fullName: employeeB.fullName, username: employeeB.username, assignedVehicleId: null, usesOwnVehicle: false, reason: "Καθαρισμός μόνιμης ανάθεσης" }
+}), 200, "clear permanent vehicle");
+const employeesAfterClear = ok(await call("/api/admin/employees", { token: ownerToken }), 200, "read employees");
+assert.equal(employeesAfterClear.employees.find((item) => item.id === employeeB.id).assignedVehicleId, null);
+
+const template = ok(await call("/api/admin/shift-templates", {
+  method: "POST",
+  token: ownerToken,
+  body: { name: "Απογευματινή δοκιμή", segments: [{ start: "15:00", end: "17:00" }], sortOrder: 1, color: "#315D67" }
+}), 201, "create shift template");
+const templateId = template.template.id;
+
+const draftWeek = addDays(monday(datePart(Date.now() + 28 * 86400000)), 0);
+ok(await call("/api/admin/schedule-week", {
+  method: "POST",
+  token: ownerToken,
+  body: { draft: true, assignments: [{ employeeId: employeeA.id, date: draftWeek, templateId }] }
+}), 201, "save first distributor draft");
+ok(await call("/api/admin/schedule-week", {
+  method: "POST",
+  token: ownerToken,
+  body: { draft: true, replaceEmployeeId: employeeOwn.id, assignments: [{ employeeId: employeeOwn.id, date: draftWeek, templateId, withoutVehicle: true }] }
+}), 201, "append second distributor draft");
+const draft = ok(await call(`/api/admin/schedule-week?week=${draftWeek}`, { token: ownerToken }), 200, "read combined draft");
+assert.equal(draft.scheduleState, "draft");
+assert.equal(draft.draft.assignments?.length ?? draft.schedules.filter((item) => String(item.id).startsWith("draft-")).length, 2);
+const published = ok(await call("/api/admin/schedule-week/publish", {
+  method: "POST",
+  token: ownerToken,
+  body: { weekStart: draftWeek, reason: "Δημοσίευση δοκιμής" }
+}), 200, "publish combined week");
+assert.equal(published.published, true);
+const weekAfterPublish = ok(await call(`/api/admin/schedule-week?week=${draftWeek}`, { token: ownerToken }), 200, "read published week");
+assert.equal(weekAfterPublish.scheduleState, "published");
+assert.equal(weekAfterPublish.schedules.length, 2);
+const coverage = ok(await call(`/api/admin/staffing-coverage?week=${draftWeek}`, { token: ownerToken }), 200, "future staffing coverage");
+assert.equal(coverage.summary.undercoveredSlots, 0, "future planned slots must not be reported as gaps");
+assert.ok(coverage.summary.upcomingSlots > 0);
+
+const ownToken = await login("driver-own", "Driver-C-123");
+const ownClockIn = ok(await call("/api/employee/clock-in", {
+  method: "POST",
+  token: ownToken,
+  headers: { "X-Idempotency-Key": "own-clock-in-1" }
+}), 201, "own vehicle clock in");
+const ownReplay = ok(await call("/api/employee/clock-in", {
+  method: "POST",
+  token: ownToken,
+  headers: { "X-Idempotency-Key": "own-clock-in-1" }
+}), 200, "idempotent own vehicle clock in");
+assert.equal(ownReplay.shift.id, ownClockIn.shift.id);
+const ownClockOut = ok(await call("/api/employee/clock-out", { method: "POST", token: ownToken, body: {} }), 200, "own vehicle clock out without km");
+assert.equal(ownClockOut.ownVehicle, true);
+const ownShift = await db.prepare("SELECT status,final_km,shift_km,missing_km FROM shifts WHERE id=?").bind(ownClockIn.shift.id).first();
+assert.equal(ownShift.status, "completed");
+assert.equal(ownShift.final_km, null);
+assert.equal(Number(ownShift.shift_km), 0);
+assert.equal(Number(ownShift.missing_km), 0);
+
+const payRule = ok(await call("/api/admin/pay-rules", {
+  method: "POST",
+  token: ownerToken,
+  body: {
+    id: "simulation-pay-rule",
+    name: "Simulation 6/10/15",
+    scopeType: "general",
+    normalRateCents: 600,
+    startRoundMode: "up",
+    startRoundMinutes: 30,
+    lateGraceMinutes: 0,
+    lateClockOutGraceMinutes: 30,
+    endRoundMode: "none",
+    endRoundMinutes: 1,
+    durationRoundMode: "nearest",
+    payableIncrementMinutes: 1,
+    minimumMinutes: 0,
+    maximumMinutes: 720,
+    specialRates: [
+      { label: "00:00–01:00", startTime: "00:00", endTime: "01:00", rateCents: 1000, qualification: "automatic", priority: 20 },
+      { label: "01:00–02:00", startTime: "01:00", endTime: "02:00", rateCents: 1500, qualification: "automatic", priority: 20 }
+    ]
+  }
+}), 200, "save configurable payroll rule");
+assert.equal(payRule.version, 1);
+const payRules = ok(await call("/api/admin/pay-rules", { token: ownerToken }), 200, "read payroll rules");
+const savedRule = payRules.rules.find((rule) => rule.id === "simulation-pay-rule");
+assert.equal(savedRule.specialRates.length, 2);
+assert.equal(savedRule.lateClockOutGraceMinutes, 30);
+assert.ok(savedRule.specialRates.every((item) => item.id));
+const savedRuleVersion = await db.prepare("SELECT snapshot FROM pay_rule_versions WHERE rule_id=? AND version=1").bind("simulation-pay-rule").first();
+const savedRuleSnapshot = JSON.parse(savedRuleVersion.snapshot);
+assert.ok(savedRuleSnapshot.specialRates.every((item) => item.id), "immutable payroll snapshot must retain generated special-rate identities");
+const paySimulation = ok(await call("/api/admin/payroll/simulate", {
+  method: "POST",
+  token: ownerToken,
+  body: {
+    ruleId: "simulation-pay-rule",
+    scheduledStart: "2026-09-15T12:00:00.000Z",
+    actualClockIn: "2026-09-15T12:21:00.000Z",
+    actualClockOut: "2026-09-15T22:00:00.000Z"
+  }
+}), 200, "simulate late clock in and special rates");
+assert.equal(paySimulation.result.payableMinutes, 570);
+assert.equal(paySimulation.result.totalPayCents, 6100);
+
+const midnightWeek = addDays(monday(datePart(Date.now() + 21 * 86400000)), 7);
+const midnightStart = zonedLocalToUtc(midnightWeek, "00:30", "Europe/Athens");
+const midnightEnd = zonedLocalToUtc(midnightWeek, "01:30", "Europe/Athens");
+await db.prepare(`INSERT INTO shifts
+  (id,employee_id,vehicle_id,current_vehicle_id,status,actual_clock_in,actual_clock_out,effective_clock_out,
+   payable_clock_in,payable_clock_out,payable_minutes,initial_km,rule_id,rule_version,rule_snapshot,
+   base_pay_cents,special_pay_cents,final_pay_cents,overtime_status,missing_km,created_at,updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+  "simulation-midnight-shift", employeeA.id, `__own_vehicle__:${employeeA.id}`, `__own_vehicle__:${employeeA.id}`,
+  "completed", midnightStart, midnightEnd, midnightEnd, midnightStart, midnightEnd, 60, 0,
+  "simulation-pay-rule", 1, "{}", 600, 0, 600, "none", 0, midnightStart, midnightEnd
+).run();
+const datePayRule = ok(await call("/api/admin/pay-rules", {
+  method: "POST",
+  token: ownerToken,
+  body: {
+    id: "simulation-local-date-rule",
+    name: "Simulation local date rule",
+    scopeType: "general",
+    priority: 50,
+    validFrom: midnightWeek,
+    validUntil: midnightWeek,
+    normalRateCents: 777,
+    specialRates: []
+  }
+}), 200, "save local-date payroll rule");
+const editedMidnight = ok(await call("/api/admin/shifts/simulation-midnight-shift/edit", {
+  method: "POST",
+  token: ownerToken,
+  body: { actualClockIn: midnightStart, actualClockOut: midnightEnd, reason: "Έλεγχος τοπικής ημερομηνίας κανόνα" }
+}), 200, "apply local-date payroll rule after midnight");
+assert.equal(editedMidnight.updated, true);
+const midnightAfterEdit = await db.prepare("SELECT rule_id,base_pay_cents FROM shifts WHERE id=?").bind("simulation-midnight-shift").first();
+assert.equal(midnightAfterEdit.rule_id, datePayRule.id, "00:30 local shift must use the local-date pay rule");
+assert.equal(Number(midnightAfterEdit.base_pay_cents), 777, "local-date pay rule rate must be applied");
+const midnightPayroll = ok(await call(`/api/admin/payroll?start=${midnightWeek}&end=${midnightWeek}`, { token: ownerToken }), 200, "payroll local midnight boundary");
+assert.ok(midnightPayroll.employees.some((item) => item.employeeId === employeeA.id), "a Monday 00:30 local shift must belong to Monday payroll");
+
+const manualNow = Date.now();
+const manualScheduleId = "simulation-manual-clock-in-schedule";
+const manualShiftStart = iso(manualNow - 90 * 60000);
+const manualShiftEnd = iso(manualNow + 90 * 60000);
+await db.prepare(`INSERT INTO schedules
+  (id,employee_id,vehicle_id,series_id,start_at,end_at,status,notes,created_by,created_at,updated_at)
+  VALUES (?,?,?,?,?,?,?, ?,?,?,?)`).bind(
+  manualScheduleId, employeeB.id, "bike-2", "simulation-manual-series", manualShiftStart, manualShiftEnd,
+  "planned", "simulation manual clock in", "simulation", manualShiftStart, manualShiftStart).run();
+const manualClockIn = ok(await call("/api/admin/shifts/manual-clock-in", {
+  method: "POST",
+  token: ownerToken,
+  body: {
+    scheduleId: manualScheduleId,
+    actualClockIn: iso(manualNow - 60 * 60000),
+    vehicleId: "bike-2",
+    initialKm: 200,
+    reason: "Ο εργαζόμενος ξέχασε το Clock In"
+  }
+}), 201, "admin manual clock in");
+assert.equal(manualClockIn.created, true);
+assert.equal(manualClockIn.shift.vehicleId, "bike-2");
+const manualShift = await db.prepare("SELECT status,notes FROM shifts WHERE id=?").bind(manualClockIn.shift.id).first();
+assert.equal(manualShift.status, "active");
+assert.match(manualShift.notes, /Χειροκίνητο Clock In/);
+const employeeBToken = await login("driver-b", "Driver-B-123");
+const manualClockOut = ok(await call("/api/employee/clock-out", {
+  method: "POST", token: employeeBToken, body: { finalKm: 210 }
+}), 200, "clock out manually created shift");
+assert.equal(manualClockOut.pendingOvertime, false);
+
+const overtimeEmployeeToken = await login("driver-a", "Driver-A-123");
+const now = Date.now();
+const overtimeDate = localDatePart(now - 2 * 3600000);
+const overtimeScheduleId = "simulation-overtime-schedule";
+const overtimeShiftId = "simulation-overtime-shift";
+const overtimeStart = iso(now - 2 * 3600000);
+const overtimeEnd = iso(now - 3600000);
+const overtimeClockIn = iso(now - 2 * 3600000);
+await db.batch([
+  db.prepare(`INSERT INTO schedules
+    (id,employee_id,vehicle_id,series_id,start_at,end_at,status,notes,created_by,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?, ?,?,?,?)`).bind(
+    overtimeScheduleId, employeeA.id, "bike-1", "simulation-overtime-series", overtimeStart, overtimeEnd,
+    "working", "simulation", "simulation", overtimeStart, overtimeStart),
+  db.prepare(`UPDATE vehicle_registry SET status='in_use',active_shift_id=?,updated_at=? WHERE bike_id=?`).bind(overtimeShiftId, overtimeStart, "bike-1"),
+  db.prepare(`INSERT INTO shifts
+    (id,employee_id,schedule_id,vehicle_id,current_vehicle_id,status,actual_clock_in,initial_km,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(
+    overtimeShiftId, employeeA.id, overtimeScheduleId, "bike-1", "bike-1", "active", overtimeClockIn, 100, overtimeStart, overtimeStart),
+  db.prepare(`INSERT INTO vehicle_segments
+    (id,shift_id,vehicle_id,started_at,initial_km,changed_by,reason)
+    VALUES (?,?,?,?,?,?,?)`).bind("simulation-overtime-segment", overtimeShiftId, "bike-1", overtimeClockIn, 100, employeeA.id, "simulation")
+]);
+const overtimeClockOut = ok(await call("/api/employee/clock-out", {
+  method: "POST",
+  token: overtimeEmployeeToken,
+  body: { finalKm: 110 }
+}), 200, "clock out after scheduled end");
+assert.equal(overtimeClockOut.pendingOvertime, true);
+const overtimePending = await db.prepare("SELECT status,overtime_status,effective_clock_out,final_pay_cents FROM shifts WHERE id=?").bind(overtimeShiftId).first();
+assert.equal(overtimePending.status, "pending_overtime");
+assert.equal(overtimePending.overtime_status, "pending");
+assert.equal(overtimePending.effective_clock_out, overtimeEnd);
+const overtimeAlerts = await db.prepare("SELECT type FROM system_alerts WHERE object_type='shift' AND object_id=? AND resolved=0").bind(overtimeShiftId).all();
+assert.deepEqual(new Set(overtimeAlerts.results.map((item) => item.type)), new Set(["overtime", "forgotten_clock_out"]));
+const approval = ok(await call(`/api/admin/shifts/${overtimeShiftId}/approve-overtime`, {
+  method: "POST",
+  token: ownerToken,
+  body: { reason: "Εγκρίθηκε από Owner για simulation", overtimeRateCents: 1200, overtimeMinutes: 30 }
+}), 200, "approve overtime with custom rate");
+assert.equal(approval.overtimeStatus, "approved");
+const overtimeApproved = await db.prepare("SELECT status,overtime_status,overtime_rate_cents,overtime_minutes_override,overtime_approved_by,overtime_approved_by_name,overtime_approved_at,final_pay_cents FROM shifts WHERE id=?").bind(overtimeShiftId).first();
+assert.equal(overtimeApproved.status, "completed");
+assert.equal(overtimeApproved.overtime_status, "approved");
+assert.equal(Number(overtimeApproved.overtime_rate_cents), 1200);
+assert.equal(Number(overtimeApproved.overtime_minutes_override), 30);
+assert.equal(overtimeApproved.overtime_approved_by_name, "Owner Admin");
+assert.ok(overtimeApproved.overtime_approved_at);
+const payroll = ok(await call(`/api/admin/payroll?start=${overtimeDate}&end=${overtimeDate}`, { token: ownerToken }), 200, "payroll after overtime approval");
+const overtimePayroll = payroll.employees.find((item) => item.employeeId === employeeA.id);
+assert.ok(overtimePayroll);
+assert.ok(overtimePayroll.overtimeApprovals.some((item) => item.shiftId === overtimeShiftId && item.rateCents === 1200 && item.approvedBy === "Owner Admin"));
+
+const health = ok(await call("/api/server/heartbeat", {
+  method: "POST",
+  server: true,
+  body: {
+    serverVersion: "2.0.3",
+    health: {
+      batteryPercent: 10,
+      batteryCharging: false,
+      batteryTemperatureC: 45,
+      storageFreeBytes: 5,
+      storageTotalBytes: 100,
+      powerSaveMode: true,
+      ignoringBatteryOptimizations: false,
+      networkConnected: true,
+      networkType: "Wi-Fi",
+      androidVersion: "14",
+      deviceModel: "Simulation",
+      uptimeSeconds: 100
+    },
+    unexpectedRestart: true,
+    restartAt: iso(now)
+  }
+}), 200, "server heartbeat health");
+assert.equal(health.healthStored, true);
+const serverHealth = ok(await call("/api/admin/server-health", { token: ownerToken }), 200, "server health dashboard");
+assert.ok(serverHealth.warnings.some((item) => item.code === "temperature"));
+assert.ok(serverHealth.warnings.some((item) => item.code === "storage"));
+assert.ok(serverHealth.warnings.some((item) => item.code === "battery"));
+assert.ok(serverHealth.warnings.some((item) => item.code === "optimization"));
+
+const invoiceFleet = ok(await call("/api/sync", { token: ownerToken }), 200, "read fleet before QR invoice simulation");
+const invoiceBike = invoiceFleet.bikes.find((bike) => bike.id === "bike-1");
+const invoiceEntry = {
+  id: "simulation-invoice-service",
+  type: "service",
+  km: 450,
+  date: datePart(),
+  tasks: ["Γενικός έλεγχος"],
+  notes: "Γενικός έλεγχος",
+  workshop: "Simulation Workshop",
+  oilChanged: false,
+  attachments: [],
+  createdAt: iso(Date.now()),
+  updatedAt: iso(Date.now())
+};
+invoiceBike.history = [invoiceEntry];
+invoiceBike.updatedAt = iso(Date.now());
+ok(await call("/api/sync", { method: "POST", token: ownerToken, body: invoiceFleet }), 200, "save invoice service for QR simulation");
+const qrForSimulation = "https://einvoice.impact.gr/p/EL099902715/SIMULATION";
+const queuedInvoice = ok(await call("/api/service-documents/import-qr", {
+  method: "POST",
+  token: ownerToken,
+  body: { bikeId: "bike-1", entryId: invoiceEntry.id, value: qrForSimulation }
+}), 202, "queue server-side QR PDF render");
+assert.equal(queuedInvoice.queued, true);
+const pendingInvoiceOperations = ok(await call("/api/server/pending?limit=50", { server: true }), 200, "read queued QR PDF render");
+const invoiceOperation = pendingInvoiceOperations.operations.find((operation) => operation.id === queuedInvoice.jobId);
+assert.equal(invoiceOperation.type, "service_document_render");
+const renderedInvoice = ok(await callRaw(
+  "/api/server/service-documents/rendered?jobId=" + encodeURIComponent(queuedInvoice.jobId)
+    + "&bikeId=bike-1&entryId=" + encodeURIComponent(invoiceEntry.id)
+    + "&qrValue=" + encodeURIComponent(qrForSimulation)
+    + "&qrUrl=" + encodeURIComponent(qrForSimulation)
+    + "&name=invoice-simulation.pdf",
+  {
+    method: "PUT",
+    server: true,
+    headers: { "Content-Type": "application/pdf" },
+    body: new TextEncoder().encode("%PDF-1.4\n%%EOF")
+  }
+), 201, "upload server-rendered QR PDF");
+assert.equal(renderedInvoice.attachment.contentType, "application/pdf");
+assert.equal(renderedInvoice.attachment.renderJobId, queuedInvoice.jobId);
+const completedInvoice = ok(await call("/api/service-documents/jobs/" + encodeURIComponent(queuedInvoice.jobId), { token: ownerToken }), 200, "read completed QR PDF job");
+assert.equal(completedInvoice.status, "completed");
+const downloadedInvoice = await callRaw("/api/service-documents/" + renderedInvoice.attachment.key.split("/").map(encodeURIComponent).join("/"), { token: ownerToken });
+assert.equal(downloadedInvoice.status, 200, "download server-rendered QR PDF");
+assert.equal(downloadedInvoice.bytes.byteLength, 14, "downloaded PDF must remain stored in R2");
+const invoiceDocuments = ok(await call("/api/admin/service-documents", { token: ownerToken }), 200, "list invoice review queue");
+const queuedDocument = invoiceDocuments.documents.find((item) => item.key === renderedInvoice.attachment.key);
+assert.ok(queuedDocument);
+assert.match(queuedDocument.name, new RegExp("_" + invoiceEntry.date + "\\.pdf$"));
+const reviewedDocument = ok(await call("/api/admin/service-documents/review", {
+  method: "POST",
+  token: ownerToken,
+  body: {
+    bikeId: "bike-1",
+    entryId: invoiceEntry.id,
+    key: renderedInvoice.attachment.key,
+    invoiceData: {
+      supplier: "Reviewed Workshop",
+      plate: invoiceBike.name,
+      odometerKm: "500",
+      invoiceDate: invoiceEntry.date,
+      totalAmount: "34,00 €",
+      workPerformed: "Λάδι Yamalube 20W50",
+      lineItems: ["Λάδι Yamalube 20W50"]
+    },
+    tasks: ["Γενικός έλεγχος", "Αλλαγή λαδιών"]
+  }
+}), 200, "review extracted invoice data");
+assert.equal(reviewedDocument.document.invoiceData.reviewStatus, "confirmed");
+assert.equal(reviewedDocument.document.invoiceData.reviewedBy, "Owner Admin");
+assert.ok(reviewedDocument.document.warnings.some((item) => item.type === "odometer"));
+assert.ok(reviewedDocument.document.tasks.some((task) => task.includes("Yamalube")));
+const retroactiveReprocess = ok(await call("/api/admin/service-documents/reprocess", {
+  method: "POST",
+  token: ownerToken,
+  body: { key: renderedInvoice.attachment.key }
+}), 200, "retroactively normalize stored invoice");
+assert.equal(retroactiveReprocess.confirmedPreserved, true);
+assert.ok(retroactiveReprocess.ocrWarning, "Η προσομοίωση χωρίς AI πρέπει να δηλώνει ότι κράτησε την υπάρχουσα OCR ανάγνωση.");
+assert.ok(retroactiveReprocess.document.invoiceData.ocrReprocessedAt);
+const batchStarted = ok(await call("/api/admin/service-documents/reprocess-batch", {
+  method: "POST",
+  token: ownerToken,
+  body: { action: "start", batchId: "simulation-invoice-batch", total: 3 }
+}), 201, "start shared invoice reprocess batch");
+assert.equal(batchStarted.started, true);
+const batchDuplicate = ok(await call("/api/admin/service-documents/reprocess-batch", {
+  method: "POST",
+  token: ownerToken,
+  body: { action: "start", batchId: "simulation-invoice-batch-2", total: 3 }
+}), 200, "prevent duplicate shared invoice reprocess batch");
+assert.equal(batchDuplicate.started, false);
+const batchUpdate = ok(await call("/api/admin/service-documents/reprocess-batch", {
+  method: "POST",
+  token: ownerToken,
+  body: { action: "update", batchId: "simulation-invoice-batch", completed: 1, failed: 0, currentIndex: 1, currentName: "TNH-921_2026-08-17.pdf", progress: 33 }
+}), 200, "update shared invoice reprocess batch");
+assert.equal(batchUpdate.batch.completed, 1);
+const batchStatus = ok(await call("/api/admin/service-documents/reprocess-batch", { token: ownerToken }), 200, "read shared invoice reprocess batch");
+assert.equal(batchStatus.batch.progress, 33);
+const batchComplete = ok(await call("/api/admin/service-documents/reprocess-batch", {
+  method: "POST",
+  token: ownerToken,
+  body: { action: "complete", batchId: "simulation-invoice-batch", completed: 3, failed: 0 }
+}), 200, "complete shared invoice reprocess batch");
+assert.equal(batchComplete.batch.status, "completed");
+
+// Services before the active oil cycle, multiple invoices and plate comparison.
+const serviceFleet = ok(await call("/api/sync", { token: ownerToken }));
+const regressionBike = {
+  id: "service-regression-bike", name: "ΒΤΟ 756", intervalKm: 3000,
+  lastServiceKm: 10000, currentKm: 12000, nextServiceKm: 13000,
+  createdAt: iso(Date.now()), updatedAt: iso(Date.now()),
+  history: [
+    { id: "active-oil", type: "service", km: 10000, date: "2026-10-08", tasks: ["Αλλαγή λαδιών"], oilChanged: true },
+    { id: "older-service", type: "service", km: 9000, date: "2026-10-01", tasks: ["Γενικός έλεγχος"], oilChanged: false, attachments: [] },
+    { id: "qr-service", type: "service", km: 9100, date: "2026-10-02", tasks: ["Γενικός έλεγχος"], oilChanged: false, attachments: [] }
+  ]
+};
+serviceFleet.bikes.push(regressionBike);
+ok(await call("/api/sync", { method: "POST", token: ownerToken, body: serviceFleet }));
+function regressionBikeFrom(fleet) { return fleet.bikes.find((bike) => bike.id === regressionBike.id); }
+function olderEntryFrom(fleet) { return regressionBikeFrom(fleet).history.find((entry) => entry.id === "older-service"); }
+const acceptedOlder = regressionBikeFrom(ok(await call("/api/sync", { token: ownerToken })));
+assert.equal(acceptedOlder.lastServiceKm, 10000);
+assert.equal(acceptedOlder.currentKm, 12000);
+assert.equal(acceptedOlder.nextServiceKm, 13000);
+assert.equal(acceptedOlder.history.find((entry) => entry.id === "older-service").km, 9000);
+const duplicateQrUrl = "https://einvoice.impact.gr/p/EL099902715/EXISTING-INVOICE";
+async function addInvoice(index, entryId = "older-service") {
+  const form = new FormData();
+  form.append("bikeId", regressionBike.id);
+  form.append("entryId", entryId);
+  if (index === 0) form.append("qrValue", duplicateQrUrl);
+  form.append("file", new Blob(["%PDF-1.4\n" + index + "\n%%EOF"], { type: "application/pdf" }), "invoice.pdf");
+  return callRaw("/api/service-documents", { method: "POST", token: ownerToken, body: form });
+}
+const parallelInvoices = await Promise.all([addInvoice(0), addInvoice(1)]);
+const invoiceAttachments = parallelInvoices.map((result) => ok(result, 201, "parallel invoice upload").attachment);
+let multiFleet = ok(await call("/api/sync", { token: ownerToken }));
+assert.equal(olderEntryFrom(multiFleet).attachments.length, 2, "Parallel uploads must preserve both references.");
+assert.equal(new Set(olderEntryFrom(multiFleet).attachments.map((file) => file.name)).size, 2);
+const invoiceReviewed = ok(await call("/api/admin/service-documents/review", {
+  method: "POST", token: ownerToken,
+  body: { bikeId: regressionBike.id, entryId: "older-service", key: invoiceAttachments[0].key,
+    invoiceData: { plate: "BTO-756", odometerKm: "9000", invoiceNumber: "FIRST-INVOICE", totalAmount: "30,00" }, tasks: ["Γενικός έλεγχος"] }
+}));
+assert.equal(invoiceReviewed.document.warnings.some((item) => item.type === "plate"), false,
+  "BTO-756 and Greek ΒΤΟ 756 must match.");
+const realMismatch = ok(await call("/api/admin/service-documents/review", {
+  method: "POST", token: ownerToken,
+  body: { bikeId: regressionBike.id, entryId: "older-service", key: invoiceAttachments[1].key,
+    invoiceData: { plate: "BTO-757", odometerKm: "9100", invoiceNumber: "SECOND-INVOICE" }, tasks: ["Γενικός έλεγχος"] }
+}));
+assert.ok(realMismatch.document.warnings.some((item) => item.type === "plate"));
+assert.ok(realMismatch.document.warnings.some((item) => item.type === "odometer"));
+assert.equal(realMismatch.document.invoiceData.totalAmount, undefined,
+  "A second invoice must not inherit the first invoice's amount.");
+const blankInvoice = ok(await addInvoice(2), 201).attachment;
+const perInvoiceRecords = ok(await call("/api/admin/service-documents", { token: ownerToken })).documents;
+assert.equal(perInvoiceRecords.find((item) => item.key === blankInvoice.key).invoiceData.invoiceNumber, undefined);
+assert.equal(perInvoiceRecords.find((item) => item.key === invoiceAttachments[0].key).invoiceData.invoiceNumber, "FIRST-INVOICE");
+for (let index = 3; index < 10; index += 1) ok(await addInvoice(index), 201, "additional invoice upload");
+multiFleet = ok(await call("/api/sync", { token: ownerToken }));
+const tenInvoices = olderEntryFrom(multiFleet).attachments;
+assert.equal(tenInvoices.length, 10);
+const existingKeys = tenInvoices.map((item) => item.key);
+assert.equal(new Set(tenInvoices.map((item) => item.name)).size, 10);
+for (let index = 0; index < invoiceAttachments.length; index += 1) {
+  const file = await callRaw("/api/service-documents/" + invoiceAttachments[index].key.split("/").map(encodeURIComponent).join("/"), { token: ownerToken });
+  assert.equal(file.status, 200);
+  assert.equal(new TextDecoder().decode(file.bytes), "%PDF-1.4\n" + index + "\n%%EOF");
+}
+const objectCount = releases.objects.size;
+ok(await addInvoice(10), 409, "eleventh invoice must be rejected");
+ok(await addInvoice(11, "missing-service"), 404, "missing service must not leave an orphan");
+assert.equal(releases.objects.size, objectCount);
+const fullQrRejected = await call("/api/service-documents/import-qr", {
+  method: "POST", token: ownerToken,
+  body: { bikeId: regressionBike.id, entryId: "older-service", value: duplicateQrUrl + "-NEW" }
+});
+ok(fullQrRejected, 409, "new QR on full service must be rejected");
+const duplicateFull = ok(await call("/api/service-documents/import-qr", {
+  method: "POST", token: ownerToken,
+  body: { bikeId: regressionBike.id, entryId: "older-service", value: duplicateQrUrl }
+}), 200, "existing QR on full service must remain accessible");
+assert.equal(duplicateFull.duplicate, true);
+ok(await call("/api/admin/service-documents/review", {
+  method: "POST", token: ownerToken,
+  body: { bikeId: "bike-1", entryId: invoiceEntry.id, key: renderedInvoice.attachment.key,
+    moveToBikeId: regressionBike.id, moveToEntryId: "older-service", invoiceData: { plate: "BTO-756" } }
+}), 409, "moving to a full service must preserve both services' attachments");
+assert.deepEqual(olderEntryFrom(ok(await call("/api/sync", { token: ownerToken }))).attachments.map((item) => item.key), existingKeys);
+
+const qrJobs = [];
+for (const suffix of ["QR-A", "QR-B"]) {
+  const value = "https://einvoice.impact.gr/p/EL099902715/" + suffix;
+  const job = ok(await call("/api/service-documents/import-qr", { method: "POST", token: ownerToken,
+    body: { bikeId: regressionBike.id, entryId: "qr-service", value } }), 202);
+  qrJobs.push({ ...job, value });
+}
+const renderedBatch = await Promise.all(qrJobs.map((job) => callRaw(
+  "/api/server/service-documents/rendered?" + new URLSearchParams({ jobId: job.jobId,
+    bikeId: regressionBike.id, entryId: "qr-service", qrValue: job.value, qrUrl: job.value, name: "qr-invoice.pdf" }),
+  { method: "PUT", server: true, headers: { "Content-Type": "application/pdf" }, body: "%PDF-1.4\n%%EOF" }
+)));
+renderedBatch.forEach((result) => ok(result, 201, "parallel Server QR render upload"));
+const qrCompletedFleet = ok(await call("/api/sync", { token: ownerToken }));
+const qrCompletedEntry = regressionBikeFrom(qrCompletedFleet).history.find((entry) => entry.id === "qr-service");
+assert.equal(qrCompletedEntry.attachments.length, 2);
+assert.deepEqual(new Set(qrCompletedEntry.attachments.map((item) => item.qrUrl)), new Set(qrJobs.map((job) => job.value)));
+assert.deepEqual(olderEntryFrom(qrCompletedFleet).attachments.map((item) => item.key), existingKeys);
+console.log("OK service API regressions: historical km, parallel invoices/QR, per-invoice data, plate matching, 10-file limit and existing-file preservation");
+
+const uploaded = ok(await call("/api/admin/releases/client", {
+  method: "PUT",
+  server: true,
+  headers: { "X-Release-Version": "simulation-5.22", "X-Release-Notes": "simulation" },
+  body: "not-an-apk"
+}), 200, "server uploads client release");
+assert.equal(uploaded.uploaded, true);
+const update = ok(await call("/api/client-update"), 200, "public client update metadata");
+assert.equal(update.available, true);
+assert.equal(update.version, "simulation-5.22");
+const downloaded = await call("/download/client.apk");
+assert.equal(downloaded.status, 200, "public client download");
+
+const status = ok(await call("/api/status"), 200, "public status");
+assert.equal(status.databaseOk, true);
+assert.equal(status.storageOk, true);
+assert.equal(status.users >= 4, true);
+const malformedAsset = await call("/bad%2");
+assert.notEqual(malformedAsset.status, 500, "malformed asset encoding must not crash the Worker");
+
+console.log("OK admin simulations: auth, fleet, permanent assignment, schedule conflicts, draft/publish, coverage, own-vehicle clock, payroll, overtime approval, server health and client update");

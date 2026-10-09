@@ -1,0 +1,51 @@
+FLEET CONTROL 5.28 — ΕΓΚΑΤΑΣΤΑΣΗ
+
+Νέα αρχεία:
+  Fleet_Control_Client_v5.28.apk
+  Fleet_Control_Server_v2.0.6.apk
+  Fleet_Control_Web_Assets_v5.28.zip
+  Fleet_Control_Web_Worker_Update_v5.28.zip
+
+1. CLOUDFLARE WORKER
+
+Κράτησε το δικό σου υπάρχον wrangler.jsonc, ειδικά το πραγματικό D1 database_id.
+Αντέγραψε από το Worker update μόνο:
+  src\
+  public\
+  package.json
+
+Στον φάκελο cloudflare-worker εκτέλεσε:
+  npm install
+  npm run deploy
+
+Πρέπει να εμφανίζονται τα bindings:
+  env.DB
+  env.RELEASES
+  env.SERVICE_DOCS
+  env.AI
+  env.ASSETS
+
+2. SERVER APK
+
+Εγκατέστησε πρώτα το Fleet_Control_Server_v2.0.6.apk πάνω από την προηγούμενη έκδοση.
+Το Server πρέπει να παραμένει ενεργό και online για να μετατρέπει τα δυναμικά QR τιμολόγια σε PDF.
+
+3. CLIENT APK
+
+Ανέβασε το Fleet_Control_Client_v5.28.apk από την επιλογή Ενημερώσεις του Server APK
+ή εγκατέστησέ το χειροκίνητα. Η εσωτερική ενημέρωση εμφανίζεται μόνο όταν βρεθεί
+νεότερη έκδοση.
+
+4. ΝΕΑ ΡΟΗ QR
+
+Ο admin σκανάρει το QR μέσα σε νέο ή παλιό service.
+Ο Worker στέλνει εργασία στον Server.
+Ο Server ανοίγει τη σελίδα, δημιουργεί PDF, το αποθηκεύει τοπικά και το ανεβάζει
+στο ιδιωτικό R2. Μετά γίνεται OCR και τα στοιχεία εμφανίζονται για επιβεβαίωση.
+
+5. ΙΣΤΟΡΙΚΟ
+
+Άνοιξε Μηχανάκια → μηχανάκι → Πλήρες ιστορικό.
+Το ιστορικό δείχνει τις εργασίες του τιμολογίου, το QR και κουμπιά Άνοιγμα PDF /
+Λήψη PDF. Η επιλογή Εκτύπωση / PDF δημιουργεί την αναφορά. Το Back στο APK
+επιστρέφει στην προηγούμενη οθόνη.

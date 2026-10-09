@@ -1,0 +1,22 @@
+FLEET CONTROL — ΟΔΗΓΙΕΣ ΕΝΗΜΕΡΩΣΗΣ 5.31
+
+1. Κράτησε αντίγραφο του υπάρχοντος φακέλου cloudflare-worker.
+2. Αντέγραψε από το update τα `src/`, `public/`, `package.json` και `package-lock.json` στον υπάρχοντα Worker.
+3. Μην αντικαταστήσεις τυφλά το `wrangler.jsonc`. Κράτησε το δικό σου D1 ID και τα bindings `DB`, `RELEASES`, `SERVICE_DOCS`, `AI`, `ASSETS`.
+4. Άνοιξε CMD:
+
+   cd C:\Users\User\Downloads\Fleet_Control_Cloudflare_v5.0\cloudflare-worker
+   npm install
+   npm run deploy
+
+5. Έλεγξε ότι το deploy εμφανίζει τα `env.DB`, `env.RELEASES`, `env.SERVICE_DOCS`, `env.AI` και `env.ASSETS`.
+6. Άνοιξε το `/api/status` και έλεγξε `databaseOk: true`, `storageOk: true` και `fleetControlOk: true`.
+7. Από το Server APK ανέβασε στο «Ενημερώσεις» το `Fleet_Control_Client_v5.31.apk`.
+
+Η έκδοση 5.31 προσθέτει την καρτέλα ελέγχου τιμολογίων, επιβεβαίωση OCR, ονομασία PDF με πινακίδα/ημερομηνία, bullets εργασιών, κόστος ανά service και νέα μορφοποίηση εκτύπωσης.
+
+Το Server APK δεν χρειάζεται αντικατάσταση για αυτή την έκδοση. Συνεχίζει να λαμβάνει τις εργασίες QR, να δημιουργεί PDF από τη σελίδα της Impact και να το ανεβάζει στο ιδιωτικό R2.
+
+Αν το bucket τιμολογίων δεν υπάρχει ακόμη, εκτέλεσε μόνο μία φορά:
+
+   npx wrangler r2 bucket create fleet-control-service-documents

@@ -1,0 +1,58 @@
+FLEET CONTROL — ΟΔΗΓΙΕΣ ΕΝΗΜΕΡΩΣΗΣ 5.33 / SERVER 2.0.8
+
+1. Κάνε χειροκίνητο backup από το Server APK.
+
+2. Εγκατάστησε πάνω από την προηγούμενη έκδοση:
+
+   `Fleet_Control_Server_v2.0.8.apk`
+
+3. Στον υπολογιστή άνοιξε τον υπάρχοντα φάκελο Worker:
+
+   `C:\Users\User\Downloads\Fleet_Control_Cloudflare_v5.0\cloudflare-worker`
+
+   Κράτησε το υπάρχον `wrangler.jsonc`. Αντέγραψε από το update τα `src`, `public`, `package.json`, `package-lock.json` και τις οδηγίες. Το update ZIP δεν περιέχει `wrangler.jsonc` επίτηδες.
+
+4. Έλεγξε ότι το υπάρχον `wrangler.jsonc` κρατά τα πραγματικά bindings:
+
+   - `DB` → `fleet-control-db`
+   - `RELEASES` → `fleet-control-releases`
+   - `SERVICE_DOCS` → `fleet-control-service-documents`
+   - `AI` → Workers AI
+   - `ASSETS` → assets
+
+5. Εκτέλεσε:
+
+   `npm install`
+
+   Αν εμφανιστεί blocked install script:
+
+   `npm install-scripts approve esbuild workerd`
+
+   και ξανά `npm install`.
+
+6. Έλεγξε πριν το deploy:
+
+   `npm audit`
+
+   και μετά κάνε deploy:
+
+   `npm run deploy`
+
+7. Επιβεβαίωσε ότι εμφανίζονται τα bindings `env.DB`, `env.RELEASES`, `env.SERVICE_DOCS`, `env.AI`, `env.ASSETS` και έλεγξε:
+
+   `https://fleet-control.pavlosargyris.workers.dev/api/status`
+
+8. Στην καρτέλα «Ενημερώσεις» του Server APK ανέβασε:
+
+   - `Fleet_Control_Client_v5.33.apk`
+   - `Fleet_Control_Web_Assets_v5.33.zip`
+
+   Το `Fleet_Control_Web_Worker_Update_v5.33.zip` είναι για χειροκίνητο Worker deploy και δεν ανεβαίνει στο πεδίο Web του Server APK.
+
+9. Δοκιμή QR:
+
+   - σκάναρε QR σε ένα service,
+   - κλείσε το παράθυρο και άνοιξε ξανά το ιστορικό,
+   - έλεγξε τον κινούμενο κύκλο,
+   - περίμενε το PDF ή χρησιμοποίησε «Επανάληψη» αν εμφανιστεί σφάλμα,
+   - άνοιξε την καρτέλα «Τιμολόγια service» και επιβεβαίωσε ότι το `ΝΕΟ` εξαφανίζεται όταν ανοίξεις την κάρτα.

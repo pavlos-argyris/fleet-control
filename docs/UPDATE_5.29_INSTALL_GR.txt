@@ -1,0 +1,44 @@
+FLEET CONTROL 5.29 — ΕΓΚΑΤΑΣΤΑΣΗ
+
+ΠΕΡΙΕΧΟΜΕΝΑ
+- Fleet_Control_Client_v5.29.apk
+- Fleet_Control_Web_Assets_v5.29.zip
+- Fleet_Control_Web_Worker_Update_v5.29.zip
+
+1. CLIENT APK
+
+Από το Server APK άνοιξε «Ενημερώσεις» και ανέβασε το:
+Fleet_Control_Client_v5.29.apk
+
+Μετά άνοιξε το Fleet Control Client και αποδέξου το prompt ενημέρωσης. Η εγκατάσταση γίνεται πάνω από την υπάρχουσα έκδοση· μην απεγκαταστήσεις την παλιά εφαρμογή.
+
+2. WEB ASSETS
+
+Αν χρησιμοποιείς τη Web έκδοση μέσω του Cloudflare Worker, ανέβασε το:
+Fleet_Control_Web_Assets_v5.29.zip
+
+Χρησιμοποίησε τη διαδικασία «Ενημέρωση Web» του Server APK, αν είναι διαθέσιμη.
+
+3. CLOUDFLARE WORKER
+
+Στον φάκελο cloudflare-worker του Worker Update:
+
+  npm install
+  npm run deploy
+
+Μην αντικαταστήσεις τυφλά το δικό σου wrangler.jsonc. Κράτησε το πραγματικό database_id και τα υπάρχοντα bindings. Πρέπει να παραμένουν τα `DB`, `RELEASES`, `SERVICE_DOCS`, `AI` και `ASSETS`.
+
+4. ΕΛΕΓΧΟΣ
+
+Άνοιξε:
+https://fleet-control.pavlosargyris.workers.dev/api/status
+
+Έλεγξε ότι databaseOk, storageOk και fleetControlOk είναι true.
+
+5. ΤΙ ΝΑ ΔΟΚΙΜΑΣΕΙΣ
+
+- Σκάναρε ένα QR σε service και περίμενε να ολοκληρωθεί η δημιουργία PDF. Στο ιστορικό πρέπει να εμφανίζεται το QR και το PDF.
+- Πάτησε Άνοιγμα PDF, Λήψη PDF και Εκτύπωση / PDF από το Client APK.
+- Έλεγξε ότι ο προμηθευτής του τιμολογίου εμφανίζεται αντί για «Συνεργείο».
+- Έλεγξε ότι το πιο κοντινό service εμφανίζεται πρώτο.
+- Άφησε ένα μηχανάκι χωρίς έλεγχο χιλιομέτρων για 7 ημέρες ή χρησιμοποίησε παλιό ιστορικό για να εμφανιστεί η ειδοποίηση.

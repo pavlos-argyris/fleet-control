@@ -1,0 +1,47 @@
+FLEET CONTROL 5.27 — ΕΓΚΑΤΑΣΤΑΣΗ
+
+Περιλαμβάνονται:
+
+  Fleet_Control_Client_v5.27.apk
+  Fleet_Control_Web_Assets_v5.27.zip
+  Fleet_Control_Web_Worker_Update_v5.27.zip
+
+1. Cloudflare Worker
+
+Κράτησε το δικό σου υπάρχον wrangler.jsonc με το πραγματικό D1 Database ID και τα bindings.
+Αντικατάστησε μόνο τα περιεχόμενα των φακέλων src και public και το package.json.
+Μην αντικαταστήσεις τυφλά το wrangler.jsonc.
+
+Στον φάκελο cloudflare-worker εκτέλεσε:
+
+  npm install
+  npm run deploy
+
+Στο τέλος πρέπει να εμφανίζονται τα bindings:
+
+  env.DB
+  env.RELEASES
+  env.SERVICE_DOCS
+  env.AI
+  env.ASSETS
+
+2. Web έκδοση
+
+Από το Fleet_Control_Web_Assets_v5.27.zip ανέβασε από την επιλογή Web ενημέρωση του Server APK όλα τα περιεχόμενα του ZIP.
+
+3. Client APK
+
+Από την επιλογή Ενημερώσεις του Server APK ανέβασε το:
+
+  Fleet_Control_Client_v5.27.apk
+
+Μετά κάνε ενεργοποίηση της έκδοσης, αν το Server APK το ζητήσει. Οι χρήστες θα λάβουν το εσωτερικό prompt ενημέρωσης.
+
+4. Χρήση τιμολογίου
+
+Στο service:
+
+  - «Σκάναρε QR»: ανοίγει την κάμερα και προσπαθεί να κατεβάσει PDF.
+  - «Φωτογραφία ή PDF»: η υπάρχουσα χειροκίνητη λύση.
+
+Αν το QR δεν επιστρέψει διαθέσιμο PDF, χρησιμοποίησε τη φωτογραφία ή το PDF. Το αρχείο αποθηκεύεται στο ιδιωτικό R2 και συγχρονίζεται στο Server APK.

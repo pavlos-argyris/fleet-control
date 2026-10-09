@@ -1,0 +1,17 @@
+{
+  "name": "fleet-control-cloudflare",
+  "version": "5.0.42",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:apply": "wrangler d1 migrations apply fleet-control-db --remote"
+  },
+  "overrides": {
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "wrangler": "^4.148.0"
+  }
+}

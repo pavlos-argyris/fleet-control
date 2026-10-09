@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="Fleet Control — στόλος, εργαζόμενοι, βάρδιες και μισθοδοσία.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fleet Control">
+  <title>Fleet Control</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./portal.css?v=5.36.7">
+</head>
+<body>
+  <div id="bootScreen" class="boot-screen">
+    <div class="boot-mark"><span>FC</span><i></i></div>
+    <strong>Fleet Control</strong>
+    <small>Ασφαλής σύνδεση…</small>
+  </div>
+
+  <main id="authScreen" class="auth-screen is-hidden">
+    <section class="auth-visual">
+      <div class="auth-brand"><span class="brand-mark"><b>FC</b><i></i></span><span><strong>Fleet Control</strong><small>Operations Suite</small></span></div>
+      <div class="moto-orbit" aria-hidden="true">
+        <span class="orbit one"></span><span class="orbit two"></span>
+        <svg viewBox="0 0 180 105"><path d="M28 77h22l15-38h43l19 38h22M42 77a20 20 0 1 0 0 .1M136 77a20 20 0 1 0 0 .1M65 39l13-19h25l13 19M115 24h26M81 39l-9 38m36-38 13 38"/></svg>
+      </div>
+      <div class="auth-message"><span>ΕΝΑ ΣΥΣΤΗΜΑ</span><h1>Στόλος και ομάδα<br>σε απόλυτο έλεγχο.</h1><p>Βάρδιες, μηχανάκια, χιλιόμετρα και μισθοδοσία με κοινή ασφαλή βάση.</p></div>
+      <div class="auth-pills"><span>● Server online</span><span>● Αυτόματο backup</span><span>● Audit Log</span></div>
+    </section>
+
+    <section class="auth-panel">
+      <form id="loginForm" class="auth-card" novalidate>
+        <div class="mobile-brand"><span class="brand-mark small"><b>FC</b><i></i></span><span><strong>Fleet Control</strong><small>Operations Suite</small></span></div>
+        <div class="auth-entry-head">
+          <span><span class="overline">ΚΑΛΩΣ ΗΡΘΕΣ</span><strong>Μπες στο Fleet Control</strong><small>Συνδέσου με τον προσωπικό σου λογαριασμό.</small></span>
+          <span class="public-download-badge"><i></i> Ασφαλής πρόσβαση</span>
+        </div>
+        <h2 class="login-title">Σύνδεση</h2>
+        <p>Η σύνδεση χρειάζεται μόνο για να δεις τα δεδομένα του στόλου.</p>
+        <label class="field"><span>Username ή email</span><input id="loginUsername" type="text" autocomplete="username" autocapitalize="none" required></label>
+        <label class="field"><span>Κωδικός</span><span class="password-field"><input id="loginPassword" type="password" autocomplete="current-password" required><button type="button" data-toggle-password="loginPassword" aria-label="Εμφάνιση κωδικού">◉</button></span></label>
+        <label class="remember-row"><input id="rememberDevice" type="checkbox" checked><span><strong>Να θυμάσαι αυτή τη συσκευή</strong><small>Ανανεούμενη ασφαλής σύνδεση 30 ημερών. Δεν αποθηκεύεται ο κωδικός σου.</small></span></label>
+        <p id="loginError" class="form-error" role="alert"></p>
+        <button id="loginButton" class="primary-button large" type="submit"><span>Σύνδεση</span><b>→</b></button>
+        <button id="showBootstrap" class="text-button is-hidden" type="button">Αρχική δημιουργία Owner</button>
+        <div class="auth-login-separator"><span>ΕΦΑΡΜΟΓΕΣ ΧΩΡΙΣ ΣΥΝΔΕΣΗ</span></div>
+        <div class="platform-downloads" aria-label="Επιλογές εφαρμογής">
+          <button id="loginAndroidDownload" class="platform-card android-card" type="button">
+            <span class="platform-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m-4-4 4 4 4-4M5 19h14"/></svg></span>
+            <span class="platform-copy"><small>ANDROID</small><strong>Λήψη εφαρμογής</strong><em>Τελευταίο APK</em></span><i class="platform-arrow">→</i>
+          </button>
+          <button id="loginIosGuide" class="platform-card ios-card" type="button">
+            <span class="platform-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10 5h4m-3 13.5h2"/></svg></span>
+            <span class="platform-copy"><small>iPHONE / iPAD</small><strong>Εγκατάσταση Web App</strong><em>Εικονίδιο στην Αφετηρία</em></span><i class="platform-arrow">→</i>
+          </button>
+        </div>
+        <p class="download-note"><span>✓</span> Οι λήψεις είναι διαθέσιμες χωρίς λογαριασμό.</p>
+      </form>
+
+      <form id="bootstrapForm" class="auth-card is-hidden" novalidate>
+        <button id="backToLogin" class="back-link" type="button">← Πίσω</button>
+        <span class="overline">ΠΡΩΤΗ ΡΥΘΜΙΣΗ</span>
+        <h2>Δημιουργία Owner</h2>
+        <p>Χρειάζεται το PIN που έχεις ορίσει στην εφαρμογή Server.</p>
+        <label class="field"><span>Ονοματεπώνυμο</span><input id="bootstrapName" type="text" autocomplete="name" required></label>
+        <label class="field"><span>Username</span><input id="bootstrapUsername" type="text" autocomplete="username" autocapitalize="none" required></label>
+        <label class="field"><span>Email (προαιρετικό)</span><input id="bootstrapEmail" type="email" autocomplete="email"></label>
+        <label class="field"><span>Κωδικός (τουλάχιστον 8 χαρακτήρες)</span><input id="bootstrapPassword" type="password" autocomplete="new-password" required></label>
+        <label class="field"><span>Admin PIN</span><input id="bootstrapPin" class="pin-field" type="password" inputmode="numeric" maxlength="6" autocomplete="off" required></label>
+        <p id="bootstrapError" class="form-error" role="alert"></p>
+        <button id="bootstrapButton" class="primary-button large" type="submit"><span>Δημιουργία ασφαλούς λογαριασμού</span><b>→</b></button>
+      </form>
+    </section>
+  </main>
+
+  <div id="portal" class="portal is-hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand"><span class="brand-mark small"><b>FC</b><i></i></span><span><strong>Fleet Control</strong><small>Operations Suite</small></span></div>
+      <nav id="sideNav" class="side-nav" aria-label="Κύριο μενού"></nav>
+      <div class="sidebar-foot">
+        <div id="serverMini" class="server-mini"><i></i><span><strong>Server</strong><small>Έλεγχος…</small></span></div>
+        <button id="logoutButton" class="logout-button" type="button">Αποσύνδεση</button>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="app-header">
+        <button id="menuButton" class="icon-button menu-button" type="button" aria-label="Μενού">☰</button>
+        <div><span id="pageOverline" class="overline">FLEET CONTROL</span><h1 id="pageTitle">Αρχική</h1></div>
+        <div class="header-actions">
+          <button id="notificationButton" class="icon-button notification-button is-hidden" type="button" aria-label="Ειδοποιήσεις" aria-hidden="true"><span>!</span><b id="notificationCount" class="is-hidden">0</b></button>
+          <button id="profileButton" class="profile-chip" type="button"><span id="profileInitials">FC</span><span><strong id="profileName">—</strong><small id="profileRole">—</small></span></button>
+        </div>
+      </header>
+
+      <main id="content" class="content">
+        <section id="viewDashboard" class="app-view" data-view="dashboard">
+          <div id="dashboardHero" class="dashboard-hero"></div>
+          <div id="actionSection" class="action-section"></div>
+          <div id="dashboardMetrics" class="metric-grid"></div>
+          <div class="dashboard-columns">
+            <section class="panel"><div class="panel-heading"><span><small>LIVE</small><h2>Ενεργές βάρδιες</h2></span><button class="link-button" data-go="shifts" type="button">Όλες →</button></div><div id="realtimeShifts" class="data-list"></div></section>
+            <section class="panel"><div class="panel-heading"><span><small>ΣΗΜΕΡΑ</small><h2>Ημερήσιο πρόγραμμα</h2></span><button class="link-button" data-go="schedules" type="button">Πρόγραμμα →</button></div><div id="dailySchedule" class="data-list"></div></section>
+          </div>
+          <section class="panel coverage-panel">
+            <div class="panel-heading coverage-heading"><span><small>PLANNED VS ACTUAL</small><h2>Κάλυψη προσωπικού ανά μισάωρο</h2></span><div class="coverage-controls"><input id="coverageWeek" type="date" aria-label="Εβδομάδα κάλυψης"><button id="refreshCoverage" class="secondary-button" type="button">Ανανέωση</button></div></div>
+            <div id="coverageSummary" class="coverage-summary"></div>
+            <div id="coverageDays" class="coverage-days" role="tablist" aria-label="Ημέρες εβδομάδας"></div>
+            <div id="coverageTimeline" class="coverage-timeline"></div>
+          </section>
+        </section>
+
+        <section id="viewEmployeeHome" class="app-view is-hidden" data-view="employee-home">
+          <div id="employeeHome"></div>
+        </section>
+
+        <section id="viewShifts" class="app-view is-hidden" data-view="shifts">
+          <div class="section-toolbar"><div><span class="overline">ΠΡΑΓΜΑΤΙΚΟΣ ΧΡΟΝΟΣ</span><h2>Βάρδιες</h2></div><div class="toolbar-filters"><input id="shiftFrom" type="date"><input id="shiftTo" type="date"><select id="shiftStatus"><option value="">Όλες</option><option value="active">Ενεργές</option><option value="completed">Ολοκληρωμένες</option><option value="pending_overtime">Υπερωρία</option><option value="pending_km">Εκκρεμή χλμ.</option></select><button id="manualClockInButton" class="primary-button" type="button">Χειροκίνητο Clock In</button><button id="refreshShifts" class="secondary-button" type="button">Ανανέωση</button></div></div>
+          <section class="panel table-panel"><div id="shiftsTable" class="responsive-table"></div></section>
+        </section>
+
+        <section id="viewSchedules" class="app-view is-hidden" data-view="schedules">
+          <div class="section-toolbar schedule-main-toolbar">
+            <div><span class="overline">ΕΒΔΟΜΑΔΙΑΙΟΣ ΠΡΟΓΡΑΜΜΑΤΙΣΜΟΣ</span><h2>Πρόγραμμα προσωπικού</h2><p>Βάρδιες και μηχανάκια σε έναν κοινό εβδομαδιαίο πίνακα.</p></div>
+            <div class="schedule-toolbar-actions">
+              <button id="scheduleTemplatesButton" class="secondary-button" type="button">Πρότυπα βαρδιών</button>
+              <button id="scheduleCopyButton" class="secondary-button" type="button">Αντιγραφή προηγούμενης</button>
+              <button id="scheduleImportButton" class="secondary-button" type="button">Εισαγωγή Excel</button>
+              <button id="schedulePublishButton" class="primary-button" type="button">Δημοσίευση</button>
+              <button id="schedulePdfButton" class="secondary-button pdf-button" type="button">↓ Λήψη PDF</button>
+              <button id="newScheduleButton" class="primary-button" type="button">+ Καταχώρηση</button>
+            </div>
+          </div>
+          <section class="panel roster-panel">
+            <div class="week-navigator">
+              <button id="previousScheduleWeek" class="week-arrow" type="button" aria-label="Προηγούμενη εβδομάδα">←</button>
+              <label><span>Εβδομάδα</span><input id="scheduleWeekDate" type="date"></label>
+              <button id="nextScheduleWeek" class="week-arrow" type="button" aria-label="Επόμενη εβδομάδα">→</button>
+              <button id="currentScheduleWeek" class="ghost-button" type="button">Τρέχουσα εβδομάδα</button>
+              <span id="scheduleWeekRange" class="week-range">—</span>
+            </div>
+            <div id="scheduleSummary" class="roster-summary"></div>
+            <div id="schedulePublicationStatus" class="schedule-publication-status is-hidden"></div>
+            <div id="scheduleConflictNotice" class="schedule-conflict-notice is-hidden"></div>
+            <div id="scheduleList" class="week-roster"></div>
+          </section>
+        </section>
+
+        <section id="viewEmployees" class="app-view is-hidden" data-view="employees">
+          <div class="section-toolbar"><div><span class="overline">ΟΜΑΔΑ</span><h2>Εργαζόμενοι</h2></div><button id="newEmployeeButton" class="primary-button" type="button">+ Νέος εργαζόμενος</button></div>
+          <div id="employeeStats" class="metric-grid compact"></div>
+          <div id="employeeList" class="employee-grid"></div>
+        </section>
+
+        <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
+          <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
+            <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.36.7" title="Fleet Control — διαχείριση στόλου"></iframe>
+          </div>
+          <details class="fleet-availability-panel fleet-availability-bottom">
+            <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
+            <div id="fleetQuickStats" class="metric-grid compact"></div>
+            <section class="panel"><div id="fleetStatusList" class="data-list"></div></section>
+          </details>
+        </section>
+
+        <section id="viewInvoices" class="app-view is-hidden" data-view="invoices">
+          <div class="section-toolbar invoice-section-toolbar">
+            <div><span class="overline">ΕΛΕΓΧΟΣ ΤΙΜΟΛΟΓΙΩΝ</span><h2>Τιμολόγια service</h2><p>Τα QR που ολοκληρώθηκαν στον Server και τα αρχεία που χρειάζονται επιβεβαίωση.</p></div>
+            <div class="toolbar-filters"><select id="invoiceStatusFilter" aria-label="Φίλτρο τιμολογίων"><option value="">Όλα</option><option value="new">Νέα</option><option value="processing">Σε επεξεργασία</option><option value="needs_review">Προς έλεγχο</option><option value="warning">Με προειδοποίηση</option><option value="confirmed">Ολοκληρωμένα</option><option value="error">Με σφάλμα</option></select><select id="invoicePlateFilter" aria-label="Ομαδοποίηση ανά πινακίδα"><option value="">Όλες οι πινακίδες</option></select><button id="reprocessInvoices" class="secondary-button invoice-reprocess-all-button" type="button">↻ Νέα ανάγνωση όλων</button><button id="refreshInvoices" class="secondary-button" type="button">Ανανέωση</button></div>
+          </div>
+          <div id="invoiceBulkProgress" class="invoice-bulk-progress is-hidden" aria-live="polite" aria-busy="false">
+            <div class="invoice-bulk-progress-ring" style="--progress:0" aria-label="0%">
+              <canvas class="invoice-progress-canvas invoice-bulk-progress-canvas" data-wiggly-progress data-progress="0" data-status="processing" width="124" height="124" aria-hidden="true"></canvas>
+              <strong>0%</strong>
+            </div>
+            <div class="invoice-bulk-progress-copy"><strong id="invoiceBulkProgressTitle">Έτοιμο</strong><span id="invoiceBulkProgressDetail"></span><small id="invoiceBulkProgressStatus"></small></div>
+          </div>
+          <div id="invoiceQueueSummary" class="invoice-queue-summary"></div>
+          <section class="panel invoice-queue-panel"><div id="invoiceQueueList" class="invoice-queue-list"></div></section>
+        </section>
+
+        <section id="viewPayroll" class="app-view is-hidden" data-view="payroll">
+          <div class="section-toolbar"><div><span class="overline">ΔΕΥΤΕΡΑ – ΚΥΡΙΑΚΗ</span><h2>Μισθοδοσία</h2></div><div class="toolbar-filters"><input id="payrollStart" type="date"><button id="loadPayroll" class="secondary-button" type="button">Προβολή</button><button id="payrollLockButton" class="primary-button" type="button">Κλείδωμα</button></div></div>
+          <div id="payrollSummaryCards" class="metric-grid"></div>
+          <section class="panel table-panel"><div id="payrollTable" class="responsive-table"></div></section>
+          <div class="two-column-actions"><button id="newAdjustmentButton" class="secondary-button" type="button">+ Bonus / κράτηση / προκαταβολή</button><button id="ruleSimulatorButton" class="secondary-button" type="button">Προσομοιωτής κανόνα</button><button id="payRulesButton" class="secondary-button" type="button">Κανόνες πληρωμής</button><button id="specialAssignmentsButton" class="secondary-button" type="button">Χειροκίνητες ειδικές ζώνες</button></div>
+        </section>
+
+        <section id="viewReports" class="app-view is-hidden" data-view="reports">
+          <div class="section-toolbar"><div><span class="overline">ΑΝΑΛΥΣΗ</span><h2>Αναφορές</h2></div></div>
+          <section class="panel report-builder"><div class="report-types" id="reportTypes"><button class="active" data-report="shifts" type="button">Βάρδιες</button><button data-report="mileage" type="button">Χιλιόμετρα</button><button data-report="service" type="button">Service</button><button data-report="payroll" type="button">Μισθοδοσία</button></div><div class="report-filters"><label><span>Από</span><input id="reportFrom" type="date"></label><label><span>Έως</span><input id="reportTo" type="date"></label><label><span>Εργαζόμενος</span><select id="reportEmployee"><option value="">Όλοι</option></select></label><label><span>Μηχανάκι</span><select id="reportVehicle"><option value="">Όλα</option></select></label><label><span>Εργασία service</span><input id="reportServiceTask" type="search" placeholder="π.χ. λάδια"></label><label><span>Συνεργείο</span><input id="reportWorkshop" type="search" placeholder="Όλα"></label><button id="runReport" class="primary-button" type="button">Δημιουργία</button></div></section>
+          <section id="reportResultPanel" class="panel table-panel is-hidden"><div class="panel-heading"><h2>Αποτελέσματα</h2><div><button id="reportPdf" class="secondary-button" type="button">PDF</button><button id="reportExcel" class="secondary-button" type="button">Excel / CSV</button></div></div><div id="reportResult" class="responsive-table"></div></section>
+        </section>
+
+        <section id="viewAlerts" class="app-view is-hidden" data-view="alerts"><div class="section-toolbar"><div><span class="overline">ΧΡΕΙΑΖΕΤΑΙ ΕΝΕΡΓΕΙΑ</span><h2>Ειδοποιήσεις</h2></div><div class="toolbar-filters"><button id="mobileNotificationsButton" class="secondary-button" type="button">Ενεργοποίηση στο κινητό</button><button id="alertRulesButton" class="secondary-button" type="button">Ρυθμίσεις ειδοποιήσεων</button><button id="resolveAllAlerts" class="secondary-button is-hidden" type="button">Ολοκλήρωση όλων</button><button id="refreshAlerts" class="secondary-button" type="button">Ανανέωση</button></div></div><p id="mobileNotificationsStatus" class="notification-status"></p><div id="alertList" class="alert-list"></div></section>
+
+        <section id="viewAudit" class="app-view is-hidden" data-view="audit"><div class="section-toolbar"><div><span class="overline">ΑΜΕΤΑΒΛΗΤΟ ΙΣΤΟΡΙΚΟ</span><h2>Audit Log</h2></div><button id="refreshAudit" class="secondary-button" type="button">Ανανέωση</button></div><section class="panel table-panel"><div id="auditTable" class="responsive-table"></div></section></section>
+
+        <section id="viewRecycle" class="app-view is-hidden" data-view="recycle"><div class="section-toolbar"><div><span class="overline">ΑΣΦΑΛΗΣ ΑΝΑΚΤΗΣΗ</span><h2>Κάδος &amp; ιστορικό διαγραφών</h2><p>Ανάκτησε καταχώρηση service, έλεγχο χιλιομέτρων, βάρδια ή πρόγραμμα που διαγράφηκε κατά λάθος.</p></div><div class="toolbar-filters"><select id="recycleType"><option value="">Όλοι οι τύποι</option><option value="fleet_history">Service / χιλιόμετρα</option><option value="shift">Πραγματικές βάρδιες</option><option value="schedule_assignment">Πρόγραμμα</option></select><label class="compact-check"><input id="recycleShowRestored" type="checkbox"> Ανακτημένα</label><button id="refreshRecycle" class="secondary-button" type="button">Ανανέωση</button></div></div><div id="recycleSummary" class="recycle-summary"></div><div id="recycleList" class="recycle-list"></div></section>
+
+        <section id="viewServer" class="app-view is-hidden" data-view="server"><div class="section-toolbar"><div><span class="overline">ΥΓΕΙΑ ΣΥΣΤΗΜΑΤΟΣ</span><h2>Backup &amp; Server</h2></div></div><div id="serverWarnings" class="server-warnings is-hidden"></div><div id="serverHealth" class="health-grid"></div><section class="panel backup-panel"><div><span class="panel-icon">↥</span><span><h3>Αντίγραφο ασφαλείας</h3><p>Το αίτημα αποστέλλεται στην εφαρμογή Server και αποθηκεύεται στον επιλεγμένο φάκελο Google Drive.</p></span></div><button id="requestBackup" class="primary-button" type="button">Δημιουργία backup τώρα</button></section><section class="panel app-install-panel"><div><span class="panel-icon">↓</span><span><h3>Εφαρμογές Fleet Control</h3><p>Λήψη του Android APK ή οδηγίες εγκατάστασης της ασφαλούς web εφαρμογής σε iPhone και iPad.</p></span></div><div class="two-column-actions"><button id="portalDownloadApk" class="primary-button" type="button">Λήψη Android APK</button><button id="portalIosGuide" class="secondary-button" type="button">iPhone / Web App</button></div></section></section>
+
+        <section id="viewSettings" class="app-view is-hidden" data-view="settings"><div class="section-toolbar"><div><span class="overline">ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ</span><h2>Ρυθμίσεις &amp; Ασφάλεια</h2></div></div><form id="systemSettingsForm" class="panel settings-grid"><label><span>Clock In χωρίς πρόγραμμα</span><select id="noSchedulePolicy"><option value="block">Block</option><option value="allow_warning">Allow + προειδοποίηση</option><option value="allow_normal">Allow normally</option></select></label><label><span>Λήξη χωρίς «Να θυμάσαι»</span><select id="adminSessionDuration"><option value="never">Ποτέ</option><option value="5m">5 λεπτά</option><option value="15m">15 λεπτά</option><option value="30m">30 λεπτά</option><option value="1h">1 ώρα</option><option value="4h">4 ώρες</option></select></label><label><span>Safety fallback</span><select id="fallbackHour"><option value="5">05:00</option><option value="4">04:00</option><option value="6">06:00</option></select></label><label><span>Όριο ασυνήθιστης απόστασης (χλμ.)</span><input id="unusualDistanceKm" type="number" min="1" max="5000" inputmode="numeric"></label><button class="primary-button" type="submit">Αποθήκευση</button></form><section class="panel security-panel"><div><span class="panel-icon">⌾</span><span><h3>Admin PIN</h3><p>Δεύτερη επιβεβαίωση για οικονομικές και κρίσιμες αλλαγές.</p></span></div><button id="changeAdminPin" class="secondary-button" type="button">Αλλαγή PIN</button></section><section class="panel"><div class="panel-heading"><h2>Συνδεδεμένες συσκευές</h2><button id="refreshDevices" class="link-button" type="button">Ανανέωση</button></div><div id="deviceList" class="data-list"></div></section></section>
+      </main>
+    </div>
+
+    <nav id="bottomNav" class="bottom-nav" aria-label="Γρήγορη πλοήγηση"></nav>
+    <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+  </div>
+
+  <dialog id="dashboardDetailDialog" class="app-dialog wide-dialog dashboard-detail-dialog"><div class="dialog-body"><div class="dialog-head"><div><span class="overline">ΑΝΑΛΥΤΙΚΗ ΕΙΚΟΝΑ</span><h2 id="dashboardDetailTitle">—</h2></div><button type="button" data-close="dashboardDetailDialog">×</button></div><div id="dashboardDetailContent" class="dashboard-detail-content"></div><div class="dialog-actions"><button type="button" class="ghost-button" data-close="dashboardDetailDialog">Κλείσιμο</button><button id="dashboardDetailOpen" class="primary-button" type="button">Άνοιγμα διαχείρισης</button></div></div></dialog>
+
+  <dialog id="employeeDialog" class="app-dialog wide-dialog"><form id="employeeForm" method="dialog" novalidate><div class="dialog-head"><div><span class="overline">ΣΤΟΙΧΕΙΑ ΛΟΓΑΡΙΑΣΜΟΥ</span><h2 id="employeeDialogTitle">Νέος εργαζόμενος</h2></div><button type="button" data-close="employeeDialog">×</button></div><input id="employeeId" type="hidden"><div class="form-grid"><label class="field"><span>Ονοματεπώνυμο</span><input id="employeeName" type="text" required></label><label class="field"><span>Username</span><input id="employeeUsername" type="text" required></label><label class="field"><span>Email</span><input id="employeeEmail" type="email"></label><label class="field"><span>Τηλέφωνο</span><input id="employeePhone" type="tel"></label><label class="field"><span>Ρόλος</span><select id="employeeRole"><option value="employee">Employee</option><option value="fleet_manager">Fleet Manager</option><option value="payroll_manager">Payroll Manager</option><option value="manager">Manager</option><option value="owner">Owner / Super Admin</option></select></label><label class="field"><span>Ομάδα εργαζομένου</span><input id="employeeGroup" type="text" placeholder="π.χ. Βραδινή βάρδια"></label><label class="field"><span>Κανόνας πληρωμής</span><select id="employeePayRule"><option value="">Αυτόματη επιλογή βάσει προτεραιότητας</option></select></label><label class="field"><span>Ημερομηνία πρόσληψης</span><input id="employeeHireDate" type="date"></label><label id="employeePasswordWrap" class="field"><span>Αρχικός κωδικός</span><input id="employeePassword" type="password" minlength="8"></label><label class="field"><span>Ανατεθειμένο μηχανάκι</span><select id="employeeVehicle"><option value="">Χωρίς μόνιμη ανάθεση</option></select></label></div><label class="field"><span>Σημειώσεις</span><textarea id="employeeNotes" rows="3"></textarea></label><label class="own-vehicle-option"><input id="usesOwnVehicle" type="checkbox"><span><strong>Ιδιόκτητο μηχανάκι — χωρίς χιλιόμετρα</strong><small>Ο εργαζόμενος κάνει Clock In/Out χωρίς μηχανάκι στόλου ή καταγραφή χιλιομέτρων.</small></span></label><div class="visibility-box"><h3>Τι μπορεί να βλέπει μετά τη βάρδια</h3><div class="check-grid"><label><input id="showSchedule" type="checkbox"> Πρόγραμμα</label><label><input id="showActualIn" type="checkbox"> Actual Clock In</label><label><input id="showActualOut" type="checkbox"> Actual Clock Out</label><label><input id="showPayable" type="checkbox"> Payable hours</label><label><input id="showPayment" type="checkbox"> Πληρωμή</label><label><input id="showKm" type="checkbox"> Χιλιόμετρα</label><label><input id="canChangeVehicle" type="checkbox"> Αλλαγή μηχανής</label><label><input id="employeeActive" type="checkbox" checked> Ενεργός</label></div></div><div class="visibility-box"><h3>Αναλυτικά δικαιώματα</h3><p>Στον ρόλο Employee εμφανίζονται μόνο δικαιώματα της δικής του βάρδιας και των δικών του στοιχείων. Κάθε εξαίρεση προστατεύεται με Admin PIN.</p><div id="employeePermissionGrid" class="check-grid permission-grid"></div></div><p id="employeeError" class="form-error"></p><div class="dialog-actions"><button type="button" class="ghost-button" data-close="employeeDialog">Άκυρο</button><button class="primary-button" type="submit">Αποθήκευση</button></div></form></dialog>
+
+  <dialog id="scheduleDialog" class="app-dialog roster-dialog"><form id="scheduleForm" method="dialog" novalidate>
+    <div class="dialog-head"><div><span class="overline">ΕΝΙΑΙΟ ΕΒΔΟΜΑΔΙΑΙΟ ΠΡΟΓΡΑΜΜΑ</span><h2>Καταχώρηση βαρδιών</h2></div><button type="button" data-close="scheduleDialog">×</button></div>
+    <div id="scheduleModeTabs" class="schedule-mode-tabs"><button class="active" data-builder-mode="shift" type="button"><b>Ανά βάρδια</b><small>Ίδιο ωράριο σε πολλά άτομα</small></button><button data-builder-mode="employee" type="button"><b>Ανά διανομέα</b><small>Ολόκληρη η εβδομάδα ενός ατόμου</small></button></div>
+
+    <section id="scheduleByShift" class="builder-section">
+      <div class="form-grid"><label class="field"><span>Συχνή βάρδια</span><select id="bulkScheduleTemplate" required></select></label><label class="field"><span>Σημείωση (προαιρετικά)</span><input id="bulkScheduleNotes" type="text" placeholder="π.χ. Κεντρικός τομέας"></label></div>
+      <span class="builder-label">Ημέρες εφαρμογής</span><div id="bulkScheduleDays" class="weekday-picker roster-days"></div>
+      <span class="builder-label">Διανομείς στη συγκεκριμένη βάρδια</span><div id="bulkScheduleEmployees" class="roster-employee-picker"></div>
+      <div class="vehicle-plan-head"><label class="field"><span>Ανάθεση μηχανής</span><select id="bulkVehicleMode"><option value="none">Χωρίς προανάθεση</option><option value="employee">Ίδιο μηχανάκι ανά διανομέα</option><option value="daily">Διαφορετικό ανά ημέρα</option></select></label><p>Το σύστημα ελέγχει όλες τις ώρες και απορρίπτει αυτόματα οποιαδήποτε διπλοκράτηση.</p></div>
+      <div id="bulkVehicleAssignments" class="vehicle-assignment-grid"></div>
+    </section>
+
+    <section id="scheduleByEmployee" class="builder-section is-hidden">
+      <label class="field"><span>Διανομέας</span><select id="weekScheduleEmployee" required></select></label>
+      <div class="same-vehicle-control"><label><input id="sameVehicleAllWeek" type="checkbox"><span><strong>Ίδιο μηχανάκι για όλη την εβδομάδα</strong><small>Εφαρμόζεται αυτόματα σε όλες τις επιλεγμένες βάρδιες.</small></span></label><select id="sameWeekVehicle"><option value="">Χωρίς προανάθεση</option></select></div>
+      <div id="employeeWeekRows" class="employee-week-builder"></div>
+    </section>
+
+    <div id="scheduleSuggestionBox" class="schedule-suggestion-box is-hidden"></div>
+    <p id="scheduleError" class="form-error"></p>
+    <div class="dialog-actions"><button type="button" class="ghost-button" data-close="scheduleDialog">Άκυρο</button><button id="scheduleSubmitButton" class="primary-button" type="submit">Αποθήκευση προγράμματος</button></div>
+  </form></dialog>
+
+  <dialog id="scheduleEditDialog" class="app-dialog schedule-edit-dialog"><form id="scheduleEditForm" method="dialog" novalidate>
+    <div class="dialog-head"><div><span class="overline">ΜΕΜΟΝΩΜΕΝΗ ΒΑΡΔΙΑ</span><h2>Επεξεργασία προγράμματος</h2></div><button type="button" data-close="scheduleEditDialog">×</button></div>
+    <input id="scheduleEditId" type="hidden">
+    <p id="scheduleEditMeta" class="schedule-edit-meta"></p>
+    <div class="form-grid">
+      <label class="field"><span>Διανομέας</span><select id="scheduleEditEmployee" required></select></label>
+      <label class="field"><span>Ημερομηνία</span><input id="scheduleEditDate" type="date" required></label>
+      <label class="field"><span>Βάρδια</span><select id="scheduleEditTemplate" required></select></label>
+      <label class="field"><span>Μηχανάκι</span><select id="scheduleEditVehicle"></select><small id="scheduleEditVehicleHint" class="field-hint"></small></label>
+    </div>
+    <label class="field"><span>Σημείωση (προαιρετικά)</span><textarea id="scheduleEditNotes" rows="2"></textarea></label>
+    <p class="schedule-edit-note">Μπορείς να διορθώσεις και παλιότερη ημέρα, εφόσον η προγραμματισμένη βάρδια δεν έχει συνδεθεί με πραγματικό Clock In / Clock Out.</p>
+    <div id="scheduleEditSuggestionBox" class="schedule-suggestion-box is-hidden"></div>
+    <p id="scheduleEditError" class="form-error"></p>
+    <div class="dialog-actions split-actions"><button id="scheduleEditDelete" type="button" class="ghost-button danger-text">Διαγραφή</button><span></span><button type="button" class="ghost-button" data-close="scheduleEditDialog">Άκυρο</button><button class="primary-button" type="submit">Αποθήκευση αλλαγών</button></div>
+  </form></dialog>
+
+  <dialog id="scheduleImportDialog" class="app-dialog wide-dialog schedule-import-dialog"><form id="scheduleImportForm" method="dialog" novalidate>
+    <div class="dialog-head"><div><span class="overline">ΑΣΦΑΛΗΣ ΕΙΣΑΓΩΓΗ</span><h2>Εισαγωγή προγράμματος από Excel</h2></div><button type="button" data-close="scheduleImportDialog">×</button></div>
+    <p class="helper-copy">Το αρχείο ελέγχεται πρώτα και γράφεται μόνο ως Πρόχειρο. Το δημοσιευμένο πρόγραμμα δεν αλλάζει πριν πατήσεις Δημοσίευση.</p>
+    <div class="import-template-actions"><a class="secondary-button" href="./templates/Fleet_Control_Schedule_Import_Template.xlsx" download>↓ Κατέβασε πρότυπο Excel</a><label class="secondary-button file-button"><input id="scheduleImportFile" type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">Επίλεξε Excel / CSV</label></div>
+    <p id="scheduleImportFileName" class="field-hint">Δεν έχει επιλεγεί αρχείο.</p>
+    <div id="scheduleImportPreview" class="import-preview is-hidden"></div>
+    <p id="scheduleImportError" class="form-error"></p>
+    <div class="dialog-actions"><button type="button" class="ghost-button" data-close="scheduleImportDialog">Άκυρο</button><button id="scheduleImportCommit" class="primary-button" type="submit" disabled>Δημιουργία Πρόχειρου</button></div>
+  </form></dialog>
+
+  <dialog id="templateDialog" class="app-dialog wide-dialog template-dialog"><div class="dialog-body">
+    <div class="dialog-head"><div><span class="overline">ΣΥΧΝΕΣ ΒΑΡΔΙΕΣ</span><h2>Πρότυπα βαρδιών</h2></div><button type="button" data-close="templateDialog">×</button></div>
+    <div class="template-manager">
+      <div><button id="newTemplateButton" class="primary-button full-button" type="button">+ Νέο πρότυπο</button><div id="templateList" class="template-list"></div></div>
+      <form id="templateForm" class="template-editor" novalidate>
+        <input id="templateId" type="hidden">
+        <div class="form-grid"><label class="field"><span>Όνομα</span><input id="templateName" type="text" placeholder="π.χ. Πρωινή" required></label><label class="field"><span>Χρώμα</span><input id="templateColor" type="color" value="#0d8f82"></label></div>
+        <div class="template-editor-title"><span>Τμήματα ωραρίου</span><button id="addTemplateSegment" class="text-button" type="button">+ Προσθήκη τμήματος</button></div>
+        <div id="templateSegments" class="template-segments"></div>
+        <label class="remember-row compact"><input id="templateActive" type="checkbox" checked><span><strong>Ενεργό πρότυπο</strong><small>Να εμφανίζεται στις νέες καταχωρήσεις.</small></span></label>
+        <p id="templateError" class="form-error"></p>
+        <div class="dialog-actions"><button id="deleteTemplateButton" class="ghost-button danger-text is-hidden" type="button">Απενεργοποίηση</button><button class="primary-button" type="submit">Αποθήκευση προτύπου</button></div>
+      </form>
+    </div>
+  </div></dialog>
+
+  <dialog id="employeeDetailDialog" class="app-dialog wide-dialog"><div class="dialog-head"><div><span class="overline">ΚΑΡΤΕΛΑ ΕΡΓΑΖΟΜΕΝΟΥ</span><h2 id="employeeDetailTitle">—</h2></div><button type="button" data-close="employeeDetailDialog">×</button></div><div id="employeeDetailTabs" class="report-types employee-detail-tabs"><button class="active" data-employee-detail-tab="details" type="button">Στοιχεία</button><button data-employee-detail-tab="shifts" data-tab-permission="shifts.view" type="button">Βάρδιες</button><button data-employee-detail-tab="payroll" data-tab-permission="payroll.view" type="button">Μισθοδοσία</button><button data-employee-detail-tab="schedules" data-tab-permission="schedules.view" type="button">Πρόγραμμα</button><button data-employee-detail-tab="permissions" type="button">Δικαιώματα</button><button data-employee-detail-tab="history" data-tab-permission="audit.view" type="button">Ιστορικό</button></div><div id="employeeDetailContent" class="employee-detail-content"></div></dialog>
+
+  <dialog id="invoiceReviewDialog" class="app-dialog wide-dialog invoice-review-dialog"><form id="invoiceReviewForm" method="dialog" novalidate>
+    <div class="dialog-head"><div><span class="overline">ΕΠΙΒΕΒΑΙΩΣΗ OCR</span><h2>Έλεγχος τιμολογίου</h2></div><button type="button" data-close="invoiceReviewDialog">×</button></div>
+    <input id="invoiceReviewId" type="hidden"><input id="invoiceReviewBikeId" type="hidden"><input id="invoiceReviewEntryId" type="hidden"><input id="invoiceReviewKey" type="hidden">
+    <div id="invoiceReviewMeta" class="invoice-review-meta"></div>
+    <div id="invoiceReviewWarnings" class="invoice-review-warnings"></div>
+    <div id="invoiceReviewTransfer" class="invoice-review-transfer is-hidden">
+      <strong>Μεταφορά τιμολογίου σε άλλο service</strong>
+      <p>Η επιλογή είναι διαθέσιμη για κάθε τιμολόγιο. Διάλεξε προαιρετικά άλλο μηχανάκι και service· μαζί μεταφέρεται και το αποθηκευμένο QR.</p>
+      <div class="form-grid"><label class="field"><span>Σωστό μηχανάκι</span><select id="invoiceReviewTargetBike"></select></label><label class="field"><span>Service προορισμού</span><select id="invoiceReviewTargetEntry"></select></label></div>
+      <div class="invoice-review-transfer-actions"><button id="invoiceReviewMove" type="button" class="primary-button">Μεταφορά στο σωστό μηχανάκι</button><button id="invoiceReviewKeep" type="button" class="secondary-button">Κράτηση στο τρέχον</button></div>
+    </div>
+    <div class="form-grid">
+      <label class="field"><span>Προμηθευτής</span><input id="invoiceReviewSupplier" type="text"></label>
+      <label class="field"><span>Πινακίδα τιμολογίου</span><input id="invoiceReviewPlate" type="text"></label>
+      <label class="field"><span>Χιλιόμετρα τιμολογίου</span><input id="invoiceReviewOdometer" type="number" inputmode="numeric"></label>
+      <label class="field"><span>Αριθμός τιμολογίου</span><input id="invoiceReviewNumber" type="text"></label>
+      <label class="field"><span>Ημερομηνία τιμολογίου</span><input id="invoiceReviewDate" type="date"></label>
+      <label class="field"><span>Σύνολο</span><input id="invoiceReviewTotal" type="text" placeholder="π.χ. 34,00 €"></label>
+    </div>
+    <label class="field"><span>Εργασίες / γραμμές τιμολογίου — μία ανά γραμμή</span><textarea id="invoiceReviewTasks" rows="7" placeholder="π.χ. Αλλαγή λαδιών&#10;Ρύθμιση φρένων"></textarea></label>
+    <label class="field"><span>Σχόλια</span><textarea id="invoiceReviewComments" rows="3"></textarea></label>
+    <details id="invoiceReviewRawDetails" class="invoice-review-raw"><summary>Προβολή πλήρους κειμένου OCR</summary><pre id="invoiceReviewRawText"></pre></details>
+    <p id="invoiceReviewError" class="form-error"></p>
+    <div class="dialog-actions invoice-review-actions"><button type="button" class="ghost-button" data-close="invoiceReviewDialog">Κλείσιμο</button><span></span><button id="invoiceReviewOpen" type="button" class="secondary-button">Άνοιγμα PDF</button><button id="invoiceReviewDownload" type="button" class="secondary-button">Λήψη PDF</button><button id="invoiceReviewSave" class="primary-button" type="submit">Αποθήκευση επιβεβαίωσης</button></div>
+  </form></dialog>
+
+  <dialog id="pinDialog" class="app-dialog pin-dialog"><form id="pinForm" method="dialog"><div class="dialog-head"><div><span class="overline">ΔΕΥΤΕΡΗ ΕΠΙΒΕΒΑΙΩΣΗ</span><h2>Admin PIN</h2></div><button type="button" data-pin-cancel>×</button></div><p>Η ενέργεια θα καταγραφεί στο Audit Log.</p><label class="field"><span>PIN</span><input id="criticalPin" class="pin-field" type="password" inputmode="numeric" maxlength="6" autocomplete="off" required></label><label class="field"><span>Αιτιολογία</span><textarea id="criticalReason" rows="2"></textarea></label><p id="pinError" class="form-error"></p><div class="dialog-actions"><button type="button" class="ghost-button" data-pin-cancel>Άκυρο</button><button class="primary-button" type="submit">Επιβεβαίωση</button></div></form></dialog>
+
+  <dialog id="simpleDialog" class="app-dialog"><form id="simpleForm" method="dialog"><div class="dialog-head"><div><span id="simpleOverline" class="overline">ΕΝΕΡΓΕΙΑ</span><h2 id="simpleTitle">—</h2></div><button type="button" data-close="simpleDialog">×</button></div><div id="simpleFields"></div><p id="simpleError" class="form-error"></p><div class="dialog-actions"><button type="button" class="ghost-button" data-close="simpleDialog">Άκυρο</button><button id="simpleSubmit" class="primary-button" type="submit">Αποθήκευση</button></div></form></dialog>
+
+  <dialog id="installGuideDialog" class="app-dialog install-guide-dialog"><div class="dialog-body"><div class="dialog-head"><div><span class="overline">iPHONE / iPAD</span><h2>Εγκατάσταση Web App</h2></div><button id="installGuideClose" type="button" aria-label="Κλείσιμο">×</button></div><p id="iosInstallIntro" class="helper-copy">Δεν χρειάζεται αρχείο IPA. Το Fleet Control εγκαθίσταται ως Web App από το Safari.</p><ol class="install-steps"><li><b>1</b><span>Άνοιξε αυτή τη σελίδα στο <strong>Safari</strong>.</span></li><li><b>2</b><span>Πάτησε <strong>Κοινοποίηση</strong> και μετά <strong>Προσθήκη στην οθόνη Αφετηρίας</strong>.</span></li><li><b>3</b><span>Ενεργοποίησε <strong>Άνοιγμα ως εφαρμογή Web</strong> και πάτησε <strong>Προσθήκη</strong>.</span></li></ol><div class="install-guide-actions"><button id="iosShareButton" class="primary-button" type="button">Άνοιγμα κοινοποίησης</button><button id="iosCopyLink" class="secondary-button" type="button">Αντιγραφή συνδέσμου</button></div><p id="iosInstallStatus" class="security-note">Μετά την προσθήκη θα εμφανιστεί κανονικό εικονίδιο Fleet Control στην Αφετηρία.</p></div></dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./fleet-config.js?v=5.36.7"></script>
+  <script src="./portal.js?v=5.36.7"></script>
+</body>
+</html>

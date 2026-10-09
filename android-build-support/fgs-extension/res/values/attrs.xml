@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 10+ framework attribute needed by targetSdk 34 foreground services. -->
+    <attr name="foregroundServiceType">
+        <flag name="dataSync" value="0x00000001" />
+    </attr>
+</resources>

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#071c23">
+  <title>Fleet Control Server</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="server-shell">
+    <header class="server-header">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg>
+        </div>
+        <div class="brand-copy">
+          <h1>Fleet Control</h1>
+          <p>SERVER • NOTE 10+</p>
+        </div>
+        <button id="headerSettings" class="icon-button" type="button" aria-label="Ρυθμίσεις">
+          <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+        </button>
+      </div>
+
+      <div class="server-hero">
+        <span class="overline">ΚΕΝΤΡΙΚΟΣ SERVER</span>
+        <div class="hero-title"><span id="liveDot" class="live-dot"></span><strong id="heroStatus">Εκκίνηση…</strong></div>
+        <p id="heroDetail">Γίνεται έλεγχος σύνδεσης</p>
+        <div class="public-link">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+          <span id="publicUrl">fleet-control.pavlosargyris.workers.dev</span>
+          <svg viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v10H6z"/></svg>
+        </div>
+      </div>
+    </header>
+
+    <main class="server-content">
+      <section id="panelStatus" class="tab-panel" data-panel="status">
+        <div class="metrics">
+          <div><strong id="metricBikes">0</strong><span>μηχανάκια</span></div>
+          <div><strong id="metricUsers">0</strong><span>χρήστες</span></div>
+          <div><strong id="metricShifts">0</strong><span>ενεργές βάρδιες</span></div>
+          <div><strong id="metricAlerts">0</strong><span>ειδοποιήσεις</span></div>
+          <div><strong id="metricHistory">0</strong><span>εγγραφές στόλου</span></div>
+          <div><strong id="metricPending">0</strong><span>νέες αλλαγές</span></div>
+        </div>
+
+        <div class="section-heading">
+          <h2>Κατάσταση συστήματος</h2>
+          <span id="systemBadge" class="state-badge">Έλεγχος</span>
+        </div>
+        <div class="status-list">
+          <div class="status-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M20 7h-7V4M4 17h7v3M5.8 9A7 7 0 0 1 18 6l2 1M18.2 15A7 7 0 0 1 6 18l-2-1"/></svg></span>
+            <span class="row-copy"><strong>Συγχρονισμός</strong><small id="syncStatus">Δεν έχει γίνει ακόμη</small></span>
+            <span id="syncCheck" class="row-state">—</span>
+          </div>
+          <div class="status-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1 0-8 6 6 0 0 1 11.4-1.9A4.5 4.5 0 0 1 18 17H8"/></svg></span>
+            <span class="row-copy"><strong>Δημόσια web έκδοση</strong><small>Τελευταίο αντίγραφο διαθέσιμο</small></span>
+            <span id="webCheck" class="row-state">—</span>
+          </div>
+          <div class="status-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg></span>
+            <span class="row-copy"><strong>Google Drive backup</strong><small id="backupStatus">Δεν έχει οριστεί φάκελος</small></span>
+            <span id="backupCheck" class="row-state">—</span>
+          </div>
+          <div class="status-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M4 6c0-2 16-2 16 0v12c0 2-16 2-16 0ZM4 6c0 2 16 2 16 0M4 12c0 2 16 2 16 0"/></svg></span>
+            <span class="row-copy"><strong>Κοινή βάση δεδομένων</strong><small id="databaseStatus">Έλεγχος D1…</small></span>
+            <span id="databaseCheck" class="row-state">—</span>
+          </div>
+          <div class="status-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M5 7h14v12H5zM8 4h8v3M9 12h6M9 15h4"/></svg></span>
+            <span class="row-copy"><strong>Χώρος ενημερώσεων</strong><small id="storageStatus">Έλεγχος R2…</small></span>
+            <span id="storageCheck" class="row-state">—</span>
+          </div>
+          <div class="status-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8 16a6 6 0 0 1 8 0M11 19.5a2 2 0 0 1 2 0"/></svg></span>
+            <span class="row-copy"><strong>PWA εργαζομένων</strong><small id="pwaStatus">Δεν έχει συνδεθεί ακόμη</small></span>
+            <span id="pwaCheck" class="row-state">—</span>
+          </div>
+          <div class="status-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M12 4v4m0 8v4M4 12h4m8 0h4M6.3 6.3l2.8 2.8m5.8 5.8 2.8 2.8m0-11.4-2.8 2.8m-5.8 5.8-2.8 2.8"/></svg></span>
+            <span class="row-copy"><strong>Watchdog</strong><small>Έλεγχος heartbeat και αυτόματη επανασύνδεση</small></span>
+            <span id="watchdogCheck" class="row-state">—</span>
+          </div>
+        </div>
+
+        <div class="section-heading invoice-processing-heading">
+          <div><span class="overline dark">ΚΟΙΝΗ ΟΥΡΑ SERVER</span><h2>Επεξεργασία τιμολογίων</h2></div>
+          <span id="invoiceProcessingBadge" class="state-badge">Αδρανές</span>
+        </div>
+        <article id="invoiceProcessingCard" class="invoice-processing-card is-hidden" role="status" aria-live="polite">
+          <div class="invoice-processing-top">
+            <span class="invoice-processing-icon" aria-hidden="true">↻</span>
+            <div class="invoice-processing-copy">
+              <strong id="invoiceProcessingTitle">Νέα ανάγνωση τιμολογίων</strong>
+              <small id="invoiceProcessingName">Προετοιμασία…</small>
+            </div>
+            <strong id="invoiceProcessingPercent">0%</strong>
+          </div>
+          <div class="invoice-processing-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="invoiceProcessingBar"></span></div>
+          <div class="invoice-processing-meta"><span id="invoiceProcessingDetail">0/0</span><span id="invoiceProcessingStage">Αναμονή Server…</span></div>
+          <p id="invoiceProcessingMessage"></p>
+        </article>
+
+        <div class="section-heading device-health-heading">
+          <h2>Υγεία κινητού-server</h2>
+          <span id="deviceHealthBadge" class="state-badge">Έλεγχος</span>
+        </div>
+        <div id="deviceHealthWarnings" class="device-health-warnings is-hidden" role="status" aria-live="polite"></div>
+        <div class="device-health-grid">
+          <div><span>Μπαταρία</span><strong id="deviceBattery">—</strong><small id="deviceCharging">—</small></div>
+          <div><span>Θερμοκρασία</span><strong id="deviceTemperature">—</strong><small id="deviceThermal">—</small></div>
+          <div><span>Ελεύθερος χώρος</span><strong id="deviceStorage">—</strong><small id="deviceStorageTotal">—</small></div>
+          <div><span>Android</span><strong id="deviceAndroid">—</strong><small id="deviceModel">—</small></div>
+          <div><span>Περιορισμοί</span><strong id="deviceRestrictions">—</strong><small id="devicePowerSave">—</small></div>
+          <div><span>Δίκτυο</span><strong id="deviceNetwork">—</strong><small id="deviceUptime">—</small></div>
+        </div>
+
+        <button id="serverToggle" class="primary-action" type="button">Εκκίνηση server</button>
+        <p id="statusError" class="error-message"></p>
+      </section>
+
+      <section id="panelBackup" class="tab-panel is-hidden" data-panel="backup">
+        <div class="section-heading">
+          <div><span class="overline dark">ΑΣΦΑΛΕΙΑ ΔΕΔΟΜΕΝΩΝ</span><h2>Αντίγραφα ασφαλείας</h2></div>
+          <span id="driveBadge" class="state-badge warn">Δεν έχει οριστεί</span>
+        </div>
+        <div class="feature-box drive-box">
+          <span class="large-icon"><svg viewBox="0 0 24 24"><path d="m8 4-6 10 3 5h6M8 4h6l8 14-3 2H7M14 4l-6 10"/></svg></span>
+          <div><strong>Φάκελος Google Drive</strong><p>Επίλεξε μία φορά τον φάκελο όπου θα φυλάσσονται αυτόματα τα κρυπτογραφημένα αντίγραφα.</p></div>
+          <button id="chooseFolder" class="secondary-action" type="button">Επιλογή φακέλου</button>
+        </div>
+        <div class="status-list compact-list">
+          <div class="status-row"><span class="row-copy"><strong>Αυτόματο backup</strong><small id="backupSchedule">Καθημερινά στις 03:00</small></span><span id="autoBackupState" class="row-state">Ενεργό</span></div>
+          <div class="status-row"><span class="row-copy"><strong>Τελευταίο backup</strong><small id="lastBackup">Δεν έχει γίνει ακόμη</small></span></div>
+          <div class="status-row"><span class="row-copy"><strong>Διατήρηση</strong><small id="retentionLabel">Τα τελευταία 30 αντίγραφα</small></span></div>
+        </div>
+        <button id="backupNow" class="primary-action" type="button">Δημιουργία backup τώρα</button>
+        <button id="restoreBackup" class="secondary-action full-action" type="button">Επαναφορά από αρχείο backup</button>
+        <p id="backupMessage" class="action-message"></p>
+      </section>
+
+      <section id="panelUpdates" class="tab-panel is-hidden" data-panel="updates">
+        <div class="section-heading">
+          <div><span class="overline dark">ΔΙΑΧΕΙΡΙΣΗ ΕΚΔΟΣΕΩΝ</span><h2>Ενημερώσεις</h2></div>
+        </div>
+        <article class="update-box">
+          <span class="update-symbol client"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg></span>
+          <div><strong>Νέο Client APK</strong><p>Διάλεξε το APK που θα σου δίνω. Θα γίνει αμέσως η τελευταία προστατευμένη έκδοση στο web.</p></div>
+          <button id="uploadClient" class="secondary-action" type="button">Επιλογή APK</button>
+        </article>
+        <article class="update-box">
+          <span class="update-symbol web"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></span>
+          <div><strong>Νέα web έκδοση</strong><p>Διάλεξε το ZIP ενημέρωσης που θα σου ετοιμάζω. Η αλλαγή ενεργοποιείται χωρίς επανεγκατάσταση εφαρμογής.</p></div>
+          <button id="uploadWeb" class="secondary-action" type="button">Επιλογή ZIP</button>
+        </article>
+        <p id="uploadMessage" class="action-message"></p>
+
+        <div class="section-heading releases-heading"><h2>Προηγούμενες εκδόσεις</h2><button id="refreshReleases" class="text-action" type="button">Ανανέωση</button></div>
+        <div id="releaseList" class="release-list"><p class="empty-copy">Οι εκδόσεις θα εμφανιστούν μετά την πρώτη μεταφόρτωση.</p></div>
+      </section>
+
+      <section id="panelSettings" class="tab-panel is-hidden" data-panel="settings">
+        <div class="section-heading"><div><span class="overline dark">ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ</span><h2>Ρυθμίσεις server</h2></div></div>
+        <form id="settingsForm" class="settings-form">
+          <label><span>Δημόσια διεύθυνση Cloudflare</span><input id="workerUrl" type="url" required></label>
+          <label><span>Συγχρονισμός</span><select id="syncSeconds"><option value="10">Κάθε 10 δευτερόλεπτα</option><option value="30">Κάθε 30 δευτερόλεπτα</option><option value="60">Κάθε 1 λεπτό</option><option value="300">Κάθε 5 λεπτά</option></select></label>
+          <label><span>Παράλληλη επεξεργασία τιμολογίων</span><select id="invoiceParallelism"><option value="1">1 τιμολόγιο — μέγιστη ασφάλεια</option><option value="2">2 τιμολόγια</option><option value="3">3 τιμολόγια</option><option value="4">4 τιμολόγια — προτεινόμενο</option><option value="5">5 τιμολόγια</option><option value="6">6 τιμολόγια — γρήγορη λειτουργία</option><option value="8">8 τιμολόγια — turbo</option><option value="10">10 τιμολόγια — μέγιστο</option></select></label>
+          <p class="helper-copy">Το S24 Ultra προτείνεται να ξεκινήσει με 4. Τα 6–10 είναι δοκιμαστικές/turbo επιλογές και αφορούν τη μαζική τοπική ανάγνωση PDF.</p>
+          <label><span>Συχνότητα backup</span><select id="backupFrequency"><option value="daily">Καθημερινά</option><option value="weekdays">Δευτέρα–Παρασκευή</option><option value="weekly">Κάθε Δευτέρα</option></select></label>
+          <div class="two-fields">
+            <label><span>Ώρα backup</span><input id="backupHour" type="number" min="0" max="23" inputmode="numeric"></label>
+            <label><span>Πόσα backup</span><input id="backupRetention" type="number" min="1" max="90" inputmode="numeric"></label>
+          </div>
+          <label class="switch-row"><span><strong>Αυτόματη εκκίνηση</strong><small>Με την επανεκκίνηση του κινητού</small></span><input id="automaticStart" type="checkbox"></label>
+          <label class="switch-row"><span><strong>Αυτόματο backup</strong><small>Καθημερινά στο Google Drive</small></span><input id="automaticBackup" type="checkbox"></label>
+          <button class="primary-action" type="submit">Αποθήκευση ρυθμίσεων</button>
+        </form>
+
+        <div class="settings-actions">
+          <button id="testConnection" class="settings-row" type="button"><span><strong>Έλεγχος σύνδεσης</strong><small>Δοκιμή Cloudflare και web</small></span><b>›</b></button>
+          <button id="batterySettings" class="settings-row" type="button"><span><strong>Προστασία από διακοπή</strong><small>Εξαίρεση από εξοικονόμηση μπαταρίας</small></span><b>›</b></button>
+          <button id="changePin" class="settings-row" type="button"><span><strong>Αλλαγή PIN</strong><small>PIN αλλαγών και λήψης APK</small></span><b>›</b></button>
+        </div>
+        <p id="settingsMessage" class="action-message"></p>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Κύρια πλοήγηση">
+      <button class="nav-item active" type="button" data-tab="status"><svg viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 12 2-6h4"/></svg><span>Κατάσταση</span></button>
+      <button class="nav-item" type="button" data-tab="backup"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1 0-8 6 6 0 0 1 11.4-1.9A4.5 4.5 0 0 1 18 17H8M12 12v8m0-8-3 3m3-3 3 3"/></svg><span>Backup</span></button>
+      <button class="nav-item" type="button" data-tab="updates"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg><span>Ενημερώσεις</span></button>
+      <button class="nav-item" type="button" data-tab="settings"><svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19 12h3M2 12h3M12 2v3M12 19v3"/></svg><span>Ρυθμίσεις</span></button>
+    </nav>
+  </div>
+
+  <dialog id="pinDialog">
+    <form id="pinForm" method="dialog">
+      <div class="dialog-head"><div><span class="overline dark">ΑΣΦΑΛΕΙΑ WEB</span><h2>Ορισμός νέου PIN</h2></div><button type="button" data-close="pinDialog">×</button></div>
+      <label><span>Νέο PIN (4–6 αριθμοί)</span><input id="newPin" type="password" inputmode="numeric" maxlength="6" required></label>
+      <label><span>Επανάληψη PIN</span><input id="confirmPin" type="password" inputmode="numeric" maxlength="6" required></label>
+      <p id="pinError" class="error-message"></p>
+      <div class="dialog-buttons"><button type="button" class="secondary-action" data-close="pinDialog">Άκυρο</button><button class="primary-action inline" type="submit">Αποθήκευση PIN</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="restorePinDialog">
+    <form id="restorePinForm" method="dialog">
+      <div class="dialog-head"><div><span class="overline dark">ΚΡΙΣΙΜΗ ΕΝΕΡΓΕΙΑ</span><h2>Επαναφορά συστήματος</h2></div><button type="button" data-close="restorePinDialog">×</button></div>
+      <p>Πριν την επαναφορά θα δημιουργηθεί αυτόματα νέο backup. Η ενέργεια θα καταγραφεί στο Audit Log.</p>
+      <label><span>Τρέχον Admin PIN</span><input id="restoreAdminPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" required></label>
+      <p id="restorePinError" class="error-message"></p>
+      <div class="dialog-buttons"><button type="button" class="secondary-action" data-close="restorePinDialog">Άκυρο</button><button class="primary-action inline" type="submit">Επιλογή backup</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+FLEET CONTROL 5.30 — ΕΓΚΑΤΑΣΤΑΣΗ
+
+ΠΕΡΙΕΧΟΜΕΝΑ
+- Fleet_Control_Client_v5.30.apk
+- Fleet_Control_Web_Assets_v5.30.zip
+- Fleet_Control_Web_Worker_Update_v5.30.zip
+
+1. CLIENT APK
+
+Από το Server APK άνοιξε «Ενημερώσεις» και ανέβασε το:
+Fleet_Control_Client_v5.30.apk
+
+Μετά άνοιξε το Fleet Control Client και αποδέξου το prompt ενημέρωσης. Η εγκατάσταση γίνεται πάνω από την υπάρχουσα έκδοση· μην απεγκαταστήσεις την παλιά εφαρμογή.
+
+2. WEB ASSETS
+
+Για τη Web έκδοση χρησιμοποίησε το:
+Fleet_Control_Web_Assets_v5.30.zip
+
+3. CLOUDFLARE WORKER
+
+Στον φάκελο cloudflare-worker του Worker Update:
+
+  npm install
+  npm run deploy
+
+Κράτησε το δικό σου wrangler.jsonc, το πραγματικό database_id και τα υπάρχοντα bindings. Δεν χρειάζεται αλλαγή βάσης ή bucket.
+
+4. ΕΛΕΓΧΟΣ
+
+Άνοιξε:
+https://fleet-control.pavlosargyris.workers.dev/api/status
+
+Έλεγξε ότι databaseOk, storageOk και fleetControlOk είναι true.
+
+5. ΤΙ ΝΑ ΔΟΚΙΜΑΣΕΙΣ
+
+- Στην αρχική οθόνη του Client πρέπει να εμφανίζεται ο σωστός αριθμός μηχανών.
+- Πάτησε την ειδοποίηση «πλησιάζουν το service» και έλεγξε ότι ανοίγει η σχετική λίστα.
+- Πάτησε την ειδοποίηση ελέγχου χιλιομέτρων και έλεγξε ότι εμφανίζονται μόνο οι μηχανές που χρειάζονται έλεγχο.
+- Στη λίστα στόλου έλεγξε ότι η μηχανή με παλιό έλεγχο έχει το εικονίδιο «Έλεγχος».
+- Στις ειδοποιήσεις έλεγξε ότι εμφανίζεται «Ολοκλήρωση όλων». Η μαζική ενέργεια ολοκληρώνει τις απλές ειδοποιήσεις, αλλά αφήνει ανοικτές υπερωρίες, ξεχασμένα Clock Out και αιτήματα διόρθωσης.

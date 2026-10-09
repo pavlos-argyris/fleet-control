@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Stable framework ID from Android API 29+: android.R.attr.foregroundServiceType. -->
+    <public type="attr" name="foregroundServiceType" id="0x01010599" />
+</resources>
