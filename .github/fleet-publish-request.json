@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-cbd2d9df-6cae-4d1e-b1c2-0d09615001f1",
-  "sourceCommit": "8eb26bbe358f0bfc8d9c92761e89a64bd5acc8a0",
-  "releaseVersion": "5.39.1",
-  "requestedAt": "2026-10-09T22:47:25.027Z",
-  "reason": "Ο χρήστης ζήτησε διορθώσεις Server/OTA/σύνδεσης, bullets, Server S24 Ultra, χρονολογική λίστα service και σταθερό scrolling σε όλη την εφαρμογή, και αυτόματη δημοσίευση μετά την ολοκλήρωση."
+  "requestId": "fleet-50d70262-3dca-465c-90fe-8decd5292128",
+  "sourceCommit": "2961b2874b9b74d88712728fb06cb7935fed7463",
+  "releaseVersion": "5.40.0",
+  "requestedAt": "2026-10-09T23:06:27.972Z",
+  "reason": "Ο χρήστης ζήτησε πιο αργή κυκλική πράσινη πρόοδο και βελτίωση αναγνώστη PDF με το παράδειγμα, με αυτόματη δημοσίευση νέας έκδοσης."
 }
