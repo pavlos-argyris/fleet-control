@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-007117ec-d55a-4228-a74c-0d87f66cdabc",
-  "sourceCommit": "822bdb28e751247f86a70adf7d4a58444c1980c3",
-  "releaseVersion": "5.38.0",
-  "requestedAt": "2026-10-09T21:56:27.924Z",
-  "reason": "Ο χρήστης ζήτησε δημοσίευση της έκδοσης 5.38.0"
+  "requestId": "fleet-69af4c60-18fc-41df-92ae-90fa0c4a89df",
+  "sourceCommit": "fa8b1c804e88729d797f86d31eea2a247214de6d",
+  "releaseVersion": "5.39.0",
+  "requestedAt": "2026-10-09T22:10:59.026Z",
+  "reason": "Ο χρήστης ζήτησε τις αλλαγές τιμολογίων και αυτόματη δημοσίευση της νέας έκδοσης μόλις ολοκληρωθούν και ελεγχθούν."
 }
