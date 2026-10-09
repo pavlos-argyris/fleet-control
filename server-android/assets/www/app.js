@@ -96,7 +96,7 @@
     state = next || dashboard();
     const ota = state.ota || {};
     el.automaticOta.checked = ota.automatic !== false;
-    el.otaStatus.textContent = ["installing", "confirmation"].includes(ota.installStatus) ? ota.installMessage : ota.message || "Έλεγχος ενημερώσεων κάθε 15 λεπτά.";
+    el.otaStatus.textContent = ["installing", "confirmation", "failed"].includes(ota.installStatus) ? ota.installMessage : ota.message || "Έλεγχος ενημερώσεων κάθε 15 λεπτά.";
     el.otaBackup.textContent = ota.backupName ? "Backup πριν την ενημέρωση: " + ota.backupName : "";
     const running = Boolean(state.serviceRunning);
     const online = running && Boolean(state.serverOnline);
