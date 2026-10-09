@@ -4162,7 +4162,7 @@
       if (!frame || event.source !== frame.contentWindow) return;
       const message = event.data;
       if (!message || message.type !== "fleet-control:embedded-view") return;
-      const immersiveFleetView = message.view === "detail" || message.view === "quick-check";
+      const immersiveFleetView = message.view === "detail" || message.view === "quick-check" || message.view === "service-order";
       setFleetDetailMode(state.view === "fleet" && immersiveFleetView);
     });
     $("runReport").addEventListener("click", runReport);

@@ -37,6 +37,7 @@ public final class SyncService extends Service {
     private static final String PREF_INVOICE_REPROCESS_STATE = "invoice_reprocess_state";
     private static final String PREF_INVOICE_REPROCESS_UPDATED_AT = "invoice_reprocess_updated_at";
     private ScheduledExecutorService executor;
+    private ScheduledExecutorService pulseExecutor;
     private FleetDataStore store;
     private boolean foregroundReady;
 
@@ -77,6 +78,12 @@ public final class SyncService extends Service {
                 syncSafely();
             }
         }, 0, 5, TimeUnit.SECONDS);
+        // Connectivity must stay live even during ten parallel local reads,
+        // lengthy AI results, Drive backup or a full mirror download.
+        pulseExecutor = Executors.newSingleThreadScheduledExecutor();
+        pulseExecutor.scheduleWithFixedDelay(new Runnable() {
+            @Override public void run() { pulseSafely(); }
+        }, 0, 30, TimeUnit.SECONDS);
     }
 
     @Override
@@ -84,8 +91,25 @@ public final class SyncService extends Service {
         return foregroundReady ? START_STICKY : START_NOT_STICKY;
     }
 
+    private void pulseSafely() {
+        SharedPreferences p = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
+        String base = p.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
+        try {
+            FleetHttp.sendJson(base + "/api/server/pulse", "POST", new JSONObject(), serverHeaders());
+            p.edit().putLong("last_connection_success_ms", System.currentTimeMillis()).putBoolean("server_online", true)
+                .putString("last_connection_error", "").apply();
+        } catch (Exception error) {
+            boolean recentlyConnected = System.currentTimeMillis() - p.getLong("last_connection_success_ms", 0) < 90000L;
+            p.edit().putBoolean("server_online", recentlyConnected).putString("last_connection_error", error.getMessage() == null ? "Σύνδεση σε αναμονή" : error.getMessage()).apply();
+        }
+    }
+
     private void syncSafely() {
         SharedPreferences preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
+        // Use the completed previous cycle as a safe checkpoint. Do not wait
+        // for the user-configured mirror interval to apply a downloaded update.
+        OtaManager.maybeApply(getApplicationContext(), store);
+        if (OtaManager.installationInProgress(getApplicationContext())) return;
         OtaManager.check(getApplicationContext(), false);
         long lastAttempt = preferences.getLong("last_sync_attempt_ms", 0);
         int seconds = Math.max(10, preferences.getInt("sync_seconds", 30));
@@ -105,10 +129,10 @@ public final class SyncService extends Service {
         } catch (Exception error) {
             String message = error.getMessage() == null ? "Αποτυχία σύνδεσης" : error.getMessage();
             preferences.edit()
-                    .putBoolean("server_online", false)
+                    .putBoolean("server_online", System.currentTimeMillis() - preferences.getLong("last_connection_success_ms", 0) < 90000L)
                     .putString("last_error", message)
                     .apply();
-            updateNotification("Εκτός σύνδεσης • θα ξαναδοκιμάσει");
+            updateNotification(preferences.getBoolean("server_online", false) ? "Συνδεδεμένος • προσωρινή καθυστέρηση συγχρονισμού" : "Εκτός σύνδεσης • θα ξαναδοκιμάσει");
         }
     }
 
@@ -134,8 +158,11 @@ public final class SyncService extends Service {
         String serviceDocumentNotice = preferences.getString("last_service_document_error", "").length() > 0
                 ? "Σφάλμα PDF τιμολογίου • πάτησε Επανάληψη"
                 : "";
+        boolean yieldForUpdate = false;
         if (operations != null) {
             for (int i = 0; i < operations.length(); i++) {
+                OtaManager.check(getApplicationContext(), false);
+                if (OtaManager.shouldYieldForUpdate(getApplicationContext())) { yieldForUpdate = true; break; }
                 JSONObject operation = operations.optJSONObject(i);
                 if (operation == null) continue;
                 String id = operation.optString("id", "");
@@ -201,8 +228,17 @@ public final class SyncService extends Service {
                                     + progressBatch.optInt("completed", -1);
                             if (cursor.equals(previousCursor)) break;
                             previousCursor = cursor;
+                            if (OtaManager.shouldYieldForUpdate(getApplicationContext())) {
+                                yieldForUpdate = true;
+                                break;
+                            }
                         }
-                        if (!batchComplete) continue;
+                        if (!batchComplete) {
+                            // Leave this operation pending so the new APK resumes
+                            // the durable Worker cursor instead of restarting it.
+                            if (yieldForUpdate) break;
+                            continue;
+                        }
                     } catch (Exception error) {
                         String message = error.getMessage() == null ? "Αποτυχία τοπικής ανάγνωσης τιμολογίων" : error.getMessage();
                         preferences.edit().putString("last_service_document_error", message).apply();
@@ -219,6 +255,12 @@ public final class SyncService extends Service {
             }
         }
 
+        if (yieldForUpdate) {
+            // OCR results live in the Worker. Refresh both mirrors before the
+            // pre-install backup so it includes every completed invoice result.
+            store.mergeFleet(FleetHttp.getJson(base + "/api/snapshot", headers));
+            store.setSystemExport(FleetHttp.getJson(base + "/api/server/system-export", headers));
+        }
         if (!backupRequests.isEmpty()) {
             try {
                 BackupManager.createBackup(getApplicationContext(), store);
@@ -453,7 +495,8 @@ public final class SyncService extends Service {
                 } else {
                     saveInvoiceReprocessState(preferences, next == null ? batch : next, "Αποθηκεύτηκε: " + name);
                 }
-                if (result.optBoolean("complete", false)) break;
+                OtaManager.check(getApplicationContext(), false);
+                if (result.optBoolean("complete", false) || OtaManager.shouldYieldForUpdate(getApplicationContext())) break;
             }
             return result.put("complete", result.optBoolean("complete", false));
         } finally {
@@ -608,6 +651,7 @@ public final class SyncService extends Service {
     @Override
     public void onDestroy() {
         if (executor != null) executor.shutdownNow();
+        if (pulseExecutor != null) pulseExecutor.shutdownNow();
         getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE).edit().putBoolean("service_running", false).apply();
         if (store != null) store.close();
         super.onDestroy();

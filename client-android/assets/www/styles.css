@@ -3419,3 +3419,23 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
 
 .invoice-user-correction { display: inline-block; font-size: 11px; font-weight: 500; color: #356d58; margin: 4px 6px 4px 0; }
 .report-invoice-date { display: block; margin-top: 5px; color: #536176; font-size: 11px; }
+
+/* Chronological service overview; independent of invoice upload/OCR time. */
+.service-order-launcher { width: 100%; margin: 20px 0 12px; }
+.service-order-view { min-height: 85dvh; }
+.service-order-note { padding: 18px 20px; border: 1px solid #b9ddd5; border-radius: 18px; background: #edf8f4; color: #28534b; margin: 18px 0; line-height: 1.5; }
+.service-order-note p { margin: 6px 0 0; font-size: 13px; }
+.service-order-list { display: grid; gap: 12px; margin: 16px 0 28px; }
+.service-order-row { width: 100%; display: flex; align-items: center; gap: 16px; padding: 20px; text-align: left; border: 1px solid #dce7e3; border-radius: 20px; background: white; color: #193c35; box-shadow: 0 4px 18px #16372e08; }
+.service-order-row:hover { border-color: #72b4a2; background: #fbfdfc; }
+.service-order-row:focus-visible { outline: 3px solid #349f89; outline-offset: 3px; }
+.service-order-rank { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 13px; background: #e8f4ef; color: #276e5c; font-weight: 800; }
+.service-order-copy { display: grid; gap: 5px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.service-order-copy strong { font-size: 18px; }
+.service-order-copy > span { font-weight: 650; }
+.service-order-copy small { color: #60756e; font-size: 12px; line-height: 1.5; }
+.service-order-arrow { color: #34836d; font-size: 23px; }
+.service-order-row.has-mileage-warning { border-color: #e4ba71; }
+.service-order-copy .service-order-warning { display: block; padding: 10px 12px; margin-top: 5px; border-radius: 10px; background: #fff4dc; color: #80581e; font-size: 12px; font-weight: 500; line-height: 1.5; }
+html.embedded-mode.fleet-detail-view .service-order-view { min-height: 100dvh; }
+@media (max-width: 540px) { .service-order-row { padding: 16px 12px; gap: 10px; } .service-order-rank { width: 32px; height: 32px; } .service-order-view .detail-nav { margin-top: 0; } }

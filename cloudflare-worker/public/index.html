@@ -11,7 +11,7 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=5.39.0">
+  <link rel="stylesheet" href="./styles.css?v=5.39.1">
 </head>
 <body>
   <div class="app-shell">
@@ -170,6 +170,12 @@
           <div id="archivedBikeList" class="archived-bike-list"></div>
         </section>
 
+        <button id="serviceOrderButton" class="pin-settings-button service-order-launcher" type="button">
+          <span class="pin-settings-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg></span>
+          <span><strong>Σειρά τελευταίων service</strong><small>Ποιο μηχανάκι έκανε πιο πρόσφατα service</small></span>
+          <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+
         <button id="addBikeButton" class="add-bike-bottom" type="button">
           <span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -180,6 +186,16 @@
           </div>
           <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
         </button>
+      </section>
+
+      <section id="serviceOrderView" class="view is-hidden service-order-view" aria-labelledby="serviceOrderTitle">
+        <div class="detail-nav">
+          <button id="serviceOrderBackButton" class="round-button" type="button" aria-label="Πίσω στο Fleet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+          <div><span class="eyebrow">ΧΡΟΝΟΛΟΓΙΚΗ ΣΕΙΡΑ</span><h2 id="serviceOrderTitle">Τελευταία service</h2><p>Από το πιο πρόσφατο προς το παλαιότερο.</p></div>
+        </div>
+        <div class="service-order-note"><strong>Ημερομηνία service, όχι ημερομηνία ανεβάσματος</strong><p>Έλεγξε ημερομηνία και χιλιόμετρα πριν προσθέσεις παλιά τιμολόγια. Οι αρχικές ενδείξεις δεν υπολογίζονται ως πραγματικό service.</p></div>
+        <p id="serviceOrderSummary" class="list-status" role="status"></p>
+        <div id="serviceOrderList" class="service-order-list" aria-label="Μηχανάκια ανά τελευταίο service"></div>
       </section>
 
       <section id="quickCheckView" class="view is-hidden quick-check-full-view" aria-live="polite">
@@ -770,9 +786,9 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./fleet-config.js?v=5.39.0" defer></script>
-  <script src="./vendor/jsQR.js?v=5.39.0" defer></script>
-  <script src="./vendor/qrcode-generator.js?v=5.39.0" defer></script>
-  <script src="./app.js?v=5.39.0" defer></script>
+  <script src="./fleet-config.js?v=5.39.1" defer></script>
+  <script src="./vendor/jsQR.js?v=5.39.1" defer></script>
+  <script src="./vendor/qrcode-generator.js?v=5.39.1" defer></script>
+  <script src="./app.js?v=5.39.1" defer></script>
 </body>
 </html>

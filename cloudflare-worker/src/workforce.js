@@ -1935,7 +1935,7 @@ export async function maintainWorkforce(env, systemState = {}, deps = {}) {
   const serverOffline = !serverSeen || Date.now() - serverSeen > SERVER_HEARTBEAT_GRACE_MS;
   if (serverOffline) {
     await createAlert(env, "server_offline", "warning", "Η εφαρμογή Server είναι offline",
-      "Το Cloudflare/D1 συνεχίζει να εξυπηρετεί τις εφαρμογές. Έλεγξε το Note 10+.",
+      "Το Cloudflare/D1 συνεχίζει να εξυπηρετεί τις εφαρμογές. Έλεγξε τον Server S24 Ultra.",
       "server", "android-server", "server-offline");
   } else {
     await env.DB.prepare(`UPDATE system_alerts SET resolved=1,resolved_at=?

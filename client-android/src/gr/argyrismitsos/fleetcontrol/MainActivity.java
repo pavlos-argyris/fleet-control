@@ -520,6 +520,19 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static String formatUpdateNotes(String value) {
+        String text = value == null ? "" : value.trim();
+        if (text.length() == 0) return "• Βελτιώσεις λειτουργίας και ασφάλειας.";
+        StringBuilder result = new StringBuilder();
+        for (String line : text.split("\\r?\\n|,\\s+")) {
+            String item = line.replaceFirst("^\\s*[•*-]\\s*", "").trim();
+            if (item.length() == 0) continue;
+            if (result.length() > 0) result.append("\n");
+            result.append("• ").append(item);
+        }
+        return result.toString();
+    }
+
     private static final class UpdateInfo {
         final String version;
         final long sizeBytes;
@@ -660,7 +673,7 @@ public class MainActivity extends Activity {
         messageParams.topMargin = dp(16);
         card.addView(message, messageParams);
 
-        TextView notes = updateText(update.notes.isEmpty() ? "Περιλαμβάνει βελτιώσεις λειτουργίας και ασφάλειας." : update.notes, 12, ink, false);
+        TextView notes = updateText(formatUpdateNotes(update.notes), 12, ink, false);
         notes.setLineSpacing(0f, 1.18f);
         notes.setPadding(dp(13), dp(11), dp(13), dp(11));
         notes.setBackground(roundBackground(Color.rgb(246, 249, 250), dp(13), Color.rgb(232, 239, 241)));

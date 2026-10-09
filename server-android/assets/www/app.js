@@ -5,9 +5,10 @@
   const navItems = Array.from(document.querySelectorAll("[data-tab]"));
   let state = {};
   let toastTimer = null;
+  let settingsDirty = false;
 
   const el = {};
-  ["otaStatus", "otaBackup", "automaticOta", "liveDot", "heroStatus", "heroDetail", "publicUrl", "metricBikes", "metricUsers", "metricShifts", "metricAlerts", "metricHistory", "metricPending", "systemBadge", "syncStatus", "syncCheck", "webCheck", "backupStatus", "backupCheck", "databaseStatus", "databaseCheck", "storageStatus", "storageCheck", "pwaStatus", "pwaCheck", "watchdogCheck", "invoiceProcessingCard", "invoiceProcessingBadge", "invoiceProcessingTitle", "invoiceProcessingName", "invoiceProcessingPercent", "invoiceProcessingBar", "invoiceProcessingDetail", "invoiceProcessingStage", "invoiceProcessingMessage", "deviceHealthBadge", "deviceHealthWarnings", "deviceBattery", "deviceCharging", "deviceTemperature", "deviceThermal", "deviceStorage", "deviceStorageTotal", "deviceAndroid", "deviceModel", "deviceRestrictions", "devicePowerSave", "deviceNetwork", "deviceUptime", "serverToggle", "statusError", "driveBadge", "backupSchedule", "autoBackupState", "lastBackup", "retentionLabel", "backupMessage", "uploadMessage", "releaseList", "workerUrl", "syncSeconds", "invoiceParallelism", "backupFrequency", "backupHour", "backupRetention", "automaticStart", "automaticBackup", "settingsMessage", "pinDialog", "pinForm", "newPin", "confirmPin", "pinError", "restorePinDialog", "restorePinForm", "restoreAdminPin", "restorePinError", "toast"].forEach(function (id) { el[id] = document.getElementById(id); });
+  ["otaStatus", "otaBackup", "automaticOta", "otaCard", "otaVersion", "otaNotes", "otaProgress", "otaProgressBar", "otaProgressLabel", "checkServerUpdate", "installServerUpdate", "liveDot", "heroStatus", "heroDetail", "publicUrl", "metricBikes", "metricUsers", "metricShifts", "metricAlerts", "metricHistory", "metricPending", "systemBadge", "syncStatus", "syncCheck", "webCheck", "backupStatus", "backupCheck", "databaseStatus", "databaseCheck", "storageStatus", "storageCheck", "pwaStatus", "pwaCheck", "watchdogCheck", "invoiceProcessingCard", "invoiceProcessingBadge", "invoiceProcessingTitle", "invoiceProcessingName", "invoiceProcessingPercent", "invoiceProcessingBar", "invoiceProcessingDetail", "invoiceProcessingStage", "invoiceProcessingMessage", "deviceHealthBadge", "deviceHealthWarnings", "deviceBattery", "deviceCharging", "deviceTemperature", "deviceThermal", "deviceStorage", "deviceStorageTotal", "deviceAndroid", "deviceModel", "deviceRestrictions", "devicePowerSave", "deviceNetwork", "deviceUptime", "serverToggle", "statusError", "driveBadge", "backupSchedule", "autoBackupState", "lastBackup", "retentionLabel", "backupMessage", "uploadMessage", "releaseList", "workerUrl", "syncSeconds", "invoiceParallelism", "backupFrequency", "backupHour", "backupRetention", "automaticStart", "automaticBackup", "settingsMessage", "pinDialog", "pinForm", "newPin", "confirmPin", "pinError", "restorePinDialog", "restorePinForm", "restoreAdminPin", "restorePinError", "toast"].forEach(function (id) { el[id] = document.getElementById(id); });
 
   function parse(value, fallback) {
     try { return JSON.parse(value); } catch (error) { return fallback; }
@@ -92,12 +93,57 @@
     el.invoiceProcessingMessage.textContent = notes.join(" • ");
   }
 
+  function releaseNoteItems(notes) {
+    const text = String(notes || "").trim();
+    return text.split(/\r?\n|,\s+/).map(function (line) { return line.replace(/^\s*[•*-]\s*/, "").trim(); }).filter(Boolean);
+  }
+
+  function releaseNotesMarkup(notes) {
+    const items = releaseNoteItems(notes);
+    return items.length ? '<ul class="release-notes">' + items.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join("") + '</ul>' : '';
+  }
+
+  function renderOta(ota) {
+    const update = ota || {};
+    const inProgress = ["checking", "downloading", "validating", "backup"].includes(update.stage);
+    const nativeStatus = ["installing", "confirmation"].includes(update.installStatus) || (update.installStatus === "failed" && update.ready && !inProgress);
+    const stage = nativeStatus ? update.installStatus : update.stage || "idle";
+    const active = ["checking", "downloading", "validating", "backup", "installing"].includes(stage);
+    el.automaticOta.checked = update.automatic !== false;
+    el.otaStatus.textContent = nativeStatus ? update.installMessage : update.message || "Αυτόματος έλεγχος κάθε λεπτό.";
+    el.otaBackup.textContent = update.backupName ? "Backup πριν την ενημέρωση: " + update.backupName : "";
+    el.otaVersion.textContent = update.ready ? "Νέα έκδοση " + update.ready.version : "Server " + (state.serverVersion || "");
+    el.otaNotes.innerHTML = releaseNotesMarkup(update.ready && update.ready.notes);
+    el.otaProgress.hidden = !active;
+    const download = stage === "downloading";
+    if (download) {
+      const percent = Math.max(0, Math.min(100, Number(update.downloadPercent) || 0));
+      el.otaProgressBar.style.width = percent + "%";
+      el.otaProgress.setAttribute("aria-valuenow", String(percent));
+      el.otaProgressLabel.textContent = percent + "% · " + formatBytes(update.downloadedBytes) + " / " + formatBytes(update.totalBytes);
+    } else {
+      el.otaProgress.removeAttribute("aria-valuenow");
+      el.otaProgressBar.style.width = "35%";
+      el.otaProgressLabel.textContent = stage === "backup" ? "Αποθήκευση δεδομένων και τιμολογίων…" : stage === "installing" ? "Εγκατάσταση από το Android…" : "Προετοιμασία…";
+    }
+    if (!active) el.otaProgressLabel.textContent = "";
+    el.otaProgress.classList.toggle("is-indeterminate", !download);
+    const order = { idle: -1, current: -1, checking: 0, downloading: 1, validating: 1, ready: 1, waiting: 1, permission: 1, backup_folder: 1, backup: 2, installing: 3, confirmation: 3, failed: -1 };
+    const index = order[stage] === undefined ? -1 : order[stage];
+    document.querySelectorAll("[data-ota-step]").forEach(function (step) {
+      const value = Number(step.dataset.otaStep);
+      step.classList.toggle("is-done", index > value);
+      step.classList.toggle("is-active", index === value);
+    });
+    el.otaCard.classList.toggle("has-error", stage === "failed");
+    el.checkServerUpdate.disabled = active || stage === "confirmation";
+    el.installServerUpdate.disabled = active || (!update.ready && stage !== "confirmation");
+    el.installServerUpdate.textContent = stage === "confirmation" ? "Επιβεβαίωση στο Android" : stage === "permission" ? "Άδεια εγκατάστασης" : "Εγκατάσταση ενημέρωσης";
+  }
+
   function render(next) {
     state = next || dashboard();
-    const ota = state.ota || {};
-    el.automaticOta.checked = ota.automatic !== false;
-    el.otaStatus.textContent = ["installing", "confirmation", "failed"].includes(ota.installStatus) ? ota.installMessage : ota.message || "Έλεγχος ενημερώσεων κάθε 15 λεπτά.";
-    el.otaBackup.textContent = ota.backupName ? "Backup πριν την ενημέρωση: " + ota.backupName : "";
+    renderOta(state.ota || {});
     const running = Boolean(state.serviceRunning);
     const online = running && Boolean(state.serverOnline);
     el.liveDot.className = "live-dot " + (online ? "online" : running ? "warning" : "");
@@ -110,8 +156,8 @@
     el.metricAlerts.textContent = state.openAlerts || state.remotePendingAlerts || 0;
     el.metricHistory.textContent = state.historyEntries || 0;
     el.metricPending.textContent = state.lastAppliedCount || 0;
-    el.systemBadge.textContent = online ? "Όλα καλά" : running ? "Εκκρεμεί" : "Ανενεργό";
-    el.systemBadge.className = "state-badge" + (online ? "" : " warn");
+    el.systemBadge.textContent = online && state.lastError ? "Καθυστέρηση συγχρονισμού" : online ? "Όλα καλά" : running ? "Εκκρεμεί" : "Ανενεργό";
+    el.systemBadge.className = "state-badge" + (online && !state.lastError ? "" : " warn");
     el.syncStatus.textContent = state.lastSyncTime ? "Τελευταία σύνδεση " + formatDate(state.lastSyncTime) : "Δεν έχει γίνει ακόμη";
     el.syncCheck.textContent = online ? "✓" : "—";
     el.webCheck.textContent = state.workerUrl ? "✓" : "—";
@@ -155,7 +201,7 @@
     el.deviceUptime.textContent = formatUptime(health.uptimeSeconds);
     el.serverToggle.textContent = running ? "Διακοπή server" : "Εκκίνηση server";
     el.serverToggle.className = "primary-action" + (running ? " stop" : "");
-    el.statusError.textContent = state.lastError || "";
+    el.statusError.textContent = state.lastError || state.connectionError || "";
     renderInvoiceProcessing(state.invoiceReprocess);
 
     el.driveBadge.textContent = state.backupFolderSelected ? "Drive έτοιμο" : "Δεν έχει οριστεί";
@@ -166,20 +212,22 @@
     el.lastBackup.textContent = state.lastBackupTime ? formatDate(state.lastBackupTime) + " • " + (state.lastBackupResult || "Επιτυχία") : "Δεν έχει γίνει ακόμη";
     el.retentionLabel.textContent = "Τα τελευταία " + (state.backupRetention || 30) + " αντίγραφα";
 
-    el.workerUrl.value = state.workerUrl || "";
-    el.syncSeconds.value = String(state.syncSeconds || 30);
-    el.invoiceParallelism.value = String(state.invoiceParallelism || 4);
-    el.backupFrequency.value = state.backupFrequency || "daily";
-    el.backupHour.value = state.backupHour == null ? 3 : state.backupHour;
-    el.backupRetention.value = state.backupRetention || 30;
-    el.automaticStart.checked = state.automaticStart !== false;
-    el.automaticBackup.checked = state.automaticBackup !== false;
+    if (!settingsDirty) {
+      el.workerUrl.value = state.workerUrl || "";
+      el.syncSeconds.value = String(state.syncSeconds || 30);
+      el.invoiceParallelism.value = String(state.invoiceParallelism || 4);
+      el.backupFrequency.value = state.backupFrequency || "daily";
+      el.backupHour.value = state.backupHour == null ? 3 : state.backupHour;
+      el.backupRetention.value = state.backupRetention || 30;
+      el.automaticStart.checked = state.automaticStart !== false;
+      el.automaticBackup.checked = state.automaticBackup !== false;
+    }
   }
 
   function showTab(name) {
     panels.forEach(function (panel) { panel.classList.toggle("is-hidden", panel.dataset.panel !== name); });
     navItems.forEach(function (item) { item.classList.toggle("active", item.dataset.tab === name); });
-    if (name === "updates" && bridge) bridge.loadReleases();
+    if (name === "updates" && bridge) { bridge.loadReleases(); bridge.checkServerUpdate(); }
     window.scrollTo(0, 0);
   }
 
@@ -203,7 +251,7 @@
     }
     el.releaseList.innerHTML = releases.map(function (release) {
       const label = release.kind === "client" ? "Client APK" : release.kind === "server" ? "Server APK" : "Web";
-      return '<div class="release-row"><span><strong>' + label + ' • ' + escapeHtml(release.version) + '</strong><small>' + formatDate(release.created_at) + (release.notes ? ' • ' + escapeHtml(release.notes) : '') + '</small></span>' +
+      return '<div class="release-row"><span><strong>' + label + ' • ' + escapeHtml(release.version) + '</strong><small>' + formatDate(release.created_at) + '</small>' + releaseNotesMarkup(release.notes) + '</span>' +
         (release.kind === "server" ? '<small>Εγκατάσταση μέσω OTA</small>' : Number(release.active) === 1 ? '<b class="active-release">Ενεργή</b>' : '<button type="button" data-activate="' + escapeHtml(release.id) + '">Επαναφορά</button>') + '</div>';
     }).join("");
   }
@@ -274,6 +322,13 @@
   document.getElementById("changePin").addEventListener("click", function () { el.pinForm.reset(); el.pinError.textContent = ""; el.pinDialog.showModal(); });
   document.querySelectorAll("[data-close]").forEach(function (button) { button.addEventListener("click", function () { document.getElementById(button.dataset.close).close(); }); });
 
+  ["input", "change", "focusin"].forEach(function (eventName) {
+    document.getElementById("settingsForm").addEventListener(eventName, function () {
+      settingsDirty = true;
+      el.settingsMessage.textContent = "Οι αλλαγές σου διατηρούνται. Πάτησε Αποθήκευση.";
+    });
+  });
+
   document.getElementById("settingsForm").addEventListener("submit", function (event) {
     event.preventDefault();
     if (!bridge) return;
@@ -285,6 +340,7 @@
     };
     const result = parse(bridge.saveSettings(JSON.stringify(payload)), { ok: false, message: "Η αποθήκευση απέτυχε." });
     el.settingsMessage.textContent = result.ok ? "Οι ρυθμίσεις αποθηκεύτηκαν." : result.message;
+    if (result.ok) settingsDirty = false;
     render(result.ok ? result : dashboard());
   });
 

@@ -33,6 +33,7 @@
 
   let bikes = loadBikes();
   let activeBikeId = null;
+  let serviceOrderHomeScroll = 0;
   let activeHistoryFilter = "service";
   let deferredInstallPrompt = null;
   let toastTimer = null;
@@ -67,6 +68,11 @@
 
   const elements = {
     homeView: document.getElementById("homeView"),
+    serviceOrderView: document.getElementById("serviceOrderView"),
+    serviceOrderButton: document.getElementById("serviceOrderButton"),
+    serviceOrderBackButton: document.getElementById("serviceOrderBackButton"),
+    serviceOrderList: document.getElementById("serviceOrderList"),
+    serviceOrderSummary: document.getElementById("serviceOrderSummary"),
     quickCheckView: document.getElementById("quickCheckView"),
     detailView: document.getElementById("detailView"),
     bikeCount: document.getElementById("bikeCount"),
@@ -1503,7 +1509,69 @@
     } catch (error) {}
   }
 
+  function serviceDateKey(entry) {
+    const value = String(entry && entry.date || "").trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+    const parsed = new Date(value + "T12:00:00Z");
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : "";
+  }
+
+  function latestServiceRows(records) {
+    return (Array.isArray(records) ? records : []).map(function (bike) {
+      const deleted = new Set(bike.historyDeletedIds || []);
+      const services = (Array.isArray(bike.history) ? bike.history : []).filter(function (entry) {
+        return entry && entry.type === "service" && !deleted.has(entry.id)
+          && !/^Αρχικ[ήη]\s+(?:ένδειξη|ενδειξη|καταχώρηση|καταχωρηση)/iu.test(String(entry.notes || "").trim());
+      }).slice().sort(function (a, b) {
+        // Mileage, upload time and OCR/invoice dates must never determine recency.
+        return serviceDateKey(b).localeCompare(serviceDateKey(a)) || String(a.id || "").localeCompare(String(b.id || ""));
+      });
+      const latest = services[0] || null;
+      const oil = services.find(function (entry) { return entry.oilChanged && serviceDateKey(entry); }) || null;
+      const mileageWarning = Boolean(oil && Number(bike.lastServiceKm) > Number(oil.km));
+      return { bike: bike, latest: latest, oil: oil, date: serviceDateKey(latest), mileageWarning: mileageWarning };
+    }).sort(function (a, b) {
+      return b.date.localeCompare(a.date) || String(a.bike.name || "").localeCompare(String(b.bike.name || ""), "el") || String(a.bike.id || "").localeCompare(String(b.bike.id || ""));
+    });
+  }
+
+  function renderServiceOrder() {
+    const rows = latestServiceRows(bikes);
+    elements.serviceOrderSummary.textContent = rows.length + " μηχανάκια · " + rows.filter(function (row) { return row.date; }).length + " με ημερομηνία service";
+    elements.serviceOrderList.innerHTML = rows.length ? rows.map(function (row, index) {
+      const entry = row.latest;
+      const date = row.date ? formatDate(row.date) : entry ? "Χωρίς έγκυρη ημερομηνία service" : "Χωρίς καταχωρημένο service";
+      return '<button class="service-order-row' + (row.mileageWarning ? ' has-mileage-warning' : '') + '" type="button" data-service-order-bike="' + escapeHtml(row.bike.id) + '">' +
+        '<span class="service-order-rank">' + (index + 1) + '</span><span class="service-order-copy"><strong>' + escapeHtml(row.bike.name) + '</strong><span>' + escapeHtml(date) + '</span>' +
+        (entry ? '<small>Χιλιόμετρα service: ' + escapeHtml(formatKm(entry.km)) + '</small>' : '') +
+        (row.oil ? '<small>Τελευταία αλλαγή λαδιών: ' + escapeHtml(formatDate(serviceDateKey(row.oil))) + ' · ' + escapeHtml(formatKm(row.oil.km)) + '</small>' : '') +
+        (row.mileageWarning ? '<span class="service-order-warning">Έλεγξε τα χιλιόμετρα: η καρτέλα υπολογίζει τελευταία λάδια στα ' + escapeHtml(formatKm(row.bike.lastServiceKm)) + ', πάνω από τη χρονολογικά τελευταία αλλαγή.</span>' : '') +
+        '</span><span class="service-order-arrow" aria-hidden="true">→</span></button>';
+    }).join("") : '<div class="service-order-note">Δεν υπάρχουν μηχανάκια στον στόλο.</div>';
+  }
+
+  function openServiceOrder(pushState) {
+    if (pushState !== false) serviceOrderHomeScroll = window.scrollY || 0;
+    activeBikeId = null;
+    elements.homeView.classList.add("is-hidden");
+    elements.quickCheckView.classList.add("is-hidden");
+    elements.detailView.classList.add("is-hidden");
+    elements.serviceOrderView.classList.remove("is-hidden");
+    setDetailPresentation(true, "service-order");
+    renderServiceOrder();
+    window.scrollTo(0, 0);
+    if (pushState !== false) {
+      try { history.pushState({ view: "service-order" }, "", "#latest-services"); } catch (error) {}
+    }
+  }
+
+  function backFromServiceOrder() {
+    if (history.state && history.state.view === "service-order") history.back();
+    else { showHome(); window.scrollTo(0, serviceOrderHomeScroll); }
+  }
+
   function renderHome() {
+    if (!elements.serviceOrderView.classList.contains("is-hidden")) renderServiceOrder();
     const ordered = sortedBikes();
     const staleChecks = ordered.filter(mileageCheckIsStale);
     const majorAttention = ordered.filter(majorNeedsAttention);
@@ -1726,6 +1794,7 @@
 
   function openQuickCheck(pushState, bikeId) {
     const requestedBike = bikeId ? getBike(bikeId) : getBike(elements.quickBikeSelect.value);
+    elements.serviceOrderView.classList.add("is-hidden");
     if (requestedBike) {
       elements.quickBikeSelect.value = requestedBike.id;
       elements.quickCurrentKm.value = requestedBike.currentKm;
@@ -1749,6 +1818,7 @@
 
   function showHome() {
     activeBikeId = null;
+    elements.serviceOrderView.classList.add("is-hidden");
     elements.quickCheckView.classList.add("is-hidden");
     elements.detailView.classList.add("is-hidden");
     elements.homeView.classList.remove("is-hidden");
@@ -1767,6 +1837,7 @@
     activeBikeId = bikeId;
     activeHistoryFilter = "service";
     renderDetail();
+    elements.serviceOrderView.classList.add("is-hidden");
     elements.homeView.classList.add("is-hidden");
     elements.quickCheckView.classList.add("is-hidden");
     elements.detailView.classList.remove("is-hidden");
@@ -3711,6 +3782,12 @@
       showHome();
     }
   });
+  elements.serviceOrderButton.addEventListener("click", function () { openServiceOrder(true); });
+  elements.serviceOrderBackButton.addEventListener("click", backFromServiceOrder);
+  elements.serviceOrderList.addEventListener("click", function (event) {
+    const button = event.target.closest("[data-service-order-bike]");
+    if (button) openDetail(button.dataset.serviceOrderBike, true);
+  });
   elements.quickCheckBackButton.addEventListener("click", function () {
     if (history.state && history.state.view === "quick-check") {
       history.back();
@@ -3833,7 +3910,8 @@
     });
   });
 
-  window.addEventListener("popstate", function (event) {
+  function handleFleetNavigation(event) {
+    const leavingServiceOrder = !elements.serviceOrderView.classList.contains("is-hidden");
     if (historyReportOpen) {
       closeHistoryReport(true);
       return;
@@ -3842,10 +3920,14 @@
       openDetail(event.state.bikeId, false);
     } else if (event.state && event.state.view === "quick-check") {
       openQuickCheck(false, event.state.bikeId);
+    } else if (event.state && event.state.view === "service-order") {
+      openServiceOrder(false);
     } else {
       showHome();
+      if (leavingServiceOrder) window.scrollTo(0, serviceOrderHomeScroll);
     }
-  });
+  }
+  window.addEventListener("popstate", handleFleetNavigation);
 
   window.addEventListener("beforeinstallprompt", function (event) {
     event.preventDefault();

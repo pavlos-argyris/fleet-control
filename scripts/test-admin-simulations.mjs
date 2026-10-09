@@ -254,6 +254,18 @@ const boot = ok(await call("/api/auth/bootstrap", {
 ownerToken = boot.token;
 assert.equal(boot.user.role, "owner");
 ok(await call("/api/auth/me", { token: ownerToken }), 200, "owner session");
+// Connection diagnostics require the Server key and must not revive a stopped Server.
+fails(await call("/api/server/connection-check"), 401, null, "connection check without Server key");
+fails(await call("/api/server/pulse", { method: "POST", token: ownerToken, body: {} }), 401, null, "owner session cannot impersonate Server pulse");
+const beforePulse = ok(await call("/api/server/connection-check", { server: true }), 200, "lightweight connection check");
+assert.equal(beforePulse.ok, true);
+assert.equal(beforePulse.databaseOk, true);
+assert.equal(beforePulse.serverOnline, false, "read-only connection check must not set last seen");
+const pulse = ok(await call("/api/server/pulse", { method: "POST", server: true, body: {} }), 200, "independent Server pulse");
+assert.equal(pulse.online, true);
+const afterPulse = ok(await call("/api/server/connection-check", { server: true }));
+assert.equal(afterPulse.serverOnline, true);
+assert.equal(afterPulse.databaseOk, true);
 await seedFleet();
 
 const employeeA = await createEmployee({ fullName: "Διανομέας Α", username: "driver-a", password: "Driver-A-123", assignedVehicleId: "bike-1" });
@@ -744,6 +756,20 @@ modeFleet = ok(await call("/api/sync", { token: ownerToken }));
 modeDoc = olderEntryFrom(modeFleet).attachments.find(file => file.key === invoiceAttachments[0].key);
 assert.equal(modeDoc.ocr.invoiceNumber, "WORKERS-AI"); assert.match(modeDoc.ocrError, /unavailability/);
 delete env.AI;
+// Simulate an APK restart after one invoice: the shared cursor and results
+// survive, and the new Server continues with the next PDF rather than all PDFs.
+const restartId = "ota-restart-" + crypto.randomUUID();
+ok(await call("/api/admin/service-documents/reprocess-batch", { method: "POST", token: ownerToken,
+  body: { action: "start", batchId: restartId, mode: "server-first", items: invoiceAttachments.map(file => ({ key: file.key, name: file.name })) } }), 201, "start resumable queue");
+const firstCheckpoint = ok(await call("/api/server/service-documents/reprocess-batch", { method: "POST", server: true,
+  body: { action: "result", batchId: restartId, key: invoiceAttachments[0].key, localOcr: confidentLocalRead } }));
+assert.equal(firstCheckpoint.complete, false); assert.equal(firstCheckpoint.batch.currentIndex, 1);
+const resumedCheckpoint = ok(await call("/api/server/service-documents/reprocess-batch?window=10", { server: true }));
+assert.equal(resumedCheckpoint.batch.id, restartId); assert.equal(resumedCheckpoint.items.length, 1);
+assert.equal(resumedCheckpoint.item.key, invoiceAttachments[1].key);
+const completedCheckpoint = ok(await call("/api/server/service-documents/reprocess-batch", { method: "POST", server: true,
+  body: { action: "result", batchId: restartId, key: resumedCheckpoint.item.key, localOcr: confidentLocalRead } }));
+assert.equal(completedCheckpoint.complete, true); assert.equal(completedCheckpoint.batch.completed, 2);
 
 const invoiceReviewed = ok(await call("/api/admin/service-documents/review", {
   method: "POST", token: ownerToken,

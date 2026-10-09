@@ -145,6 +145,7 @@ public final class MainActivity extends Activity {
         result.put("serverOnline", preferences.getBoolean("server_online", false));
         result.put("lastSyncTime", preferences.getString("last_sync_time", ""));
         result.put("lastError", preferences.getString("last_error", ""));
+        result.put("connectionError", preferences.getString("last_connection_error", ""));
         result.put("lastAppliedCount", preferences.getInt("last_applied_count", 0));
         result.put("syncSeconds", preferences.getInt("sync_seconds", 30));
         result.put("invoiceParallelism", Math.max(1, Math.min(10, preferences.getInt("invoice_parallelism", 4))));
@@ -260,7 +261,7 @@ public final class MainActivity extends Activity {
             runTask("connection", new Task() {
                 @Override public JSONObject run() throws Exception {
                     String base = preferences.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
-                    return FleetHttp.getJson(base + "/api/status", null);
+                    return FleetHttp.getJson(base + "/api/server/connection-check", SyncService.serverHeaders());
                 }
             });
         }
@@ -441,7 +442,7 @@ public final class MainActivity extends Activity {
         else super.onBackPressed();
     }
 
-    @Override protected void onResume() { super.onResume(); OtaInstaller.resume(this); }
+    @Override protected void onResume() { super.onResume(); OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
     @Override protected void onPause() { OtaInstaller.pause(this); super.onPause(); }
 
     @Override

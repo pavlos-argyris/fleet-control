@@ -23,68 +23,97 @@ public final class FleetHttp {
     }
 
     public static JSONObject getJson(String url, Map<String, String> headers) throws Exception {
-        HttpURLConnection connection = open(url, "GET", headers);
-        return readJson(connection);
+        HttpURLConnection connection = openGetWithRetry(url, headers);
+        try { return readJson(connection); } finally { connection.disconnect(); }
     }
 
     public static JSONObject sendJson(String url, String method, JSONObject body, Map<String, String> headers) throws Exception {
         HttpURLConnection connection = open(url, method, headers);
-        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-        connection.setDoOutput(true);
-        byte[] data = body.toString().getBytes(UTF8);
-        connection.setFixedLengthStreamingMode(data.length);
-        OutputStream output = new BufferedOutputStream(connection.getOutputStream());
         try {
-            output.write(data);
-        } finally {
-            output.close();
-        }
-        return readJson(connection);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setDoOutput(true);
+            byte[] data = body.toString().getBytes(UTF8);
+            connection.setFixedLengthStreamingMode(data.length);
+            OutputStream output = new BufferedOutputStream(connection.getOutputStream());
+            try {
+                output.write(data);
+            } finally {
+                output.close();
+            }
+            return readJson(connection);
+        } finally { connection.disconnect(); }
     }
 
     public static JSONObject putStream(String url, InputStream input, long length, String contentType, Map<String, String> headers) throws Exception {
         HttpURLConnection connection = open(url, "PUT", headers);
-        connection.setRequestProperty("Content-Type", contentType);
-        connection.setDoOutput(true);
-        if (length >= 0 && length <= Integer.MAX_VALUE) connection.setFixedLengthStreamingMode((int) length);
-        else connection.setChunkedStreamingMode(64 * 1024);
-        OutputStream output = new BufferedOutputStream(connection.getOutputStream());
         try {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) >= 0) output.write(buffer, 0, read);
-        } finally {
-            try { input.close(); } catch (IOException ignored) {}
-            output.close();
-        }
-        return readJson(connection);
+            connection.setRequestProperty("Content-Type", contentType);
+            connection.setDoOutput(true);
+            if (length >= 0 && length <= Integer.MAX_VALUE) connection.setFixedLengthStreamingMode((int) length);
+            else connection.setChunkedStreamingMode(64 * 1024);
+            OutputStream output = new BufferedOutputStream(connection.getOutputStream());
+            try {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) >= 0) output.write(buffer, 0, read);
+            } finally {
+                try { input.close(); } catch (IOException ignored) {}
+                output.close();
+            }
+            return readJson(connection);
+        } finally { connection.disconnect(); }
     }
 
     public static void downloadToFile(String url, File target, Map<String, String> headers) throws Exception {
-        HttpURLConnection connection = open(url, "GET", headers);
-        int code = connection.getResponseCode();
-        if (code < 200 || code >= 300) throw new IOException("HTTP " + code);
-        InputStream input = new BufferedInputStream(connection.getInputStream());
-        File parent = target.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) throw new IOException("Δεν δημιουργήθηκε ο φάκελος τιμολογίων.");
-        File temporary = new File(target.getPath() + ".part");
-        FileOutputStream output = new FileOutputStream(temporary, false);
+        HttpURLConnection connection = openGetWithRetry(url, headers);
         try {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            long total = 0;
-            while ((read = input.read(buffer)) >= 0) {
-                total += read;
-                if (total > 15L * 1024L * 1024L) throw new IOException("Το τιμολόγιο είναι πολύ μεγάλο.");
-                output.write(buffer, 0, read);
+            int code = connection.getResponseCode();
+            if (code < 200 || code >= 300) throw new IOException("HTTP " + code);
+            InputStream input = new BufferedInputStream(connection.getInputStream());
+            File parent = target.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) throw new IOException("Δεν δημιουργήθηκε ο φάκελος τιμολογίων.");
+            File temporary = new File(target.getPath() + ".part");
+            FileOutputStream output = new FileOutputStream(temporary, false);
+            try {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                long total = 0;
+                while ((read = input.read(buffer)) >= 0) {
+                    total += read;
+                    if (total > 15L * 1024L * 1024L) throw new IOException("Το τιμολόγιο είναι πολύ μεγάλο.");
+                    output.write(buffer, 0, read);
+                }
+            } finally {
+                try { input.close(); } catch (IOException ignored) {}
+                output.close();
             }
-        } finally {
-            try { input.close(); } catch (IOException ignored) {}
-            output.close();
-        }
-        if (!temporary.renameTo(target)) {
-            if (target.exists()) target.delete();
-            if (!temporary.renameTo(target)) throw new IOException("Δεν αποθηκεύτηκε το τιμολόγιο στον Server.");
+            if (!temporary.renameTo(target)) {
+                if (target.exists()) target.delete();
+                if (!temporary.renameTo(target)) throw new IOException("Δεν αποθηκεύτηκε το τιμολόγιο στον Server.");
+            }
+        } finally { connection.disconnect(); }
+    }
+
+    public static final class HttpStatusException extends IOException {
+        private static final long serialVersionUID = 1L;
+        public final int statusCode;
+        public HttpStatusException(int statusCode, String detail) { super("HTTP " + statusCode + (detail.length() > 0 ? " • " + detail : "")); this.statusCode = statusCode; }
+        public boolean transientFailure() { return statusCode == 429 || statusCode == 502 || statusCode == 503 || statusCode == 504; }
+    }
+
+    private static HttpURLConnection openGetWithRetry(String url, Map<String, String> headers) throws Exception {
+        for (int attempt = 0; ; attempt++) {
+            HttpURLConnection connection = open(url, "GET", headers);
+            try {
+                int code = connection.getResponseCode();
+                if (code >= 200 && code < 300) return connection;
+                readJson(connection);
+                throw new IOException("Μη έγκυρη απάντηση πύλης.");
+            } catch (Exception error) {
+                connection.disconnect();
+                if (!(error instanceof HttpStatusException) || !((HttpStatusException)error).transientFailure() || attempt >= 2) throw error;
+                Thread.sleep(1000L * (attempt + 1));
+            }
         }
     }
 
@@ -94,6 +123,7 @@ public final class FleetHttp {
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(45000);
         connection.setUseCaches(false);
+        connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("User-Agent", "Fleet-Control-Server/" + ServerConfig.SERVER_VERSION);
         if (headers != null) {
@@ -116,7 +146,11 @@ public final class FleetHttp {
             result.put("raw", text);
         }
         if (code < 200 || code >= 300) {
-            throw new IOException(result.optString("error", "HTTP " + code));
+            String detail = result.optString("error", "");
+            if (detail.length() == 0 && (code == 429 || code == 502 || code == 503 || code == 504)) detail = "Προσωρινό σφάλμα πύλης. Θα ξαναδοκιμάσει αυτόματα.";
+            String ray = connection.getHeaderField("CF-Ray");
+            if (ray != null && ray.matches("[A-Za-z0-9-]{1,100}")) detail += " • Ray " + ray;
+            throw new HttpStatusException(code, detail);
         }
         return result;
     }

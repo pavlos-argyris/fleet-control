@@ -16,7 +16,7 @@
         </div>
         <div class="brand-copy">
           <h1>Fleet Control</h1>
-          <p>SERVER • NOTE 10+</p>
+          <p>SERVER • S24 ULTRA</p>
         </div>
         <button id="headerSettings" class="icon-button" type="button" aria-label="Ρυθμίσεις">
           <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
@@ -148,12 +148,15 @@
         <div class="section-heading">
           <div><span class="overline dark">ΔΙΑΧΕΙΡΙΣΗ ΕΚΔΟΣΕΩΝ</span><h2>Ενημερώσεις</h2></div>
         </div>
-        <article class="update-box">
-          <span class="update-symbol client"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg></span>
-          <div><strong>Ενημέρωση Server μέσω OTA</strong><p id="otaStatus">Έλεγχος κάθε 15 λεπτά. Πριν από την εγκατάσταση δημιουργείται backup.</p><label><input id="automaticOta" type="checkbox"> Αυτόματη λήψη και εγκατάσταση</label><p id="otaBackup"></p></div>
-          <button id="checkServerUpdate" class="secondary-action" type="button">Έλεγχος τώρα</button>
+        <article id="otaCard" class="ota-card" aria-live="polite">
+          <div class="ota-card-head"><span class="ota-icon" aria-hidden="true">↻</span><div><span class="overline dark">ΕΝΗΜΕΡΩΣΗ SERVER</span><h3 id="otaVersion">Έλεγχος έκδοσης</h3></div><span class="ota-live-badge">OTA</span></div>
+          <p id="otaStatus">Αυτόματος έλεγχος κάθε λεπτό. Πριν την εγκατάσταση δημιουργείται πλήρες backup.</p>
+          <ol class="ota-steps"><li data-ota-step="0"><b>1</b><span>Έλεγχος</span></li><li data-ota-step="1"><b>2</b><span>Λήψη</span></li><li data-ota-step="2"><b>3</b><span>Backup</span></li><li data-ota-step="3"><b>4</b><span>Εγκατάσταση</span></li></ol>
+          <div id="otaProgress" class="ota-progress" role="progressbar" aria-label="Πρόοδος ενημέρωσης" aria-valuemin="0" aria-valuemax="100" hidden><span id="otaProgressBar"></span></div><small id="otaProgressLabel" class="ota-progress-label"></small>
+          <div id="otaNotes"></div><p id="otaBackup" class="ota-backup"></p>
+          <label class="ota-auto"><input id="automaticOta" type="checkbox"> Αυτόματη λήψη και εγκατάσταση</label>
+          <div class="ota-actions"><button id="checkServerUpdate" class="secondary-action" type="button">Έλεγχος τώρα</button><button id="installServerUpdate" class="primary-action" type="button">Εγκατάσταση ενημέρωσης</button></div>
         </article>
-        <button id="installServerUpdate" class="primary-action" type="button">Εγκατάσταση ενημέρωσης</button>
         <p class="action-message">Client και Web δημοσιεύονται αυτόματα από το συνδεδεμένο έργο. Οι παρακάτω επιλογές παραμένουν διαθέσιμες για χειροκίνητη μεταφόρτωση.</p>
         <article class="update-box">
           <span class="update-symbol client"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg></span>

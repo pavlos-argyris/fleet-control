@@ -143,6 +143,8 @@ async function route(request, env) {
     return fleetHistoryAction(request, env, decodeURIComponent(fleetHistoryMatch[1]), decodeURIComponent(fleetHistoryMatch[2]), fleetHistoryMatch[3]);
   }
 
+  if (path === "/api/server/connection-check" && request.method === "GET") return serverConnectionCheck(request, env);
+  if (path === "/api/server/pulse" && request.method === "POST") return serverPulse(request, env);
   if (path === "/api/server/pending" && request.method === "GET") return serverPending(request, env);
   if (path === "/api/server/ack" && request.method === "POST") return serverAck(request, env);
   if (path === "/api/server/operation-progress" && request.method === "POST") return serverOperationProgress(request, env);
@@ -2812,6 +2814,21 @@ async function requestBackup(request, env) {
 
 async function touchServer(env) {
   await setSetting(env, "server_last_seen", new Date().toISOString());
+}
+
+// Lightweight connection checks avoid parsing the complete fleet snapshot
+// and counting workforce tables while a bulk invoice read is running.
+async function serverConnectionCheck(request, env) {
+  if (!await serverAuthorized(request, env)) return json({ error: "Μη έγκυρος server." }, 401);
+  const seen = await getSetting(env, "server_last_seen");
+  const age = seen ? Date.now() - Date.parse(seen) : Infinity;
+  return json({ ok: true, databaseOk: true, storageOk: Boolean(env.RELEASES), serverOnline: age >= 0 && age < SERVER_HEARTBEAT_GRACE_MS, serverTime: new Date().toISOString() });
+}
+
+async function serverPulse(request, env) {
+  if (!await serverAuthorized(request, env)) return json({ error: "Μη έγκυρος server." }, 401);
+  await touchServer(env);
+  return json({ online: true, serverTime: new Date().toISOString() });
 }
 
 async function serverPending(request, env) {
