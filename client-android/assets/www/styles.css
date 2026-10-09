@@ -39,7 +39,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  min-height: 100dvh;
+  min-height: 100svh;
   color: var(--ink);
   background:
     radial-gradient(circle at 100% 0, rgba(85, 118, 246, .13), transparent 27rem),
@@ -74,7 +74,7 @@ textarea:focus-visible {
 
 .app-shell {
   width: min(100%, 780px);
-  min-height: 100dvh;
+  min-height: 100svh;
   margin: 0 auto;
   background: rgba(242, 246, 248, .92);
 }
@@ -1796,7 +1796,7 @@ main {
 
 .app-dialog {
   width: min(calc(100% - 1.5rem), 33rem);
-  max-height: min(90dvh, 48rem);
+  max-height: min(90svh, 48rem);
   margin: auto auto 0;
   padding: 0;
   overflow: auto;
@@ -1866,7 +1866,7 @@ main {
 
 .picker-dialog {
   width: min(calc(100% - 1.5rem), 38rem);
-  max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top));
+  max-height: calc(100svh - 1.5rem - env(safe-area-inset-top));
   margin: max(.75rem, env(safe-area-inset-top)) auto auto;
   padding: 1.2rem 1rem max(1rem, env(safe-area-inset-bottom));
   border-radius: 1.25rem;
@@ -1874,7 +1874,7 @@ main {
 
 .overview-dialog {
   width: min(calc(100% - 1.5rem), 42rem);
-  max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top));
+  max-height: calc(100svh - 1.5rem - env(safe-area-inset-top));
   margin: max(.75rem, env(safe-area-inset-top)) auto auto;
   padding: 1.2rem 1rem max(1rem, env(safe-area-inset-bottom));
   border-radius: 1.25rem;
@@ -1883,7 +1883,7 @@ main {
 .overview-bike-list {
   display: grid;
   gap: .55rem;
-  max-height: min(68dvh, 34rem);
+  max-height: min(68svh, 34rem);
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -1897,7 +1897,7 @@ main {
 .fleet-export-button i { margin-left: .2rem; font-size: 1.1rem; font-style: normal; transition: transform .18s ease; }
 .fleet-export-button:hover i { transform: translateX(.18rem); }
 .fleet-export-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .7rem; margin-bottom: .7rem; color: var(--muted); font-size: .7rem; font-weight: 760; }
-.fleet-export-list { max-height: min(62dvh, 33rem); }
+.fleet-export-list { max-height: min(62svh, 33rem); }
 .fleet-export-card { position: relative; min-height: 4.5rem; display: grid; grid-template-columns: 1.35rem minmax(0,1fr) auto; align-items: center; gap: .7rem; padding: .75rem .8rem; color: var(--ink); border: 1px solid #dce8e5; border-radius: .95rem; background: #fff; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
 .fleet-export-card:hover { border-color: #9bd3c6; box-shadow: 0 .6rem 1.2rem rgba(6,48,52,.08); transform: translateY(-1px); }
 .fleet-export-card.is-selected, .fleet-export-card:has(input:checked) { border-color: var(--teal); background: #f1fbf8; box-shadow: 0 0 0 2px rgba(18,191,165,.12); }
@@ -1950,7 +1950,7 @@ main {
 .picker-bike-list {
   display: grid;
   gap: .55rem;
-  max-height: min(56dvh, 29rem);
+  max-height: min(56svh, 29rem);
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -2226,7 +2226,7 @@ main {
 
 @media (min-width: 640px) {
   .app-shell {
-    min-height: calc(100dvh - 2rem);
+    min-height: calc(100svh - 2rem);
     margin: 1rem auto;
     border-radius: 1.45rem;
     box-shadow: var(--shadow-lg);
@@ -2990,7 +2990,7 @@ html.embedded-mode .fleet-page-intro { min-height: 2.5rem; justify-content: flex
 html.embedded-mode .fleet-page-intro > div:first-child { display: none; }
 
 html.embedded-mode.fleet-detail-view main {
-  min-height: 100dvh;
+  min-height: 100svh;
   padding-top: max(1rem, env(safe-area-inset-top));
 }
 
@@ -3185,7 +3185,7 @@ html.embedded-mode.fleet-detail-view main {
 .quick-check-launcher > .primary-button { margin-top: .65rem; }
 
 .quick-check-full-view {
-  min-height: calc(100dvh - 2rem);
+  min-height: calc(100svh - 2rem);
 }
 
 .quick-check-nav-note {
@@ -3209,7 +3209,7 @@ html.embedded-mode.fleet-detail-view main {
 
 .quick-check-full-panel {
   max-width: 54rem;
-  min-height: calc(100dvh - 8rem);
+  min-height: calc(100svh - 8rem);
   margin: 0 auto;
   padding: clamp(1.15rem, 3vw, 2.2rem);
   background: var(--surface);
@@ -3261,9 +3261,9 @@ html.embedded-mode.fleet-detail-view main {
 .quick-check-full-actions .primary-button { min-height: 3.35rem; }
 .quick-check-full-form .major-service-hint { margin: -.15rem 0 0; }
 
-html.embedded-mode.fleet-detail-view .quick-check-full-view { min-height: 100dvh; }
+html.embedded-mode.fleet-detail-view .quick-check-full-view { min-height: 100svh; }
 html.embedded-mode.fleet-detail-view .quick-check-full-panel {
-  min-height: calc(100dvh - 6.7rem);
+  min-height: calc(100svh - 6.7rem);
   border-radius: 1.15rem;
 }
 
@@ -3279,9 +3279,9 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
   .invoice-qr-button, .invoice-picker-button { flex: 1 1 0; }
   .invoice-picker-button { width: 100%; }
   .invoice-file-name { width: 100%; }
-  .quick-check-full-view { min-height: 100dvh; }
+  .quick-check-full-view { min-height: 100svh; }
   .quick-check-full-panel {
-    min-height: calc(100dvh - 6.2rem);
+    min-height: calc(100svh - 6.2rem);
     padding: 1rem;
     border-radius: 1rem;
   }
@@ -3292,7 +3292,7 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
 .history-report-dialog {
   width: min(96vw, 1100px);
   max-width: none;
-  max-height: min(94dvh, 980px);
+  max-height: min(94svh, 980px);
   padding: 0;
   color: var(--ink);
   background: var(--surface);
@@ -3303,7 +3303,7 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
 }
 
 .history-report-dialog::backdrop { background: rgba(17, 24, 39, .68); }
-.history-report-shell { display: flex; flex-direction: column; max-height: min(94dvh, 980px); }
+.history-report-shell { display: flex; flex-direction: column; max-height: min(94svh, 980px); }
 .history-report-toolbar {
   display: flex;
   align-items: flex-start;
@@ -3373,8 +3373,8 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
 .report-invoice-block + .report-invoice-block { margin-top: .45rem; padding-top: .45rem; border-top: 1px solid #d8e1e9; }
 
 @media (max-width: 640px) {
-  .history-report-dialog { width: calc(100% - .75rem); max-height: calc(100dvh - .75rem); border-radius: 1rem; }
-  .history-report-shell { max-height: calc(100dvh - .75rem); }
+  .history-report-dialog { width: calc(100% - .75rem); max-height: calc(100svh - .75rem); border-radius: 1rem; }
+  .history-report-shell { max-height: calc(100svh - .75rem); }
   .history-report-toolbar { flex-direction: column; padding: 1rem; }
   .history-report-toolbar-actions { width: 100%; }
   .history-report-toolbar-actions button { flex: 1 1 0; }
@@ -3422,7 +3422,7 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
 
 /* Chronological service overview; independent of invoice upload/OCR time. */
 .service-order-launcher { width: 100%; margin: 20px 0 12px; }
-.service-order-view { min-height: 85dvh; }
+.service-order-view { min-height: 85svh; }
 .service-order-note { padding: 18px 20px; border: 1px solid #b9ddd5; border-radius: 18px; background: #edf8f4; color: #28534b; margin: 18px 0; line-height: 1.5; }
 .service-order-note p { margin: 6px 0 0; font-size: 13px; }
 .service-order-list { display: grid; gap: 12px; margin: 16px 0 28px; }
@@ -3437,5 +3437,5 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
 .service-order-arrow { color: #34836d; font-size: 23px; }
 .service-order-row.has-mileage-warning { border-color: #e4ba71; }
 .service-order-copy .service-order-warning { display: block; padding: 10px 12px; margin-top: 5px; border-radius: 10px; background: #fff4dc; color: #80581e; font-size: 12px; font-weight: 500; line-height: 1.5; }
-html.embedded-mode.fleet-detail-view .service-order-view { min-height: 100dvh; }
+html.embedded-mode.fleet-detail-view .service-order-view { min-height: 100svh; }
 @media (max-width: 540px) { .service-order-row { padding: 16px 12px; gap: 10px; } .service-order-rank { width: 32px; height: 32px; } .service-order-view .detail-nav { margin-top: 0; } }

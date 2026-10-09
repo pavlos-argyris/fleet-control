@@ -4,6 +4,8 @@ const APP_SHELL = [
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./scroll-stability.css",
+  "./scroll-stability.js",
   "./vendor/jsQR.js",
   "./vendor/qrcode-generator.js",
   "./portal.html",
