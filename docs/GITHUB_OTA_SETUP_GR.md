@@ -1,18 +1,21 @@
 # Αρχική σύνδεση GitHub και OTA
 
-Το παραδοτέο περιλαμβάνει πλήρη πηγαίο κώδικα Client, Server, Web, Portal, Worker, κοινό installer, scripts, εξαρτήσεις και φορητά εργαλεία Android Linux x86_64. Περιλαμβάνει επίσης τοπικό ιστορικό Git. Δεν έχει συνδεθεί ακόμη με τον δικό σου λογαριασμό και δεν έχει γίνει deploy.
+Το παραδοτέο περιλαμβάνει πλήρη πηγαίο κώδικα Client, Server, Web, Portal, Worker, κοινό installer, scripts, εξαρτήσεις και φορητά εργαλεία Android Linux x86_64. Περιλαμβάνει επίσης τοπικό ιστορικό Git. Ο κώδικας είναι στο ιδιωτικό `pavlos-argyris/fleet-control`. Δεν έχει γίνει παραγωγικό Cloudflare deploy.
 
-## 1. Αποθήκευση του κώδικα στον δικό σου λογαριασμό
+## 1. Κώδικας στον δικό σου λογαριασμό
 
-Εγκατάστησε Git for Windows και GitHub CLI από τους επίσημους ιστοτόπους. Αποσυμπίεσε το πλήρες πακέτο και άνοιξε PowerShell στον φάκελο `fleet-control`. Εκτέλεσε:
+Το ιδιωτικό αποθετήριο είναι https://github.com/pavlos-argyris/fleet-control. Περιλαμβάνει κανονικά επεξεργάσιμα αρχεία όλων των τμημάτων και τα εργαλεία κατασκευής. Για Cursor ή άλλο υπολογιστή, εγκατάστησε Git και εκτέλεσε:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Setup_GitHub.ps1 -Repository fleet-control
+```bash
+git clone https://github.com/pavlos-argyris/fleet-control.git
+cd fleet-control
 ```
 
-Το script ζητά σύνδεση στο δικό σου GitHub, δημιουργεί ιδιωτικό αποθετήριο αν δεν υπάρχει, ανεβάζει `main` και τα tags πηγαίου κώδικα. Αποτυγχάνει αν βρει δημόσιο αποθετήριο ή διαφορετικό origin· δεν κάνει force push. Η ολοκλήρωση επιβεβαιώνεται με έλεγχο ότι τα αρχεία και το τελευταίο commit εμφανίζονται στο GitHub.
+Άνοιξε αυτόν τον φάκελο στο Cursor. Κάθε επόμενη αλλαγή καταχωρίζεται στο ίδιο αποθετήριο. Το `Setup_GitHub.ps1` προορίζεται για την πρώτη δημιουργία/ανέβασμα από το αρχικό πακέτο· το υπάρχον αποθετήριο συνεχίζεται με clone.
 
-Για εργασία από αυτή τη συνομιλία χρειάζεται επίσης η σύνδεση GitHub στο ChatGPT και επαλήθευση διαθέσιμου δικαιώματος εγγραφής. Η εγκατάσταση μιας σύνδεσης δεν εξασφαλίζει από μόνη της push ή deploy. Αν δεν προσφέρονται αυτά τα δικαιώματα εδώ, το ίδιο έργο λειτουργεί στο Cursor/Codex με τον δικό σου λογαριασμό Git και η δημοσίευση γίνεται από το GitHub Actions.
+Η πρώτη εισαγωγή έγινε μέσω της συνδεδεμένης εφαρμογής GitHub. Τα αρχεία κάθε αρχικής έκδοσης επαληθεύτηκαν με το ίδιο Git tree SHA. Τα νέα commits εισαγωγής έχουν διαφορετικούς κωδικούς από τα αρχικά. Το ακριβές αρχικό ιστορικό, οι ημερομηνίες και τα tags παραμένουν στο `archive/fleet-control-original-history.bundle`. Οι οδηγίες στο `archive/README_GR.md` τα επαναφέρουν χωρίς πρόσβαση στην παλιά συνομιλία.
+
+Η σύνδεση GitHub επιτρέπει τις διαθέσιμες ενέργειες του ChatGPT. Επαληθεύεται η πρόσβαση και το αποτέλεσμα κάθε εγγραφής· η σύνδεση λογαριασμού από μόνη της δεν ενεργοποιεί παραγωγικό deploy.
 
 ## 2. Μία φορά: ιδιωτικές ρυθμίσεις έκδοσης
 
@@ -77,7 +80,10 @@ $FleetKeyPath = '.\private\signing\fleet-control-release.p12'
 ## 5. Ανάκτηση και ανεξάρτητη ανάπτυξη
 
 ```bash
-git clone https://github.com/OWNER/fleet-control.git
+git clone https://github.com/pavlos-argyris/fleet-control.git
+cd fleet-control
+git bundle verify archive/fleet-control-original-history.bundle
+git fetch archive/fleet-control-original-history.bundle 'refs/tags/*:refs/tags/*'
 git log --oneline --all
 git checkout source-v5.37.0-server-v2.1.0
 ```

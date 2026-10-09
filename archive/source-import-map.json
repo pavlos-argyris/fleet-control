@@ -1,0 +1,37 @@
+{
+  "repository": "pavlos-argyris/fleet-control",
+  "originalHead": "717cf0c57464c779410b1a843f70d896cce51b0f",
+  "originalTree": "a595468da7a971109a2004d7ead3900dc7b9e91f",
+  "originalHistoryBundle": "archive/fleet-control-original-history.bundle",
+  "bundleSHA256": "0cadd4bfe67fe15151ff911e8ab9162773713af3389443e0127d6939586c91c6",
+  "bundleSizeBytes": 23837857,
+  "snapshots": [
+    {
+      "originalCommit": "0d9b03a6d3b99066c500aaa4145925a5f4a9056b",
+      "githubImportCommit": "5553b5c52048927de54ad78d22f65706106e393f",
+      "verifiedTree": "355a6d805f6d1f9f4d51d50611dc1dbc5c8997c7"
+    },
+    {
+      "originalCommit": "5244412ae4365dd7c7a4abc38531b8caf8f8a10e",
+      "githubImportCommit": "4e26cd29d9a6c2ee6be92436e0ecf6e81bc80302",
+      "verifiedTree": "3f4c8f761c2f4c6f946dd4a59bb4bf2594691e52"
+    },
+    {
+      "originalCommit": "57b6ef5202be0b20e8120204c85a84d887626010",
+      "githubImportCommit": "00d3fdfc0268cb98fe83a9b1f8852e39c69a450a",
+      "verifiedTree": "46b98bf405b5ef7733330e4cb88219f039715ede"
+    },
+    {
+      "originalCommit": "717cf0c57464c779410b1a843f70d896cce51b0f",
+      "githubImportCommit": "dcf2e28781196e922abc539b24950a412f8707da",
+      "verifiedTree": "a595468da7a971109a2004d7ead3900dc7b9e91f"
+    }
+  ],
+  "runtimeVersions": {
+    "client": "5.37.0",
+    "web": "5.37.0",
+    "server": "2.1.0",
+    "worker": "5.1.0"
+  },
+  "productionDeploymentPerformed": false
+}
