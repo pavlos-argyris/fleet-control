@@ -2,15 +2,42 @@ name: Publish Fleet update
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['fleet-v*']
+    paths: ['.github/fleet-publish-request.json']
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: fleet-production-release
   cancel-in-progress: false
 jobs:
-  publish:
+  request:
+    name: Validate publication request
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      source_commit: ${{ steps.request.outputs.source_commit }}
+      publish: ${{ steps.request.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check explicit intent, pinned source and successful source CI
+        id: request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/validate-publish-request.mjs
+  publish:
+    needs: request
+    if: needs.request.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     env:
       FLEET_D1_DATABASE_ID: ${{ vars.FLEET_D1_DATABASE_ID }}
       FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
@@ -21,6 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ needs.request.outputs.source_commit }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'

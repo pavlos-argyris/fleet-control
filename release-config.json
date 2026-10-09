@@ -1,6 +1,6 @@
 {
-  "releaseVersion": "5.37.1",
-  "notes": "Δοκιμή OTA Server 2.1.0 → 2.1.1: μόνο αύξηση έκδοσης/code και ενημέρωση της αναφερόμενης έκδοσης, με αρχική υπογραφή και ίδια λειτουργία.",
+  "releaseVersion": "5.37.2",
+  "notes": "Αυτόματη δημοσίευση με ρητή εντολή στο GitHub, συγκεκριμένο commit και επιτυχημένους ελέγχους CI. Server 2.1.1, Client/Web 5.37.0 και Worker 5.1.0 παραμένουν ίδια.",
   "client": { "version": "5.37.0", "versionCode": 48, "packageName": "gr.argyrismitsos.fleetcontrol" },
   "server": { "version": "2.1.1", "versionCode": 17, "packageName": "gr.argyrismitsos.fleetserver" },
   "web": { "version": "5.37.0" },

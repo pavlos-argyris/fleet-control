@@ -5,6 +5,7 @@ python3 scripts/check-source-safety.py
 node scripts/check-web-assets.mjs cloudflare-worker/public client-android/assets/www
 node --check server-android/assets/www/app.js
 node scripts/test-ota-setup.mjs
+node --test scripts/test-publish-request.mjs
 node scripts/test-ota-releases.mjs
 node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
