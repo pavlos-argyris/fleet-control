@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+const file = process.argv[2];
+if (!file) throw new Error('Specify generated BuildSecrets.java destination');
+let key = process.env.FLEET_SERVER_KEY;
+const privateFile = process.env.FLEET_PRIVATE_CONFIG || path.resolve('private/server-secrets.json');
+if (!key && fs.existsSync(privateFile)) key = JSON.parse(fs.readFileSync(privateFile, 'utf8')).serverKey;
+if (!key || key.length < 24) throw new Error('FLEET_SERVER_KEY/private server configuration is required. Keep the original key for backup compatibility.');
+fs.mkdirSync(path.dirname(file), { recursive: true });
+fs.writeFileSync(file, `package gr.argyrismitsos.fleetserver;\nfinal class BuildSecrets { static final String SERVER_KEY = ${JSON.stringify(key)}; private BuildSecrets() {} }\n`, { mode: 0o600 });

@@ -1,5 +1,7 @@
 package gr.argyrismitsos.fleetserver;
 
+import gr.argyrismitsos.fleetupdates.OtaInstaller;
+
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
@@ -137,6 +139,7 @@ public final class MainActivity extends Activity {
     private JSONObject dashboard() throws Exception {
         JSONObject result = store.getStats();
         result.put("serverVersion", ServerConfig.SERVER_VERSION);
+        result.put("ota", OtaManager.state(getApplicationContext()));
         result.put("workerUrl", preferences.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL));
         result.put("serviceRunning", preferences.getBoolean("service_running", false));
         result.put("serverOnline", preferences.getBoolean("server_online", false));
@@ -312,6 +315,18 @@ public final class MainActivity extends Activity {
             pickFile("*/*", PICK_BACKUP_FILE);
         }
 
+        @JavascriptInterface public void checkServerUpdate() { OtaManager.check(getApplicationContext(), true); }
+        @JavascriptInterface public void setAutomaticOta(boolean enabled) { preferences.edit().putBoolean("automatic_ota", enabled).apply(); }
+        @JavascriptInterface public void installServerUpdate() {
+            runOnUiThread(new Runnable() { @Override public void run() {
+                try {
+                    if (!OtaInstaller.canInstall(MainActivity.this)) { OtaInstaller.openPermission(MainActivity.this); return; }
+                    OtaInstaller.openConfirmation(MainActivity.this);
+                    OtaManager.requestApply(getApplicationContext()); startServerService();
+                } catch (Exception error) { emitError("ota", error.getMessage()); }
+            } });
+        }
+
         @JavascriptInterface
         public void chooseClientApk() {
             pickFile("application/vnd.android.package-archive", PICK_CLIENT_APK);
@@ -425,6 +440,9 @@ public final class MainActivity extends Activity {
         if (webView != null && webView.canGoBack()) webView.goBack();
         else super.onBackPressed();
     }
+
+    @Override protected void onResume() { super.onResume(); OtaInstaller.resume(this); }
+    @Override protected void onPause() { OtaInstaller.pause(this); super.onPause(); }
 
     @Override
     protected void onDestroy() {

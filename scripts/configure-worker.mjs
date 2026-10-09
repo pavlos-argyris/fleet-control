@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+const example = JSON.parse(fs.readFileSync('cloudflare-worker/wrangler.example.jsonc', 'utf8'));
+const id = process.env.FLEET_D1_DATABASE_ID;
+if (!id || !/^[a-f0-9-]{36}$/i.test(id)) throw new Error('Set FLEET_D1_DATABASE_ID to the existing production D1 ID.');
+example.d1_databases[0].database_id = id;
+example.name = process.env.FLEET_WORKER_NAME || example.name;
+example.r2_buckets.find(b => b.binding === 'RELEASES').bucket_name = process.env.FLEET_RELEASES_BUCKET || 'fleet-control-releases';
+example.r2_buckets.find(b => b.binding === 'SERVICE_DOCS').bucket_name = process.env.FLEET_DOCUMENTS_BUCKET || 'fleet-control-service-documents';
+fs.writeFileSync('cloudflare-worker/wrangler.jsonc', JSON.stringify(example, null, 2) + '\n');
+console.log('Worker configured for the existing database and buckets.');

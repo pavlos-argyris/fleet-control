@@ -86,6 +86,7 @@ public final class SyncService extends Service {
 
     private void syncSafely() {
         SharedPreferences preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
+        OtaManager.check(getApplicationContext(), false);
         long lastAttempt = preferences.getLong("last_sync_attempt_ms", 0);
         int seconds = Math.max(10, preferences.getInt("sync_seconds", 30));
         if (System.currentTimeMillis() - lastAttempt < seconds * 1000L) {
@@ -100,6 +101,7 @@ public final class SyncService extends Service {
         BackupManager.maybeAutomatic(getApplicationContext(), store);
         try {
             syncOnce(preferences);
+            OtaManager.maybeApply(getApplicationContext(), store);
         } catch (Exception error) {
             String message = error.getMessage() == null ? "Αποτυχία σύνδεσης" : error.getMessage();
             preferences.edit()

@@ -1,3 +1,4 @@
+import { routeReleases } from "./releases.js";
 import {
   authenticateExternal,
   authorizedFor,
@@ -27,7 +28,7 @@ const SERVICE_RENDER_MAX_ATTEMPTS = 3;
 const INVOICE_REPROCESS_BATCH_SETTING = "service_invoice_reprocess_batch";
 const INVOICE_REPROCESS_BATCH_STALE_MS = 20 * 60 * 1000;
 const INVOICE_REPROCESS_BATCH_RESULT_TTL_MS = 30 * 1000;
-const RUNTIME_SCHEMA_VERSION = "5.0.42";
+const RUNTIME_SCHEMA_VERSION = "5.1.0";
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fleet_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'canonical', updated_at TEXT NOT NULL);
@@ -110,6 +111,9 @@ async function ensureReleaseChecksumColumn(env) {
 async function route(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
+
+  const ota = await routeReleases(request, env, { json, secureEqual, serverAuthorized, digestHex, invalidateWeb: () => { activeWebReleaseCache = { value: null, expiresAt: 0, db: null }; } });
+  if (ota) return ota;
 
   if (path === "/api/status" && request.method === "GET") return statusResponse(env);
   if (path === "/api/client-update" && request.method === "GET") return clientUpdateResponse(request, env);
@@ -3173,7 +3177,7 @@ async function serveWeb(request, env) {
     if (object) {
       const headers = new Headers(baseHeaders({
         "Content-Type": object.httpMetadata?.contentType || contentTypeFor(path),
-        "Cache-Control": ["index.html", "portal.html"].includes(path) ? "no-cache" : "public, max-age=3600",
+        "Cache-Control": ["index.html", "portal.html", "service-worker.js"].includes(path) ? "no-cache" : "public, max-age=3600",
         "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
       }));
       return new Response(object.body, { headers });

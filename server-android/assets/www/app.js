@@ -7,7 +7,7 @@
   let toastTimer = null;
 
   const el = {};
-  ["liveDot", "heroStatus", "heroDetail", "publicUrl", "metricBikes", "metricUsers", "metricShifts", "metricAlerts", "metricHistory", "metricPending", "systemBadge", "syncStatus", "syncCheck", "webCheck", "backupStatus", "backupCheck", "databaseStatus", "databaseCheck", "storageStatus", "storageCheck", "pwaStatus", "pwaCheck", "watchdogCheck", "invoiceProcessingCard", "invoiceProcessingBadge", "invoiceProcessingTitle", "invoiceProcessingName", "invoiceProcessingPercent", "invoiceProcessingBar", "invoiceProcessingDetail", "invoiceProcessingStage", "invoiceProcessingMessage", "deviceHealthBadge", "deviceHealthWarnings", "deviceBattery", "deviceCharging", "deviceTemperature", "deviceThermal", "deviceStorage", "deviceStorageTotal", "deviceAndroid", "deviceModel", "deviceRestrictions", "devicePowerSave", "deviceNetwork", "deviceUptime", "serverToggle", "statusError", "driveBadge", "backupSchedule", "autoBackupState", "lastBackup", "retentionLabel", "backupMessage", "uploadMessage", "releaseList", "workerUrl", "syncSeconds", "invoiceParallelism", "backupFrequency", "backupHour", "backupRetention", "automaticStart", "automaticBackup", "settingsMessage", "pinDialog", "pinForm", "newPin", "confirmPin", "pinError", "restorePinDialog", "restorePinForm", "restoreAdminPin", "restorePinError", "toast"].forEach(function (id) { el[id] = document.getElementById(id); });
+  ["otaStatus", "otaBackup", "automaticOta", "liveDot", "heroStatus", "heroDetail", "publicUrl", "metricBikes", "metricUsers", "metricShifts", "metricAlerts", "metricHistory", "metricPending", "systemBadge", "syncStatus", "syncCheck", "webCheck", "backupStatus", "backupCheck", "databaseStatus", "databaseCheck", "storageStatus", "storageCheck", "pwaStatus", "pwaCheck", "watchdogCheck", "invoiceProcessingCard", "invoiceProcessingBadge", "invoiceProcessingTitle", "invoiceProcessingName", "invoiceProcessingPercent", "invoiceProcessingBar", "invoiceProcessingDetail", "invoiceProcessingStage", "invoiceProcessingMessage", "deviceHealthBadge", "deviceHealthWarnings", "deviceBattery", "deviceCharging", "deviceTemperature", "deviceThermal", "deviceStorage", "deviceStorageTotal", "deviceAndroid", "deviceModel", "deviceRestrictions", "devicePowerSave", "deviceNetwork", "deviceUptime", "serverToggle", "statusError", "driveBadge", "backupSchedule", "autoBackupState", "lastBackup", "retentionLabel", "backupMessage", "uploadMessage", "releaseList", "workerUrl", "syncSeconds", "invoiceParallelism", "backupFrequency", "backupHour", "backupRetention", "automaticStart", "automaticBackup", "settingsMessage", "pinDialog", "pinForm", "newPin", "confirmPin", "pinError", "restorePinDialog", "restorePinForm", "restoreAdminPin", "restorePinError", "toast"].forEach(function (id) { el[id] = document.getElementById(id); });
 
   function parse(value, fallback) {
     try { return JSON.parse(value); } catch (error) { return fallback; }
@@ -94,6 +94,10 @@
 
   function render(next) {
     state = next || dashboard();
+    const ota = state.ota || {};
+    el.automaticOta.checked = ota.automatic !== false;
+    el.otaStatus.textContent = ["installing", "confirmation"].includes(ota.installStatus) ? ota.installMessage : ota.message || "Έλεγχος ενημερώσεων κάθε 15 λεπτά.";
+    el.otaBackup.textContent = ota.backupName ? "Backup πριν την ενημέρωση: " + ota.backupName : "";
     const running = Boolean(state.serviceRunning);
     const online = running && Boolean(state.serverOnline);
     el.liveDot.className = "live-dot " + (online ? "online" : running ? "warning" : "");
@@ -198,9 +202,9 @@
       return;
     }
     el.releaseList.innerHTML = releases.map(function (release) {
-      const label = release.kind === "client" ? "Client APK" : "Web";
+      const label = release.kind === "client" ? "Client APK" : release.kind === "server" ? "Server APK" : "Web";
       return '<div class="release-row"><span><strong>' + label + ' • ' + escapeHtml(release.version) + '</strong><small>' + formatDate(release.created_at) + (release.notes ? ' • ' + escapeHtml(release.notes) : '') + '</small></span>' +
-        (Number(release.active) === 1 ? '<b class="active-release">Ενεργή</b>' : '<button type="button" data-activate="' + escapeHtml(release.id) + '">Επαναφορά</button>') + '</div>';
+        (release.kind === "server" ? '<small>Εγκατάσταση μέσω OTA</small>' : Number(release.active) === 1 ? '<b class="active-release">Ενεργή</b>' : '<button type="button" data-activate="' + escapeHtml(release.id) + '">Επαναφορά</button>') + '</div>';
     }).join("");
   }
 
@@ -261,6 +265,9 @@
   document.getElementById("uploadClient").addEventListener("click", function () { busy("Περιμένω να επιλέξεις το νέο APK…"); if (bridge) bridge.chooseClientApk(); });
   document.getElementById("uploadWeb").addEventListener("click", function () { busy("Περιμένω να επιλέξεις το ZIP της web έκδοσης…"); if (bridge) bridge.chooseWebPackage(); });
   document.getElementById("refreshReleases").addEventListener("click", function () { if (bridge) bridge.loadReleases(); });
+  document.getElementById("checkServerUpdate").addEventListener("click", function () { if (bridge) bridge.checkServerUpdate(); el.otaStatus.textContent = "Γίνεται έλεγχος…"; });
+  document.getElementById("installServerUpdate").addEventListener("click", function () { if (bridge) bridge.installServerUpdate(); });
+  el.automaticOta.addEventListener("change", function () { if (bridge) bridge.setAutomaticOta(el.automaticOta.checked); });
   el.releaseList.addEventListener("click", function (event) { const button = event.target.closest("[data-activate]"); if (button && bridge) bridge.activateRelease(button.dataset.activate); });
   document.getElementById("testConnection").addEventListener("click", function () { el.settingsMessage.textContent = "Έλεγχος…"; if (bridge) bridge.testConnection(); });
   document.getElementById("batterySettings").addEventListener("click", function () { if (bridge) bridge.openBatterySettings(); });

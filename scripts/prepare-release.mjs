@@ -1,0 +1,36 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+const config = JSON.parse(fs.readFileSync('release-config.json', 'utf8'));
+const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('A saved Git commit is required');
+if (execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim()) throw new Error('Commit all source changes before creating the release.');
+fs.mkdirSync('dist', { recursive: true });
+const manifest = { releaseId: `v${config.releaseVersion}-${commit.slice(0, 12)}`, sourceCommit: commit, notes: config.notes };
+const checksum = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+for (const kind of ['client', 'server']) {
+  const xml = fs.readFileSync(`${kind}-android/AndroidManifest.xml`, 'utf8');
+  const expected = config[kind];
+  if (xml.match(/android:versionName="([^"]+)"/)[1] !== expected.version || Number(xml.match(/android:versionCode="(\d+)"/)[1]) !== expected.versionCode || xml.match(/package="([^"]+)"/)[1] !== expected.packageName) throw new Error(`Version configuration differs for ${kind}`);
+  const file = `Fleet_Control_${kind === 'client' ? 'Client' : 'Server'}_v${expected.version}.apk`;
+  const bytes = fs.readFileSync(path.join('dist', file));
+  manifest[kind] = { ...expected, file, sha256: checksum(bytes), sizeBytes: bytes.length };
+}
+function walk(folder, prefix = '') {
+  const result = [];
+  for (const name of fs.readdirSync(folder).sort()) {
+    const relative = prefix + name, full = path.join(folder, name);
+    if (fs.statSync(full).isDirectory()) result.push(...walk(full, relative + '/'));
+    else { const bytes = fs.readFileSync(full); result.push({ path: relative, sha256: checksum(bytes), sizeBytes: bytes.length }); }
+  }
+  return result;
+}
+manifest.web = { version: config.web.version, files: walk('cloudflare-worker/public') };
+manifest.worker = config.worker;
+fs.writeFileSync('dist/release-manifest.json', JSON.stringify(manifest, null, 2) + '\n');
+execFileSync('git', ['archive', '--format=zip', '-o', `dist/Fleet_Control_Source_v${config.releaseVersion}.zip`, commit]);
+execFileSync('python3', ['scripts/package-web.py', `dist/Fleet_Control_Web_Assets_v${config.web.version}.zip`]);
+const sums = walk('dist').filter(f => f.path !== 'SHA256SUMS.txt').map(f => `${f.sha256}  ${f.path}`).join('\n') + '\n';
+fs.writeFileSync('dist/SHA256SUMS.txt', sums);
+console.log(JSON.stringify({ prepared: true, sourceCommit: commit, releaseId: manifest.releaseId, versions: config }));

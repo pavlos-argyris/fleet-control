@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="gr.argyrismitsos.fleetcontrol"
-    android:versionCode="47"
-    android:versionName="5.36.7">
+    android:versionCode="48"
+    android:versionName="5.37.0">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <uses-sdk
         android:minSdkVersion="23"
@@ -50,5 +52,6 @@
             android:authorities="gr.argyrismitsos.fleetcontrol.pdfprovider"
             android:exported="false"
             android:grantUriPermissions="true" />
+        <receiver android:name="gr.argyrismitsos.fleetupdates.OtaInstallReceiver" android:exported="false" />
     </application>
 </manifest>

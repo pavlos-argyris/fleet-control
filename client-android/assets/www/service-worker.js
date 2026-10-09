@@ -1,4 +1,4 @@
-const CACHE_NAME = "fleet-control-v5-36-7";
+const CACHE_NAME = "fleet-control-v5-37-0";
 const APP_SHELL = [
   "./",
   "./index.html",

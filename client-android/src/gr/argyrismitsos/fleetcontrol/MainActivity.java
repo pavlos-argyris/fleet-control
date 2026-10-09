@@ -1,5 +1,7 @@
 package gr.argyrismitsos.fleetcontrol;
 
+import gr.argyrismitsos.fleetupdates.OtaInstaller;
+
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -206,6 +208,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        OtaInstaller.resume(this);
         activityResumed = true;
         mainHandler.removeCallbacks(periodicUpdateCheck);
         mainHandler.postDelayed(periodicUpdateCheck, UPDATE_CHECK_INTERVAL_MS);
@@ -225,6 +228,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        OtaInstaller.pause(this);
         activityResumed = false;
         mainHandler.removeCallbacks(periodicUpdateCheck);
         super.onPause();
@@ -521,12 +525,16 @@ public class MainActivity extends Activity {
         final long sizeBytes;
         final String sha256;
         final String notes;
+        final int versionCode;
+        final String downloadUrl;
 
-        UpdateInfo(String version, long sizeBytes, String sha256, String notes) {
+        UpdateInfo(String version, long sizeBytes, String sha256, String notes, int versionCode, String downloadUrl) {
             this.version = version;
             this.sizeBytes = sizeBytes;
             this.sha256 = sha256;
             this.notes = notes;
+            this.versionCode = versionCode;
+            this.downloadUrl = downloadUrl;
         }
     }
 
@@ -590,7 +598,9 @@ public class MainActivity extends Activity {
                     version,
                     Math.max(0L, body.optLong("sizeBytes", 0L)),
                     body.optString("sha256", "").trim().toLowerCase(Locale.US),
-                    body.optString("notes", "").trim());
+                    body.optString("notes", "").trim(),
+                    body.optInt("versionCode", 0),
+                    body.optString("downloadUrl", UPDATE_DOWNLOAD_URL));
         } finally {
             if (connection != null) connection.disconnect();
         }
@@ -644,7 +654,7 @@ public class MainActivity extends Activity {
         versionParams.topMargin = dp(13);
         card.addView(version, versionParams);
 
-        TextView message = updateText("Το Fleet Control έχει έτοιμη μια νεότερη έκδοση. Μπορείς να την εγκαταστήσεις τώρα και η εφαρμογή θα ανοίξει ξανά αυτόματα μετά την εγκατάσταση.", 14, muted, false);
+        TextView message = updateText("Το Fleet Control έχει έτοιμη μια νεότερη έκδοση. Μπορείς να την εγκαταστήσεις τώρα. Αν ζητηθεί, επιβεβαίωσε την εγκατάσταση στο Android.", 14, muted, false);
         message.setLineSpacing(0f, 1.18f);
         LinearLayout.LayoutParams messageParams = matchWrap(0);
         messageParams.topMargin = dp(16);
@@ -820,11 +830,14 @@ public class MainActivity extends Activity {
         if (part.exists() && !part.delete()) throw new IllegalStateException("Δεν καθαρίστηκε η προσωρινή λήψη.");
         if (apk.exists() && !apk.delete()) throw new IllegalStateException("Δεν καθαρίστηκε η προηγούμενη ενημέρωση.");
         try {
-            URL endpoint = new URL(UPDATE_DOWNLOAD_URL);
+            URL endpoint = new URL(update.downloadUrl);
+            URL trusted = new URL(UPDATE_DOWNLOAD_URL);
+            if (!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort() || !trusted.getPath().equals(endpoint.getPath())) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση APK.");
             connection = (HttpURLConnection) endpoint.openConnection();
             connection.setConnectTimeout(15000);
             connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(false);
             connection.setUseCaches(false);
             connection.setRequestProperty("Accept", "application/vnd.android.package-archive");
             if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) throw new IllegalStateException("Η λήψη απέτυχε.");
@@ -847,44 +860,15 @@ public class MainActivity extends Activity {
             if (connection != null) connection.disconnect();
         }
 
-        if (!update.sha256.isEmpty() && !update.sha256.equalsIgnoreCase(sha256File(part))) {
-            if (part.exists()) part.delete();
-            throw new IllegalStateException("Ο έλεγχος ασφαλείας του APK απέτυχε.");
-        }
-        PackageInfo archive = getPackageManager().getPackageArchiveInfo(part.getAbsolutePath(), PackageManager.GET_META_DATA);
-        if (archive == null || !getPackageName().equals(archive.packageName)
-                || !update.version.equals(archive.versionName)
-                || !isNewerVersion(archive.versionName, currentVersionName())) {
-            if (part.exists()) part.delete();
-            throw new IllegalStateException("Το APK δεν είναι η σωστή έκδοση Fleet Control.");
-        }
+        try { OtaInstaller.validate(this, part, update.versionCode, update.version, update.sizeBytes, update.sha256); }
+        catch (Exception error) { part.delete(); throw error; }
         if (!part.renameTo(apk)) throw new IllegalStateException("Δεν αποθηκεύτηκε το APK.");
         return apk;
     }
 
-    private String sha256File(File file) throws Exception {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        try (InputStream input = new BufferedInputStream(new FileInputStream(file))) {
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
-        }
-        byte[] bytes = digest.digest();
-        StringBuilder result = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) result.append(String.format(Locale.US, "%02x", value & 0xff));
-        return result.toString();
-    }
-
     private void installUpdate(File apk) {
-        try {
-            Uri uri = Uri.parse("content://" + FleetUpdateProvider.AUTHORITY + "/update.apk");
-            Intent intent = new Intent("android.intent.action.INSTALL_PACKAGE");
-            intent.setDataAndType(uri, "application/vnd.android.package-archive");
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(intent);
-        } catch (Exception error) {
-            Toast.makeText(this, "Δεν άνοιξε η εγκατάσταση της νέας έκδοσης.", Toast.LENGTH_LONG).show();
-        }
+        try { OtaInstaller.install(this, apk); }
+        catch (Exception error) { Toast.makeText(this, "Δεν ξεκίνησε η εγκατάσταση. " + error.getMessage(), Toast.LENGTH_LONG).show(); }
     }
 
     private boolean canInstallPackages() {

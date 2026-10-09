@@ -149,6 +149,13 @@
           <div><span class="overline dark">ΔΙΑΧΕΙΡΙΣΗ ΕΚΔΟΣΕΩΝ</span><h2>Ενημερώσεις</h2></div>
         </div>
         <article class="update-box">
+          <span class="update-symbol client"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg></span>
+          <div><strong>Ενημέρωση Server μέσω OTA</strong><p id="otaStatus">Έλεγχος κάθε 15 λεπτά. Πριν από την εγκατάσταση δημιουργείται backup.</p><label><input id="automaticOta" type="checkbox"> Αυτόματη λήψη και εγκατάσταση</label><p id="otaBackup"></p></div>
+          <button id="checkServerUpdate" class="secondary-action" type="button">Έλεγχος τώρα</button>
+        </article>
+        <button id="installServerUpdate" class="primary-action" type="button">Εγκατάσταση ενημέρωσης</button>
+        <p class="action-message">Client και Web δημοσιεύονται αυτόματα από το συνδεδεμένο έργο. Οι παρακάτω επιλογές παραμένουν διαθέσιμες για χειροκίνητη μεταφόρτωση.</p>
+        <article class="update-box">
           <span class="update-symbol client"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg></span>
           <div><strong>Νέο Client APK</strong><p>Διάλεξε το APK που θα σου δίνω. Θα γίνει αμέσως η τελευταία προστατευμένη έκδοση στο web.</p></div>
           <button id="uploadClient" class="secondary-action" type="button">Επιλογή APK</button>

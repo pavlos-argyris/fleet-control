@@ -1,0 +1,84 @@
+name: Publish Fleet update
+on:
+  workflow_dispatch:
+  push:
+    tags: ['fleet-v*']
+permissions:
+  contents: write
+concurrency:
+  group: fleet-production-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      FLEET_STORE_PASSWORD: ${{ secrets.FLEET_STORE_PASSWORD }}
+      FLEET_KEY_PASSWORD: ${{ secrets.FLEET_KEY_PASSWORD }}
+      FLEET_KEY_ALIAS: ${{ secrets.FLEET_KEY_ALIAS }}
+      FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
+      FLEET_RELEASE_TOKEN: ${{ secrets.FLEET_RELEASE_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      FLEET_D1_DATABASE_ID: ${{ vars.FLEET_D1_DATABASE_ID }}
+      FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
+      FLEET_WORKER_NAME: ${{ vars.FLEET_WORKER_NAME }}
+      FLEET_RELEASES_BUCKET: ${{ vars.FLEET_RELEASES_BUCKET }}
+      FLEET_DOCUMENTS_BUCKET: ${{ vars.FLEET_DOCUMENTS_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: npm ci
+        working-directory: cloudflare-worker
+      - run: bash scripts/check-all.sh
+      - run: bash scripts/unpack-toolchain.sh
+      - name: Restore original signing key
+        env:
+          FLEET_KEYSTORE_BASE64: ${{ secrets.FLEET_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$FLEET_KEYSTORE_BASE64"
+          test -n "$FLEET_SERVER_KEY"
+          test -n "$FLEET_RELEASE_TOKEN"
+          mkdir -p private/signing
+          printenv FLEET_KEYSTORE_BASE64 | base64 --decode > private/signing/fleet-control-release.p12
+          chmod 600 private/signing/fleet-control-release.p12
+      - run: bash scripts/build-android.sh all
+      - run: node scripts/verify-apks.mjs
+      - run: node scripts/prepare-release.mjs
+      - run: node scripts/publish-release.mjs --dry-run
+      - name: Save full source and signed files as a GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FLEET_TAG="fleet-v$(node -p 'JSON.parse(require("fs").readFileSync("release-config.json", "utf8")).releaseVersion')"
+          if gh release view "$FLEET_TAG" >/dev/null 2>&1; then
+            mkdir -p .build/existing-release
+            gh release download "$FLEET_TAG" --pattern release-manifest.json --dir .build/existing-release
+            cmp dist/release-manifest.json .build/existing-release/release-manifest.json
+            echo 'The saved release matches. Continuing the deployment retry.'
+          else
+            FLEET_SOURCE_COMMIT="$(git rev-parse HEAD)"
+            gh release create "$FLEET_TAG" --target "$FLEET_SOURCE_COMMIT" --title "Fleet Control $FLEET_TAG" --notes-file docs/RELEASE_NOTES_CURRENT.md dist/*.apk dist/*.zip dist/release-manifest.json dist/SHA256SUMS.txt
+          fi
+      - run: node scripts/configure-worker.mjs
+      - name: Set publishing credential and deploy compatible Worker
+        working-directory: cloudflare-worker
+        run: |
+          printenv FLEET_RELEASE_TOKEN | npx wrangler secret put RELEASE_TOKEN
+          npx wrangler deploy
+      - name: Upload and activate verified Server, Client and Web together
+        run: node scripts/publish-release.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-verification
+          path: |
+            dist/release-manifest.json
+            dist/SHA256SUMS.txt

@@ -89,6 +89,7 @@ public final class BackupManager {
         if (documents.length > 22) {
             String documentsName = "FleetControl_documents_" + stamp + ".fcdocs";
             Uri documentsUri = DocumentsContract.createDocument(resolver, parentDocument, "application/octet-stream", documentsName);
+            if (documentsUri == null) throw new IllegalStateException("Δεν δημιουργήθηκε το αρχείο backup τιμολογίων.");
             if (documentsUri != null) {
                 try {
                     OutputStream documentsOutput = resolver.openOutputStream(documentsUri, "w");
