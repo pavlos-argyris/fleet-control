@@ -28,6 +28,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Install ripgrep for Android build scripts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
       - run: npm ci
         working-directory: cloudflare-worker
       - run: bash scripts/check-all.sh
