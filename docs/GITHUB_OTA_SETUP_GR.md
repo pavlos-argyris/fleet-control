@@ -1,6 +1,6 @@
 # Αρχική σύνδεση GitHub και OTA
 
-Το παραδοτέο περιλαμβάνει πλήρη πηγαίο κώδικα Client, Server, Web, Portal, Worker, κοινό installer, scripts, εξαρτήσεις και φορητά εργαλεία Android Linux x86_64. Περιλαμβάνει επίσης τοπικό ιστορικό Git. Ο κώδικας είναι στο ιδιωτικό `pavlos-argyris/fleet-control`. Δεν έχει γίνει παραγωγικό Cloudflare deploy.
+Το παραδοτέο περιλαμβάνει πλήρη πηγαίο κώδικα Client, Server, Web, Portal, Worker, κοινό installer, scripts, εξαρτήσεις και φορητά εργαλεία Android Linux x86_64. Περιλαμβάνει επίσης τοπικό ιστορικό Git. Ο κώδικας είναι στο ιδιωτικό `pavlos-argyris/fleet-control`. Η πρώτη δημοσίευση `fleet-v5.37.0` και το Cloudflare deploy ολοκληρώθηκαν επιτυχώς. Η επόμενη δοκιμή Server 2.1.1 περιγράφεται στο `OTA_TEST_SERVER_2.1.1_GR.md`.
 
 ## 1. Κώδικας στον δικό σου λογαριασμό
 

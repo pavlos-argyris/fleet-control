@@ -1,8 +1,8 @@
 {
-  "releaseVersion": "5.37.0",
-  "notes": "GitHub release pipeline και OTA ενημερώσεις Server/Client με επαλήθευση υπογραφής και backup πριν την ενημέρωση Server.",
+  "releaseVersion": "5.37.1",
+  "notes": "Δοκιμή OTA Server 2.1.0 → 2.1.1: μόνο αύξηση έκδοσης/code και ενημέρωση της αναφερόμενης έκδοσης, με αρχική υπογραφή και ίδια λειτουργία.",
   "client": { "version": "5.37.0", "versionCode": 48, "packageName": "gr.argyrismitsos.fleetcontrol" },
-  "server": { "version": "2.1.0", "versionCode": 16, "packageName": "gr.argyrismitsos.fleetserver" },
+  "server": { "version": "2.1.1", "versionCode": 17, "packageName": "gr.argyrismitsos.fleetserver" },
   "web": { "version": "5.37.0" },
   "worker": { "version": "5.1.0" }
 }
