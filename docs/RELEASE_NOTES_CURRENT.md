@@ -3,6 +3,7 @@
 - Πλήρες έργο για ιδιωτικό GitHub, με ιστορικό Git και οδηγίες ανεξάρτητης ανάπτυξης.
 - Έλεγχοι σε κάθε push/PR. Ρητή δημοσίευση μέσω της ενέργειας “Publish Fleet update”.
 - Εγκατάσταση του ripgrep στα workflows ελέγχου και δημοσίευσης, ώστε τα Android build scripts να λειτουργούν σε καθαρό Ubuntu runner.
+- Αρχική καταχώριση των 8 repository secrets και των 5 variables από Windows με το `Setup_OTA_Secrets.ps1`. Διαβάζει τα υπάρχοντα bindings, επιβεβαιώνει το Worker URL και το αρχικό signing container, κρατά το υπάρχον release token και δεν δημοσιεύει update. Περιλαμβάνονται δοκιμές με προσομοιωμένα GitHub/Cloudflare και έλεγχος σύνταξης PowerShell στο CI.
 - Build και υπογραφή APK με το αρχικό πιστοποιητικό. Επαλήθευση package/version/πιστοποιητικού πριν από τη δημοσίευση.
 - Πλήρες ZIP πηγαίου κώδικα και αρχεία έκδοσης σε κάθε GitHub release.
 - OTA έλεγχος Server ανά 15 λεπτά, λήψη συγκεκριμένης έκδοσης, έλεγχος SHA-256, μεγέθους, versionCode και υπογραφής.

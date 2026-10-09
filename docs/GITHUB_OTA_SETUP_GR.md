@@ -19,6 +19,8 @@ cd fleet-control
 
 ## 2. Μία φορά: ιδιωτικές ρυθμίσεις έκδοσης
 
+Για Windows, ακολούθησε το [επόμενο βήμα με αυτόματη καταχώριση](OTA_NEXT_STEP_WINDOWS_GR.md). Το `Setup_OTA_Secrets.ps1` περνά τα παρακάτω secrets/variables από τον δικό σου υπολογιστή, με τα αρχικά ιδιωτικά αρχεία και Cloudflare token σε κρυφή είσοδο. Διαβάζει τα υπάρχοντα bindings, διατηρεί υπάρχον release token και δεν δημοσιεύει update. Η χειροκίνητη καταχώριση περιγράφεται επίσης παρακάτω.
+
 Στο ιδιωτικό αποθετήριο: Settings → Secrets and variables → Actions. Χρησιμοποίησε repository secrets ώστε να μη χρειάζεται συνδρομή για environment secrets σε ιδιωτικό αποθετήριο.
 
 | Secret | Περιεχόμενο / προέλευση |
@@ -29,7 +31,7 @@ cd fleet-control
 | `FLEET_KEY_ALIAS` | `ALIAS` από το ίδιο αρχείο |
 | `FLEET_SERVER_KEY` | Το αρχικό `serverKey` από `server-secrets.json`. Διατηρείται ακριβώς για σύνδεση και αποκρυπτογράφηση backup |
 | `FLEET_RELEASE_TOKEN` | Νέο τυχαίο token τουλάχιστον 32 χαρακτήρων, μόνο για δημοσίευση |
-| `CLOUDFLARE_API_TOKEN` | Περιορισμένο token για το υπάρχον Worker: Workers Scripts Edit και ανάγνωση του account |
+| `CLOUDFLARE_API_TOKEN` | Περιορισμένο token για τον υπάρχοντα λογαριασμό/Worker: Workers Editor (παλαιότερα Workers Scripts Edit) και Account Settings Read |
 | `CLOUDFLARE_ACCOUNT_ID` | ID του υπάρχοντος Cloudflare λογαριασμού |
 
 Ο υπάρχων Worker πρέπει να διατηρήσει τα secrets `SERVER_KEY`, `CLIENT_KEY`, `PIN_PEPPER` και όσα ήδη χρησιμοποιεί. Το workflow προσθέτει/ενημερώνει μόνο το `RELEASE_TOKEN`. Δεν δημιουργεί νέα βάση και δεν μετακινεί παραγωγικά δεδομένα.

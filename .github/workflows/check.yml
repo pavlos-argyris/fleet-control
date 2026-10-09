@@ -17,6 +17,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Check PowerShell OTA setup syntax
+        shell: pwsh
+        run: |
+          $FleetTokens = $null
+          $FleetErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'Setup_OTA_Secrets.ps1'), [ref]$FleetTokens, [ref]$FleetErrors) | Out-Null
+          if ($FleetErrors.Count -gt 0) { throw ($FleetErrors | Out-String) }
       - name: Install ripgrep for Android build scripts
         run: |
           sudo apt-get update
