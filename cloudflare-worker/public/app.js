@@ -1932,12 +1932,17 @@
       wigglyProgressRings.delete(canvas);
       return;
     }
-    const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
-    const computed = window.getComputedStyle ? window.getComputedStyle(canvas) : null;
-    const cssWidth = Number(rect && rect.width) || Number(canvas.clientWidth) || Number.parseFloat(computed && computed.width) || 48;
-    const cssHeight = Number(rect && rect.height) || Number(canvas.clientHeight) || Number.parseFloat(computed && computed.height) || cssWidth;
-    const size = Math.max(24, Math.round(Math.min(cssWidth, cssHeight)));
+    let geometry = canvas.__wigglyGeometry;
     const deviceScale = Math.min(2, Math.max(1, Number(window.devicePixelRatio) || 1));
+    if (!geometry || geometry.viewportWidth !== window.innerWidth || geometry.scale !== deviceScale) {
+      const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+      const computed = window.getComputedStyle ? window.getComputedStyle(canvas) : null;
+      const cssWidth = Number(rect && rect.width) || Number(canvas.clientWidth) || Number.parseFloat(computed && computed.width) || 48;
+      const cssHeight = Number(rect && rect.height) || Number(canvas.clientHeight) || Number.parseFloat(computed && computed.height) || cssWidth;
+      geometry = { size: Math.max(24, Math.round(Math.min(cssWidth, cssHeight))), viewportWidth: window.innerWidth, scale: deviceScale };
+      canvas.__wigglyGeometry = geometry;
+    }
+    const size = geometry.size;
     const pixelSize = Math.max(1, Math.round(size * deviceScale));
     if (canvas.width !== pixelSize || canvas.height !== pixelSize) {
       canvas.width = pixelSize;
@@ -1967,22 +1972,24 @@
     const center = size / 2;
     const radius = size * .355;
     const lineWidth = Math.max(2.5, size * .078);
-    const phase = (Number(time) || 0) * .0017;
+    const reducedMotion = wigglyProgressReducedMotion();
+    const phase = reducedMotion ? 0 : (Number(time) || 0) * .00105;
+    const rotation = reducedMotion || ["completed", "confirmed", "error"].includes(status) ? 0 : phase * .72;
     const steps = 180;
     const pointAt = function (fraction) {
-      const angle = -Math.PI / 2 + fraction * Math.PI * 2;
-      const wave = Math.sin(angle * 5.4 + phase * 3.2) * size * .026
-        + Math.sin(angle * 9.3 - phase * 2.1) * size * .014
-        + Math.sin(angle * 15.7 + phase * 1.25) * size * .006;
+      const angle = -Math.PI / 2 + ((fraction % 1 + 1) % 1) * Math.PI * 2;
+      const wave = Math.sin(angle * 5 + phase * 3.2) * size * .026
+        + Math.sin(angle * 9 - phase * 2.1) * size * .014
+        + Math.sin(angle * 16 + phase * 1.25) * size * .006;
       const pulse = 1 + Math.sin(phase * 1.35) * .018;
       const distance = (radius + wave) * pulse;
       return { x: center + Math.cos(angle) * distance, y: center + Math.sin(angle) * distance };
     };
-    const trace = function (fraction) {
+    const trace = function (fraction, start) {
       const count = Math.max(1, Math.round(steps * Math.max(0, Math.min(1, fraction))));
       context.beginPath();
       for (let index = 0; index <= count; index += 1) {
-        const point = pointAt(index / steps);
+        const point = pointAt(index / steps + (start || 0));
         if (!index) context.moveTo(point.x, point.y);
         else context.lineTo(point.x, point.y);
       }
@@ -1996,7 +2003,7 @@
     context.lineWidth = lineWidth;
     context.stroke();
     if (displayedProgress > 0) {
-      trace(displayedProgress / 100);
+      trace(displayedProgress / 100, rotation / (Math.PI * 2));
       context.strokeStyle = colors.value;
       context.lineWidth = lineWidth;
       context.shadowColor = colors.glow;

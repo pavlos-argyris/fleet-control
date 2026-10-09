@@ -14,6 +14,7 @@ node scripts/test-invoice-improvements.mjs
 node scripts/test-invoice-library.mjs
 node scripts/test-service-order.mjs
 node scripts/test-scroll-stability.mjs
+node scripts/test-progress-ring.mjs
 node scripts/test-payroll-regressions.mjs
 node scripts/test-schedule-regressions.mjs
 node scripts/test-admin-simulations.mjs

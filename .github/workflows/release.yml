@@ -65,6 +65,7 @@ jobs:
       - run: bash scripts/check-all.sh
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-local-invoice-reader.mjs
+      - run: node scripts/test-invoice-reader-accuracy.mjs
       - run: node scripts/test-server-ota-policy.mjs
       - run: node scripts/test-server-http.mjs
       - name: Restore original signing key

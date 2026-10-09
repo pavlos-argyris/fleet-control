@@ -33,6 +33,11 @@ public final class LocalInvoiceReader {
     private static final Charset LATIN = Charset.forName("ISO-8859-1");
     private static final int MAX_BYTES = 15 * 1024 * 1024;
     private static final int MAX_RAW_TEXT = 6000;
+    private static final int MAX_PARSE_TEXT = 128000;
+    private static final String PDF_NUMBER = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?";
+    private static final Pattern TEXT_BLOCK = Pattern.compile("(?s)BT(.*?)ET");
+    private static final Pattern TEXT_MATRIX = Pattern.compile("(" + PDF_NUMBER + ")\\s+(" + PDF_NUMBER + ")\\s+(" + PDF_NUMBER + ")\\s+(" + PDF_NUMBER + ")\\s+(" + PDF_NUMBER + ")\\s+(" + PDF_NUMBER + ")\\s+Tm\\b");
+    private static final Pattern TEXT_TOKEN = Pattern.compile("/(\\w+)\\b|(" + PDF_NUMBER + ")\\s+(" + PDF_NUMBER + ")\\s+Td\\b|(<[0-9A-Fa-f\\s]+>|\\((?:\\\\.|[^\\\\)])*\\))\\s*Tj\\b");
 
     private LocalInvoiceReader() {}
 
@@ -67,6 +72,17 @@ public final class LocalInvoiceReader {
         if (selected == null) selected = other;
         if (selected == null) throw new IOException("Δεν βρέθηκε αναγνώσιμο κείμενο στο τιμολόγιο.");
         if (other != null) {
+            boolean conflict = false;
+            for (String field : new String[] { "plate", "odometerKm", "invoiceDate", "totalAmount" }) {
+                String left = comparableField(field, selected.optString(field, ""));
+                String right = comparableField(field, other.optString(field, ""));
+                if (left.length() > 0 && right.length() > 0 && !left.equals(right)) conflict = true;
+            }
+            if (conflict) {
+                selected.put("localReadStatus", "ambiguous");
+                selected.put("ocrConfidence", Math.min(60, score(selected)));
+                selected.put("ocrFallbackReason", "Το κείμενο της σελίδας και το PDF διαφωνούν σε βασικά στοιχεία. Απαιτείται επιπλέον έλεγχος.");
+            }
             copyIfMissing(selected, other, "supplier", "invoiceNumber", "invoiceDate", "plate", "odometerKm", "totalAmount");
             JSONArray work = selected.optJSONArray("workPerformed");
             JSONArray otherWork = other.optJSONArray("workPerformed");
@@ -141,16 +157,23 @@ public final class LocalInvoiceReader {
     private static String extractMappedPdfText(byte[] bytes) {
         try {
             String source = new String(bytes, LATIN);
-            Map<String, Map<Integer, String>> fonts = readFontMaps(source, bytes);
+            Map<Integer, Integer> offsets = new HashMap<Integer, Integer>();
+            Matcher objects = Pattern.compile("(?m)^(\\d+)\\s+0\\s+obj\\b").matcher(source);
+            while (objects.find()) offsets.put(Integer.parseInt(objects.group(1)), objects.start());
+            Map<Integer, byte[]> streams = new HashMap<Integer, byte[]>();
+            Map<String, Map<Integer, String>> fonts = readFontMaps(source, bytes, offsets, streams);
             if (fonts.isEmpty()) return "";
-            Matcher contents = Pattern.compile("/Contents\\s+(\\d+)\\s+0\\s+R").matcher(source);
+            Matcher contents = Pattern.compile("/Contents\\s+(\\d+\\s+0\\s+R|\\[[^\\]]*\\])").matcher(source);
             StringBuilder output = new StringBuilder();
             boolean parsed = false;
             while (contents.find()) {
-                byte[] stream = streamForObject(bytes, Integer.parseInt(contents.group(1)));
-                if (stream.length == 0) continue;
-                appendMappedContent(output, stream, fonts);
-                parsed = true;
+                Matcher references = Pattern.compile("(\\d+)\\s+0\\s+R").matcher(contents.group(1));
+                while (references.find()) {
+                    byte[] stream = streamForObject(source, bytes, Integer.parseInt(references.group(1)), offsets, streams);
+                    if (stream.length == 0) continue;
+                    appendMappedContent(output, stream, fonts);
+                    parsed = true;
+                }
             }
             return parsed ? output.toString() : "";
         } catch (Exception ignored) {
@@ -158,14 +181,16 @@ public final class LocalInvoiceReader {
         }
     }
 
-    private static Map<String, Map<Integer, String>> readFontMaps(String source, byte[] bytes) {
+    private static Map<String, Map<Integer, String>> readFontMaps(String source, byte[] bytes, Map<Integer, Integer> offsets, Map<Integer, byte[]> streams) {
         Map<String, Map<Integer, String>> result = new HashMap<String, Map<Integer, String>>();
+        Map<Integer, Map<Integer, String>> decoded = new HashMap<Integer, Map<Integer, String>>();
         Matcher resources = Pattern.compile("/([A-Za-z][A-Za-z0-9]*)\\s+(\\d+)\\s+0\\s+R").matcher(source);
         while (resources.find()) {
             String name = resources.group(1);
             int fontObject;
             try { fontObject = Integer.parseInt(resources.group(2)); } catch (Exception ignored) { continue; }
-            int objectStart = objectOffset(source, fontObject);
+            Integer start = offsets.get(fontObject);
+            int objectStart = start == null ? -1 : start;
             if (objectStart < 0) continue;
             int objectEnd = source.indexOf("endobj", objectStart);
             if (objectEnd < 0) continue;
@@ -173,7 +198,11 @@ public final class LocalInvoiceReader {
             Matcher unicodeRef = Pattern.compile("/ToUnicode\\s+(\\d+)\\s+0\\s+R").matcher(dictionary);
             if (!unicodeRef.find()) continue;
             try {
-                Map<Integer, String> map = parseCMap(streamForObject(bytes, Integer.parseInt(unicodeRef.group(1))));
+                Map<Integer, String> map = decoded.get(fontObject);
+                if (map == null) {
+                    map = parseCMap(streamForObject(source, bytes, Integer.parseInt(unicodeRef.group(1)), offsets, streams));
+                    decoded.put(fontObject, map);
+                }
                 if (!map.isEmpty()) result.put(name, map);
             } catch (Exception ignored) {}
         }
@@ -220,9 +249,10 @@ public final class LocalInvoiceReader {
         return result.toString();
     }
 
-    private static byte[] streamForObject(byte[] bytes, int objectNumber) {
-        String source = new String(bytes, LATIN);
-        int objectStart = objectOffset(source, objectNumber);
+    private static byte[] streamForObject(String source, byte[] bytes, int objectNumber, Map<Integer, Integer> offsets, Map<Integer, byte[]> cache) {
+        if (cache.containsKey(objectNumber)) return cache.get(objectNumber);
+        Integer start = offsets.get(objectNumber);
+        int objectStart = start == null ? -1 : start;
         if (objectStart < 0) return new byte[0];
         int stream = source.indexOf("stream", objectStart);
         int objectEnd = source.indexOf("endobj", objectStart);
@@ -235,13 +265,15 @@ public final class LocalInvoiceReader {
         while (dataEnd > dataStart && (bytes[dataEnd - 1] == '\r' || bytes[dataEnd - 1] == '\n')) dataEnd--;
         byte[] raw = slice(bytes, dataStart, dataEnd);
         String dictionary = source.substring(objectStart, stream);
-        return dictionary.contains("/FlateDecode") ? inflate(raw) : raw;
+        byte[] result = dictionary.contains("/FlateDecode") ? inflate(raw) : raw;
+        cache.put(objectNumber, result);
+        return result;
     }
 
     private static void appendMappedContent(StringBuilder output, byte[] bytes, Map<String, Map<Integer, String>> fonts) {
         String source = new String(bytes, LATIN);
         List<PositionedText> fragments = new ArrayList<PositionedText>();
-        Matcher blocks = Pattern.compile("(?s)BT(.*?)ET").matcher(source);
+        Matcher blocks = TEXT_BLOCK.matcher(source);
         int sequence = 0;
         while (blocks.find()) {
             sequence = parseMappedTextBlock(blocks.group(1), fonts, fragments, sequence);
@@ -258,13 +290,11 @@ public final class LocalInvoiceReader {
         List<PositionedLine> lines = new ArrayList<PositionedLine>();
         for (PositionedText fragment : fragments) {
             PositionedLine selected = null;
-            double distance = Double.MAX_VALUE;
-            for (PositionedLine line : lines) {
-                double candidateDistance = Math.abs(line.y - fragment.y);
-                if (candidateDistance <= 2.5d && candidateDistance < distance) {
-                    selected = line;
-                    distance = candidateDistance;
-                }
+            // Fragments are already ordered by y. Only the final line can
+            // be the closest match; avoid scanning every preceding line.
+            if (!lines.isEmpty()) {
+                PositionedLine last = lines.get(lines.size() - 1);
+                if (Math.abs(last.y - fragment.y) <= 2.5d) selected = last;
             }
             if (selected == null) {
                 selected = new PositionedLine(fragment.y);
@@ -282,8 +312,7 @@ public final class LocalInvoiceReader {
 
     private static int parseMappedTextBlock(String block, Map<String, Map<Integer, String>> fonts,
                                             List<PositionedText> fragments, int sequence) {
-        final String number = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?";
-        Matcher matrix = Pattern.compile("(" + number + ")\\s+(" + number + ")\\s+(" + number + ")\\s+(" + number + ")\\s+(" + number + ")\\s+(" + number + ")\\s+Tm\\b").matcher(block);
+        Matcher matrix = TEXT_MATRIX.matcher(block);
         double x = 0d;
         double y = 0d;
         if (matrix.find()) {
@@ -293,8 +322,7 @@ public final class LocalInvoiceReader {
             } catch (Exception ignored) {}
         }
         String currentFont = "";
-        Pattern tokens = Pattern.compile("/(\\w+)\\b|(" + number + ")\\s+(" + number + ")\\s+Td\\b|(<[0-9A-Fa-f\\s]+>|\\((?:\\\\.|[^\\\\)])*\\))\\s*Tj\\b");
-        Matcher token = tokens.matcher(block);
+        Matcher token = TEXT_TOKEN.matcher(block);
         while (token.find()) {
             if (token.group(1) != null) {
                 String candidate = token.group(1);
@@ -493,14 +521,14 @@ public final class LocalInvoiceReader {
                 .replaceAll("[ \\t]+", " ")
                 .replaceAll("\\n{3,}", "\\n\\n")
                 .trim();
-        return text.length() > MAX_RAW_TEXT ? text.substring(0, MAX_RAW_TEXT) : text;
+        return text.length() > MAX_PARSE_TEXT ? text.substring(0, MAX_PARSE_TEXT) : text;
     }
 
     private static JSONObject extractFields(String rawText) throws Exception {
         String text = rawText == null ? "" : rawText;
         List<String> lines = lines(text);
         JSONObject result = new JSONObject();
-        result.put("rawText", text);
+        result.put("rawText", text.substring(0, Math.min(MAX_RAW_TEXT, text.length())));
         result.put("source", "server-local");
         result.put("ocrSource", "server-local");
         result.put("localReadAt", System.currentTimeMillis());
@@ -508,11 +536,10 @@ public final class LocalInvoiceReader {
         String comments = findComments(text);
         String plate = findPlate(text);
         if (plate.length() == 0) plate = findPlate(comments);
-        String odometer = findNumberNear(text, "χιλιόμετρα|χιλιομετρα|χιλ\\.?|km|odometer|mileage");
+        String odometer = findNumberNear(text, "χιλιόμετρα|χιλιομετρα|χλμ\\.?|χιλ\\.?|km|odometer|mileage");
         if (odometer.length() == 0) odometer = findCommentNumber(comments);
         String date = findDate(text);
-        String total = findMoneyNear(text, "συνολική\\s*αξία|συνολικη\\s*αξια|ποσό\\s*πληρωμής|ποσο\\s*πληρωμης|grand\\s*total|total\\s*amount");
-        if (total.length() == 0) total = findMoneyNear(text, "σύνολο|συνολο|πληρωτέο|πληρωτεο|total");
+        String total = findInvoiceTotal(text);
         String supplier = findSupplier(lines);
         String invoiceNumber = findInvoiceNumber(lines, text);
         if (plate.length() > 0) result.put("plate", plate);
@@ -577,24 +604,67 @@ public final class LocalInvoiceReader {
         return matcher.find() ? matcher.group(1) + "-" + matcher.group(2) : compact;
     }
 
-    private static String findDate(String text) {
-        String iso = findRegex(text, "(?<!\\d)(\\d{4}-\\d{2}-\\d{2})(?!\\d)");
-        if (iso.length() > 0) return iso;
-        try {
-            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?<!\\d)(\\d{1,2})[./-](\\d{1,2})[./-](\\d{4})(?!\\d)").matcher(text == null ? "" : text);
-            if (!matcher.find()) return "";
-            return matcher.group(3) + "-" + pad(matcher.group(2)) + "-" + pad(matcher.group(1));
-        } catch (Exception ignored) {
-            return "";
+    private static String comparableField(String field, String value) {
+        String compact = value.trim().toUpperCase(Locale.ROOT);
+        if ("plate".equals(field)) {
+            String greek = "ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ", latin = "ABEZHIKMNOPTYX";
+            for (int index = 0; index < greek.length(); index++) compact = compact.replace(greek.charAt(index), latin.charAt(index));
+            return compact.replaceAll("[^A-Z0-9]", "");
         }
+        if ("odometerKm".equals(field)) return compact.replaceAll("[^0-9]", "");
+        if ("totalAmount".equals(field)) {
+            compact = compact.replace(" ", "");
+            if (compact.contains(",")) compact = compact.replace(".", "").replace(',', '.');
+            try { return new java.math.BigDecimal(compact).stripTrailingZeros().toPlainString(); }
+            catch (Exception ignored) { return compact; }
+        }
+        return compact;
+    }
+
+    private static String findDate(String text) {
+        List<String> rows = lines(text);
+        boolean issuedLabel = false;
+        for (int index = 0; index < rows.size(); index++) {
+            if (!rows.get(index).matches("(?iu).*(?:ημερομηνία\\s*έκδοσης|ημερομηνια\\s*εκδοσης|invoice\\s*date|issue\\s*date).*")) continue;
+            issuedLabel = true;
+            String value = findValidDate(rows.get(index));
+            boolean hasDateToken = rows.get(index).matches(".*[0-9]{1,4}[./-][0-9]{1,2}[./-][0-9]{1,4}.*");
+            if (value.length() == 0 && !hasDateToken && index + 1 < rows.size()
+                    && !rows.get(index + 1).matches("(?iu).*(?:ημερομηνία|ημερομηνια|date).*")) value = findValidDate(rows.get(index + 1));
+            if (value.length() > 0) return value;
+        }
+        return issuedLabel ? "" : findValidDate(text);
+    }
+
+    private static String findValidDate(String text) {
+        Matcher matcher = Pattern.compile("(?<!\\d)(\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[./-]\\d{1,2}[./-]\\d{4})(?!\\d)").matcher(text == null ? "" : text);
+        while (matcher.find()) {
+            String value = matcher.group(1);
+            String[] parts = value.split("[./-]");
+            String iso = parts[0].length() == 4 ? value : parts[2] + "-" + pad(parts[1]) + "-" + pad(parts[0]);
+            try {
+                java.text.SimpleDateFormat format = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT);
+                format.setLenient(false);
+                if (format.format(format.parse(iso)).equals(iso)) return iso;
+            } catch (Exception ignored) {}
+        }
+        return "";
+    }
+
+    private static String findInvoiceTotal(String text) {
+        String value = findMoneyNear(text, "συνολική\\s*αξία|συνολικη\\s*αξια|grand\\s*total|total\\s*amount");
+        if (value.length() > 0) return value;
+        value = findMoneyNear(text, "ποσό\\s*πληρωμής|ποσο\\s*πληρωμης|πληρωτέο|πληρωτεο");
+        if (value.length() > 0) return value;
+        return findRegex(text, "(?imu)^\\s*(?:σύνολο|συνολο|total)\\s*[:€]?\\s*([0-9][0-9 .]*(?:[,.]\\d{1,2})?)").trim();
     }
 
     private static String findNumberNear(String text, String labels) {
-        return findRegex(text, "(?iu)(?:" + labels + ")[^0-9]{0,35}([0-9][0-9 .]{2,8})").replaceAll("[^0-9]", "");
+        return findRegex(text, "(?iu)(?<![A-ZΑ-Ω0-9])(?:" + labels + ")(?![A-ZΑ-Ω0-9])[^0-9\\n]{0,35}([0-9]{1,3}(?:[ .][0-9]{3}){1,2}|[0-9]{3,7})(?![0-9])").replaceAll("[^0-9]", "");
     }
 
     private static String findMoneyNear(String text, String labels) {
-        String value = findRegex(text, "(?iu)(?:" + labels + ")[^0-9]{0,35}([0-9][0-9 .]*(?:[,.]\\d{1,2})?)");
+        String value = findRegex(text, "(?iu)(?:" + labels + ")[^0-9\\n]{0,35}([0-9][0-9 .]*(?:[,.]\\d{1,2})?)");
         return value.trim();
     }
 
@@ -669,19 +739,31 @@ public final class LocalInvoiceReader {
     }
 
     private static String findComments(String text) {
-        try {
-            Matcher matcher = Pattern.compile("(?ius)σχόλια\\s*[:#-]?\\s*([^\\n]{0,120}(?:\\n\\s*[0-9][0-9 .]{3,10})?)").matcher(text == null ? "" : text);
-            return matcher.find() ? matcher.group(1).replaceAll("\\s+", " ").trim() : "";
-        } catch (Exception ignored) {
-            return "";
+        String[] rows = String.valueOf(text == null ? "" : text).split("\\r?\\n");
+        for (int index = 0; index < rows.length; index++) {
+            Matcher label = Pattern.compile("(?iu)σχ[όο]λια\\s*[:#-]?\\s*(.*)").matcher(rows[index]);
+            if (!label.find()) continue;
+            StringBuilder value = new StringBuilder(label.group(1));
+            for (int next = index + 1; next < rows.length && next <= index + 3; next++) {
+                String line = rows[next].trim();
+                if (line.length() == 0 || line.matches("(?iu).*(?:μ\\.?\\s*αρ\\.?\\s*κ|υπογραφή|υπογραφη|αναγν|υ\\.?πα|αδειοδότησης|αδειοδοτησης|https?://).*")) break;
+                if (value.length() + line.length() > 240) break;
+                value.append(' ').append(line);
+            }
+            return value.toString().replaceAll("\\s+", " ").trim();
         }
+        return "";
     }
 
     private static String findCommentNumber(String comments) {
-        String value = comments == null ? "" : comments;
-        Matcher matcher = Pattern.compile("(?<![A-ZΑ-Ω0-9])([0-9]{4,7})(?![A-ZΑ-Ω0-9])").matcher(value);
+        String value = String.valueOf(comments == null ? "" : comments).replaceAll("(?iu)[ABEZHIKMNOPTYXΑΒΕΖΗΙΚΜΝΟΡΤΥΧ]{3}[ \\t-]*\\d{3,4}(?![A-ZΑ-Ω0-9])", " ");
+        Matcher matcher = Pattern.compile("(?<![A-ZΑ-Ω0-9])([0-9]{4,7}|[0-9]{1,3}[ .][0-9]{3})(?![A-ZΑ-Ω0-9])").matcher(value);
         String last = "";
-        while (matcher.find()) last = matcher.group(1);
+        while (matcher.find()) {
+            String current = matcher.group(1).replaceAll("[^0-9]", "");
+            if (last.length() > 0 && !last.equals(current)) return "";
+            last = current;
+        }
         return last;
     }
 
@@ -860,18 +942,6 @@ public final class LocalInvoiceReader {
         byte[] result = new byte[end - start];
         System.arraycopy(value, start, result, 0, result.length);
         return result;
-    }
-
-    private static int objectOffset(String source, int objectNumber) {
-        String marker = objectNumber + " 0 obj";
-        int from = 0;
-        while (from < source.length()) {
-            int offset = source.indexOf(marker, from);
-            if (offset < 0) return -1;
-            if (offset == 0 || source.charAt(offset - 1) == '\n' || source.charAt(offset - 1) == '\r') return offset;
-            from = offset + marker.length();
-        }
-        return -1;
     }
 
     private static int indexOf(byte[] source, byte[] needle, int from) {
