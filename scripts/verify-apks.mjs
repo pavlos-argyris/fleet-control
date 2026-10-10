@@ -15,3 +15,20 @@ for (const kind of ['client', 'server']) {
   if (!match || match[1] !== value.packageName || Number(match[2]) !== value.versionCode || match[3] !== value.version) throw new Error(`Wrong APK package/version: ${kind}`);
   console.log(`Verified ${kind}: ${value.version}, code ${value.versionCode}, original signing certificate.`);
 }
+// Verify the packaged models and ARM64 alignment, not only the intermediate AAR.
+execFileSync('python3', ['-c', `
+import hashlib,json,struct,zipfile
+lock=json.load(open('android-build-support/invoice-dependencies.lock.json'))
+with zipfile.ZipFile('dist/Fleet_Control_Server_v${config.server.version}.apk') as z:
+ for item in lock['items']:
+  if item['file'].endswith('.traineddata'):
+   data=z.read('assets/ocr/tessdata/'+item['file']);assert hashlib.sha256(data).hexdigest()==item['sha256']
+ native=[n for n in z.namelist() if n.startswith('lib/arm64-v8a/') and n.endswith('.so')];assert len(native)==4
+ for name in native:
+  data=z.read(name);assert data[:5]==b'\\x7fELF\\x02';offset=struct.unpack_from('<Q',data,32)[0];size,count=struct.unpack_from('<HH',data,54)
+  for i in range(count):
+   header=struct.unpack_from('<IIQQQQQQ',data,offset+i*size)
+   if header[0]==1:assert header[7]>=16384,name
+ assert 'assets/invoice-reader-notices/PDFBOX-LICENSE.txt' in z.namelist()
+print('Verified packaged Greek/English model hashes, ARM64 native libraries/16 KB alignment and notices.')
+`], { stdio: 'inherit' });

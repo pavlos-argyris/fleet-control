@@ -1,6 +1,6 @@
 # Fleet Control — πλήρες έργο και OTA
 
-Έκδοση πακέτου 5.41.0 · Client/Web 5.41.0 · Server 2.1.7 · Worker 5.4.0
+Έκδοση πακέτου 5.42.0 · Client/Web 5.42.0 · Server 2.1.8 · Worker 5.5.0
 
 Ιδιωτικό αποθετήριο: [pavlos-argyris/fleet-control](https://github.com/pavlos-argyris/fleet-control).
 
@@ -10,7 +10,7 @@
 
 Για τις επόμενες εκδόσεις διάβασε [αυτόματη δημοσίευση από ChatGPT ή Cursor](docs/AUTOMATIC_PUBLISH_GR.md). Μια ξεχωριστή εντολή στο GitHub ξεκινά το workflow αυτόματα και δημοσιεύει το συγκεκριμένο commit που πέρασε τους ελέγχους. Τα συνηθισμένα push κώδικα ενεργοποιούν ελέγχους.
 
-Η ενημέρωση 5.41.0 χωρίζει τον συγχρονισμό στόλου από PDF/αντίγραφο προσωπικού, επιτρέπει ακύρωση και νέα προσπάθεια QR και προσθέτει διαγνωστικά/ενέργειες Server και νέο OTA Client. Διάβασε τις [οδηγίες εγκατάστασης και ελέγχων](docs/SYNC_RECOVERY_UPDATE_5.41.0_GR.md). Χρειάζονται Server, Client, Web και Worker της νέας έκδοσης.
+Η ενημέρωση 5.42.0 προσθέτει τοπικό ελληνικό OCR, μαζικά προσχέδια QR, ελέγχους διπλοτύπων/επίδρασης service, πηγές πεδίων, κανόνες προμηθευτών, cache και OTA ανά ώρα. Διάβασε τις [οδηγίες εγκατάστασης και ελέγχων](docs/INVOICE_LOCAL_UPDATE_5.42.0_GR.md). Χρειάζονται Server, Client, Web και Worker της νέας έκδοσης.
 
 Για το επόμενο βήμα στα Windows, το [Setup OTA](docs/OTA_NEXT_STEP_WINDOWS_GR.md) καταχωρίζει τα ιδιωτικά secrets και διαβάζει τα υπάρχοντα Cloudflare bindings χωρίς δημοσίευση update.
 

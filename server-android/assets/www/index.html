@@ -152,7 +152,7 @@
         </div>
         <article id="otaCard" class="ota-card" aria-live="polite">
           <div class="ota-card-head"><span class="ota-icon" aria-hidden="true">↻</span><div><span class="overline dark">ΕΝΗΜΕΡΩΣΗ SERVER</span><h3 id="otaVersion">Έλεγχος έκδοσης</h3></div><span class="ota-live-badge">OTA</span></div>
-          <p id="otaStatus">Αυτόματος έλεγχος κάθε λεπτό. Πριν την εγκατάσταση δημιουργείται πλήρες backup.</p>
+          <p id="otaStatus">Αυτόματος έλεγχος κάθε ώρα. Πριν την εγκατάσταση δημιουργείται πλήρες backup.</p>
           <ol class="ota-steps"><li data-ota-step="0"><b>1</b><span>Έλεγχος</span></li><li data-ota-step="1"><b>2</b><span>Λήψη</span></li><li data-ota-step="2"><b>3</b><span>Backup</span></li><li data-ota-step="3"><b>4</b><span>Εγκατάσταση</span></li></ol>
           <div id="otaProgress" class="ota-progress" role="progressbar" aria-label="Πρόοδος ενημέρωσης" aria-valuemin="0" aria-valuemax="100" hidden><span id="otaProgressBar"></span></div><small id="otaProgressLabel" class="ota-progress-label"></small>
           <div id="otaNotes"></div><p id="otaBackup" class="ota-backup"></p>
@@ -181,6 +181,7 @@
         <form id="settingsForm" class="settings-form">
           <label><span>Δημόσια διεύθυνση Cloudflare</span><input id="workerUrl" type="url" required></label>
           <label><span>Συγχρονισμός</span><select id="syncSeconds"><option value="10">Κάθε 10 δευτερόλεπτα</option><option value="30">Κάθε 30 δευτερόλεπτα</option><option value="60">Κάθε 1 λεπτό</option><option value="300">Κάθε 5 λεπτά</option></select></label>
+          <label><span>Παράλληλο τοπικό OCR εικόνων</span><select id="ocrParallelism"><option value="1">1 — προτεινόμενο</option><option value="2">2 ταυτόχρονα</option><option value="3">3 ταυτόχρονα</option></select></label>
           <label><span>Παράλληλη επεξεργασία τιμολογίων</span><select id="invoiceParallelism"><option value="1">1 τιμολόγιο — μέγιστη ασφάλεια</option><option value="2">2 τιμολόγια</option><option value="3">3 τιμολόγια</option><option value="4">4 τιμολόγια — προτεινόμενο</option><option value="5">5 τιμολόγια</option><option value="6">6 τιμολόγια — γρήγορη λειτουργία</option><option value="8">8 τιμολόγια — turbo</option><option value="10">10 τιμολόγια — μέγιστο</option></select></label>
           <p class="helper-copy">Το S24 Ultra προτείνεται να ξεκινήσει με 4. Τα 6–10 είναι δοκιμαστικές/turbo επιλογές και αφορούν τη μαζική τοπική ανάγνωση PDF.</p>
           <label><span>Συχνότητα backup</span><select id="backupFrequency"><option value="daily">Καθημερινά</option><option value="weekdays">Δευτέρα–Παρασκευή</option><option value="weekly">Κάθε Δευτέρα</option></select></label>

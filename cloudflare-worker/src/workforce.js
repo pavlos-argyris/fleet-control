@@ -5113,7 +5113,7 @@ const EXPORT_TABLES = [
   "schedule_acknowledgements", "schedule_vehicle_waivers", "schedules", "shifts", "vehicle_segments",
   "correction_requests", "pay_rules", "pay_rule_versions", "special_rates", "special_rate_assignments", "payroll_segments",
   "payroll_periods", "payroll_adjustments", "payroll_snapshots", "system_alerts", "alert_rules", "audit_log", "system_settings",
-  "deleted_records"
+  "deleted_records", "invoice_import_drafts"
 ];
 
 // One bounded table page per request: keep the full backup mirror outside

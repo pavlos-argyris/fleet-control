@@ -1,3 +1,4 @@
+import { INVOICE_IMPORT_SCHEMA, routeInvoiceImports, readImportDraftForJob, finishImportDraft, restartImportDraft, invoiceDuplicates } from './invoice-imports.js';
 import { visibleSnapshotRow, snapshotSummary, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike } from "./snapshot-store.js";
 import { routeReleases } from "./releases.js";
 import {
@@ -29,7 +30,7 @@ const SERVICE_RENDER_MAX_ATTEMPTS = 3;
 const INVOICE_REPROCESS_BATCH_SETTING = "service_invoice_reprocess_batch";
 const INVOICE_REPROCESS_BATCH_STALE_MS = 20 * 60 * 1000;
 const INVOICE_REPROCESS_BATCH_RESULT_TTL_MS = 30 * 1000;
-const RUNTIME_SCHEMA_VERSION = "5.1.0";
+const RUNTIME_SCHEMA_VERSION = "5.2.0";
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fleet_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'canonical', updated_at TEXT NOT NULL);
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS fleet_releases (id TEXT PRIMARY KEY NOT NULL, kind TE
 CREATE INDEX IF NOT EXISTS fleet_releases_kind_created ON fleet_releases(kind, created_at DESC);
 CREATE TABLE IF NOT EXISTS fleet_sessions (token_hash TEXT PRIMARY KEY NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_pin_attempts (fingerprint TEXT PRIMARY KEY NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, window_started INTEGER NOT NULL, blocked_until INTEGER NOT NULL DEFAULT 0);
+${INVOICE_IMPORT_SCHEMA}
 INSERT OR IGNORE INTO fleet_snapshot (id, version, data, source, updated_at) VALUES (1, 0, '{"bikes":[]}', 'canonical', datetime('now'));
 `;
 
@@ -128,6 +130,8 @@ async function route(request, env) {
   if ((path === "/api/admin/pin" || path === "/api/pin") && request.method === "POST") return updatePin(request, env);
   if (path === "/api/operations" && request.method === "POST") return submitOperation(request, env);
   if (path === "/api/backup/request" && request.method === "POST") return requestBackup(request, env);
+  const invoiceImport=await routeInvoiceImports(request,env,{json,serverAuthorized,authenticateExternal,cleanText,qrUrlFromValue,isPublicExternalQrUrl,recordExternalAudit,fleetNames,readSnapshotBike,writeSnapshotBike,normalizeBike,attachServiceDocumentMetadata});
+  if(invoiceImport)return invoiceImport;
   if (path === "/api/service-documents" && request.method === "POST") return uploadServiceDocument(request, env);
   if (path === "/api/service-documents" && request.method === "DELETE") return deleteServiceDocument(request, env);
   if (path === "/api/service-documents/import-qr" && request.method === "POST") return importQrServiceDocument(request, env);
@@ -591,6 +595,8 @@ async function importQrServiceDocument(request, env) {
   if (!entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε. Αποθήκευσε πρώτα το service και ξαναδοκίμασε." }, 404);
   const existing = (entry.attachments || []).find(item => String(item.qrUrl || item.qrValue) === qrUrl);
   if (existing) return json({ ok: true, duplicate: true, documentAvailable: true, attachment: existing, extracted: existing.ocr || null, qrValue, qrUrl, requiresConfirmation: Boolean(existing.ocr) });
+  const duplicateMatches=await invoiceDuplicates(env,{qrUrl});
+  if(duplicateMatches.length&&!body.allowDuplicate)return json({error:"Το τιμολόγιο υπάρχει ήδη σε άλλο service.",code:"duplicate_invoice",matches:duplicateMatches},409);
   const pending = await findPendingServiceRender(env, bikeId, entryId, qrUrl);
   if (!pending && (entry.attachments || []).length >= MAX_SERVICE_ATTACHMENTS) return json({ error: "Μπορείς να κρατήσεις έως 10 τιμολόγια σε ένα service. Τα υπάρχοντα αρχεία διατηρούνται." }, 409);
   if (pending) {
@@ -766,6 +772,11 @@ async function restartServiceDocument(request, env) {
   if (row?.status === "cancelled") return json({error:"Έχει ήδη ξεκινήσει νέα προσπάθεια. Ανανέωσε τη λίστα."},409);
   let payload = {};
   try { payload = JSON.parse(row?.payload || "{}"); } catch {}
+  if(payload.draftId){
+    const draft=await readImportDraftForJob(env,jobId),restarted=await restartImportDraft(env,draft);
+    if(!restarted)return json({error:"Το προσχέδιο έχει ήδη ολοκληρωθεί ή άλλαξε. Ανανέωσε τη λίστα."},409);
+    return json({ok:true,restarted:true,jobId:restarted.jobId,previousJobId:jobId,status:"processing"});
+  }
   const located = await readServiceEntry(env,payload.bikeId || cleanText(body.bikeId,80),payload.entryId || cleanText(body.entryId,120));
   if (!located || located.entry.type === "check") return json({error:"Το service δεν βρέθηκε."},404);
   const qrUrl = qrUrlFromValue(payload.qrUrl || body.qrUrl || located.entry.invoiceData?.qrUrl);
@@ -1189,7 +1200,7 @@ async function invoiceReprocessBatch(request, env) {
       };
       await setSetting(env, INVOICE_REPROCESS_BATCH_SETTING, JSON.stringify(batch));
     }
-    if (batch && batch.status !== "processing" && nowMs - invoiceBatchTime(batch.completedAt) > INVOICE_REPROCESS_BATCH_RESULT_TTL_MS) batch = null;
+    if (batch && !["processing","paused"].includes(batch.status) && nowMs - invoiceBatchTime(batch.completedAt) > INVOICE_REPROCESS_BATCH_RESULT_TTL_MS) batch = null;
     return json({ ok: true, batch });
   }
 
@@ -1198,13 +1209,13 @@ async function invoiceReprocessBatch(request, env) {
   if (action === "start") {
     const mode = body.mode || "server-first";
     if (!["server-first", "workers-ai"].includes(mode)) return json({ error: "Μη έγκυρος τρόπος ανάγνωσης." }, 400);
-    if (current && current.status === "processing" && nowMs - invoiceBatchTime(current.updatedAt) <= INVOICE_REPROCESS_BATCH_STALE_MS) {
+    if (current && (current.status === "paused" || current.status === "processing" && nowMs - invoiceBatchTime(current.updatedAt) <= INVOICE_REPROCESS_BATCH_STALE_MS)) {
       return json({ ok: true, started: false, owner: false, batch: current });
     }
     const items = (Array.isArray(body.items) ? body.items : []).slice(0, 5000).map((item) => ({
       id: cleanText(item?.id, 160),
       key: cleanText(item?.key, 500),
-      name: cleanText(item?.name, 240)
+      name: cleanText(item?.name, 240), forceRead:body.forceRead===true
     })).filter((item) => isServiceDocumentKey(item.key));
     const total = items.length || cleanInteger(body.total, 1, 5000, 0);
     if (!total) return json({ error: "Δεν υπάρχουν τιμολόγια για νέα ανάγνωση." }, 400);
@@ -1236,6 +1247,16 @@ async function invoiceReprocessBatch(request, env) {
 
   const batchId = cleanText(body.batchId, 120);
   if (!batchId || !current || String(current.id) !== batchId) return json({ error: "Η κοινή εργασία επανεπεξεργασίας δεν βρέθηκε ή ολοκληρώθηκε." }, 409);
+  if(action==='pause'||action==='resume'){
+    if(Number(current.completed)>=Number(current.total))return json({error:'Η εργασία έχει ολοκληρωθεί.'},409);
+    const next={...current,status:action==='pause'?'paused':'processing',updatedAt:now,error:'',completedAt:''};
+    await setSetting(env,INVOICE_REPROCESS_BATCH_SETTING,JSON.stringify(next));
+    if(action==='resume')await env.DB.batch([
+      env.DB.prepare("UPDATE fleet_operations SET status='cancelled' WHERE type='service_document_reprocess_batch' AND status='pending' AND json_extract(payload,'$.batchId')=?").bind(current.id),
+      env.DB.prepare("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) VALUES(?,'manual-resume','service_document_reprocess_batch',?,'pending',?)").bind(crypto.randomUUID(),JSON.stringify({batchId:current.id}),now)
+    ]);
+    return json({ok:true,batch:next});
+  }
   if (current.status !== "processing") return json({ ok: true, batch: current, ignored: true });
 
   const total = Math.max(1, Number(current.total) || 1);
@@ -1371,8 +1392,10 @@ async function serverInvoiceReprocessBatch(request, env) {
     const now=new Date().toISOString();
     current={...current,status:"processing",error:"",completedAt:"",updatedAt:now};
     await setSetting(env,INVOICE_REPROCESS_BATCH_SETTING,JSON.stringify(current));
-    const pending=await env.DB.prepare("SELECT id FROM fleet_operations WHERE type='service_document_reprocess_batch' AND status='pending' AND json_extract(payload,'$.batchId')=? LIMIT 1").bind(current.id).first();
-    if (!pending) await env.DB.prepare("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) VALUES (?,'manual-retry','service_document_reprocess_batch',?,'pending',?)").bind(crypto.randomUUID(),JSON.stringify({batchId:current.id}),now).run();
+    await env.DB.batch([
+      env.DB.prepare("UPDATE fleet_operations SET status='cancelled' WHERE type='service_document_reprocess_batch' AND status='pending' AND json_extract(payload,'$.batchId')=?").bind(current.id),
+      env.DB.prepare("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) VALUES (?,'manual-retry','service_document_reprocess_batch',?,'pending',?)").bind(crypto.randomUUID(),JSON.stringify({batchId:current.id}),now)
+    ]);
     return json({ok:true,resumed:true,batch:current});
   }
   if (cleanText(body.action, 30).toLowerCase() !== "result") return json({ error: "Μη έγκυρη ενέργεια Server batch." }, 400);
@@ -1408,7 +1431,7 @@ async function serverInvoiceReprocessBatch(request, env) {
     const local = normalizeServiceDocumentOcr(body.localOcr);
     const localStatus = String(local?.localReadStatus || "").toLowerCase();
     const localConfidence = cleanInteger(local?.ocrConfidence, 0, 100, 0);
-    const localConfident = Boolean(local && (localStatus === "confident" || (localConfidence >= 70 && invoiceWorkItems(local).length > 0)));
+    const localConfident = Boolean(local && (localStatus === "confident" || (!localStatus && localConfidence >= 70 && invoiceWorkItems(local).length > 0)));
     let extracted = !forceWorkersAi && localConfident ? normalizeServiceDocumentOcr({
       ...local,
       source: "server-local",
@@ -1427,7 +1450,8 @@ async function serverInvoiceReprocessBatch(request, env) {
         const object = await bucket?.get(key);
         if (!object) throw new Error("Το PDF του τιμολογίου δεν βρέθηκε στο R2.");
         const storedType = documentContentType(object.httpMetadata?.contentType || attachment.contentType || "", attachment.name || key);
-        extracted = await extractStoredInvoiceOcr(env, new Uint8Array(await object.arrayBuffer()), storedType, attachment.name || key);
+        const aiStarted=performanceNow();
+        extracted = aiInvoiceAnalysis(await extractStoredInvoiceOcr(env, new Uint8Array(await object.arrayBuffer()), storedType, attachment.name || key),local,performanceNow()-aiStarted);
         extracted = normalizeServiceDocumentOcr({
           ...extracted,
           ocrSource: "cloudflare-ai",
@@ -2088,7 +2112,33 @@ function normalizeServiceInvoiceData(value) {
   if (value.rawText != null) result.rawText = cleanText(String(value.rawText), 12000);
   if (Array.isArray(value.parts)) result.parts = value.parts.map((part) => cleanInvoiceWorkText(invoiceLineText(part, 500))).filter(Boolean).slice(0, 50);
   if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map((part) => cleanInvoiceWorkText(invoiceLineText(part, 500))).filter(Boolean).slice(0, 50);
+  normalizeInvoiceAnalysis(value,result);
   return Object.keys(result).length ? result : null;
+}
+
+function aiInvoiceAnalysis(value,local,aiMs=0) {
+  const fields={};
+  for(const field of ['plate','odometerKm','invoiceDate','totalAmount','supplier','invoiceNumber'])if(value?.[field]){
+    const raw=String(value.rawText||''),text=String(value[field]),offset=raw.indexOf(text);
+    fields[field]={score:55,reason:'Αποτέλεσμα Workers AI · χρειάζεται επιβεβαίωση',source:'workers-ai',evidence:offset>=0?raw.slice(Math.max(0,offset-60),offset+text.length+80):''};
+  }
+  return {...value,analysisEngine:'workers-ai',analysisVersion:'ai-invoice-v2',analysisCacheHit:false,
+    analysisDurationMs:(Number(local?.analysisDurationMs)||0)+Math.round(aiMs),analysisTimings:{...local?.analysisTimings,aiMs:Math.round(aiMs)},fieldEvidence:fields};
+}
+
+function normalizeInvoiceAnalysis(value,result) {
+  for(const key of ['analysisEngine','analysisVersion']) if(value[key]) result[key]=cleanText(value[key],100);
+  if(value.analysisCacheHit!=null)result.analysisCacheHit=value.analysisCacheHit===true||value.analysisCacheHit==='true';
+  if(value.analysisDurationMs!=null)result.analysisDurationMs=cleanInteger(value.analysisDurationMs,0,600000,0);
+  if(value.analysisTimings&&typeof value.analysisTimings==='object') {
+    result.analysisTimings={};for(const key of ['textMs','pdfboxMs','ocrWaitMs','ocrMs','qrPdfMs','uploadMs','aiMs'])if(value.analysisTimings[key]!=null)result.analysisTimings[key]=cleanInteger(value.analysisTimings[key],0,600000,0);
+  }
+  if(value.fieldEvidence&&typeof value.fieldEvidence==='object') {
+    result.fieldEvidence={};for(const field of ['plate','odometerKm','invoiceDate','totalAmount','supplier','invoiceNumber']){
+      const item=value.fieldEvidence[field];if(!item||typeof item!=='object')continue;
+      result.fieldEvidence[field]={score:cleanInteger(item.score,0,100,0),reason:cleanText(item.reason,180),source:cleanText(item.source,60),evidence:cleanText(item.evidence,500)};
+    }
+  }
 }
 
 function normalizeServiceDocumentOcr(value) {
@@ -2124,6 +2174,7 @@ function normalizeServiceDocumentOcr(value) {
     if (plate && (!textEvidence || hasInvoicePlateContext(result.rawText, invoicePlateKey(plate)))) result.plate = plate;
     else delete result.plate;
   }
+  normalizeInvoiceAnalysis(value,result);
   return Object.keys(result).length ? result : null;
 }
 
@@ -2967,9 +3018,9 @@ async function serverPending(request, env) {
   await touchServer(env);
   const limit = cleanInteger(new URL(request.url).searchParams.get("limit"), 1, MAX_PENDING, 50);
   const queue = new URL(request.url).searchParams.get("queue");
-  const filter = queue === "invoices" ? " AND type IN ('service_document_render','service_document_reprocess_batch')"
+  const filter = queue === "invoices" ? " AND type IN ('service_document_render','service_document_reprocess_batch') AND NOT (type='service_document_reprocess_batch' AND COALESCE((SELECT json_extract(value,'$.status') FROM fleet_settings WHERE key='service_invoice_reprocess_batch'),'')='paused')"
     : queue === "sync" ? " AND type NOT IN ('service_document_render','service_document_reprocess_batch')" : "";
-  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending'" + filter + " AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY created_at LIMIT ?")
+  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending'" + filter + " AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY CASE WHEN type='service_document_render' THEN 0 WHEN type='service_document_reprocess_batch' THEN 2 ELSE 1 END,created_at LIMIT ?")
     .bind(new Date().toISOString(), limit).all();
   const operations = (result.results || []).map((row) => {
     let payload = {};
@@ -3000,8 +3051,9 @@ async function serverOperationProgress(request, env) {
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
   if (row.status === "cancelled") return json({ ok: true, jobId, status: "cancelled", ignored: true });
-  const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
-  const completed = (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  const draft=payload.draftId?await readImportDraftForJob(env,jobId):null;
+  const located = draft?null:await readServiceEntry(env, payload.bikeId, payload.entryId);
+  const completed = draft?.status==='ready' || (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
   if (row.status === "applied" || completed) return json({ ok: true, jobId, status: "completed", progress: 100 });
   const progress = cleanInteger(body.progress, 0, 99, 0);
   payload.progress = progress;
@@ -3009,7 +3061,7 @@ async function serverOperationProgress(request, env) {
   payload.lastAttemptAt = new Date().toISOString();
   await env.DB.prepare("UPDATE fleet_operations SET payload = ? WHERE id = ? AND status = 'pending'")
     .bind(JSON.stringify(payload), jobId).run();
-  await updateServiceDocumentProcessingSnapshot(env, payload, {
+  if(!draft)await updateServiceDocumentProcessingSnapshot(env, payload, {
     jobId,
     status: "processing",
     progress,
@@ -3032,8 +3084,9 @@ async function serverOperationError(request, env) {
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
   if (row.status === "cancelled") return json({ ok: true, jobId, status: "cancelled", ignored: true });
-  const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
-  const completed = (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  const draft=payload.draftId?await readImportDraftForJob(env,jobId):null;
+  const located = draft?null:await readServiceEntry(env, payload.bikeId, payload.entryId);
+  const completed = draft?.status==='ready' || (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
   if (row.status === "applied" || completed) return json({ ok: true, jobId, status: "completed", progress: 100 });
   const transient = body.retryable === true;
   const attempts = Math.max(0, Number(payload.attemptCount || 0)) + (transient ? 0 : 1);
@@ -3048,7 +3101,7 @@ async function serverOperationError(request, env) {
   payload.progressStage = status === "error" ? "Αποτυχία · χρειάζεται επανάληψη" : "Προσωρινό σφάλμα · θα ξαναδοκιμάσει";
   await env.DB.prepare("UPDATE fleet_operations SET payload = ?, status = ?, applied_at = NULL WHERE id = ?")
     .bind(JSON.stringify(payload), status, jobId).run();
-  await updateServiceDocumentProcessingSnapshot(env, payload, {
+  if(!draft)await updateServiceDocumentProcessingSnapshot(env, payload, {
     jobId,
     status: status === "error" ? "error" : "delayed",
     progress: Math.max(5, Math.min(95, Number(payload.progress || 5))),
@@ -3101,7 +3154,8 @@ async function uploadServerRenderedServiceDocument(request, env) {
   if (!bytes.byteLength || bytes.byteLength > 15 * 1024 * 1024) return json({ error: "Το τιμολόγιο δεν μπορεί να ξεπερνά τα 15 MB." }, 413);
   if (detectDocumentContentType(bytes) !== "application/pdf") return json({ error: "Ο Server δεν δημιούργησε έγκυρο PDF." }, 415);
 
-  const located = await readServiceEntry(env, bikeId, entryId);
+  const draft=await readImportDraftForJob(env,jobId);
+  const located = draft ? {version:0,bike:{id:bikeId,name:"Προσχέδιο"},entry:{id:entryId,type:"service",date:"",attachments:draft.data.attachment?[draft.data.attachment]:[]}} : await readServiceEntry(env, bikeId, entryId);
   const bike = located?.bike;
   const entry = located?.entry;
   if (!bike || !entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε ή διαγράφηκε." }, 404);
@@ -3115,7 +3169,7 @@ async function uploadServerRenderedServiceDocument(request, env) {
   const localOcr = normalizeServiceDocumentOcr(localHeader);
   const localStatus = String(localOcr?.localReadStatus || "").toLowerCase();
   const localConfidence = cleanInteger(localOcr?.ocrConfidence, 0, 100, 0);
-  const localConfident = Boolean(localOcr && (localStatus === "confident" || (localConfidence >= 70 && invoiceWorkItems(localOcr).length > 0)));
+  const localConfident = Boolean(localOcr && (localStatus === "confident" || (!localStatus && localConfidence >= 70 && invoiceWorkItems(localOcr).length > 0)));
   let extracted = localConfident ? normalizeServiceDocumentOcr({
     ...localOcr,
     source: "server-local",
@@ -3132,10 +3186,11 @@ async function uploadServerRenderedServiceDocument(request, env) {
     fallbackUsed = true;
     if (env.AI?.toMarkdown) {
       try {
+        const aiStarted=performanceNow();
         const converted = await env.AI.toMarkdown({ name: originalName, blob: new Blob([bytes], { type: "application/pdf" }) });
         const result = Array.isArray(converted) ? converted[0] : converted;
         if (result && result.format !== "error" && result.data) {
-          extracted = await extractInvoiceFromText(env, String(result.data), "cloudflare-ai-fallback");
+          extracted = aiInvoiceAnalysis(await extractInvoiceFromText(env, String(result.data), "cloudflare-ai-fallback"),localOcr,performanceNow()-aiStarted);
           extracted = normalizeServiceDocumentOcr({
             ...extracted,
             ocrSource: "cloudflare-ai",
@@ -3185,7 +3240,7 @@ async function uploadServerRenderedServiceDocument(request, env) {
     ocrError,
     ocr: extracted || null
   };
-  const stored = await attachServiceDocumentMetadata(env, bikeId, entryId, attachment);
+  const stored = draft ? await finishImportDraft(env,draft,attachment) : await attachServiceDocumentMetadata(env, bikeId, entryId, attachment);
   if (!stored.attached) {
     await bucket.delete(key);
     return json({ error: stored.error || "Το service δεν βρέθηκε ή διαγράφηκε." }, stored.status || 404);

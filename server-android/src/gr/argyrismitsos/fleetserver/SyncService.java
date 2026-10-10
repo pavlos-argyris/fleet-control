@@ -296,7 +296,9 @@ public final class SyncService extends Service {
         if (!mirrorRunning.compareAndSet(false,true)) return;
         SharedPreferences p=getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE);
         String base=p.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
-        try { refreshSystemMirror(base,serverHeaders(),p);
+        try {
+            try {JSONObject rules=FleetHttp.getJson(base+"/api/server/invoice-reader-rules",serverHeaders());p.edit().putString("invoice_rules_error","").putString("invoice_reader_rules",rules.optJSONArray("rules")==null?"[]":rules.getJSONArray("rules").toString()).apply();}catch(Exception rulesError){p.edit().putString("invoice_rules_error",safeMessage(rulesError)).apply();}
+            refreshSystemMirror(base,serverHeaders(),p);
             ServiceDocumentStore.syncFromFleet(getApplicationContext(),store.getFleet(),base,serverHeaders());
             BackupManager.maybeAutomatic(getApplicationContext(),store);
         } catch (Exception error) { p.edit().putString("mirror_error",safeMessage(error)).apply(); }
@@ -354,7 +356,7 @@ public final class SyncService extends Service {
                     JSONObject result=renderAndUploadServiceDocument(base,id,op.optJSONObject("payload"),headers);
                     if (activeCancellation.get()) continue;
                     JSONObject payload=op.optJSONObject("payload");
-                    if (result.optJSONObject("attachment")!=null && payload!=null) store.attachServiceDocument(payload.optString("bikeId"),payload.optString("entryId"),result.optJSONObject("attachment"));
+                    if (result.optJSONObject("attachment")!=null && payload!=null && !payload.has("draftId")) store.attachServiceDocument(payload.optString("bikeId"),payload.optString("entryId"),result.optJSONObject("attachment"));
                     store.markApplied(id);
                     try {acknowledgeOne(base,id,headers);} catch(Exception acknowledgementError){p.edit().putString("invoice_queue_error",safeMessage(acknowledgementError)).apply();}
                     invoiceState(id,"Ολοκληρώθηκε · PDF και στοιχεία αποθηκεύτηκαν",100,result.optString("extractionError",""));
@@ -429,6 +431,7 @@ public final class SyncService extends Service {
             throw new Exception("Το QR δεν έχει έγκυρη σύνδεση με service.");
         }
         reportOperationProgress(base, jobId, 5, "Ο Server ξεκίνησε την επεξεργασία", headers);
+        long qrStarted=System.nanoTime();
         ServiceDocumentRenderer.RenderedDocument renderedDocument = ServiceDocumentRenderer.renderToPdfWithText(this, qrUrl, "invoice-qr-" + jobId + ".pdf", activeCancellation);
         File rendered = renderedDocument.output;
         try {
@@ -436,8 +439,8 @@ public final class SyncService extends Service {
             if (activeCancellation!=null && activeCancellation.get()) throw new java.util.concurrent.CancellationException();
             JSONObject localOcr;
             try {
-                localOcr = LocalInvoiceReader.readBest(rendered, renderedDocument.pageText);
-            } catch (Exception localError) {
+                localOcr = InvoicePipeline.read(this, rendered, renderedDocument.pageText, false, new InvoicePipeline.Progress(){public void stage(String text){invoiceState(jobId,text,50,"");}},activeCancellation);
+            } catch (Exception | LinkageError | OutOfMemoryError localError) {
                 localOcr = new JSONObject();
                 localOcr.put("source", "server-local");
                 localOcr.put("ocrSource", "server-local");
@@ -446,6 +449,7 @@ public final class SyncService extends Service {
                 localOcr.put("ocrFallbackUsed", false);
                 localOcr.put("ocrFallbackReason", localError.getMessage() == null ? "Η τοπική ανάγνωση του PDF απέτυχε." : localError.getMessage());
             }
+            JSONObject times=localOcr.optJSONObject("analysisTimings");if(times==null)times=new JSONObject();times.put("qrPdfMs",(System.nanoTime()-qrStarted)/1000000-localOcr.optLong("analysisDurationMs",0));localOcr.put("analysisTimings",times);
             int localConfidence = localOcr.optInt("ocrConfidence", 0);
             String localStatus = localOcr.optString("localReadStatus", "ambiguous");
             reportOperationProgress(base, jobId, 55, "Το PDF δημιουργήθηκε · τοπικός έλεγχος στοιχείων", headers);
@@ -465,7 +469,9 @@ public final class SyncService extends Service {
             uploadHeaders.put("X-Fleet-Ocr-Confidence", String.valueOf(localConfidence));
             if (activeCancellation!=null && activeCancellation.get()) throw new java.util.concurrent.CancellationException();
             FileInputStream input = new FileInputStream(rendered);
+            long uploadStarted=System.nanoTime();
             JSONObject result = FleetHttp.putStream(endpoint, input, rendered.length(), "application/pdf", uploadHeaders);
+            times.put("uploadMs",(System.nanoTime()-uploadStarted)/1000000);getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE).edit().putString("invoice_analysis_metrics",times.toString()).putString("invoice_reader_stage",localOcr.optString("analysisEngine")+(localOcr.optBoolean("analysisCacheHit")?" · cache":"")).apply();
             if (result.optBoolean("fallbackUsed", false)) {
                 updateNotification("Τοπική ανάγνωση αμφίβολη • χρησιμοποιήθηκε Workers AI");
             }
@@ -547,6 +553,9 @@ public final class SyncService extends Service {
                 }
                 OtaManager.check(getApplicationContext(), false);
                 if (result.optBoolean("complete", false) || OtaManager.shouldYieldForUpdate(getApplicationContext())) break;
+                // Let a newly scanned QR run before the next window of historical invoices.
+                JSONObject pending=FleetHttp.getJson(base+"/api/server/pending?queue=invoices&limit=1",headers);
+                JSONArray ops=pending.optJSONArray("operations");if(ops!=null&&ops.length()>0&&"service_document_render".equals(ops.optJSONObject(0).optString("type")))break;
             }
             return result.put("complete", result.optBoolean("complete", false));
         } finally {
@@ -564,8 +573,8 @@ public final class SyncService extends Service {
             if (!local.exists() || local.length() == 0) {
                 FleetHttp.downloadToFile(base + "/api/service-documents/" + encodePath(key), local, headers);
             }
-            return LocalInvoiceReader.read(local);
-        } catch (Exception localError) {
+            return InvoicePipeline.read(this,local,"",item.optBoolean("forceRead",false),new InvoicePipeline.Progress(){public void stage(String text){getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE).edit().putString("invoice_reader_stage",text).apply();}});
+        } catch (Exception | LinkageError | OutOfMemoryError localError) {
             JSONObject localOcr = new JSONObject();
             localOcr.put("source", "server-local");
             localOcr.put("ocrSource", "server-local");

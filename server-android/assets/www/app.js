@@ -9,7 +9,7 @@
   let otaManualUntil = 0;
 
   const el = {};
-  ["syncDiagnosticStage","syncDiagnosticEndpoint","syncDiagnosticAdvice","mirrorDiagnosticStage","mirrorDiagnosticError","retrySync","retrySystemMirror","invoiceProcessingAdvice","retryServerInvoice","otaStatus", "otaBackup", "automaticOta", "otaCard", "otaVersion", "otaNotes", "otaProgress", "otaProgressBar", "otaProgressLabel", "checkServerUpdate", "installServerUpdate", "liveDot", "heroStatus", "heroDetail", "publicUrl", "metricBikes", "metricUsers", "metricShifts", "metricAlerts", "metricHistory", "metricPending", "systemBadge", "syncStatus", "syncCheck", "webCheck", "backupStatus", "backupCheck", "databaseStatus", "databaseCheck", "storageStatus", "storageCheck", "pwaStatus", "pwaCheck", "watchdogCheck", "invoiceProcessingCard", "invoiceProcessingBadge", "invoiceProcessingTitle", "invoiceProcessingName", "invoiceProcessingPercent", "invoiceProcessingBar", "invoiceProcessingDetail", "invoiceProcessingStage", "invoiceProcessingMessage", "deviceHealthBadge", "deviceHealthWarnings", "deviceBattery", "deviceCharging", "deviceTemperature", "deviceThermal", "deviceStorage", "deviceStorageTotal", "deviceAndroid", "deviceModel", "deviceRestrictions", "devicePowerSave", "deviceNetwork", "deviceUptime", "serverToggle", "statusError", "driveBadge", "backupSchedule", "autoBackupState", "lastBackup", "retentionLabel", "backupMessage", "uploadMessage", "releaseList", "workerUrl", "syncSeconds", "invoiceParallelism", "backupFrequency", "backupHour", "backupRetention", "automaticStart", "automaticBackup", "settingsMessage", "pinDialog", "pinForm", "newPin", "confirmPin", "pinError", "restorePinDialog", "restorePinForm", "restoreAdminPin", "restorePinError", "toast"].forEach(function (id) { el[id] = document.getElementById(id); });
+  ["ocrParallelism","syncDiagnosticStage","syncDiagnosticEndpoint","syncDiagnosticAdvice","mirrorDiagnosticStage","mirrorDiagnosticError","retrySync","retrySystemMirror","invoiceProcessingAdvice","retryServerInvoice","otaStatus", "otaBackup", "automaticOta", "otaCard", "otaVersion", "otaNotes", "otaProgress", "otaProgressBar", "otaProgressLabel", "checkServerUpdate", "installServerUpdate", "liveDot", "heroStatus", "heroDetail", "publicUrl", "metricBikes", "metricUsers", "metricShifts", "metricAlerts", "metricHistory", "metricPending", "systemBadge", "syncStatus", "syncCheck", "webCheck", "backupStatus", "backupCheck", "databaseStatus", "databaseCheck", "storageStatus", "storageCheck", "pwaStatus", "pwaCheck", "watchdogCheck", "invoiceProcessingCard", "invoiceProcessingBadge", "invoiceProcessingTitle", "invoiceProcessingName", "invoiceProcessingPercent", "invoiceProcessingBar", "invoiceProcessingDetail", "invoiceProcessingStage", "invoiceProcessingMessage", "deviceHealthBadge", "deviceHealthWarnings", "deviceBattery", "deviceCharging", "deviceTemperature", "deviceThermal", "deviceStorage", "deviceStorageTotal", "deviceAndroid", "deviceModel", "deviceRestrictions", "devicePowerSave", "deviceNetwork", "deviceUptime", "serverToggle", "statusError", "driveBadge", "backupSchedule", "autoBackupState", "lastBackup", "retentionLabel", "backupMessage", "uploadMessage", "releaseList", "workerUrl", "syncSeconds", "invoiceParallelism", "backupFrequency", "backupHour", "backupRetention", "automaticStart", "automaticBackup", "settingsMessage", "pinDialog", "pinForm", "newPin", "confirmPin", "pinError", "restorePinDialog", "restorePinForm", "restoreAdminPin", "restorePinError", "toast"].forEach(function (id) { el[id] = document.getElementById(id); });
 
   function parse(value, fallback) {
     try { return JSON.parse(value); } catch (error) { return fallback; }
@@ -97,6 +97,8 @@
     if (Number(batch.skipped) > 0) notes.push("Παραλείφθηκαν: " + Number(batch.skipped));
     if (batch.serverError) notes.push("Σφάλμα σύνδεσης: " + String(batch.serverError));
     if (batch.error) notes.push(String(batch.error));
+    if(state.invoiceReaderStage)notes.push("Αναγνώστης: "+state.invoiceReaderStage);
+    const metrics=state.invoiceAnalysisMetrics||{};Object.keys(metrics).forEach(key=>notes.push(({textMs:"Κείμενο",pdfboxMs:"PDFBox",ocrWaitMs:"Αναμονή OCR",ocrMs:"OCR",qrPdfMs:"Σελίδα QR/PDF",uploadMs:"Αποστολή και απάντηση Worker"}[key]||key.replace("Ms",""))+": "+(Number(metrics[key])/1000).toFixed(1)+"s"));
     el.invoiceProcessingMessage.textContent = notes.join(" • ");
   }
 
@@ -128,7 +130,7 @@
     const active = ["checking", "downloading", "validating", "backup", "installing"].includes(stage);
     const animated = active || ["confirmation","waiting","permission","backup_folder"].includes(stage);
     el.automaticOta.checked = update.automatic !== false;
-    el.otaStatus.textContent = nativeStatus ? update.installMessage : update.message || "Αυτόματος έλεγχος κάθε λεπτό.";
+    el.otaStatus.textContent = nativeStatus ? update.installMessage : update.message || "Αυτόματος έλεγχος κάθε ώρα.";
     el.otaBackup.textContent = update.backupName ? "Backup πριν την ενημέρωση: " + update.backupName : "";
     el.otaVersion.textContent = update.ready ? "Νέα έκδοση " + update.ready.version : "Server " + (state.serverVersion || "");
     el.otaNotes.innerHTML = releaseNotesMarkup(update.ready && update.ready.notes);
@@ -240,6 +242,7 @@
     if (!settingsDirty) {
       el.workerUrl.value = state.workerUrl || "";
       el.syncSeconds.value = String(state.syncSeconds || 30);
+      el.ocrParallelism.value=String(state.ocrParallelism||1);
       el.invoiceParallelism.value = String(state.invoiceParallelism || 4);
       el.backupFrequency.value = state.backupFrequency || "daily";
       el.backupHour.value = state.backupHour == null ? 3 : state.backupHour;
@@ -366,7 +369,7 @@
     event.preventDefault();
     if (!bridge) return;
     const payload = {
-      workerUrl: el.workerUrl.value.trim(), syncSeconds: Number(el.syncSeconds.value), invoiceParallelism: Number(el.invoiceParallelism.value),
+      workerUrl: el.workerUrl.value.trim(), syncSeconds: Number(el.syncSeconds.value), invoiceParallelism: Number(el.invoiceParallelism.value), ocrParallelism:Number(el.ocrParallelism.value),
       backupFrequency: el.backupFrequency.value,
       backupHour: Number(el.backupHour.value), backupRetention: Number(el.backupRetention.value),
       automaticStart: el.automaticStart.checked, automaticBackup: el.automaticBackup.checked

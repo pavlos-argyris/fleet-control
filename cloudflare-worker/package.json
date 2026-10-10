@@ -1,6 +1,6 @@
 {
   "name": "fleet-control-cloudflare",
-  "version": "5.4.0",
+  "version": "5.5.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -12,6 +12,7 @@
     "sharp": "0.35.5"
   },
   "devDependencies": {
+    "jsdom": "26.1.0",
     "wrangler": "^4.148.0"
   }
 }

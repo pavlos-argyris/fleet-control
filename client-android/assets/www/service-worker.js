@@ -1,5 +1,6 @@
-const CACHE_NAME = "fleet-control-v5-41-0";
+const CACHE_NAME = "fleet-control-v5-42-0";
 const APP_SHELL = [
+  "./local-view-cache.js", "./invoice-import-ui.js",
   "./",
   "./index.html",
   "./styles.css",

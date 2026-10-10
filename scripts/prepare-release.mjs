@@ -31,6 +31,7 @@ manifest.worker = config.worker;
 fs.writeFileSync('dist/release-manifest.json', JSON.stringify(manifest, null, 2) + '\n');
 execFileSync('git', ['archive', '--format=zip', '-o', `dist/Fleet_Control_Source_v${config.releaseVersion}.zip`, commit]);
 execFileSync('python3', ['scripts/package-web.py', `dist/Fleet_Control_Web_Assets_v${config.web.version}.zip`]);
+execFileSync('python3', ['scripts/package-invoice-dependencies.py', `dist/Fleet_Invoice_Build_Inputs_v${config.releaseVersion}.zip`]);
 const sums = walk('dist').filter(f => f.path !== 'SHA256SUMS.txt').map(f => `${f.sha256}  ${f.path}`).join('\n') + '\n';
 fs.writeFileSync('dist/SHA256SUMS.txt', sums);
 console.log(JSON.stringify({ prepared: true, sourceCommit: commit, releaseId: manifest.releaseId, versions: config }));

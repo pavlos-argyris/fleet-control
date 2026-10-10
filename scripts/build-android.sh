@@ -71,6 +71,18 @@ build_apk() {
   local framework_extension="${3:-}"
   local work_dir="$FC_TMP_ROOT/$output_name"
   mkdir -p "$work_dir/gen" "$work_dir/classes"
+  local asset_dir="$source_dir/assets"
+  local compile_classpath="$ANDROID_JAR"
+  local invoice_jars=()
+  if [[ "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
+    python3 "$PROJECT_ROOT/scripts/prepare-invoice-dependencies.py" "$work_dir/invoice-deps"
+    mkdir -p "$work_dir/assets"
+    cp -R "$source_dir/assets/." "$work_dir/assets/"
+    cp -R "$work_dir/invoice-deps/assets/." "$work_dir/assets/"
+    asset_dir="$work_dir/assets"
+    mapfile -t invoice_jars < <(rg --files "$work_dir/invoice-deps/jars" -g '*.jar' | sort)
+    for jar in "${invoice_jars[@]}"; do compile_classpath="$compile_classpath:$jar"; done
+  fi
 
   local framework_args=()
   if [[ -n "$framework_extension" ]]; then
@@ -82,7 +94,7 @@ build_apk() {
     -J "$work_dir/gen" \
     -M "$source_dir/AndroidManifest.xml" \
     -S "$source_dir/res" \
-    -A "$source_dir/assets" \
+    -A "$asset_dir" \
     "${framework_args[@]}" \
     -F "$work_dir/resources.ap_"
 
@@ -92,13 +104,39 @@ build_apk() {
   mapfile -t java_sources < <(rg --files "$source_dir/src" "$PROJECT_ROOT/common-android/src" "$work_dir/gen" -g '*.java' | sort)
   java -cp "$ECJ_JAR" org.eclipse.jdt.internal.compiler.batch.Main \
     -proc:none -source 1.8 -target 1.8 \
-    -classpath "$ANDROID_JAR" \
+    -classpath "$compile_classpath" \
     -d "$work_dir/classes" \
     "${java_sources[@]}"
 
-  java -jar "$DX_JAR" --dex --output="$work_dir/classes.dex" "$work_dir/classes"
+  if [[ "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
+    python3 - "$work_dir" <<'PY'
+import sys,zipfile
+from pathlib import Path
+p=Path(sys.argv[1])
+with zipfile.ZipFile(p/'program.jar','w') as z:
+ for f in sorted((p/'classes').rglob('*.class')): z.writestr(str(f.relative_to(p/'classes')),f.read_bytes())
+for f in (p/'invoice-deps/jars').glob('*.jar'):
+ with zipfile.ZipFile(f) as src: data={n:src.read(n) for n in src.namelist() if n.endswith('.class') and not n.startswith('META-INF/') and not n.endswith('module-info.class')}
+ with zipfile.ZipFile(f,'w') as dst:
+  for n,b in sorted(data.items()):dst.writestr(n,b)
+PY
+    mkdir -p "$work_dir/dex"
+    java -cp "$work_dir/invoice-deps/r8.jar" com.android.tools.r8.D8 --release --min-api 23 --lib "$ANDROID_JAR" --output "$work_dir/dex" "$work_dir/program.jar" "${invoice_jars[@]}"
+    cp "$work_dir/dex/"*.dex "$work_dir/"
+  else
+    java -jar "$DX_JAR" --dex --output="$work_dir/classes.dex" "$work_dir/classes"
+  fi
   cp "$work_dir/resources.ap_" "$work_dir/unsigned.apk"
-  (cd "$work_dir" && LD_LIBRARY_PATH="$FC_ANDROID_LIBS" "$AAPT_BIN" add unsigned.apk classes.dex >/dev/null)
+  (cd "$work_dir" && LD_LIBRARY_PATH="$FC_ANDROID_LIBS" "$AAPT_BIN" add unsigned.apk classes*.dex >/dev/null)
+  if [[ "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
+    python3 - "$work_dir" <<'PY'
+import sys,zipfile
+from pathlib import Path
+p=Path(sys.argv[1])
+with zipfile.ZipFile(p/'unsigned.apk','a',zipfile.ZIP_DEFLATED) as z:
+ for f in sorted((p/'invoice-deps/lib').rglob('*.so')):z.writestr('lib/'+str(f.relative_to(p/'invoice-deps/lib')),f.read_bytes())
+PY
+  fi
   python3 "$PROJECT_ROOT/scripts/normalize-apk.py" "$work_dir/unsigned.apk" "$work_dir/deterministic.apk"
   LD_LIBRARY_PATH="$FC_ANDROID_LIBS" "$ZIPALIGN_BIN" -f 4 "$work_dir/deterministic.apk" "$work_dir/aligned.apk"
 

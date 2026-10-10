@@ -244,3 +244,12 @@ console.log("OK background saves: immediate close, independent QR/form state, se
   assert.deepEqual(updates, [["bike", "entry-1"]]);
 }
 console.log("OK QR progress remains associated with its original bike after navigation");
+
+// Rejecting an old-date cycle advancement must leave the entire bike unchanged.
+for (const accepted of [false, true]) {
+  const {ctx,elements}=fixture();elements.serviceKm.value="11000";elements.serviceOilChanged.checked=true;
+  const before=plain(ctx.bikes);let warnings=0;ctx.window.confirm=message=>{warnings++;assert.match(message,/παλαιότερη/);return accepted;};
+  await ctx.handleServiceSubmit(event);assert.equal(warnings,1);
+  if(!accepted)assert.deepEqual(plain(ctx.bikes),before);else assert.equal(ctx.bikes[0].lastServiceKm,11000);
+}
+console.log("OK historical service impact: confirmation occurs before odometer/oil-cycle mutations; rejection preserves the entire bike.");

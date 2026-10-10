@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "file": "tesseract.aar",
+      "url": "https://jitpack.io/cz/adaptech/tesseract4android/tesseract4android/4.9.0/tesseract4android-4.9.0.aar",
+      "sha256": "bce5d6413a1a5ae3d7240033fbbc851ba3217d0a08d9769400e17a077f42cb2a",
+      "sizeBytes": 12848454
+    },
+    {
+      "file": "pdfbox.aar",
+      "url": "https://repo.maven.apache.org/maven2/com/tom-roush/pdfbox-android/2.0.27.0/pdfbox-android-2.0.27.0.aar",
+      "sha256": "30277f879cfd571db2a137582c95516a0d4ea6778e945519bc58ca93d57d88c7",
+      "sizeBytes": 3254019
+    },
+    {
+      "file": "r8.jar",
+      "url": "https://storage.googleapis.com/r8-releases/raw/8.9.35/r8.jar",
+      "sha256": "e93ac1c06e99ae5dbdcc835bd97bae406f2b4140be3daa523ef71e5a548927fc",
+      "sizeBytes": 51427554
+    },
+    {
+      "file": "eng.traineddata",
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/eng.traineddata",
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "sizeBytes": 4113088
+    },
+    {
+      "file": "ell.traineddata",
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/ell.traineddata",
+      "sha256": "4fba8a0b461038d51f1c20d043d4f2ac38c4e778f1b90830847f7bd8fa3ba726",
+      "sizeBytes": 1419514
+    },
+    {
+      "file": "bcprov.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/1.83/bcprov-jdk18on-1.83.jar",
+      "sha256": "82cf3a2af766c3bc874f6d36b9f20a8b99a8f09762dc776e8a227a45d8daaafb",
+      "sizeBytes": 8492458
+    },
+    {
+      "file": "bcpkix.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcpkix-jdk18on/1.83/bcpkix-jdk18on-1.83.jar",
+      "sha256": "d3c4c6b700c74ef8164bb15e549d939721b8f14fc0ff89fe19b220243bcfcbd8",
+      "sizeBytes": 1161454
+    },
+    {
+      "file": "bcutil.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcutil-jdk18on/1.83/bcutil-jdk18on-1.83.jar",
+      "sha256": "ee7d0eb4e74de70a735f7fb36b604dd5c6ad35720d50b914604db042114a0185",
+      "sizeBytes": 707261
+    }
+  ]
+}

@@ -5,7 +5,7 @@ const source=fs.readFileSync('cloudflare-worker/public/portal.js','utf8');
 const api=source.slice(source.indexOf('  async function api('),source.indexOf('  function escapeHtml('));
 const state={token:'fixture-token',invoiceDocuments:[{id:'already-loaded'}]};
 let replies=[],calls=0,cleared=0;
-const context={state,navigator:{onLine:true},apiBase:'https://fixture.invalid',Headers,performance,
+const context={state,window:{},navigator:{onLine:true},apiBase:'https://fixture.invalid',Headers,performance,
   recordApiTiming(){},clearSession(){cleared++;},showAuth(){},setTimeout(fn){fn();},
   async fetch(url,options){calls++;const next=replies.shift();if(next instanceof Error)throw next;return next;}};
 vm.createContext(context);vm.runInContext(api+'\nglobalThis.invoke=api;',context);

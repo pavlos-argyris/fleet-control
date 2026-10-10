@@ -13,6 +13,9 @@ node scripts/test-api-recovery.mjs
 node scripts/test-worker-snapshot-load.mjs
 node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
+node scripts/test-invoice-imports.mjs
+node scripts/test-view-cache.mjs
+node scripts/test-invoice-import-ui.mjs
 node scripts/test-invoice-improvements.mjs
 node scripts/test-invoice-library.mjs
 node scripts/test-service-order.mjs

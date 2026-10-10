@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
     private static final String UPDATE_CHECK_URL = "https://fleet-control.pavlosargyris.workers.dev/api/client-update";
     private static final String UPDATE_DOWNLOAD_URL = "https://fleet-control.pavlosargyris.workers.dev/download/client.apk";
     private static final String UPDATE_FILE_NAME = FleetUpdateProvider.UPDATE_FILE_NAME;
-    private static final long UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000L;
+    private static final long UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000L;
     private static final long UPDATE_PROMPT_INTERVAL_MS = 12 * 60 * 60 * 1000L;
     private static final long MAX_UPDATE_BYTES = 50L * 1024L * 1024L;
     private WebView webView;

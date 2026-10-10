@@ -552,6 +552,9 @@
 
   function setSyncState(state, message) {
     elements.syncIndicator.className = "sync-indicator " + state;
+    try{if(state==="synced")localStorage.setItem("fleet-last-successful-sync",new Date().toISOString());
+      const last=localStorage.getItem("fleet-last-successful-sync");if(last&&state!=="syncing")message+=" · "+new Intl.DateTimeFormat("el-GR",{hour:"2-digit",minute:"2-digit"}).format(new Date(last));
+    }catch(error){}
     elements.syncStatus.textContent = message;
     elements.syncIndicator.title = message;
   }
@@ -774,6 +777,11 @@
     ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"].forEach(function (field) {
       if (value[field] != null && String(value[field]).trim()) result[field] = String(value[field]).trim().slice(0, field === "rawText" ? 12000 : 2000);
     });
+    ["analysisEngine","analysisVersion"].forEach(function(field){if(value[field])result[field]=String(value[field]).slice(0,100);});
+    if(value.analysisCacheHit!=null)result.analysisCacheHit=value.analysisCacheHit===true||value.analysisCacheHit==="true";
+    if(value.analysisDurationMs!=null)result.analysisDurationMs=Math.max(0,Math.min(600000,Number(value.analysisDurationMs)||0));
+    if(value.analysisTimings&&typeof value.analysisTimings==="object")result.analysisTimings={...value.analysisTimings};
+    if(value.fieldEvidence&&typeof value.fieldEvidence==="object")result.fieldEvidence={...value.fieldEvidence};
     if (Array.isArray(value.parts)) result.parts = value.parts.map(function (part) { return invoiceLineText(part, 500); }).filter(Boolean).slice(0, 50);
     if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map(function (part) { return invoiceLineText(part, 500); }).filter(Boolean).slice(0, 50);
     if (result.plate && !result.confirmedAt && !/^[ABEZHIKMNOPTYX]{3}[0-9]{3,4}$/.test(invoicePlateKey(result.plate))) delete result.plate;
@@ -2397,17 +2405,21 @@
     }
   }
 
-  async function importQrDocument(bikeId, entryId, value) {
+  async function importQrDocument(bikeId, entryId, value, allowDuplicate) {
     const qrValue = normalizeQrValue(value);
     if (!qrValue) return null;
     try {
       const response = await fetch(apiBase + "/api/service-documents/import-qr", {
         method: "POST",
         headers: requestHeaders(true),
-        body: JSON.stringify({ bikeId: String(bikeId), entryId: String(entryId), value: qrValue }),
+        body: JSON.stringify({ bikeId: String(bikeId), entryId: String(entryId), value: qrValue, allowDuplicate:allowDuplicate===true }),
         cache: "no-store"
       });
       const data = await response.json().catch(function () { return {}; });
+      if(data.code==="duplicate_invoice"&&!allowDuplicate){
+        if(window.confirm("Το τιμολόγιο υπάρχει ήδη:\n"+(data.matches||[]).map(function(item){return item.bikeName+" · "+item.serviceDate;}).join("\n")+"\nΝα το προσθέσω και σε αυτό το service;"))return importQrDocument(bikeId,entryId,value,true);
+        return {ok:false,error:"Το διπλό τιμολόγιο δεν προστέθηκε.",matches:data.matches};
+      }
       if (!response.ok) throw new Error(data.error || "Δεν ήταν δυνατή η άντληση του τιμολογίου από το QR.");
       return data;
     } catch (error) {
@@ -3464,6 +3476,9 @@
       return;
     }
 
+    const latestServiceDate=(bike.history||[]).filter(function(e){return e.type==="service";}).map(function(e){return String(e.date||"");}).sort().pop()||"";
+    if(serviceDate<latestServiceDate&&(serviceKm>Number(bike.currentKm)||oilChanged&&serviceKm>Number(bike.lastServiceKm))&&
+      !window.confirm("Η ημερομηνία είναι παλαιότερη από το τελευταίο service αλλά αλλάζει τα τρέχοντα χιλιόμετρα ή τον κύκλο λαδιών.\nΤρέχοντα: "+formatKm(bike.currentKm)+" → "+formatKm(Math.max(bike.currentKm,serviceKm))+"\nΕπόμενα λάδια: "+formatKm(bike.nextServiceKm)+" → "+formatKm(oilChanged&&serviceKm>=bike.lastServiceKm?serviceKm+bike.intervalKm:bike.nextServiceKm)+"\nΝα συνεχίσω;"))return;
     const now = new Date().toISOString();
     const startsOilCycle = oilChanged && serviceKm >= Number(bike.lastServiceKm || 0);
     if (startsOilCycle) {

@@ -130,7 +130,7 @@ public final class OtaManager {
         value.put("downloadPercent", p.getInt("ota_download_percent", 0));
         value.put("downloadedBytes", p.getLong("ota_downloaded_bytes", 0));
         value.put("totalBytes", p.getLong("ota_total_bytes", 0));
-        value.put("automatic", p.getBoolean("automatic_ota", true)); value.put("message", p.getString("ota_message", "Έλεγχος ενημερώσεων κάθε λεπτό."));
+        value.put("automatic", p.getBoolean("automatic_ota", true)); value.put("message", p.getString("ota_message", "Έλεγχος ενημερώσεων κάθε ώρα."));
         value.put("installStatus", install.getString("status", "")); value.put("installMessage", install.getString("message", ""));
         value.put("checkedAt", p.getLong("ota_checked_at", 0)); value.put("backupName", p.getString("ota_backup_name", ""));
         String raw = p.getString("ota_ready", ""); if (raw.length() > 0) value.put("ready", new JSONObject(raw));

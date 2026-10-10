@@ -16,7 +16,8 @@ public class OtaPolicyTest {
   static void notes(String input, String expected) { if (!formatUpdateNotes(input).equals(expected)) throw new AssertionError(formatUpdateNotes(input)); }
   public static void main(String[] args) {
     check(!OtaPolicy.checkDue(100000, 90000, false, true));
-    check(OtaPolicy.checkDue(150000, 90000, false, true));
+    check(!OtaPolicy.checkDue(150000, 90000, false, true));
+    check(OtaPolicy.checkDue(3690000, 90000, false, true));
     check(OtaPolicy.checkDue(100000, 90000, true, false));
     check(!OtaPolicy.checkDue(200000, 90000, false, false));
     check(OtaPolicy.checkDue(80000, 90000, false, true));
@@ -30,7 +31,7 @@ public class OtaPolicyTest {
     notes("• Πρώτο\\n• Δεύτερο", "• Πρώτο\\n• Δεύτερο");
     notes("Πρώτο, Δεύτερο", "• Πρώτο\\n• Δεύτερο");
     notes("  ", "• Βελτιώσεις λειτουργίας και ασφάλειας.");
-    System.out.println("OK actual Java OTA policy: 60-second check, forced check, clock change, 15-minute failure retry, permission/backup gates and native bullet notes.");
+    System.out.println("OK actual Java OTA policy: hourly check, forced check, clock change, 15-minute failure retry, permission/backup gates and native bullet notes.");
   }
 }`);
   execFileSync('java', ['-jar', path.join(root, '.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'), '-proc:none', '-source', '8', '-target', '8', '-nowarn', '-encoding', 'UTF-8', '-d', temp,

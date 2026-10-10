@@ -158,6 +158,9 @@ public final class MainActivity extends Activity {
         result.put("invoiceQueueError",preferences.getString("invoice_queue_error",""));
         result.put("lastAppliedCount", preferences.getInt("last_applied_count", 0));
         result.put("syncSeconds", preferences.getInt("sync_seconds", 30));
+        result.put("ocrParallelism", Math.max(1,Math.min(3,preferences.getInt("ocr_parallelism",1))));
+        result.put("invoiceAnalysisMetrics",new JSONObject(preferences.getString("invoice_analysis_metrics","{}")));
+        result.put("invoiceReaderStage",preferences.getString("invoice_reader_stage",""));
         result.put("invoiceParallelism", Math.max(1, Math.min(10, preferences.getInt("invoice_parallelism", 4))));
         result.put("automaticStart", preferences.getBoolean("automatic_start", true));
         result.put("automaticBackup", preferences.getBoolean("automatic_backup", true));
@@ -251,6 +254,7 @@ public final class MainActivity extends Activity {
                         .putString("worker_url", workerUrl)
                         .putInt("sync_seconds", Math.max(10, Math.min(300, input.optInt("syncSeconds", 30))))
                         .putInt("invoice_parallelism", Math.max(1, Math.min(10, input.optInt("invoiceParallelism", 4))))
+                        .putInt("ocr_parallelism",Math.max(1,Math.min(3,input.optInt("ocrParallelism",1))))
                         .putInt(BackupManager.KEY_HOUR, Math.max(0, Math.min(23, input.optInt("backupHour", 3))))
                         .putInt(BackupManager.KEY_RETENTION, Math.max(1, Math.min(90, input.optInt("backupRetention", 30))))
                         .putString(BackupManager.KEY_FREQUENCY, backupFrequency)

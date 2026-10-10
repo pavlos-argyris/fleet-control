@@ -68,7 +68,7 @@
   };
 
   const state = {
-    token: loadToken(), user: null, view: "dashboard", employees: [], vehicles: [], alerts: [],
+    previewSession:false, cacheAt:0, token: loadToken(), user: null, view: "dashboard", employees: [], vehicles: [], alerts: [],
     shifts: [], schedules: [], payroll: null, report: null, selectedReport: "shifts", pinResolver: null,
     simpleResolver: null, lastStatus: null, completion: null, allPermissions: [], rolePermissions: {}, payRules: [],
     viewLoadedAt: {}, weekData: null, scheduleBuilderMode: "shift", templateEditingId: null,
@@ -120,6 +120,8 @@
   }
 
   function clearSession() {
+    if(window.FleetViewCache)window.FleetViewCache.clear();
+    state.previewSession=false;
     try {
       localStorage.removeItem(TOKEN_PERSIST);
       sessionStorage.removeItem(TOKEN_SESSION);
@@ -189,6 +191,16 @@
 
   async function api(path, options) {
     const settings = options || {};
+    const requestToken=state.token;
+    if((settings.method||(settings.body===undefined?"GET":"POST"))==="GET"&&!settings.coalesced){
+      const pending=api.pending||(api.pending=new Map()),key=requestToken+":"+path+":"+String(settings.keepSession);
+      if(pending.has(key))return pending.get(key);
+      const promise=api(path,{...settings,coalesced:true});pending.set(key,promise);
+      try{return await promise;}finally{if(pending.get(key)===promise)pending.delete(key);}
+    }
+    const methodRequested=settings.method||(settings.body===undefined?"GET":"POST");
+    if(state.previewSession&&methodRequested!=="GET"&&!path.startsWith("/api/auth/"))throw new Error("Περίμενε να επιβεβαιωθεί η σύνδεση πριν αποθηκεύσεις αλλαγές.");
+    if(state.previewSession&&window.FleetViewCache){const cached=window.FleetViewCache.read(state.user,path);if(cached){state.cacheAt=cached.at;renderCacheStatus();return cached.data;}}
     const startedAt = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
     if (navigator.onLine === false) throw new Error("Δεν υπάρχει σύνδεση με τον Server. Η ενέργεια δεν ολοκληρώθηκε.");
     const headers = new Headers(settings.headers || {});
@@ -228,6 +240,7 @@
       const error = new Error(payload.error || (transient ? "Προσωρινή υπερφόρτωση του Server · δοκίμασε ξανά (HTTP " + response.status + ")." : "Η ενέργεια δεν ολοκληρώθηκε (HTTP " + response.status + ")."));
       if (ray && /^[A-Za-z0-9-]{1,100}$/.test(ray)) error.message += " · Ray " + ray;
       error.code = payload.code || "";
+      error.details=payload;
       error.status = response.status;
       error.conflict = payload.conflict || null;
       error.suggestedVehicles = Array.isArray(payload.suggestedVehicles) ? payload.suggestedVehicles : [];
@@ -243,6 +256,8 @@
       }
       throw error;
     }
+    if(requestToken===state.token&&methodRequested==="GET"&&window.FleetViewCache){const saved=window.FleetViewCache.save(state.user,path,payload);if(saved&&state.user){state.cacheAt=Date.now();renderCacheStatus();}}
+    if(methodRequested!=="GET"&&!path.startsWith("/api/auth/")&&window.FleetViewCache)window.FleetViewCache.clear();
     return payload;
   }
 
@@ -375,7 +390,7 @@
       $("portal").classList.remove("view-loading");
       return;
     }
-    $("portal").classList.add("view-loading");
+    $("portal").classList.toggle("view-loading",!state.previewSession);
     try {
       if (view === "dashboard") await loadDashboard();
       if (view === "employee-home") await loadEmployeeHome();
@@ -399,7 +414,15 @@
     finally { if (navigationId === navigationSequence) $("portal").classList.remove("view-loading"); }
   }
 
+  function renderCacheStatus(){
+    let banner=$('localCacheStatus');if(!banner){banner=document.createElement('div');banner.id='localCacheStatus';banner.className='local-cache-status';$('portal').prepend(banner);}
+    banner.textContent=state.previewSession?'Αποθηκευμένα δεδομένα · αναμονή επιβεβαίωσης σύνδεσης'+(state.cacheAt?' · '+formatDateTime(state.cacheAt):''):'Τελευταία λήψη δεδομένων: '+(state.cacheAt?formatDateTime(state.cacheAt):'—');
+  }
+
   async function initialize() {
+    const cachedUser=loadCachedUser();let showedCache=false;
+    if(state.token&&cachedUser){state.user=cachedUser;state.previewSession=true;showPortal();renderCacheStatus();showedCache=true;}
+
     const bootstrapPromise = api("/api/auth/bootstrap-status", { keepSession: true }).then(function (bootstrap) {
       $("showBootstrap").classList.toggle("is-hidden", bootstrap.configured);
       return bootstrap;
@@ -413,7 +436,9 @@
       state.user = me.user;
       applyAuthMetadata(me);
       try { localStorage.setItem(USER_CACHE, JSON.stringify(state.user)); } catch (error) {}
-      showPortal();
+      state.previewSession=false;
+      if(showedCache){renderNavigation();applyRoleChrome();state.viewLoadedAt={};goTo(availableNavigation().some(item=>item.id===state.view)?state.view:state.user.role==="employee"?"employee-home":"dashboard");}else showPortal();
+      renderCacheStatus();
     } catch (error) {
       const confirmedExpiry = error && (error.status === 401 || /σύνδεση έληξε|Χρειάζεται σύνδεση/i.test(error.message));
       if (confirmedExpiry) {
@@ -424,7 +449,9 @@
       const cached = loadCachedUser();
       if (state.token && cached) {
         state.user = cached;
-        showPortal();
+        state.previewSession=true;
+        if(!showedCache)showPortal();
+        renderCacheStatus();
         toast("Προσωρινό πρόβλημα σύνδεσης. Η συνεδρία σου διατηρήθηκε.");
         return;
       }
@@ -3024,7 +3051,7 @@
     if (!batch || !batch.id) return;
     const batchId = String(batch.id);
     if (state.invoiceReprocessCompletedBatchId === batchId) return;
-    if (String(batch.status) === "processing") {
+    if (["processing","paused"].includes(String(batch.status))) {
       if (!state.invoiceReprocessBusy || state.invoiceReprocessBatchId !== batchId) {
         state.invoiceReprocessPreviousFilter = $("invoiceStatusFilter") ? String($("invoiceStatusFilter").value || "") : "";
         state.invoiceReprocessBatchId = batchId;
@@ -3034,6 +3061,7 @@
         markInvoiceDocumentsInBatch(batch);
       }
       state.invoiceReprocessProgress = invoiceBatchProgress(batch);
+      if(batch.status==="paused")state.invoiceReprocessProgress.currentName="Παύση — τα νέα QR συνεχίζουν κανονικά";
       renderInvoiceQueue();
       return;
     }
@@ -3107,6 +3135,9 @@
 
   async function fetchInvoiceDocument(record) {
     if (!record || !record.key) throw new Error("Το PDF δεν είναι ακόμη διαθέσιμο από τον Server.");
+    const owner=state.user,requestToken=state.token;
+    const cached=window.FleetPdfCache?await window.FleetPdfCache.get(owner,record.key):null;
+    if(cached&&requestToken===state.token)return {blob:cached,name:record.name||"τιμολόγιο.pdf"};
     const headers = new Headers();
     if (state.token) headers.set("Authorization", "Bearer " + state.token);
     const response = await fetch(apiBase + "/api/service-documents/" + encodeURIComponent(record.key), { headers: headers, cache: "no-store" });
@@ -3114,7 +3145,9 @@
       const payload = await response.json().catch(function () { return {}; });
       throw new Error(payload.error || "Δεν ήταν δυνατή η λήψη του PDF.");
     }
-    return { blob: await response.blob(), name: record.name || "τιμολόγιο.pdf" };
+    const blob=await response.blob();
+    if(window.FleetPdfCache&&requestToken===state.token&&owner?.id===state.user?.id)await window.FleetPdfCache.put(owner,record.key,blob);
+    return { blob, name: record.name || "τιμολόγιο.pdf" };
   }
 
   async function openInvoiceDocument(record, download) {
@@ -3248,11 +3281,11 @@
     $("invoiceReprocessDialog").showModal();
   }
 
-  async function reprocessAllInvoiceDocuments(mode) {
+  async function reprocessAllInvoiceDocuments(mode, failedOnly, forceRead) {
     if (!["server-first", "workers-ai"].includes(mode)) return;
     if (state.invoiceReprocessStarting) return;
     if (state.invoiceReprocessBusy) return;
-    const records = (state.invoiceDocuments || []).filter(function (item) { return item && item.key; });
+    const records = (state.invoiceDocuments || []).filter(function (item) { return item && item.key&&(!failedOnly||item.status==="error"||item.ocrError||item.invoiceData?.ocrFallbackError); });
     if (!records.length) return void toast("Δεν υπάρχουν αποθηκευμένα PDF για νέα ανάγνωση.");
     state.invoiceReprocessStarting = true;
     $("invoiceReprocessDialog").close();
@@ -3261,7 +3294,7 @@
     try {
       started = await api("/api/admin/service-documents/reprocess-batch", {
         method: "POST",
-        body: { action: "start", mode: mode, batchId: invoiceBatchClientId(), total: records.length, items: records.map(function (item) { return { id: String(item.id || ""), key: String(item.key || ""), name: String(item.name || "Τιμολόγιο") }; }) }
+        body: { action: "start", mode: mode, forceRead:forceRead===true, batchId: invoiceBatchClientId(), total: records.length, items: records.map(function (item) { return { id: String(item.id || ""), key: String(item.key || ""), name: String(item.name || "Τιμολόγιο") }; }) }
       });
     } catch (error) {
       return void toast(error.message);
@@ -3349,6 +3382,7 @@
     $("invoiceReviewTotal").value = data.totalAmount || "";
     $("invoiceReviewTasks").value = portalInvoiceWorkItems(record).join("\n");
     $("invoiceReviewComments").value = data.comments || data.notes || "";
+    if(window.FleetInvoiceImports)window.FleetInvoiceImports.showEvidence(data);
     $("invoiceReviewRawText").textContent = data.rawText || "Δεν επιστράφηκε πλήρες κείμενο OCR.";
     $("invoiceReviewRawDetails").classList.toggle("is-hidden", !data.rawText);
     const warnings = Array.isArray(record.warnings) ? record.warnings : [];
@@ -4346,7 +4380,7 @@
       const invoiceView = event.target.closest("[data-invoice-view]");
       if (invoiceView) return void setInvoiceView(invoiceView.dataset.invoiceView);
       const invoiceMode = event.target.closest("[data-invoice-reprocess-mode]");
-      if (invoiceMode) return void reprocessAllInvoiceDocuments(invoiceMode.dataset.invoiceReprocessMode);
+      if (invoiceMode) return void reprocessAllInvoiceDocuments(invoiceMode.dataset.invoiceReprocessMode,false,$("invoiceForceRead")?.checked);
       const invoiceOpen = event.target.closest("[data-invoice-open]");
       if (invoiceOpen) return void openInvoiceDocument(invoiceDocumentById(invoiceOpen.dataset.invoiceOpen), false);
       const invoiceDownload = event.target.closest("[data-invoice-download]");
@@ -4391,6 +4425,10 @@
   }
 
   bindEvents();
+  window.FleetInvoiceApi={api,can,toast,openPdf:openInvoiceDocument,refresh:loadInvoices,
+    reprocess:(mode,failedOnly,forceRead)=>reprocessAllInvoiceDocuments(mode,failedOnly,forceRead),
+    batchAction:action=>publishInvoiceReprocessBatch(action),getBatch:()=>({id:state.invoiceReprocessBatchId,busy:state.invoiceReprocessBusy}),
+    getDocuments:()=>state.invoiceDocuments};
   initialize();
   window.addEventListener("beforeinstallprompt", function (event) {
     event.preventDefault();
