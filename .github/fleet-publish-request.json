@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-50d70262-3dca-465c-90fe-8decd5292128",
-  "sourceCommit": "2961b2874b9b74d88712728fb06cb7935fed7463",
-  "releaseVersion": "5.40.0",
-  "requestedAt": "2026-10-09T23:06:27.972Z",
-  "reason": "Ο χρήστης ζήτησε πιο αργή κυκλική πράσινη πρόοδο και βελτίωση αναγνώστη PDF με το παράδειγμα, με αυτόματη δημοσίευση νέας έκδοσης."
+  "requestId": "fleet-8efa6123-b49b-472a-9b99-1660c53f2f2b",
+  "sourceCommit": "07ac78f92b48437ca35bb4477807ddb205fc7022",
+  "releaseVersion": "5.40.1",
+  "requestedAt": "2026-10-10T12:40:26.625Z",
+  "reason": "Ο χρήστης ζήτησε διόρθωση σφαλμάτων exceededCpu/503, δεδομένων και επανάληψης τιμολογίων, με αυτόματη δημοσίευση."
 }
