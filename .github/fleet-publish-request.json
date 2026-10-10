@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-8efa6123-b49b-472a-9b99-1660c53f2f2b",
-  "sourceCommit": "07ac78f92b48437ca35bb4477807ddb205fc7022",
-  "releaseVersion": "5.40.1",
-  "requestedAt": "2026-10-10T12:40:26.625Z",
-  "reason": "Ο χρήστης ζήτησε διόρθωση σφαλμάτων exceededCpu/503, δεδομένων και επανάληψης τιμολογίων, με αυτόματη δημοσίευση."
+  "requestId": "fleet-18617f1a-c22f-4114-b281-c8b7a16a6956",
+  "sourceCommit": "b17595f503911b8ec321168a215bd878586104ce",
+  "releaseVersion": "5.41.0",
+  "requestedAt": "2026-10-10T19:42:45.073Z",
+  "reason": "Ο χρήστης ζήτησε επανάληψη καθυστερημένων τιμολογίων, ταχύτερο ανεξάρτητο συγχρονισμό, διαγνωστικά Server και OTA Client, με την ήδη εξουσιοδοτημένη αυτόματη δημοσίευση."
 }
