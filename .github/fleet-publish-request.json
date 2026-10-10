@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-18617f1a-c22f-4114-b281-c8b7a16a6956",
-  "sourceCommit": "b17595f503911b8ec321168a215bd878586104ce",
-  "releaseVersion": "5.41.0",
-  "requestedAt": "2026-10-10T19:42:45.073Z",
-  "reason": "Ο χρήστης ζήτησε επανάληψη καθυστερημένων τιμολογίων, ταχύτερο ανεξάρτητο συγχρονισμό, διαγνωστικά Server και OTA Client, με την ήδη εξουσιοδοτημένη αυτόματη δημοσίευση."
+  "requestId": "fleet-3f4e2d0f-0aa2-48df-89ea-242b5317a5aa",
+  "sourceCommit": "095653bba412424c1fac257f1d79d655b67fca09",
+  "releaseVersion": "5.42.0",
+  "requestedAt": "2026-10-10T21:18:00.945Z",
+  "reason": "Publish verified Fleet 5.42.0: local Greek OCR, QR drafts, queue controls, cache and hourly OTA"
 }
