@@ -29,13 +29,13 @@ export async function readServiceEntry(env, bikeId, entryId) {
     bike: { id: row.bike_id, name: row.bike_name, currentKm: Number(row.current_km || 0) }, entryJson: row.entry_json, entry: JSON.parse(row.entry_json) };
 }
 
-export async function writeServiceEntry(env, located, entry, source, now) {
+export async function writeServiceEntry(env, located, entry, source, now, renderJobId = "") {
   const entryPath = `$.bikes[${located.bikeIndex}].history[${located.entryIndex}]`;
   const bikeTimePath = `$.bikes[${located.bikeIndex}].updatedAt`;
   const result = await env.DB.prepare(`UPDATE fleet_snapshot SET data=json_set(data, ?, json(?), ?, ?),
-    version=version+1, source=?, updated_at=? WHERE id=1 AND json_extract(data,?)=? AND json_extract(data,?)=?`)
+    version=version+1, source=?, updated_at=? WHERE id=1 AND json_extract(data,?)=? AND json_extract(data,?)=? AND (?='' OR NOT EXISTS (SELECT 1 FROM fleet_operations WHERE id=? AND status='cancelled'))`)
     .bind(entryPath, JSON.stringify(entry), bikeTimePath, now, source, now,
-      `$.bikes[${located.bikeIndex}].id`, String(located.bike.id), entryPath, located.entryJson).run();
+      `$.bikes[${located.bikeIndex}].id`, String(located.bike.id), entryPath, located.entryJson,renderJobId,renderJobId).run();
   if (!Number(result.meta?.changes || 0)) return 0;
   const row = await env.DB.prepare("SELECT version FROM fleet_snapshot WHERE id=1").first();
   return Number(row.version);

@@ -149,6 +149,16 @@ async function route(request, env) {
 
   if (path === "/api/server/connection-check" && request.method === "GET") return serverConnectionCheck(request, env);
   if (path === "/api/server/pulse" && request.method === "POST") return serverPulse(request, env);
+  if (path === "/api/server/service-documents/job-active" && request.method === "GET") {
+    if (!await serverAuthorized(request,env)) return json({error:"Μη έγκυρος Server."},401);
+    const row=await env.DB.prepare("SELECT status,json_extract(payload,'$.progress') AS progress,json_extract(payload,'$.progressStage') AS stage FROM fleet_operations WHERE id=? AND type='service_document_render'").bind(cleanText(url.searchParams.get("jobId"),120)).first();
+    return json({active:row?.status === "pending",cancelled:row?.status === "cancelled",progress:Number(row?.progress||0),stage:row?.stage||""});
+  }
+  if (path === "/api/server/service-documents/reprocess" && request.method === "POST") {
+    if (!await serverAuthorized(request,env)) return json({error:"Μη έγκυρος Server."},401);
+    return reprocessAdminServiceDocument(request,env);
+  }
+  if ((path === "/api/admin/service-documents/restart" || path === "/api/server/service-documents/restart") && request.method === "POST") return restartServiceDocument(request, env);
   if (path === "/api/server/pending" && request.method === "GET") return serverPending(request, env);
   if (path === "/api/server/ack" && request.method === "POST") return serverAck(request, env);
   if (path === "/api/server/operation-progress" && request.method === "POST") return serverOperationProgress(request, env);
@@ -224,6 +234,7 @@ async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
   const names = await fleetNames(env);
   if (attachment.ocr) attachment.ocr = refineInvoicePlateForFleet(attachment.ocr, names);
   for (let attempt = 0; attempt < 5; attempt++) {
+    if (attachment.renderJobId && await renderJobCancelled(env,attachment.renderJobId)) return {attached:false,status:410,error:"Η παλιά προσπάθεια διακόπηκε."};
     const located = await readServiceEntry(env, bikeId, entryId);
     if (!located || located.entry.type === "check") return { attached: false };
     const { entry, bike } = located;
@@ -241,7 +252,7 @@ async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
     const now = new Date().toISOString();
     entry.updatedAt = now;
     const normalized = normalizeHistory([entry])[0];
-    const version = await writeServiceEntry(env, located, normalized, "service-document-upload", now);
+    const version = await writeServiceEntry(env, located, normalized, "service-document-upload", now, attachment.renderJobId || "");
     if (version) return { attached: true, version };
   }
   return { attached: false, status: 409, error: "Το service ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά την προσθήκη του τιμολογίου." };
@@ -664,6 +675,7 @@ async function serviceDocumentJobStatus(request, env) {
   if (!row || row.type !== "service_document_render") return json({ error: "Η εργασία τιμολογίου δεν βρέθηκε." }, 404);
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
+  if (row.status === "cancelled") return json({ ok: true, jobId, status: "cancelled", stage: "Διακόπηκε για νέα προσπάθεια" });
   const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
   const entry = located?.entry;
   const attachment = (entry?.attachments || []).find((item) => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
@@ -730,10 +742,62 @@ async function updateServiceDocumentProcessingSnapshot(env, payload, state) {
     entry.invoiceData = normalizeServiceInvoiceData(next);
     const now = new Date().toISOString();
     entry.updatedAt = now;
-    const version = await writeServiceEntry(env, located, entry, "service-document-processing", now);
+    const version = await writeServiceEntry(env, located, entry, "service-document-processing", now, state.jobId || "");
     if (version) return { version };
   }
   throw new Error("Η πρόοδος ενημερώνεται ταυτόχρονα. Θα ξαναδοκιμάσει.");
+}
+
+async function renderJobCancelled(env, jobId) {
+  return (await env.DB.prepare("SELECT status FROM fleet_operations WHERE id=?").bind(jobId).first())?.status === "cancelled";
+}
+
+async function restartServiceDocument(request, env) {
+  if (!await serverAuthorized(request, env)) {
+    let actor;
+    try { actor = await authenticateExternal(request, env, "fleet.manage"); }
+    catch (error) { return json({ error: error.message }, Number(error.status) || 401); }
+    if (!isManagementActor(actor)) return json({ error: "Χρειάζεται λογαριασμός διαχείρισης." }, 403);
+  }
+  const body = await request.json().catch(() => ({}));
+  const jobId = cleanText(body.jobId,120);
+  const row = jobId ? await env.DB.prepare("SELECT id,type,payload,status FROM fleet_operations WHERE id=?").bind(jobId).first() : null;
+  if (jobId && (!row || row.type !== "service_document_render")) return json({error:"Η εργασία δεν βρέθηκε."},404);
+  if (row?.status === "cancelled") return json({error:"Έχει ήδη ξεκινήσει νέα προσπάθεια. Ανανέωσε τη λίστα."},409);
+  let payload = {};
+  try { payload = JSON.parse(row?.payload || "{}"); } catch {}
+  const located = await readServiceEntry(env,payload.bikeId || cleanText(body.bikeId,80),payload.entryId || cleanText(body.entryId,120));
+  if (!located || located.entry.type === "check") return json({error:"Το service δεν βρέθηκε."},404);
+  const qrUrl = qrUrlFromValue(payload.qrUrl || body.qrUrl || located.entry.invoiceData?.qrUrl);
+  if (!qrUrl || !isPublicExternalQrUrl(qrUrl)) return json({error:"Δεν υπάρχει έγκυρο QR. Σκάναρε ξανά το τιμολόγιο."},400);
+  const existing = located.entry.attachments?.find(x => String(x.qrUrl || x.qrValue) === qrUrl || (jobId && String(x.renderJobId) === jobId));
+  if (existing) {
+    if (existing.ocrError) {
+      const headers=new Headers(request.headers);headers.delete("Content-Length");
+      return reprocessAdminServiceDocument(new Request(new URL("/api/admin/service-documents/reprocess",request.url),{method:"POST",headers,body:JSON.stringify({key:existing.key,forceAi:true})}),env);
+    }
+    return json({ok:true,status:"completed",attachment:existing,reused:true});
+  }
+  // A legacy orphan card may have a newer live job: never start it twice.
+  if (!row) {
+    const active = await findPendingServiceRender(env,located.bike.id,located.entry.id,qrUrl);
+    if (active) {
+      await updateServiceDocumentProcessingSnapshot(env,active.payload,{jobId:active.id,status:"processing",progress:active.payload.progress || 5,stage:active.payload.progressStage || "Αναμονή Server",error:active.payload.lastError || ""});
+      return json({ok:true,jobId:active.id,status:"processing",existing:true});
+    }
+  }
+  const newId = crypto.randomUUID(), now = new Date().toISOString();
+  const next = { bikeId:located.bike.id,entryId:located.entry.id,qrUrl,qrValue:payload.qrValue || qrUrl,
+    requestedAt:now,attemptCount:0,progress:5,progressStage:"Νέα προσπάθεια · αναμονή Server",replacesJobId:jobId };
+  const insert = row
+    ? env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) SELECT ?,'manual-retry','service_document_render',?,'pending',? WHERE EXISTS (SELECT 1 FROM fleet_operations WHERE id=? AND status IN ('pending','error') AND payload=?)").bind(newId,JSON.stringify(next),now,jobId,row.payload)
+    : env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) SELECT ?,'manual-retry','service_document_render',?,'pending',? WHERE NOT EXISTS (SELECT 1 FROM fleet_operations WHERE type='service_document_render' AND status='pending' AND json_extract(payload,'$.bikeId')=? AND json_extract(payload,'$.entryId')=? AND json_extract(payload,'$.qrUrl')=?)").bind(newId,JSON.stringify(next),now,located.bike.id,located.entry.id,qrUrl);
+  const statements = [insert];
+  if (row) statements.push(env.DB.prepare("UPDATE fleet_operations SET status='cancelled',applied_at=? WHERE id=? AND EXISTS (SELECT 1 FROM fleet_operations WHERE id=?)").bind(now,jobId,newId));
+  const results = await env.DB.batch(statements);
+  if (!results[0]?.meta?.changes) return json({error:"Η εργασία άλλαξε. Ανανέωσε και δοκίμασε ξανά."},409);
+  await updateServiceDocumentProcessingSnapshot(env,next,{jobId:newId,status:"processing",progress:5,stage:next.progressStage,error:"",attempts:0});
+  return json({ok:true,restarted:true,jobId:newId,previousJobId:jobId,status:"processing"});
 }
 
 async function retryServiceDocumentJob(request, env) {
@@ -848,6 +912,7 @@ function adminServiceDocumentRecord(bike, entry, attachment, pending = null, all
     elapsedSeconds: processing ? processing.elapsedSeconds : 0,
     attempts: processing ? processing.attempts : 0,
     canRetry: Boolean(processing?.canRetry || attachment?.ocrError),
+    canRestart: Boolean(processing && !attachment?.key),
     createdAt: pending?.createdAt || attachment?.uploadedAt || "",
     lastAttemptAt: processing?.lastAttemptAt || "",
     reviewSeenAt,
@@ -1037,7 +1102,7 @@ async function applyServiceDocumentReprocess(env, request, actor, snapshot, flee
 
 async function reprocessAdminServiceDocument(request, env) {
   let actor;
-  try { actor = await authenticateExternal(request, env, "fleet.manage"); }
+  try { actor = await serverAuthorized(request,env) ? {id:"android-server",username:"android-server",role:"owner"} : await authenticateExternal(request, env, "fleet.manage"); }
   catch (error) { return json({ error: error?.message || "Χρειάζεται σύνδεση διαχείρισης." }, Number(error?.status) || 401); }
   if (!isManagementActor(actor)) return json({ error: "Η επανεπεξεργασία τιμολογίου επιτρέπεται μόνο σε λογαριασμό διαχείρισης." }, 403);
 
@@ -1301,6 +1366,15 @@ async function serverInvoiceReprocessBatch(request, env) {
   }
 
   const body = await request.json().catch(() => ({}));
+  if (body.action === "resume") {
+    if (!current || Number(current.completed)>=Number(current.total)) return json({error:"Δεν υπάρχει διακοπείσα εργασία προς συνέχιση."},409);
+    const now=new Date().toISOString();
+    current={...current,status:"processing",error:"",completedAt:"",updatedAt:now};
+    await setSetting(env,INVOICE_REPROCESS_BATCH_SETTING,JSON.stringify(current));
+    const pending=await env.DB.prepare("SELECT id FROM fleet_operations WHERE type='service_document_reprocess_batch' AND status='pending' AND json_extract(payload,'$.batchId')=? LIMIT 1").bind(current.id).first();
+    if (!pending) await env.DB.prepare("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) VALUES (?,'manual-retry','service_document_reprocess_batch',?,'pending',?)").bind(crypto.randomUUID(),JSON.stringify({batchId:current.id}),now).run();
+    return json({ok:true,resumed:true,batch:current});
+  }
   if (cleanText(body.action, 30).toLowerCase() !== "result") return json({ error: "Μη έγκυρη ενέργεια Server batch." }, 400);
   const batchId = cleanText(body.batchId, 120);
   if (!current || current.status !== "processing" || String(current.id) !== batchId) {
@@ -2471,6 +2545,11 @@ async function mayViewFleet(request, env) {
 
 async function snapshotResponse(request, env) {
   if (!await mayViewFleet(request, env)) return json({ error: "Χρειάζεται σύνδεση για την προβολή του στόλου." }, 401);
+  const sinceVersion = new URL(request.url).searchParams.get("sinceVersion");
+  if (sinceVersion !== null) {
+    const summary = await snapshotSummary(env);
+    if (String(summary.version) === sinceVersion) return json({ unchanged: true, version: summary.version });
+  }
   const row = await visibleSnapshotRow(env);
   return snapshotJsonResponse(row, { updatedAt: row?.updated_at || "", archivedBikeIds: [...await activeArchivedBikeIds(env)] });
 }
@@ -2484,6 +2563,11 @@ function snapshotJsonResponse(row, extra = {}) {
 
 async function legacySyncGet(request, env) {
   if (!await mayViewFleet(request, env)) return json({ error: "Χρειάζεται σύνδεση για την προβολή του στόλου." }, 401);
+  const sinceVersion = new URL(request.url).searchParams.get("sinceVersion");
+  if (sinceVersion !== null) {
+    const summary = await snapshotSummary(env);
+    if (String(summary.version) === sinceVersion) return json({unchanged:true,version:summary.version});
+  }
   const row = await visibleSnapshotRow(env);
   const archivedBikeIds = [...await activeArchivedBikeIds(env)];
   return snapshotJsonResponse(row, { archivedBikeIds, serverTime: new Date().toISOString() });
@@ -2882,7 +2966,10 @@ async function serverPending(request, env) {
   if (!await serverAuthorized(request, env)) return json({ error: "Μη έγκυρος server." }, 401);
   await touchServer(env);
   const limit = cleanInteger(new URL(request.url).searchParams.get("limit"), 1, MAX_PENDING, 50);
-  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending' AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY created_at LIMIT ?")
+  const queue = new URL(request.url).searchParams.get("queue");
+  const filter = queue === "invoices" ? " AND type IN ('service_document_render','service_document_reprocess_batch')"
+    : queue === "sync" ? " AND type NOT IN ('service_document_render','service_document_reprocess_batch')" : "";
+  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending'" + filter + " AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY created_at LIMIT ?")
     .bind(new Date().toISOString(), limit).all();
   const operations = (result.results || []).map((row) => {
     let payload = {};
@@ -2897,7 +2984,7 @@ async function serverAck(request, env) {
   const body = await request.json();
   const ids = Array.isArray(body.ids) ? body.ids.map((id) => cleanText(id, 100)).filter(Boolean).slice(0, MAX_PENDING) : [];
   const now = new Date().toISOString();
-  if (ids.length) await env.DB.batch(ids.map((id) => env.DB.prepare("UPDATE fleet_operations SET status = 'applied', applied_at = ? WHERE id = ?").bind(now, id)));
+  if (ids.length) await env.DB.batch(ids.map((id) => env.DB.prepare("UPDATE fleet_operations SET status = 'applied', applied_at = ? WHERE id = ? AND status != 'cancelled'").bind(now, id)));
   await env.DB.prepare("DELETE FROM fleet_operations WHERE status = 'applied' AND applied_at < datetime('now', '-30 days')").run();
   await touchServer(env);
   return json({ acknowledged: ids.length });
@@ -2912,6 +2999,7 @@ async function serverOperationProgress(request, env) {
   if (!row || row.type !== "service_document_render") return json({ error: "Η εργασία τιμολογίου δεν βρέθηκε." }, 404);
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
+  if (row.status === "cancelled") return json({ ok: true, jobId, status: "cancelled", ignored: true });
   const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
   const completed = (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
   if (row.status === "applied" || completed) return json({ ok: true, jobId, status: "completed", progress: 100 });
@@ -2943,6 +3031,7 @@ async function serverOperationError(request, env) {
   if (!row || row.type !== "service_document_render") return json({ error: "Η εργασία τιμολογίου δεν βρέθηκε." }, 404);
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
+  if (row.status === "cancelled") return json({ ok: true, jobId, status: "cancelled", ignored: true });
   const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
   const completed = (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
   if (row.status === "applied" || completed) return json({ ok: true, jobId, status: "completed", progress: 100 });
@@ -3005,6 +3094,7 @@ async function uploadServerRenderedServiceDocument(request, env) {
   if (!bikeId || !entryId || !jobId || !qrValue || !qrUrl || !isPublicExternalQrUrl(qrUrl)) {
     return json({ error: "Λείπουν ή δεν είναι έγκυρα τα στοιχεία του τιμολογίου." }, 400);
   }
+  if (await renderJobCancelled(env, jobId)) return json({ error: "Η παλιά προσπάθεια διακόπηκε.", cancelled: true }, 410);
   const bucket = env.SERVICE_DOCS || env.RELEASES;
   if (!bucket) return json({ error: "Δεν έχει συνδεθεί χώρος αποθήκευσης τιμολογίων." }, 503);
   const bytes = new Uint8Array(await request.arrayBuffer());
@@ -3038,6 +3128,7 @@ async function uploadServerRenderedServiceDocument(request, env) {
   let fallbackUsed = false;
   let fallbackReason = localOcr?.ocrFallbackReason || (localHeader ? "Η τοπική ανάγνωση βρήκε αμφίβολα στοιχεία." : "Ο Server δεν έστειλε αποτέλεσμα τοπικής ανάγνωσης.");
   if (!extracted) {
+    await env.DB.prepare("UPDATE fleet_operations SET payload=json_set(payload,'$.progress',85,'$.progressStage','Workers AI · ανάγνωση αποθηκευμένου PDF') WHERE id=? AND status='pending'").bind(jobId).run();
     fallbackUsed = true;
     if (env.AI?.toMarkdown) {
       try {
@@ -3073,6 +3164,7 @@ async function uploadServerRenderedServiceDocument(request, env) {
     }
   }
 
+  if (await renderJobCancelled(env, jobId)) return json({ error: "Η παλιά προσπάθεια διακόπηκε.", cancelled: true }, 410);
   const displayName = buildInvoiceDisplayName(bike.name, extracted?.invoiceDate || "", entry.date, originalName);
   const key = `service-documents/${encodeURIComponent(bikeId)}/${encodeURIComponent(entryId)}/${crypto.randomUUID()}-${originalName}`;
   await bucket.put(key, new Blob([bytes], { type: "application/pdf" }), {

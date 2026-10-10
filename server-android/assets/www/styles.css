@@ -193,3 +193,8 @@ dialog label { display: block; margin-bottom: .75rem; }
 .release-notes li + li { margin-top: .35rem; }
 @keyframes ota-flow { from { transform: translateX(0); } to { transform: translateX(185%); } }
 @media (prefers-reduced-motion: reduce) { .ota-progress.is-indeterminate > span { animation: none; } .ota-progress > span { transition: none; } }
+
+.sync-diagnostics{margin:1rem 0;padding:1rem;background:#f2f8f6;border:1px solid #d6e6e1;border-radius:1.1rem;font-size:.8rem;line-height:1.5;overflow-wrap:anywhere}.sync-diagnostics small{color:var(--muted)}
+.ota-progress{position:relative}.ota-progress.is-active::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,#62e6c5,transparent);animation:ota-shimmer 1.8s linear infinite;pointer-events:none}
+@keyframes ota-shimmer{to{transform:translateX(100%)}}
+@media(prefers-reduced-motion:reduce){.ota-progress.is-active::after{animation:none;transform:none;opacity:.4}}

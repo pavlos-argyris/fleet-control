@@ -5,7 +5,6 @@ import gr.argyrismitsos.fleetupdates.OtaInstaller;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -17,8 +16,6 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
 import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -35,14 +32,9 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.view.View;
-import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.Window;
-import android.view.WindowManager;
 import android.widget.Toast;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import java.io.File;
 import java.io.BufferedInputStream;
@@ -56,7 +48,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -92,8 +83,23 @@ public class MainActivity extends Activity {
         }
     };
     private UpdateInfo pendingUpdate;
+    private volatile UpdateInfo availableUpdate;
+    private volatile String updateStateJson = "{}";
+    private volatile long updateDownloadedBytes;
+    private void clientUpdateStage(String stage,String message,boolean offer) {
+        try {
+            final org.json.JSONObject state=new org.json.JSONObject().put("stage",stage).put("message",message).put("offer",offer)
+                .put("downloadedBytes",updateDownloadedBytes).put("currentVersion",currentVersionName());
+            UpdateInfo info=availableUpdate;
+            if (info!=null) state.put("ready",new org.json.JSONObject().put("version",info.version).put("notes",formatUpdateNotes(info.notes)).put("sizeBytes",info.sizeBytes));
+            updateStateJson=state.toString();
+            mainHandler.post(new Runnable(){public void run(){if(webView!=null) webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('fleet-client-ota',{detail:"+state.toString()+"}));",null);}});
+        }catch(Exception ignored){}
+    }
+
     private PermissionRequest pendingCameraPermissionRequest;
     private volatile boolean historyReportOpen = false;
+    private volatile boolean clientOtaOpen = false;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -321,6 +327,25 @@ public class MainActivity extends Activity {
     }
 
     public final class FleetBridge {
+        @JavascriptInterface public void setClientOtaOpen(boolean open){clientOtaOpen=open;}
+        @JavascriptInterface public String getClientUpdateState() {
+            try {
+                org.json.JSONObject state=new org.json.JSONObject(updateStateJson);
+                SharedPreferences installer=OtaInstaller.preferences(MainActivity.this);
+                String nativeStage=installer.getString("status","");
+                if (!updateCheckInFlight.get() && !updateDownloadInFlight.get() && ("installing".equals(nativeStage)||"confirmation".equals(nativeStage)||("failed".equals(nativeStage) && ("installing".equals(state.optString("stage")) || "confirmation".equals(state.optString("stage")))))) {
+                    state.put("stage",nativeStage).put("message",installer.getString("message",""));
+                }
+                return state.toString();
+            } catch(Exception error){return updateStateJson;}
+        }
+        @JavascriptInterface public void checkClientUpdate(){mainHandler.post(new Runnable(){public void run(){checkForUpdates(true);}});}
+        @JavascriptInterface public void installClientUpdate(){mainHandler.post(new Runnable(){public void run(){
+            String status=OtaInstaller.preferences(MainActivity.this).getString("status","");
+            if ("confirmation".equals(status)) {OtaInstaller.openConfirmation(MainActivity.this);return;}
+            if(availableUpdate!=null) startUpdate(availableUpdate);
+        }});}
+        @JavascriptInterface public void dismissClientUpdate(){UpdateInfo info=availableUpdate;if(info!=null)rememberPrompt(info.version);clientUpdateStage("waiting","Η ενημέρωση είναι διαθέσιμη όταν είσαι έτοιμος.",false);}
         @JavascriptInterface
         public void notifyService(final String bikeName, final String message, final String severity) {
             runOnUiThread(new Runnable() {
@@ -560,15 +585,17 @@ public class MainActivity extends Activity {
         }, delayMs);
     }
 
-    private void checkForUpdates() {
+    private void checkForUpdates() { checkForUpdates(false); }
+    private void checkForUpdates(final boolean force) {
         if (isFinishing() || !updateCheckInFlight.compareAndSet(false, true)) return;
         final SharedPreferences preferences = getSharedPreferences(UPDATE_PREFERENCES, MODE_PRIVATE);
         final long now = System.currentTimeMillis();
-        if (now - preferences.getLong(LAST_UPDATE_CHECK_KEY, 0L) < UPDATE_CHECK_INTERVAL_MS) {
+        if (!force && now - preferences.getLong(LAST_UPDATE_CHECK_KEY, 0L) < UPDATE_CHECK_INTERVAL_MS) {
             updateCheckInFlight.set(false);
             return;
         }
         preferences.edit().putLong(LAST_UPDATE_CHECK_KEY, now).apply();
+        clientUpdateStage("checking","Έλεγχος νέας έκδοσης…",false);
 
         new Thread(new Runnable() {
             @Override
@@ -579,11 +606,13 @@ public class MainActivity extends Activity {
                         mainHandler.post(new Runnable() {
                             @Override
                             public void run() {
-                                offerUpdate(update);
+                                availableUpdate=update;
+                                if(force) clientUpdateStage("waiting","Νέα έκδοση διαθέσιμη.",false);else offerUpdate(update);
                             }
                         });
-                    }
-                } catch (Exception ignored) {
+                    } else {availableUpdate=null;clientUpdateStage("current","Έχεις την τελευταία έκδοση.",false);}
+                } catch (Exception error) {
+                    clientUpdateStage("failed","Ο έλεγχος δεν ολοκληρώθηκε: " + (error.getMessage()==null ? "έλεγξε τη σύνδεση" : error.getMessage()),false);
                     // An update check must never interrupt normal Fleet Control use.
                 } finally {
                     updateCheckInFlight.set(false);
@@ -602,7 +631,7 @@ public class MainActivity extends Activity {
             connection.setReadTimeout(10000);
             connection.setUseCaches(false);
             connection.setRequestProperty("Accept", "application/json");
-            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) return null;
+            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) throw new IllegalStateException("HTTP " + connection.getResponseCode());
             org.json.JSONObject body = new org.json.JSONObject(readResponse(connection.getInputStream(), 64 * 1024));
             if (!body.optBoolean("available", false)) return null;
             String version = body.optString("version", "").trim();
@@ -641,143 +670,8 @@ public class MainActivity extends Activity {
         long promptedAt = preferences.getLong(LAST_UPDATE_PROMPT_AT_KEY, 0L);
         if (update.version.equals(promptedVersion) && System.currentTimeMillis() - promptedAt < UPDATE_PROMPT_INTERVAL_MS) return;
 
-        final int teal = Color.rgb(18, 191, 165);
-        final int ink = Color.rgb(23, 32, 51);
-        final int muted = Color.rgb(96, 111, 132);
-        final int line = Color.rgb(223, 232, 237);
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(24), dp(22), dp(24), dp(18));
-        card.setBackground(roundBackground(Color.WHITE, dp(22), line));
-
-        TextView eyebrow = updateText("FLEET CONTROL  •  UPDATE", 11, teal, true);
-        eyebrow.setLetterSpacing(.12f);
-        card.addView(eyebrow, matchWrap(0));
-
-        TextView title = updateText("Νέα έκδοση διαθέσιμη", 23, ink, true);
-        LinearLayout.LayoutParams titleParams = matchWrap(0);
-        titleParams.topMargin = dp(7);
-        card.addView(title, titleParams);
-
-        TextView version = updateText("Έκδοση " + update.version, 13, teal, true);
-        version.setGravity(Gravity.CENTER);
-        version.setPadding(dp(12), dp(7), dp(12), dp(7));
-        version.setBackground(roundBackground(Color.rgb(231, 250, 246), dp(999), Color.TRANSPARENT));
-        LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        versionParams.topMargin = dp(13);
-        card.addView(version, versionParams);
-
-        TextView message = updateText("Το Fleet Control έχει έτοιμη μια νεότερη έκδοση. Μπορείς να την εγκαταστήσεις τώρα. Αν ζητηθεί, επιβεβαίωσε την εγκατάσταση στο Android.", 14, muted, false);
-        message.setLineSpacing(0f, 1.18f);
-        LinearLayout.LayoutParams messageParams = matchWrap(0);
-        messageParams.topMargin = dp(16);
-        card.addView(message, messageParams);
-
-        TextView notes = updateText(formatUpdateNotes(update.notes), 12, ink, false);
-        notes.setLineSpacing(0f, 1.18f);
-        notes.setPadding(dp(13), dp(11), dp(13), dp(11));
-        notes.setBackground(roundBackground(Color.rgb(246, 249, 250), dp(13), Color.rgb(232, 239, 241)));
-        LinearLayout.LayoutParams notesParams = matchWrap(0);
-        notesParams.topMargin = dp(13);
-        card.addView(notes, notesParams);
-
-        TextView security = updateText(formatUpdateSize(update.sizeBytes) + "  •  Έλεγχος έκδοσης και SHA-256 πριν την εγκατάσταση", 11, muted, false);
-        security.setLineSpacing(0f, 1.15f);
-        LinearLayout.LayoutParams securityParams = matchWrap(0);
-        securityParams.topMargin = dp(12);
-        card.addView(security, securityParams);
-
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams actionsParams = matchWrap(0);
-        actionsParams.topMargin = dp(19);
-        card.addView(actions, actionsParams);
-
-        Button later = updateButton("Αργότερα", muted, Color.WHITE, line);
-        Button install = updateButton("Ενημέρωση τώρα", Color.WHITE, teal, teal);
-        LinearLayout.LayoutParams laterParams = new LinearLayout.LayoutParams(0, dp(50), 1f);
-        laterParams.rightMargin = dp(7);
-        LinearLayout.LayoutParams installParams = new LinearLayout.LayoutParams(0, dp(50), 1f);
-        actions.addView(later, laterParams);
-        actions.addView(install, installParams);
-
-        final AlertDialog dialog = new AlertDialog.Builder(this).setView(card).create();
-        later.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View view) {
-                rememberPrompt(update.version);
-                dialog.dismiss();
-            }
-        });
-        install.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View view) {
-                dialog.dismiss();
-                startUpdate(update);
-            }
-        });
-        dialog.setCancelable(true);
-        dialog.setCanceledOnTouchOutside(true);
-        dialog.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
-            @Override public void onCancel(android.content.DialogInterface ignored) {
-                rememberPrompt(update.version);
-            }
-        });
-        dialog.show();
-        Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = (int) (getResources().getDisplayMetrics().widthPixels * .91f);
-            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(attributes);
-        }
-    }
-
-    private TextView updateText(String value, float sizeSp, int color, boolean bold) {
-        TextView text = new TextView(this);
-        text.setText(value);
-        text.setTextSize(sizeSp);
-        text.setTextColor(color);
-        text.setGravity(Gravity.START);
-        text.setTypeface(android.graphics.Typeface.DEFAULT, bold ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-        return text;
-    }
-
-    private Button updateButton(String value, int textColor, int backgroundColor, int strokeColor) {
-        Button button = new Button(this);
-        button.setText(value);
-        button.setTextSize(12);
-        button.setTextColor(textColor);
-        button.setAllCaps(false);
-        button.setGravity(Gravity.CENTER);
-        button.setMinHeight(0);
-        button.setPadding(dp(8), 0, dp(8), 0);
-        button.setBackground(roundBackground(backgroundColor, dp(13), strokeColor));
-        return button;
-    }
-
-    private LinearLayout.LayoutParams matchWrap(int topMargin) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = topMargin;
-        return params;
-    }
-
-    private GradientDrawable roundBackground(int color, int radius, int strokeColor) {
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(color);
-        background.setCornerRadius(radius);
-        if (strokeColor != Color.TRANSPARENT) background.setStroke(dp(1), strokeColor);
-        return background;
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    private String formatUpdateSize(long bytes) {
-        if (bytes <= 0) return "Ασφαλής λήψη";
-        if (bytes >= 1024L * 1024L) return String.format(Locale.US, "%.1f MB", bytes / (1024d * 1024d));
-        return String.format(Locale.US, "%.0f KB", bytes / 1024d);
+        availableUpdate=update;
+        clientUpdateStage("waiting","Νέα έκδοση διαθέσιμη · επιβεβαίωσε την εγκατάσταση στο Android όταν ζητηθεί.",true);
     }
 
     private void rememberPrompt(String version) {
@@ -796,6 +690,7 @@ public class MainActivity extends Activity {
 
     private void startUpdate(final UpdateInfo update) {
         if (!canInstallPackages()) {
+            clientUpdateStage("permission","Χρειάζεται άδεια εγκατάστασης. Ενεργοποίησέ την στις ρυθμίσεις Android και επέστρεψε.",false);
             pendingUpdate = update;
             clearPrompt(update.version);
             try {
@@ -809,7 +704,8 @@ public class MainActivity extends Activity {
             return;
         }
         if (!updateDownloadInFlight.compareAndSet(false, true)) return;
-        Toast.makeText(this, "Γίνεται λήψη της νέας έκδοσης…", Toast.LENGTH_SHORT).show();
+        updateDownloadedBytes=0;
+        clientUpdateStage("downloading","Γίνεται λήψη της νέας έκδοσης…",false);
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -828,7 +724,7 @@ public class MainActivity extends Activity {
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            Toast.makeText(MainActivity.this, "Η ενημέρωση δεν ολοκληρώθηκε. Δοκίμασε ξανά όταν υπάρχει σύνδεση.", Toast.LENGTH_LONG).show();
+                            clientUpdateStage("failed","Η ενημέρωση δεν ολοκληρώθηκε: " + (error.getMessage()==null ? "δοκίμασε ξανά" : error.getMessage()),false);
                         }
                     });
                 }
@@ -860,11 +756,15 @@ public class MainActivity extends Activity {
                  OutputStream output = new BufferedOutputStream(new FileOutputStream(part))) {
                 byte[] buffer = new byte[8192];
                 int count;
-                long total = 0L;
+                long total = 0L, lastUpdateProgress = 0L;
                 while ((count = input.read(buffer)) != -1) {
                     total += count;
                     if (total > MAX_UPDATE_BYTES) throw new IllegalStateException("Το APK είναι υπερβολικά μεγάλο.");
                     output.write(buffer, 0, count);
+                    if (System.currentTimeMillis()-lastUpdateProgress>=250 || total>=expectedSize) {
+                        lastUpdateProgress=System.currentTimeMillis();updateDownloadedBytes=total;
+                        clientUpdateStage("downloading","Λήψη νέας έκδοσης…",false);
+                    }
                 }
                 output.flush();
                 if (expectedSize > 0L && total != expectedSize) throw new IllegalStateException("Το APK δεν κατέβηκε πλήρως.");
@@ -873,6 +773,7 @@ public class MainActivity extends Activity {
             if (connection != null) connection.disconnect();
         }
 
+        clientUpdateStage("validating","Έλεγχος αρχείου και υπογραφής…",false);
         try { OtaInstaller.validate(this, part, update.versionCode, update.version, update.sizeBytes, update.sha256); }
         catch (Exception error) { part.delete(); throw error; }
         if (!part.renameTo(apk)) throw new IllegalStateException("Δεν αποθηκεύτηκε το APK.");
@@ -880,8 +781,8 @@ public class MainActivity extends Activity {
     }
 
     private void installUpdate(File apk) {
-        try { OtaInstaller.install(this, apk); }
-        catch (Exception error) { Toast.makeText(this, "Δεν ξεκίνησε η εγκατάσταση. " + error.getMessage(), Toast.LENGTH_LONG).show(); }
+        try {clientUpdateStage("installing","Προετοιμασία εγκατάστασης Android…",false); OtaInstaller.install(this, apk); }
+        catch (Exception error) {clientUpdateStage("failed","Δεν ξεκίνησε η εγκατάσταση: " + error.getMessage(),false);}
     }
 
     private boolean canInstallPackages() {
@@ -924,6 +825,7 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (clientOtaOpen && webView!=null) {webView.evaluateJavascript("if(window.FleetClientOta)window.FleetClientOta.close();",null);return;}
         if (historyReportOpen && webView != null) {
             historyReportOpen = false;
             webView.evaluateJavascript("(function(){if(window.FleetControlCloseHistoryReport){window.FleetControlCloseHistoryReport();}else{history.back();}})();", null);

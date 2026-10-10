@@ -1,9 +1,11 @@
-const CACHE_NAME = "fleet-control-v5-40-1";
+const CACHE_NAME = "fleet-control-v5-41-0";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./client-ota.js",
+  "./client-ota.css",
   "./scroll-stability.css",
   "./scroll-stability.js",
   "./vendor/jsQR.js",

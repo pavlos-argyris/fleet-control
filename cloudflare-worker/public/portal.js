@@ -2943,7 +2943,7 @@
       const correctionBadge = data.correctedByUserAt ? '<span class="invoice-user-correction">✓ Διορθώθηκε από χρήστη</span>' : "";
       const newBadge = item.isNew ? '<span class="invoice-new-badge">ΝΕΟ</span>' : '';
       const retryJobId = item.jobId || data.qrJobId || '';
-      const retryHtml = (retryJobId || (item.key && item.error)) && (item.canRetry || ["error", "delayed"].includes(String(item.status))) ? '<button class="secondary-button invoice-retry-button" type="button" data-invoice-retry="' + escapeHtml(retryJobId) + '" data-invoice-retry-record="' + escapeHtml(item.id) + '">Επανάληψη</button>' : '';
+      const retryHtml = (item.canRestart || retryJobId || (item.key && item.error)) && (item.canRetry || ["error", "delayed"].includes(String(item.status))) ? '<button class="secondary-button invoice-retry-button" type="button" data-invoice-retry="' + escapeHtml(retryJobId) + '" data-invoice-retry-record="' + escapeHtml(item.id) + '">' + (item.status === 'delayed' ? 'Διακοπή &amp; νέα προσπάθεια' : 'Επανάληψη') + '</button>' : '';
       const forceAiHtml = hasPdf && can("fleet.manage") ? '<button class="secondary-button invoice-force-ai-button" type="button" data-invoice-force-ai="' + escapeHtml(item.id) + '" ' + (state.invoiceReprocessBusy ? 'disabled' : '') + '>⚡ Workers AI</button>' : '';
       const deleteHtml = can("fleet.manage") ? '<button class="secondary-button invoice-delete-button" type="button" data-invoice-delete="' + escapeHtml(item.id) + '">Διαγραφή</button>' : '';
       return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? 'PDF διαθέσιμο' : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα PDF</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη PDF</button>' + deleteHtml + '</div></article>';
@@ -3200,15 +3200,19 @@
       return;
     }
     const jobId = record.jobId || (record.invoiceData && record.invoiceData.qrJobId);
-    if (!jobId) return void toast("Δεν βρέθηκε εργασία για επανάληψη.");
+    const restart = record.status === "delayed" || !jobId;
+    if (restart && !window.confirm("Να διακοπεί η παλιά προσπάθεια και να ξεκινήσει νέα; Το service και τα αποθηκευμένα PDF διατηρούνται.")) return;
     try {
-      await api("/api/service-documents/jobs/" + encodeURIComponent(jobId) + "/retry", { method: "POST", body: {} });
+      const result = restart
+        ? await api("/api/admin/service-documents/restart", {method:"POST",body:{jobId:jobId || "",bikeId:record.bikeId,entryId:record.entryId,qrUrl:record.qrUrl}})
+        : await api("/api/service-documents/jobs/" + encodeURIComponent(jobId) + "/retry", { method: "POST", body: {} });
+      const activeJobId = result.jobId || jobId;
       toast("Η επεξεργασία του QR ξεκίνησε ξανά.");
       await loadInvoices();
       for (let attempt = 0; attempt < 42; attempt += 1) {
         await new Promise(function (resolve) { setTimeout(resolve, 3000); });
         let status;
-        try { status = await api("/api/service-documents/jobs/" + encodeURIComponent(jobId)); await loadInvoices(); }
+        try { status = await api("/api/service-documents/jobs/" + encodeURIComponent(activeJobId)); await loadInvoices(); }
         catch (error) { if (error.status === 401 || error.status === 403) throw error; continue; }
         if (status.status === "completed") { toast("Το PDF του τιμολογίου είναι έτοιμο."); break; }
         if (status.status === "error") { toast("Η επανάληψη απέτυχε. Δες το σφάλμα στην κάρτα."); break; }

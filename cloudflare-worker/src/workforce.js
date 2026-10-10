@@ -781,6 +781,7 @@ export async function routeWorkforce(request, env, path, deps) {
     if (path === "/api/admin/settings" && request.method === "GET") return getSystemSettings(request, env);
     if (path === "/api/admin/settings" && request.method === "PUT") return updateSystemSettings(request, env, deps);
 
+    if (path === "/api/server/system-export/page" && request.method === "GET") return systemExportPage(request, env, deps);
     if (path === "/api/server/system-export" && request.method === "GET") return systemExport(request, env, deps);
     if (path === "/api/server/system-import" && request.method === "PUT") return systemImport(request, env, deps);
       return null;
@@ -5114,6 +5115,26 @@ const EXPORT_TABLES = [
   "payroll_periods", "payroll_adjustments", "payroll_snapshots", "system_alerts", "alert_rules", "audit_log", "system_settings",
   "deleted_records"
 ];
+
+// One bounded table page per request: keep the full backup mirror outside
+// the foreground fleet sync and avoid serializing all history/audit in JS.
+async function systemExportPage(request, env, deps) {
+  if (!await deps.serverAuthorized(request, env)) throw new ApiError(401, "Μη έγκυρος Server.");
+  const url = new URL(request.url), table = url.searchParams.get("table");
+  if (!table) return wfJson({ schemaVersion: 5, tables: EXPORT_TABLES });
+  if (!EXPORT_TABLES.includes(table)) throw new ApiError(400, "Μη έγκυρος πίνακας αντιγράφου.");
+  const cursor = Math.max(0, Math.floor(Number(url.searchParams.get("cursor")) || 0));
+  const limit = Math.max(1, Math.min(100, Math.floor(Number(url.searchParams.get("limit")) || 50)));
+  const columns = (await env.DB.prepare(`PRAGMA table_info(${table})`).all()).results || [];
+  const fields = columns.flatMap(c => ["'" + c.name.replace(/'/g,"''") + "'", '"' + c.name.replace(/"/g,'""') + '"']).join(',');
+  const row = await env.DB.prepare(`SELECT COALESCE(json_group_array(json(row_json)),'[]') AS rows_json, COALESCE(MAX(page_cursor),?) AS next_cursor
+    FROM (SELECT rowid AS page_cursor,json_object(${fields}) AS row_json FROM ${table} WHERE rowid>? ORDER BY rowid LIMIT ?)`)
+    .bind(cursor,cursor,limit).first();
+  const nextCursor = Number(row?.next_cursor || cursor);
+  const more = await env.DB.prepare(`SELECT 1 AS present FROM ${table} WHERE rowid>? LIMIT 1`).bind(nextCursor).first();
+  return new Response('{"rows":' + (row?.rows_json || '[]') + ',' + JSON.stringify({table,nextCursor,hasMore:Boolean(more)}).slice(1),
+    { headers: { "Content-Type":"application/json; charset=utf-8", "Cache-Control":"private, no-store" } });
+}
 
 async function systemExport(request, env, deps) {
   if (!await deps.serverAuthorized(request, env)) throw new ApiError(401, "Μη έγκυρος Server.");

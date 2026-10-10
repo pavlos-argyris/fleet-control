@@ -37,6 +37,7 @@ jobs:
       - run: node scripts/test-server-ota-policy.mjs
       - run: node scripts/test-server-http.mjs
       - run: node scripts/test-server-snapshot-sync.mjs
+      - run: node scripts/test-server-system-mirror.mjs
       - name: Compile both APKs with a disposable test signing key
         env:
           FLEET_STORE_PASSWORD: ci-test-only

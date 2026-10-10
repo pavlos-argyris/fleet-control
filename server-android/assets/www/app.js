@@ -6,9 +6,10 @@
   let state = {};
   let toastTimer = null;
   let settingsDirty = false;
+  let otaManualUntil = 0;
 
   const el = {};
-  ["otaStatus", "otaBackup", "automaticOta", "otaCard", "otaVersion", "otaNotes", "otaProgress", "otaProgressBar", "otaProgressLabel", "checkServerUpdate", "installServerUpdate", "liveDot", "heroStatus", "heroDetail", "publicUrl", "metricBikes", "metricUsers", "metricShifts", "metricAlerts", "metricHistory", "metricPending", "systemBadge", "syncStatus", "syncCheck", "webCheck", "backupStatus", "backupCheck", "databaseStatus", "databaseCheck", "storageStatus", "storageCheck", "pwaStatus", "pwaCheck", "watchdogCheck", "invoiceProcessingCard", "invoiceProcessingBadge", "invoiceProcessingTitle", "invoiceProcessingName", "invoiceProcessingPercent", "invoiceProcessingBar", "invoiceProcessingDetail", "invoiceProcessingStage", "invoiceProcessingMessage", "deviceHealthBadge", "deviceHealthWarnings", "deviceBattery", "deviceCharging", "deviceTemperature", "deviceThermal", "deviceStorage", "deviceStorageTotal", "deviceAndroid", "deviceModel", "deviceRestrictions", "devicePowerSave", "deviceNetwork", "deviceUptime", "serverToggle", "statusError", "driveBadge", "backupSchedule", "autoBackupState", "lastBackup", "retentionLabel", "backupMessage", "uploadMessage", "releaseList", "workerUrl", "syncSeconds", "invoiceParallelism", "backupFrequency", "backupHour", "backupRetention", "automaticStart", "automaticBackup", "settingsMessage", "pinDialog", "pinForm", "newPin", "confirmPin", "pinError", "restorePinDialog", "restorePinForm", "restoreAdminPin", "restorePinError", "toast"].forEach(function (id) { el[id] = document.getElementById(id); });
+  ["syncDiagnosticStage","syncDiagnosticEndpoint","syncDiagnosticAdvice","mirrorDiagnosticStage","mirrorDiagnosticError","retrySync","retrySystemMirror","invoiceProcessingAdvice","retryServerInvoice","otaStatus", "otaBackup", "automaticOta", "otaCard", "otaVersion", "otaNotes", "otaProgress", "otaProgressBar", "otaProgressLabel", "checkServerUpdate", "installServerUpdate", "liveDot", "heroStatus", "heroDetail", "publicUrl", "metricBikes", "metricUsers", "metricShifts", "metricAlerts", "metricHistory", "metricPending", "systemBadge", "syncStatus", "syncCheck", "webCheck", "backupStatus", "backupCheck", "databaseStatus", "databaseCheck", "storageStatus", "storageCheck", "pwaStatus", "pwaCheck", "watchdogCheck", "invoiceProcessingCard", "invoiceProcessingBadge", "invoiceProcessingTitle", "invoiceProcessingName", "invoiceProcessingPercent", "invoiceProcessingBar", "invoiceProcessingDetail", "invoiceProcessingStage", "invoiceProcessingMessage", "deviceHealthBadge", "deviceHealthWarnings", "deviceBattery", "deviceCharging", "deviceTemperature", "deviceThermal", "deviceStorage", "deviceStorageTotal", "deviceAndroid", "deviceModel", "deviceRestrictions", "devicePowerSave", "deviceNetwork", "deviceUptime", "serverToggle", "statusError", "driveBadge", "backupSchedule", "autoBackupState", "lastBackup", "retentionLabel", "backupMessage", "uploadMessage", "releaseList", "workerUrl", "syncSeconds", "invoiceParallelism", "backupFrequency", "backupHour", "backupRetention", "automaticStart", "automaticBackup", "settingsMessage", "pinDialog", "pinForm", "newPin", "confirmPin", "pinError", "restorePinDialog", "restorePinForm", "restoreAdminPin", "restorePinError", "toast"].forEach(function (id) { el[id] = document.getElementById(id); });
 
   function parse(value, fallback) {
     try { return JSON.parse(value); } catch (error) { return fallback; }
@@ -52,6 +53,12 @@
   }
 
   function renderInvoiceProcessing(batch) {
+    const job=state.invoiceJob;
+    if (job && (!batch || batch.status !== "processing")) batch={status:job.error ? "error" : Number(job.progress)>=100 ? "completed" : "processing",total:1,completed:Number(job.progress)>=100 ? 1:0,progress:job.progress,currentName:"QR · " + String(job.jobId||"").slice(0,8),serverStage:job.stage,serverError:job.error};
+    el.retryServerInvoice.hidden=(!job || !job.jobId) && !batch && !state.invoiceQueueError;
+    el.retryServerInvoice.textContent=batch && batch.status === "error" ? "Συνέχιση από το σημείο διακοπής" : job && job.jobId ? "Διακοπή & νέα προσπάθεια" : "Έλεγχος ουράς τώρα";
+    el.invoiceProcessingAdvice.textContent=job && job.error ? problemAdvice(job.error) : "Φόρτωση σελίδας QR → PDF → τοπική ανάγνωση → αποστολή → έλεγχος Cloudflare / AI.";
+    if (!batch && state.invoiceQueueError) batch={status:"error",total:0,completed:0,serverError:state.invoiceQueueError,currentName:"Έλεγχος σύνδεσης ουράς"};
     if (!batch || typeof batch !== "object") {
       el.invoiceProcessingCard.classList.add("is-hidden");
       el.invoiceProcessingBadge.textContent = "Αδρανές";
@@ -93,6 +100,15 @@
     el.invoiceProcessingMessage.textContent = notes.join(" • ");
   }
 
+  function problemAdvice(error) {
+    const text=String(error||"");
+    if (/401|403/.test(text)) return "Η πρόσβαση απορρίφθηκε. Έλεγξε ότι το Worker URL και η εγκατάσταση Server ανήκουν στο ίδιο σύστημα. Έπειτα δοκίμασε σύνδεση ξανά.";
+    if (/503|502|504|429/.test(text)) return "Προσωρινό σφάλμα Cloudflare. Η εργασία παραμένει αποθηκευμένη· δοκίμασε ξανά. Αν επιμένει, χρειάζεται το συγκεκριμένο νέο log Worker.";
+    if (/χώρο|storage|space/i.test(text)) return "Ελευθέρωσε χώρο στις ρυθμίσεις Android και πάτησε νέα προσπάθεια.";
+    if (/QR|σελίδα|φόρτωση|PDF|χρονικό όριο/.test(text)) return "Έλεγξε ότι το QR ανοίγει το σωστό τιμολόγιο. Μπορείς να διακόψεις αυτή την προσπάθεια και να ξεκινήσεις νέα.";
+    return "Έλεγξε Wi-Fi/δεδομένα και πάτησε επανάληψη. Τα αποθηκευμένα δεδομένα διατηρούνται.";
+  }
+
   function releaseNoteItems(notes) {
     const text = String(notes || "").trim();
     return text.split(/\r?\n|,\s+/).map(function (line) { return line.replace(/^\s*[•*-]\s*/, "").trim(); }).filter(Boolean);
@@ -104,17 +120,19 @@
   }
 
   function renderOta(ota) {
-    const update = ota || {};
+    const update = Object.assign({},ota || {});
+    if (Date.now()<otaManualUntil && !["downloading","validating","backup","installing"].includes(update.stage)) update.stage="checking";
     const inProgress = ["checking", "downloading", "validating", "backup"].includes(update.stage);
     const nativeStatus = ["installing", "confirmation"].includes(update.installStatus) || (update.installStatus === "failed" && update.ready && !inProgress);
     const stage = nativeStatus ? update.installStatus : update.stage || "idle";
     const active = ["checking", "downloading", "validating", "backup", "installing"].includes(stage);
+    const animated = active || ["confirmation","waiting","permission","backup_folder"].includes(stage);
     el.automaticOta.checked = update.automatic !== false;
     el.otaStatus.textContent = nativeStatus ? update.installMessage : update.message || "Αυτόματος έλεγχος κάθε λεπτό.";
     el.otaBackup.textContent = update.backupName ? "Backup πριν την ενημέρωση: " + update.backupName : "";
     el.otaVersion.textContent = update.ready ? "Νέα έκδοση " + update.ready.version : "Server " + (state.serverVersion || "");
     el.otaNotes.innerHTML = releaseNotesMarkup(update.ready && update.ready.notes);
-    el.otaProgress.hidden = !active;
+    el.otaProgress.hidden = !animated;
     const download = stage === "downloading";
     if (download) {
       const percent = Math.max(0, Math.min(100, Number(update.downloadPercent) || 0));
@@ -128,6 +146,7 @@
     }
     if (!active) el.otaProgressLabel.textContent = "";
     el.otaProgress.classList.toggle("is-indeterminate", !download);
+    el.otaProgress.classList.toggle("is-active",animated);
     const order = { idle: -1, current: -1, checking: 0, downloading: 1, validating: 1, ready: 1, waiting: 1, permission: 1, backup_folder: 1, backup: 2, installing: 3, confirmation: 3, failed: -1 };
     const index = order[stage] === undefined ? -1 : order[stage];
     document.querySelectorAll("[data-ota-step]").forEach(function (step) {
@@ -144,6 +163,12 @@
   function render(next) {
     state = next || dashboard();
     renderOta(state.ota || {});
+    const sync=state.syncDiagnostics || {};
+    el.syncDiagnosticStage.textContent=sync.stage || "Αναμονή";
+    el.syncDiagnosticEndpoint.textContent=(sync.endpoint||"") + (sync.durationMs ? " · τελευταίος κύκλος " + (Number(sync.durationMs)/1000).toFixed(1) + " δευτ." : "");
+    el.syncDiagnosticAdvice.textContent=state.lastError ? problemAdvice(state.lastError) : "Ο στόλος συγχρονίζεται ανεξάρτητα από τα PDF και το αντίγραφο προσωπικού.";
+    el.mirrorDiagnosticStage.textContent=sync.mirrorStage || "";
+    el.mirrorDiagnosticError.textContent=sync.mirrorError ? sync.mirrorError + " · " + problemAdvice(sync.mirrorError) : "";
     const running = Boolean(state.serviceRunning);
     const online = running && Boolean(state.serverOnline);
     el.liveDot.className = "live-dot " + (online ? "online" : running ? "warning" : "");
@@ -313,7 +338,15 @@
   document.getElementById("uploadClient").addEventListener("click", function () { busy("Περιμένω να επιλέξεις το νέο APK…"); if (bridge) bridge.chooseClientApk(); });
   document.getElementById("uploadWeb").addEventListener("click", function () { busy("Περιμένω να επιλέξεις το ZIP της web έκδοσης…"); if (bridge) bridge.chooseWebPackage(); });
   document.getElementById("refreshReleases").addEventListener("click", function () { if (bridge) bridge.loadReleases(); });
-  document.getElementById("checkServerUpdate").addEventListener("click", function () { if (bridge) bridge.checkServerUpdate(); el.otaStatus.textContent = "Γίνεται έλεγχος…"; });
+  el.retrySync.addEventListener("click",function(){if(bridge) bridge.retrySync();toast("Ζητήθηκε νέος συγχρονισμός.");});
+  el.retrySystemMirror.addEventListener("click",function(){if(bridge) bridge.retrySystemMirror();toast("Ζητήθηκε ενημέρωση αντιγράφου.");});
+  el.retryServerInvoice.addEventListener("click",function(){
+    if(state.invoiceReprocess?.status === "error"){if(bridge) bridge.resumeInvoiceBatch();toast("Ζητήθηκε συνέχιση της ουράς.");return;}
+    const job=state.invoiceJob;
+    if(!job || !job.jobId){if(bridge)bridge.retryInvoice("");return;}
+    if(window.confirm("Διακοπή της παλιάς προσπάθειας και έναρξη νέας;")){if(bridge) bridge.retryInvoice(job.jobId);toast("Ζητήθηκε νέα προσπάθεια.");}
+  });
+  document.getElementById("checkServerUpdate").addEventListener("click", function () { otaManualUntil=Date.now()+1200; renderOta({stage:"checking",message:"Γίνεται έλεγχος…"}); if (bridge) bridge.checkServerUpdate(); });
   document.getElementById("installServerUpdate").addEventListener("click", function () { if (bridge) bridge.installServerUpdate(); });
   el.automaticOta.addEventListener("change", function () { if (bridge) bridge.setAutomaticOta(el.automaticOta.checked); });
   el.releaseList.addEventListener("click", function (event) { const button = event.target.closest("[data-activate]"); if (button && bridge) bridge.activateRelease(button.dataset.activate); });

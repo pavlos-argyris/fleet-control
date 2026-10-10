@@ -44,6 +44,10 @@ public final class ServiceDocumentRenderer {
     }
 
     public static RenderedDocument renderToPdfWithText(final Context context, final String pageUrl, final String documentName) throws Exception {
+        return renderToPdfWithText(context,pageUrl,documentName,null);
+    }
+
+    public static RenderedDocument renderToPdfWithText(final Context context, final String pageUrl, final String documentName, final AtomicBoolean cancelled) throws Exception {
         validateUrl(pageUrl);
         final CountDownLatch finished = new CountDownLatch(1);
         final RenderState state = new RenderState(context, pageUrl, documentName, finished);
@@ -55,7 +59,14 @@ public final class ServiceDocumentRenderer {
                 startOnMain(state);
             }
         });
-        if (!finished.await(RENDER_TIMEOUT_MS + 5000L, TimeUnit.MILLISECONDS)) {
+        long deadline=System.currentTimeMillis()+RENDER_TIMEOUT_MS+5000L;
+        while (!finished.await(250L,TimeUnit.MILLISECONDS) && System.currentTimeMillis()<deadline) {
+            if (cancelled!=null && cancelled.get()) {
+                handler.post(new Runnable(){public void run(){finishFailure(state,new IOException("Η προσπάθεια διακόπηκε από τον χρήστη."));}});
+                throw new java.util.concurrent.CancellationException("Η προσπάθεια διακόπηκε.");
+            }
+        }
+        if (finished.getCount()!=0) {
             handler.post(new Runnable() {
                 @Override
                 public void run() {

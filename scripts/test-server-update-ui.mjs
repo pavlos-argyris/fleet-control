@@ -37,7 +37,7 @@ data.ota = { stage: 'downloading', installStatus: 'failed', ready: { version: '2
 tick(); assert.equal(element('otaProgress').attrs['aria-valuenow'], '40'); assert.equal(element('installServerUpdate').disabled, true);
 assert.match(element('otaNotes').innerHTML, /<li>Πρώτο<\/li>/); assert.match(element('otaNotes').innerHTML, /&lt;script&gt;/);
 data.ota = { stage: 'waiting', ready: { version: '2.1.5' }, message: 'Ready' };
-tick(); assert.equal(element('installServerUpdate').disabled, false); assert.equal(element('otaProgress').hidden, true); assert.equal(element('otaProgressLabel').textContent, '');
+tick(); assert.equal(element('installServerUpdate').disabled, false); assert.equal(element('otaProgress').hidden, false); assert.equal(element('otaProgressLabel').textContent, '');
 data.ota = { stage: 'backup', ready: { version: '2.1.5' } };
 tick(); assert.equal(element('otaProgress').attrs['aria-valuenow'], undefined, 'No invented backup percentage');
 data.ota = { stage: 'installing', installStatus: 'confirmation', installMessage: 'Android confirmation', ready: { version: '2.1.5' } };

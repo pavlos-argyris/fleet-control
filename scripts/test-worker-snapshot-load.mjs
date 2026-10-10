@@ -94,6 +94,44 @@ const afterRetry=await readServiceEntry(env,'bike-2','entry-0');assert.equal(aft
 const listResponse=await call('/api/admin/service-documents',undefined,token);assert.equal(listResponse.status,200);const list=await listResponse.json();assert.equal(list.documents.filter(d=>d.key).length,200);
 assert.ok(list.documents.every(d=>d.transferOptions.length===0 && d.transferOptionsLazy===true));
 const options=await call('/api/admin/service-documents/transfer-options?bikeId=bike-2&entryId=entry-0&key='+encodeURIComponent(afterRetry.entry.attachments[0].key),undefined,token);assert.equal(options.status,200);assert.ok((await options.json()).options.length<=200);
+// Restart cancels the old identity; late callbacks/uploads and ACK cannot
+// resurrect it. A stored PDF is reused, never deleted by restart.
+const restartJob=jobs[0];
+const originalEntry=await readServiceEntry(env,'bike-0','entry-4');
+const attachmentCount=originalEntry.entry.attachments.length;
+const restart=await call('/api/admin/service-documents/restart',{jobId:restartJob.id},token);
+assert.equal(restart.status,200);const restarted=await restart.json();assert.equal(restarted.restarted,true);assert.notEqual(restarted.jobId,restartJob.id);
+assert.equal(sqlite.prepare('SELECT status FROM fleet_operations WHERE id=?').get(restartJob.id).status,'cancelled');
+assert.equal((await (await call('/api/server/operation-progress',{jobId:restartJob.id,progress:95})).json()).status,'cancelled');
+assert.equal((await (await call('/api/server/operation-error',{jobId:restartJob.id,error:'old failure'})).json()).status,'cancelled');
+assert.equal((await (await call('/api/service-documents/jobs/'+restartJob.id,undefined,token)).json()).status,'cancelled');
+assert.equal((await (await call('/api/server/service-documents/job-active?jobId='+restartJob.id)).json()).cancelled,true);
+await call('/api/server/ack',{ids:[restartJob.id]});assert.equal(sqlite.prepare('SELECT status FROM fleet_operations WHERE id=?').get(restartJob.id).status,'cancelled');
+const afterRestart=await readServiceEntry(env,'bike-0','entry-4');assert.equal(afterRestart.entry.attachments.length,attachmentCount);assert.equal(afterRestart.entry.invoiceData.qrJobId,restarted.jobId);
+const cancelledWrite=await writeServiceEntry(env,afterRestart,{...afterRestart.entry,notes:'stale cancelled result'},'fixture-stale',stamp,restartJob.id);assert.equal(cancelledWrite,0);
+const oldUpload=await worker.fetch(new Request(base+'/api/server/service-documents/rendered?jobId='+restartJob.id+'&bikeId=bike-0&entryId=entry-4&qrUrl='+encodeURIComponent(restartJob.payload.qrUrl)+'&qrValue='+encodeURIComponent(restartJob.payload.qrUrl),{method:'PUT',headers:{'X-Fleet-Server-Key':env.SERVER_KEY},body:bytes}),env);assert.equal(oldUpload.status,410);
+assert.equal((await call('/api/admin/service-documents/restart',{jobId:restartJob.id},token)).status,409);
+const unauthorizedRestart=await worker.fetch(new Request(base+'/api/admin/service-documents/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId:restarted.jobId})}),env);assert.equal(unauthorizedRestart.status,401);
+const syncQueue=await (await call('/api/server/pending?queue=sync')).json();assert.ok(syncQueue.operations.every(x=>!['service_document_render','service_document_reprocess_batch'].includes(x.type)));
+const invoiceQueue=await (await call('/api/server/pending?queue=invoices')).json();assert.ok(invoiceQueue.operations.every(x=>['service_document_render','service_document_reprocess_batch'].includes(x.type)));
+const summary=await snapshotSummaryForTest();
+async function snapshotSummaryForTest(){return sqlite.prepare('SELECT version FROM fleet_snapshot WHERE id=1').get();}
+const unchanged=await (await call('/api/snapshot?sinceVersion='+summary.version)).json();assert.equal(unchanged.unchanged,true);assert.equal(unchanged.bikes,undefined);
+assert.equal((await (await call('/api/sync?sinceVersion='+summary.version,undefined,token)).json()).unchanged,true);
+assert.equal((await worker.fetch(new Request(base+'/api/snapshot?sinceVersion='+summary.version),env)).status,401);
+// Complete bounded table pages include all records; names are allowlisted.
+const tables=await (await call('/api/server/system-export/page')).json();assert.equal(tables.tables.length,27);
+assert.equal((await call('/api/server/system-export/page?table=fleet_snapshot')).status,400);
+const pages=[];let cursor=0;for(let page=0;page<20;page++){
+ const result=await (await call('/api/server/system-export/page?table=app_users&limit=1&cursor='+cursor)).json();pages.push(...result.rows);assert.ok(result.rows.length<=1);
+ if(!result.hasMore)break;assert.ok(result.nextCursor>cursor);cursor=result.nextCursor;
+}
+assert.equal(pages.length,Number(sqlite.prepare('SELECT COUNT(*) AS count FROM app_users').get().count));
+assert.equal((await worker.fetch(new Request(base+'/api/server/system-export/page?table=app_users'),env)).status,401);
+const paused={id:'partial-fixture',status:'error',total:3,completed:1,currentIndex:1,items:[{key:'first'},{key:'second'},{key:'third'}],failed:0,error:'server disconnected'};
+sqlite.prepare("INSERT OR REPLACE INTO fleet_settings(key,value,updated_at) VALUES ('service_invoice_reprocess_batch',?,?)").run(JSON.stringify(paused),stamp);
+const resume=await (await call('/api/server/service-documents/reprocess-batch',{action:'resume'})).json();assert.equal(resume.resumed,true);assert.equal(resume.batch.currentIndex,1);assert.equal(resume.batch.completed,1);assert.equal(resume.batch.status,'processing');
+console.log('OK restart identity, cancellation fences, original PDFs, queue isolation, unchanged responses and paged mirror auth/completeness.');
 const sqlArchive=sqlite.prepare("INSERT INTO vehicle_archives(bike_id,name,active,archived_at,archived_by,reason) VALUES ('bike-39','BTO-139',1,?,'fixture','test')");
 sqlArchive.run(stamp);
 assert.equal((await (await call('/api/snapshot')).json()).bikes.length,39);

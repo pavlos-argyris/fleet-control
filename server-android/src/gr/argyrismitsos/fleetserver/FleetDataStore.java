@@ -107,6 +107,16 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         return count;
     }
 
+    public synchronized JSONObject getCanonicalSnapshot() {
+        Cursor cursor=getReadableDatabase().rawQuery("SELECT value FROM system_state WHERE key='canonical_snapshot'",null);
+        try { return cursor.moveToFirst() ? new JSONObject(cursor.getString(0)) : new JSONObject(); }
+        catch (Exception error) { return new JSONObject(); } finally { cursor.close(); }
+    }
+    public synchronized void setCanonicalSnapshot(JSONObject value) {
+        ContentValues data=new ContentValues();data.put("key","canonical_snapshot");data.put("value",value.toString());data.put("updated_at",isoNow());
+        getWritableDatabase().insertWithOnConflict("system_state",null,data,SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
     public synchronized void setSystemExport(JSONObject value) {
         if (value == null) return;
         ContentValues values = new ContentValues();

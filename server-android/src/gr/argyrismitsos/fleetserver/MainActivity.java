@@ -146,6 +146,16 @@ public final class MainActivity extends Activity {
         result.put("lastSyncTime", preferences.getString("last_sync_time", ""));
         result.put("lastError", preferences.getString("last_error", ""));
         result.put("connectionError", preferences.getString("last_connection_error", ""));
+        JSONObject sync = new JSONObject().put("stage",preferences.getString("sync_stage","Αναμονή"))
+            .put("endpoint",preferences.getString("sync_endpoint",""))
+            .put("durationMs",preferences.getLong("sync_duration_ms",0))
+            .put("errorAt",preferences.getLong("sync_error_at",0))
+            .put("mirrorStage",preferences.getString("mirror_stage","Αναμονή αντιγράφου"))
+            .put("mirrorError",preferences.getString("mirror_error",""));
+        result.put("syncDiagnostics",sync);
+        String jobState=preferences.getString("invoice_job_state","");
+        if (jobState.length()>0) result.put("invoiceJob",new JSONObject(jobState));
+        result.put("invoiceQueueError",preferences.getString("invoice_queue_error",""));
         result.put("lastAppliedCount", preferences.getInt("last_applied_count", 0));
         result.put("syncSeconds", preferences.getInt("sync_seconds", 30));
         result.put("invoiceParallelism", Math.max(1, Math.min(10, preferences.getInt("invoice_parallelism", 4))));
@@ -316,6 +326,22 @@ public final class MainActivity extends Activity {
             pickFile("*/*", PICK_BACKUP_FILE);
         }
 
+        @JavascriptInterface public void resumeInvoiceBatch() {
+            runTask("invoiceResume",new Task(){public JSONObject run() throws Exception {
+                String base=preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
+                JSONObject result=FleetHttp.sendJson(base+"/api/server/service-documents/reprocess-batch","POST",new JSONObject().put("action","resume"),SyncService.serverHeaders());
+                startAction(SyncService.RETRY_INVOICE,"");return result;
+            }});
+        }
+        @JavascriptInterface public void retrySync() { startAction(SyncService.SYNC_NOW,null); }
+        @JavascriptInterface public void retrySystemMirror() { startAction(SyncService.MIRROR_NOW,null); }
+        @JavascriptInterface public void retryInvoice(String jobId) { startAction(SyncService.RETRY_INVOICE,jobId); }
+        private void startAction(String action,String jobId) {
+            Intent intent=new Intent(MainActivity.this,SyncService.class).setAction(action);
+            if (jobId!=null) intent.putExtra("jobId",jobId);
+            try { if (Build.VERSION.SDK_INT>=26) Context.class.getMethod("startForegroundService",Intent.class).invoke(MainActivity.this,intent); else startService(intent); }
+            catch (Exception error) {emitError("server",error.getMessage());}
+        }
         @JavascriptInterface public void checkServerUpdate() { OtaManager.check(getApplicationContext(), true); }
         @JavascriptInterface public void setAutomaticOta(boolean enabled) { preferences.edit().putBoolean("automatic_ota", enabled).apply(); }
         @JavascriptInterface public void installServerUpdate() {

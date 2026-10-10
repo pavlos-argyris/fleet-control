@@ -39,6 +39,7 @@
   let toastTimer = null;
   let syncTimer = null;
   let syncRunning = false;
+  let cloudSnapshotVersion = null;
   let syncQueued = false;
   let pendingEditAction = null;
   let webToken = "";
@@ -1171,7 +1172,7 @@
           persistDirtyBikes();
         }
       }
-      const response = await fetchReadWithRetry(apiBase + "/api/sync", {
+      const response = await fetchReadWithRetry(apiBase + "/api/sync" + (cloudSnapshotVersion === null ? "" : "?sinceVersion=" + encodeURIComponent(cloudSnapshotVersion)), {
         method: "GET", headers: { Authorization: "Bearer " + webToken }, cache: "no-store"
       });
       let payload;
@@ -1180,6 +1181,7 @@
       if (!response.ok) {
         if (response.status === 401) {
           webToken = "";
+          cloudSnapshotVersion = null;
           currentUser = null;
           bikes = [];
           try {
@@ -1200,7 +1202,11 @@
         }
         throw new Error(payload.error || "Αποτυχία συγχρονισμού");
       }
+      if (payload.unchanged === true && cloudSnapshotVersion !== null && String(payload.version) === String(cloudSnapshotVersion)) {
+        setSyncState(pendingFleetChange ? "syncing" : "synced",pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");return;
+      }
       if (!Array.isArray(payload.bikes)) throw new Error("Δεν επιστράφηκε έγκυρος στόλος. Τα δεδομένα διατηρούνται.");
+      cloudSnapshotVersion = payload.version === undefined ? null : payload.version;
       const remote = payload.bikes;
       bikes = mergeFleets(bikes, remote);
       const archivedIds = new Set(Array.isArray(payload.archivedBikeIds) ? payload.archivedBikeIds.map(function (id) { return String(id); }) : []);

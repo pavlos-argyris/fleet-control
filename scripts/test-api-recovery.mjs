@@ -36,7 +36,7 @@ const values=new Map();
 const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
 const bike1={id:'one',currentKm:10,history:[]},bike2={id:'two',currentKm:20,history:[]};
 let seen=[];let editDuringUpload=false;let failPost=false;
-const syncContext={bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,
+const syncContext={bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,
  webToken:'fixture-token',apiBase:'https://fixture.invalid',navigator:{onLine:true},activeBikeId:null,localStorage:storage,
  STORAGE_KEY:'bikes',DIRTY_KEY:'dirty',DIRTY_BIKE_KEY:'dirty-ids',setSyncState(){},scheduleSync(){},renderHome(){},renderDetail(){},
  requestHeaders(){return {'Authorization':'Bearer fixture-token','Content-Type':'application/json'};},
@@ -63,3 +63,10 @@ seen=[];await vm.runInContext('syncNow()',syncContext);assert.equal(syncContext.
 syncContext.bikes[1].currentKm=21;vm.runInContext('saveBikes();',syncContext);seen=[];failPost=true;
 await vm.runInContext('syncNow()',syncContext);assert.equal(seen.length,1);assert.equal(syncContext.dirtyBikeIds.has('two'),true);assert.ok(values.get('dirty-ids').includes('two'));
 console.log('OK actual Client sync: only changed bikes uploaded, edits during a request remain pending, 503 retains durable dirty IDs.');
+
+// Unchanged replies preserve both loaded rows and pending edits.
+failPost=false;syncContext.dirtyBikeIds.clear();syncContext.pendingFleetChange=false;
+syncContext.cloudSnapshotVersion=42;const existingRows=syncContext.bikes;
+syncContext.fetch=async(url,opts)=>{assert.match(url,/sinceVersion=42/);return response(200,{unchanged:true,version:42});};
+await vm.runInContext('syncNow()',syncContext);assert.equal(syncContext.bikes,existingRows);
+console.log('OK actual Client conditional read preserves loaded fleet.');

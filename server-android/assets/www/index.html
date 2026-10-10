@@ -89,6 +89,7 @@
           </div>
         </div>
 
+        <article class="sync-diagnostics" aria-live="polite"><strong>Διαδρομή συγχρονισμού</strong><p id="syncDiagnosticStage">Αναμονή</p><small id="syncDiagnosticEndpoint"></small><p id="syncDiagnosticAdvice"></p><button id="retrySync" class="secondary-action" type="button">Συγχρονισμός τώρα</button><hr><small id="mirrorDiagnosticStage"></small><p id="mirrorDiagnosticError"></p><button id="retrySystemMirror" class="secondary-action" type="button">Επανάληψη αντιγράφου προσωπικού</button></article>
         <div class="section-heading invoice-processing-heading">
           <div><span class="overline dark">ΚΟΙΝΗ ΟΥΡΑ SERVER</span><h2>Επεξεργασία τιμολογίων</h2></div>
           <span id="invoiceProcessingBadge" class="state-badge">Αδρανές</span>
@@ -104,7 +105,7 @@
           </div>
           <div class="invoice-processing-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="invoiceProcessingBar"></span></div>
           <div class="invoice-processing-meta"><span id="invoiceProcessingDetail">0/0</span><span id="invoiceProcessingStage">Αναμονή Server…</span></div>
-          <p id="invoiceProcessingMessage"></p>
+          <p id="invoiceProcessingMessage"></p><p id="invoiceProcessingAdvice"></p><button id="retryServerInvoice" class="secondary-action" type="button" hidden>Διακοπή &amp; νέα προσπάθεια</button>
         </article>
 
         <div class="section-heading device-health-heading">
