@@ -1,6 +1,6 @@
 # Fleet Control 5.42.1 — εγκατάσταση και παράδοση
 
-Client/Web 5.42.1 (55), Server 2.1.9 (24), Worker 5.5.1, runtime schema 5.2.0.
+Client/Web 5.42.1 (56), Server 2.1.9 (25), Worker 5.5.1, runtime schema 5.2.0.
 
 ## Εγκατάσταση
 
