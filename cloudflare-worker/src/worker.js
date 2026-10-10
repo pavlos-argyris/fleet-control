@@ -6,6 +6,7 @@ import {
   authorizedFor,
   createExternalAlert,
   ensureWorkforceSchema,
+  d1ExecScript,
   maintainWorkforce,
   recordExternalAudit,
   routeWorkforce
@@ -93,7 +94,7 @@ async function ensureSchema(env) {
     try {
       if (await getSetting(env, "runtime_schema_version") === RUNTIME_SCHEMA_VERSION) return;
     } catch {}
-    await env.DB.exec(SCHEMA);
+    await env.DB.exec(d1ExecScript(SCHEMA));
     await ensureReleaseChecksumColumn(env);
     await ensureWorkforceSchema(env);
     await setSetting(env, "runtime_schema_version", RUNTIME_SCHEMA_VERSION);

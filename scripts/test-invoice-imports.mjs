@@ -34,7 +34,9 @@ class Statement {
 }
 const sqlite = new DatabaseSync(":memory:");
 const db = {
-  exec: async (sql) => sqlite.exec(sql),
+  // D1 executes each non-empty line independently, unlike sqlite.exec.
+  // Match production so a multi-line CREATE TABLE fails this startup test.
+  exec: async (sql) => { for (const line of sql.split(/\r?\n/).filter(line => line.trim())) sqlite.exec(line); },
   prepare: (sql) => new Statement(sqlite, sql),
   batch: async (stmts) => {
     sqlite.exec("BEGIN");

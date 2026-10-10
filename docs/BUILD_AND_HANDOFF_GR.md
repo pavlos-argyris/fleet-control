@@ -27,4 +27,4 @@ node scripts/publish-release.mjs --dry-run
 
 Η παράδοση περιλαμβάνει αποτελέσματα πραγματικών τοπικών ελέγχων. Δεν περιλαμβάνει παραγωγικό backup ή επιβεβαίωση εγκατάστασης σε πραγματικό κινητό. Για κάθε μεταγενέστερη έκδοση κράτησε το commit, το πλήρες source ZIP, APK/Web/Worker, τα checksums και το ιδιωτικό αντίγραφο.
 
-Από την 5.42.0 ο Server περιλαμβάνει PDFBox και Tesseract. Το `android-build-support/invoice-dependencies.lock.json` κλειδώνει URLs/SHA-256. Το build χρησιμοποιεί το `.build/invoice-deps` ή κάνει επαληθευμένες λήψεις. Για offline build βάλε τα αρχεία του ξεχωριστού ZIP εξαρτήσεων σε αυτόν τον φάκελο. Notices: `third-party/invoice-reader/`. Νέες οδηγίες: `INVOICE_LOCAL_UPDATE_5.42.0_GR.md`.
+Από την 5.42.1 ο Server περιλαμβάνει PDFBox και Tesseract. Το `android-build-support/invoice-dependencies.lock.json` κλειδώνει URLs/SHA-256. Το build χρησιμοποιεί το `.build/invoice-deps` ή κάνει επαληθευμένες λήψεις. Για offline build βάλε τα αρχεία του ξεχωριστού ZIP εξαρτήσεων σε αυτόν τον φάκελο. Notices: `third-party/invoice-reader/`. Νέες οδηγίες: `INVOICE_LOCAL_UPDATE_5.42.1_GR.md`.
