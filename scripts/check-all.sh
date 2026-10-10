@@ -8,6 +8,8 @@ node scripts/test-server-update-ui.mjs
 node scripts/test-ota-setup.mjs
 node --test scripts/test-publish-request.mjs
 node scripts/test-ota-releases.mjs
+node scripts/test-api-recovery.mjs
+node scripts/test-worker-snapshot-load.mjs
 node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
 node scripts/test-invoice-improvements.mjs

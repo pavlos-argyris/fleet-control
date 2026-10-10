@@ -194,7 +194,7 @@ public final class SyncService extends Service {
                         String message = error.getMessage() == null ? "Αποτυχία δημιουργίας PDF τιμολογίου" : error.getMessage();
                         preferences.edit().putString("last_service_document_error", message).apply();
                         try {
-                            JSONObject failure = reportOperationError(base, id, message, headers);
+                            JSONObject failure = reportOperationError(base, id, message, error, headers);
                             serviceDocumentNotice = "error".equals(failure.optString("status", ""))
                                     ? "Σφάλμα PDF τιμολογίου • πάτησε Επανάληψη"
                                     : "Προσωρινό σφάλμα PDF • θα ξαναδοκιμάσει";
@@ -281,9 +281,11 @@ public final class SyncService extends Service {
             FleetHttp.sendJson(base + "/api/server/ack", "POST", acknowledgement, headers);
         }
 
-        JSONObject snapshot = store.getFleet();
-        snapshot.put("version", System.currentTimeMillis());
-        FleetHttp.sendJson(base + "/api/server/snapshot", "PUT", snapshot, headers);
+        JSONArray changedBikes = FleetSnapshotSync.bikesToPublish(store.getFleet(), remoteSnapshot);
+        for (int bikeIndex=0; bikeIndex<changedBikes.length(); bikeIndex++) {
+            JSONObject body = new JSONObject().put("bike", changedBikes.optJSONObject(bikeIndex));
+            FleetHttp.sendJson(base + "/api/server/snapshot/bike", "PUT", body, headers);
+        }
         JSONObject heartbeat = new JSONObject();
         heartbeat.put("serverVersion", ServerConfig.SERVER_VERSION);
         heartbeat.put("lastBackup", preferences.getString(BackupManager.KEY_LAST_TIME, ""));
@@ -418,7 +420,6 @@ public final class SyncService extends Service {
             if (result.optBoolean("fallbackUsed", false)) {
                 updateNotification("Τοπική ανάγνωση αμφίβολη • χρησιμοποιήθηκε Workers AI");
             }
-            reportOperationProgress(base, jobId, 95, "Το PDF αποθηκεύτηκε · ολοκληρώνεται η καταχώρηση", headers);
             JSONObject attachment = result.optJSONObject("attachment");
             if (attachment != null) {
                 ServiceDocumentStore.cacheLocalCopy(this, attachment.optString("key", ""), rendered, attachment.optString("name", "invoice.pdf"));
@@ -577,10 +578,13 @@ public final class SyncService extends Service {
         }
     }
 
-    private JSONObject reportOperationError(String base, String jobId, String message, Map<String, String> headers) throws Exception {
+    private JSONObject reportOperationError(String base, String jobId, String message, Exception error, Map<String, String> headers) throws Exception {
         JSONObject body = new JSONObject();
         body.put("jobId", jobId);
         body.put("error", message);
+        body.put("retryable", error instanceof FleetHttp.HttpStatusException
+                ? ((FleetHttp.HttpStatusException) error).transientFailure()
+                : error instanceof java.io.IOException);
         return FleetHttp.sendJson(base + "/api/server/operation-error", "POST", body, headers);
     }
 

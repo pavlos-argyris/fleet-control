@@ -1419,12 +1419,14 @@ async function resetEmployeePassword(request, env, deps, id) {
 }
 
 async function syncVehicleRegistry(env, deps) {
-  const snapshot = await deps.readSnapshot(env);
+  const snapshot = await (deps.readFleetRegistry || deps.readSnapshot)(env);
   const bikes = snapshot?.data?.bikes || [];
   if (!bikes.length) return;
   // Include the alert-rule revision so an already synchronized snapshot is
   // re-evaluated once after a Worker upgrade that adds new fleet alerts.
-  const snapshotVersion = `${String(snapshot.version || 0)}:alerts-v4`;
+  const snapshotVersion = deps.readFleetRegistry
+    ? `${await sha256(JSON.stringify(bikes))}:${nowIso().slice(0,10)}:alerts-v5`
+    : `${String(snapshot.version || 0)}:alerts-v4`;
   const synchronized = await env.DB.prepare("SELECT value FROM fleet_settings WHERE key='vehicle_registry_snapshot_version'").first();
   if (snapshotVersion !== "0" && String(synchronized?.value || "") === snapshotVersion) return;
   const now = nowIso();

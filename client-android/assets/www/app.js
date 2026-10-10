@@ -43,6 +43,13 @@
   let pendingEditAction = null;
   let webToken = "";
   let pendingFleetChange = loadSetting(DIRTY_KEY) === "1";
+  const DIRTY_BIKE_KEY = DIRTY_KEY + "-bikes";
+  let dirtyBikeIds;
+  try { dirtyBikeIds = new Set(JSON.parse(loadSetting(DIRTY_BIKE_KEY) || "[]").map(String)); }
+  catch (error) { dirtyBikeIds = new Set(); }
+  if (!pendingFleetChange) dirtyBikeIds.clear();
+  if (pendingFleetChange && !dirtyBikeIds.size) bikes.forEach(bike => dirtyBikeIds.add(String(bike.id)));
+
   let currentUser = loadCachedUser();
   let archivedBikes = [];
   let qrScannerStream = null;
@@ -473,13 +480,23 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(bikes));
   }
 
+  function persistDirtyBikes() {
+    pendingFleetChange = dirtyBikeIds.size > 0;
+    try {
+      if (pendingFleetChange) { localStorage.setItem(DIRTY_KEY, "1"); localStorage.setItem(DIRTY_BIKE_KEY, JSON.stringify(Array.from(dirtyBikeIds))); }
+      else { localStorage.removeItem(DIRTY_KEY); localStorage.removeItem(DIRTY_BIKE_KEY); }
+    } catch (error) {}
+  }
+
   function saveBikes(shouldSync) {
-    persistBikes();
     if (shouldSync !== false) {
-      pendingFleetChange = true;
-      try { localStorage.setItem(DIRTY_KEY, "1"); } catch (error) {}
-      scheduleSync();
+      let previous = new Map();
+      try { previous = new Map(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(bike => [String(bike.id), JSON.stringify(bike)])); } catch (error) {}
+      bikes.forEach(bike => { if (previous.get(String(bike.id)) !== JSON.stringify(bike)) dirtyBikeIds.add(String(bike.id)); });
+      persistDirtyBikes();
     }
+    persistBikes();
+    if (shouldSync !== false) scheduleSync();
   }
 
   function mergeBikeRecords(first, second) {
@@ -1110,6 +1127,22 @@
     } catch (error) {}
   }
 
+  async function fetchReadWithRetry(url, options) {
+    const attempts = (options.method || "GET") === "GET" ? 3 : 1;
+    for (let attempt=0; attempt<attempts; attempt++) {
+      let response;
+      try { response = await fetch(url, options); }
+      catch (error) {
+        if (attempt+1 === attempts) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500*(attempt+1)));
+        continue;
+      }
+      if (![429,502,503,504].includes(response.status) || attempt+1 === attempts) return response;
+      if (response.body && response.body.cancel) await response.body.cancel().catch(function () {});
+      await new Promise(resolve => setTimeout(resolve, 500*(attempt+1)));
+    }
+  }
+
   async function syncNow() {
     if (syncRunning) {
       syncQueued = true;
@@ -1124,13 +1157,26 @@
     const wantsUpload = Boolean(webToken && pendingFleetChange);
     const canUpload = wantsUpload;
     try {
-      const response = await fetch(apiBase + "/api/sync", {
-        method: canUpload ? "POST" : "GET",
-        headers: canUpload ? requestHeaders(true) : { Authorization: "Bearer " + webToken },
-        body: canUpload ? JSON.stringify({ bikes: bikes }) : undefined,
-        cache: "no-store"
+      if (canUpload) {
+        const uploads = bikes.filter(bike => dirtyBikeIds.has(String(bike.id))).map(bike => ({ id: String(bike.id), json: JSON.stringify(bike) }));
+        for (const upload of uploads) {
+          const reply = await fetch(apiBase + "/api/sync/bike", { method: "POST", headers: requestHeaders(true),
+            body: '{"bike":' + upload.json + '}', cache: "no-store" });
+          const result = await reply.json().catch(function () { return {}; });
+          if (reply.status === 401) break;
+          if (reply.ok && (result.saved !== true || !result.bike)) throw new Error("Ο Server δεν επιβεβαίωσε την αποθήκευση. Η αλλαγή παραμένει σε αναμονή.");
+          if (!reply.ok && result.code !== "bike_archived") throw new Error(result.error || "Αποτυχία αποθήκευσης μηχανής (HTTP " + reply.status + ").");
+          const live = bikes.find(bike => String(bike.id) === upload.id);
+          if (result.code === "bike_archived" || (live && JSON.stringify(live) === upload.json)) dirtyBikeIds.delete(upload.id);
+          persistDirtyBikes();
+        }
+      }
+      const response = await fetchReadWithRetry(apiBase + "/api/sync", {
+        method: "GET", headers: { Authorization: "Bearer " + webToken }, cache: "no-store"
       });
-      const payload = await response.json().catch(function () { return {}; });
+      let payload;
+      try { payload = await response.json(); }
+      catch (error) { throw new Error("Ο Server δεν επέστρεψε έγκυρα δεδομένα συγχρονισμού."); }
       if (!response.ok) {
         if (response.status === 401) {
           webToken = "";
@@ -1141,6 +1187,8 @@
             sessionStorage.removeItem(AUTH_TOKEN_SESSION);
             localStorage.removeItem(STORAGE_KEY);
             localStorage.removeItem(DIRTY_KEY);
+            localStorage.removeItem(DIRTY_BIKE_KEY);
+            dirtyBikeIds.clear();
             localStorage.removeItem(USER_CACHE);
             sessionStorage.setItem("fleet-control-return-to-fleet", "1");
           } catch (error) {}
@@ -1152,18 +1200,16 @@
         }
         throw new Error(payload.error || "Αποτυχία συγχρονισμού");
       }
-      const remote = Array.isArray(payload.bikes) ? payload.bikes : [];
+      if (!Array.isArray(payload.bikes)) throw new Error("Δεν επιστράφηκε έγκυρος στόλος. Τα δεδομένα διατηρούνται.");
+      const remote = payload.bikes;
       bikes = mergeFleets(bikes, remote);
       const archivedIds = new Set(Array.isArray(payload.archivedBikeIds) ? payload.archivedBikeIds.map(function (id) { return String(id); }) : []);
       if (archivedIds.size) bikes = bikes.filter(function (bike) { return !archivedIds.has(String(bike.id)); });
       persistBikes();
-      if (canUpload) {
-        pendingFleetChange = false;
-        try { localStorage.removeItem(DIRTY_KEY); } catch (error) {}
-      }
+      persistDirtyBikes();
       renderHome();
       if (activeBikeId) renderDetail();
-      setSyncState("synced", "Συγχρονίστηκε");
+      setSyncState(pendingFleetChange ? "syncing" : "synced", pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");
     } catch (error) {
       setSyncState(navigator.onLine === false ? "offline" : "error", navigator.onLine === false ? "Χωρίς σύνδεση" : "Εκκρεμεί");
     } finally {

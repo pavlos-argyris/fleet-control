@@ -1,3 +1,4 @@
+import { visibleSnapshotRow, snapshotSummary, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike } from "./snapshot-store.js";
 import { routeReleases } from "./releases.js";
 import {
   authenticateExternal,
@@ -63,7 +64,7 @@ export default {
       await maintainWorkforce(env, {
         serverLastSeen: await getSetting(env, "server_last_seen"),
         backupResult: await getSetting(env, "server_backup_result")
-      }, { readSnapshot });
+      }, { readSnapshot, readFleetRegistry: fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike });
     })());
   }
 };
@@ -120,6 +121,8 @@ async function route(request, env) {
   if (path === "/api/snapshot" && request.method === "GET") return snapshotResponse(request, env);
   if (path === "/api/sync" && request.method === "GET") return legacySyncGet(request, env);
   if (path === "/api/sync" && request.method === "POST") return legacySyncPost(request, env);
+  if (path === "/api/sync/bike" && request.method === "POST") return syncSingleBike(request, env, false);
+  if (path === "/api/server/snapshot/bike" && request.method === "PUT") return syncSingleBike(request, env, true);
   if ((path === "/api/auth/login" || path === "/api/unlock") && request.method === "POST") return login(request, env);
   if (path === "/api/auth/logout" && request.method === "POST") return logout(request, env);
   if ((path === "/api/admin/pin" || path === "/api/pin") && request.method === "POST") return updatePin(request, env);
@@ -133,6 +136,7 @@ async function route(request, env) {
   if (path === "/api/service-documents/resolve-qr" && request.method === "POST") return resolveQrServiceDocument(request, env);
   if (path === "/api/service-documents/ocr" && request.method === "POST") return ocrServiceDocument(request, env);
   if (path === "/api/admin/service-documents" && request.method === "GET") return listAdminServiceDocuments(request, env);
+  if (path === "/api/admin/service-documents/transfer-options" && request.method === "GET") return invoiceTransferOptions(request, env);
   if (path === "/api/admin/service-documents/reprocess-batch" && (request.method === "GET" || request.method === "POST")) return invoiceReprocessBatch(request, env);
   if (path === "/api/admin/service-documents/seen" && request.method === "POST") return markAdminServiceDocumentSeen(request, env);
   if (path === "/api/admin/service-documents/reprocess" && request.method === "POST") return reprocessAdminServiceDocument(request, env);
@@ -166,6 +170,7 @@ async function route(request, env) {
     serverAuthorized,
     verifyPin,
     readSnapshot,
+    readFleetRegistry: fleetRegistrySnapshot,
     writeSnapshot,
     touchServer,
     restoreFleetHistoryEntries
@@ -216,45 +221,28 @@ async function uploadServiceDocument(request, env) {
 }
 
 async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
-  // Another upload or QR render may finish while this request is running.
-  // Append against the current snapshot, retrying instead of losing a file.
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const snapshot = await readSnapshot(env);
-    const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-    const bikeIndex = (fleet.bikes || []).findIndex((item) => String(item.id) === String(bikeId));
-    if (bikeIndex < 0) return { attached: false, version: snapshot.version };
-    const bike = fleet.bikes[bikeIndex];
-    const entry = (Array.isArray(bike.history) ? bike.history : []).find((item) => String(item.id) === String(entryId));
-    if (!entry || entry.type === "check") return { attached: false, version: snapshot.version };
+  const names = await fleetNames(env);
+  if (attachment.ocr) attachment.ocr = refineInvoicePlateForFleet(attachment.ocr, names);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const located = await readServiceEntry(env, bikeId, entryId);
+    if (!located || located.entry.type === "check") return { attached: false };
+    const { entry, bike } = located;
     const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
-    if (attachment.ocr) attachment.ocr = refineInvoicePlateForFleet(attachment.ocr, fleet.bikes);
-    const duplicate = attachments.some((item) => String(item.key) === String(attachment.key));
-    if (!duplicate && attachments.length >= MAX_SERVICE_ATTACHMENTS) return {
-      attached: false, version: snapshot.version, status: 409,
-      error: "Μπορείς να κρατήσεις έως 10 τιμολόγια σε ένα service. Τα υπάρχοντα αρχεία διατηρούνται."
-    };
+    const duplicate = attachments.some(item => String(item.key) === String(attachment.key) ||
+      (attachment.renderJobId && String(item.renderJobId) === String(attachment.renderJobId)));
+    if (duplicate) return { attached: true, duplicate: true, version: located.version, attachment: attachments.find(item => String(item.key) === String(attachment.key) || String(item.renderJobId) === String(attachment.renderJobId)) };
+    if (attachments.length >= MAX_SERVICE_ATTACHMENTS) return { attached: false, status: 409,
+      error: "Μπορείς να κρατήσεις έως 10 τιμολόγια σε ένα service. Τα υπάρχοντα αρχεία διατηρούνται." };
     mergeServiceQrMetadata(entry, attachment.qrValue, attachment.qrUrl, attachment.renderJobId ? {
-      jobId: attachment.renderJobId,
-      status: "completed",
-      progress: 100,
-      stage: "Ολοκληρώθηκε",
-      error: ""
+      jobId: attachment.renderJobId, status: "completed", progress: 100, stage: "Ολοκληρώθηκε", error: ""
     } : null);
-    attachment.name = uniqueInvoiceDisplayName(
-      buildInvoiceDisplayName(bike.name, attachment.invoiceDate || attachment.ocr?.invoiceDate || "", entry.date, attachment.name),
-      attachments,
-      attachment.key
-    );
-    if (!duplicate) attachments.push(attachment);
-    entry.attachments = attachments;
+    attachment.name = uniqueInvoiceDisplayName(buildInvoiceDisplayName(bike.name, attachment.invoiceDate || attachment.ocr?.invoiceDate || "", entry.date, attachment.name), attachments, attachment.key);
+    entry.attachments = [...attachments, attachment];
     const now = new Date().toISOString();
     entry.updatedAt = now;
-    bike.updatedAt = now;
-    fleet.bikes[bikeIndex] = normalizeBike(bike);
-    const version = snapshot.version + 1;
-    const stored = await env.DB.prepare("UPDATE fleet_snapshot SET version = ?, data = ?, source = ?, updated_at = ? WHERE id = 1 AND version = ?")
-      .bind(version, JSON.stringify(normalizeFleet(fleet)), "service-document-upload", now, snapshot.version).run();
-    if (Number(stored.meta?.changes || 0) > 0) return { attached: true, version };
+    const normalized = normalizeHistory([entry])[0];
+    const version = await writeServiceEntry(env, located, normalized, "service-document-upload", now);
+    if (version) return { attached: true, version };
   }
   return { attached: false, status: 409, error: "Το service ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά την προσθήκη του τιμολογίου." };
 }
@@ -587,26 +575,13 @@ async function importQrServiceDocument(request, env) {
   const qrUrl = qrUrlFromValue(qrValue);
   if (!bikeId || !entryId || !qrValue) return json({ error: "Λείπει το μηχανάκι, το service ή το QR." }, 400);
   if (!qrUrl || !isPublicExternalQrUrl(qrUrl)) return json({ ok: false, qrValue, qrUrl, code: "invalid_qr_url", error: "Το QR δεν περιέχει ασφαλή δημόσιο σύνδεσμο." }, 422);
-  let snapshot = await readSnapshot(env);
-  const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-  const bike = (fleet.bikes || []).find((item) => String(item.id) === bikeId);
-  const entry = bike && (Array.isArray(bike.history) ? bike.history : []).find((item) => String(item.id) === entryId);
-  if (!bike || !entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε. Αποθήκευσε πρώτα το service και ξαναδοκίμασε." }, 404);
-  const existing = (Array.isArray(entry.attachments) ? entry.attachments : []).find((item) => String(item.qrUrl || item.qrValue) === qrUrl);
+  const located = await readServiceEntry(env, bikeId, entryId);
+  const entry = located?.entry;
+  if (!entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε. Αποθήκευσε πρώτα το service και ξαναδοκίμασε." }, 404);
+  const existing = (entry.attachments || []).find(item => String(item.qrUrl || item.qrValue) === qrUrl);
   if (existing) return json({ ok: true, duplicate: true, documentAvailable: true, attachment: existing, extracted: existing.ocr || null, qrValue, qrUrl, requiresConfirmation: Boolean(existing.ocr) });
   const pending = await findPendingServiceRender(env, bikeId, entryId, qrUrl);
   if (!pending && (entry.attachments || []).length >= MAX_SERVICE_ATTACHMENTS) return json({ error: "Μπορείς να κρατήσεις έως 10 τιμολόγια σε ένα service. Τα υπάρχοντα αρχεία διατηρούνται." }, 409);
-  // Store the scanned QR on the service immediately. The Server may need a
-  // few seconds to render the PDF, but the QR must not disappear from the
-  // history if the client closes or loses connection while waiting.
-  if (mergeServiceQrMetadata(entry, qrValue, qrUrl)) {
-    const now = new Date().toISOString();
-    entry.updatedAt = now;
-    bike.updatedAt = now;
-    const normalizedFleet = normalizeFleet(fleet);
-    const stored = await writeSnapshot(env, normalizedFleet, "service-document-qr", snapshot.version + 1);
-    snapshot = { ...snapshot, version: stored.version, updatedAt: stored.updatedAt, data: normalizedFleet };
-  }
   if (pending) {
     await updateServiceDocumentProcessingSnapshot(env, pending.payload, {
       jobId: pending.id,
@@ -689,10 +664,9 @@ async function serviceDocumentJobStatus(request, env) {
   if (!row || row.type !== "service_document_render") return json({ error: "Η εργασία τιμολογίου δεν βρέθηκε." }, 404);
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
-  const snapshot = await readSnapshot(env);
-  const bike = (snapshot.data.bikes || []).find((item) => String(item.id) === String(payload.bikeId));
-  const entry = bike && (Array.isArray(bike.history) ? bike.history : []).find((item) => String(item.id) === String(payload.entryId));
-  const attachment = entry && (Array.isArray(entry.attachments) ? entry.attachments : []).find((item) => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
+  const entry = located?.entry;
+  const attachment = (entry?.attachments || []).find((item) => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
   if (attachment) {
     return json({ ok: true, jobId, status: "completed", progress: 100, stage: "Ολοκληρώθηκε", attempts: Number(payload.attemptCount || 0), attachment, extracted: attachment.ocr || null, qrValue: payload.qrValue, qrUrl: payload.qrUrl });
   }
@@ -731,37 +705,35 @@ function serviceRenderState(payload, rowStatus, createdAt) {
 
 async function updateServiceDocumentProcessingSnapshot(env, payload, state) {
   if (!payload || !payload.bikeId || !payload.entryId) return null;
-  const snapshot = await readSnapshot(env);
-  const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-  const bike = (fleet.bikes || []).find((item) => String(item.id) === String(payload.bikeId));
-  const entry = bike && (Array.isArray(bike.history) ? bike.history : []).find((item) => String(item.id) === String(payload.entryId));
-  if (!bike || !entry || entry.type === "check") return null;
-  const current = normalizeServiceInvoiceData(entry.invoiceData) || {};
-  const next = { ...current };
-  const set = (key, value) => {
-    if (value === undefined || value === null) return;
-    const text = String(value).trim();
-    if (text) next[key] = text;
-    else delete next[key];
-  };
-  set("qrJobId", state.jobId || payload.jobId || "");
-  set("qrProcessingStatus", state.status || "processing");
-  set("qrProcessingStartedAt", payload.requestedAt || new Date().toISOString());
-  set("qrProcessingUpdatedAt", new Date().toISOString());
-  set("qrProcessingError", state.error || "");
-  set("qrProcessingAttempts", Number(state.attempts || 0));
-  set("qrProcessingProgress", cleanInteger(state.progress, 0, 100, 0));
-  set("qrProcessingStage", state.stage || "Σε επεξεργασία από τον Server");
-  if (payload.qrUrl && !next.qrUrl) next.qrUrl = qrUrlFromValue(payload.qrUrl);
-  if (!next.source) next.source = "qr";
-  if (JSON.stringify(current) === JSON.stringify(next)) return snapshot;
-  entry.invoiceData = normalizeServiceInvoiceData(next);
-  const now = new Date().toISOString();
-  entry.updatedAt = now;
-  bike.updatedAt = now;
-  const index = (fleet.bikes || []).findIndex((item) => String(item.id) === String(payload.bikeId));
-  fleet.bikes[index] = normalizeBike(bike);
-  return writeSnapshot(env, normalizeFleet(fleet), "service-document-processing", snapshot.version + 1);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
+    if (!located || located.entry.type === "check") return null;
+    const entry = located.entry;
+    const current = normalizeServiceInvoiceData(entry.invoiceData) || {};
+    const next = { ...current };
+    const set = (key, value) => {
+      if (value === undefined || value === null) return;
+      const text = String(value).trim();
+      if (text) next[key] = text;
+      else delete next[key];
+    };
+    set("qrJobId", state.jobId || payload.jobId || "");
+    set("qrProcessingStatus", state.status || "processing");
+    set("qrProcessingStartedAt", payload.requestedAt || new Date().toISOString());
+    set("qrProcessingUpdatedAt", new Date().toISOString());
+    set("qrProcessingError", state.error || "");
+    set("qrProcessingAttempts", Number(state.attempts || 0));
+    set("qrProcessingProgress", cleanInteger(state.progress, 0, 100, 0));
+    set("qrProcessingStage", state.stage || "Σε επεξεργασία από τον Server");
+    if (payload.qrUrl && !next.qrUrl) next.qrUrl = qrUrlFromValue(payload.qrUrl);
+    if (!next.source) next.source = "qr";
+    entry.invoiceData = normalizeServiceInvoiceData(next);
+    const now = new Date().toISOString();
+    entry.updatedAt = now;
+    const version = await writeServiceEntry(env, located, entry, "service-document-processing", now);
+    if (version) return { version };
+  }
+  throw new Error("Η πρόοδος ενημερώνεται ταυτόχρονα. Θα ξαναδοκιμάσει.");
 }
 
 async function retryServiceDocumentJob(request, env) {
@@ -776,6 +748,23 @@ async function retryServiceDocumentJob(request, env) {
   if (!row || row.type !== "service_document_render") return json({ error: "Η εργασία τιμολογίου δεν βρέθηκε." }, 404);
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
+  const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
+  const existing = (located?.entry.attachments || []).find(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  if (existing) {
+    if (existing.ocrError) {
+      const headers = new Headers(request.headers);
+      headers.delete("Content-Length");
+      const retryRequest = new Request(new URL("/api/admin/service-documents/reprocess", request.url), {
+        method: "POST", headers, body: JSON.stringify({ key: existing.key, forceAi: true })
+      });
+      const response = await reprocessAdminServiceDocument(retryRequest, env);
+      if (!response.ok) return response;
+      const result = await response.json();
+      return json({ ...result, jobId, reprocessed: true, status: result.ocrWarning ? "error" : "completed", progress: result.ocrWarning ? 0 : 100, error: result.ocrWarning || "" });
+    }
+    await updateServiceDocumentProcessingSnapshot(env, payload, { jobId, status: "completed", progress: 100, stage: "Ολοκληρώθηκε", error: "" });
+    return json({ ok: true, jobId, status: "completed", progress: 100, attachment: existing });
+  }
   const now = new Date().toISOString();
   // A retry is a new processing attempt. Reset its start timestamp so the
   // UI does not keep showing the age of the original QR job.
@@ -784,6 +773,8 @@ async function retryServiceDocumentJob(request, env) {
   payload.lastError = "";
   payload.lastAttemptAt = now;
   payload.retryRequestedAt = now;
+  payload.transientAttemptCount = 0;
+  delete payload.nextAttemptAt;
   payload.progress = 5;
   payload.progressStage = "Επανάληψη · αναμονή από τον Server";
   await env.DB.prepare("UPDATE fleet_operations SET payload = ?, status = 'pending', applied_at = NULL WHERE id = ?")
@@ -813,20 +804,6 @@ function adminServiceDocumentStatus(attachment, data, warnings) {
   if (data?.confirmedAt) return "confirmed";
   if (data && Object.keys(data).length) return "needs_review";
   return "uploaded";
-}
-
-function serviceDocumentTransferOptions(currentBikeId, data, bikes) {
-  const all = (Array.isArray(bikes) ? bikes : []).filter((item) => String(item?.id) !== String(currentBikeId));
-  const wanted = invoicePlateKey(data?.plate);
-  const exact = data?.plate
-    ? all.filter((item) => invoicePlateKey(item.name) === wanted)
-    : [];
-  const candidates = exact.length ? exact : all;
-  return candidates.flatMap((item) => (item.history || [])
-    .filter((entry) => entry.type !== "check")
-    .map((entry) => ({ bikeId: String(item.id), bikeName: String(item.name), entryId: String(entry.id), serviceDate: String(entry.date || ""), serviceKm: Number(entry.km || 0) })))
-    .sort((left, right) => String(left.bikeName).localeCompare(String(right.bikeName), "el") || Number(right.serviceKm || 0) - Number(left.serviceKm || 0))
-    .slice(0, 200);
 }
 
 function invoiceDataForServiceDocument(entry, attachment) {
@@ -862,7 +839,8 @@ function adminServiceDocumentRecord(bike, entry, attachment, pending = null, all
     qrUrl: String(attachment?.qrUrl || pending?.qrUrl || data.qrUrl || ""),
     invoiceData: data,
     warnings,
-    transferOptions: serviceDocumentTransferOptions(bike?.id || pending?.bikeId, data, allBikes),
+    transferOptions: [],
+    transferOptionsLazy: true,
     error: String(attachment?.ocrError || processing?.error || ""),
     processing: Boolean(processing && ["processing", "delayed"].includes(processing.status)),
     progress: processing ? processing.progress : (status === "confirmed" ? 100 : 0),
@@ -877,12 +855,46 @@ function adminServiceDocumentRecord(bike, entry, attachment, pending = null, all
   };
 }
 
+async function invoiceTransferOptions(request, env) {
+  if (!await authorizedFor(request, env, "fleet.view")) return json({ error: "Χρειάζεται σύνδεση διαχείρισης." }, 401);
+  const url = new URL(request.url);
+  const located = await readServiceEntry(env, cleanText(url.searchParams.get("bikeId"), 100), cleanText(url.searchParams.get("entryId"), 120));
+  const key = cleanText(url.searchParams.get("key"), 500);
+  const attachment = located?.entry.attachments?.find(item => String(item.key) === key);
+  if (!located || !attachment) return json({ error: "Το τιμολόγιο δεν βρέθηκε." }, 404);
+  const data = invoiceDataForServiceDocument(located.entry, attachment);
+  const names = await fleetNames(env);
+  const exact = data.plate ? names.filter(b => b.id !== located.bike.id && invoicePlateKey(b.name) === invoicePlateKey(data.plate)) : [];
+  const candidates = exact.length ? exact : names.filter(b => b.id !== located.bike.id);
+  if (!candidates.length) return json({ options: [] });
+  const ids = candidates.map(b => String(b.id));
+  const rows = await env.DB.prepare(`SELECT json_extract(b.value,'$.id') AS bikeId, json_extract(b.value,'$.name') AS bikeName,
+    json_extract(h.value,'$.id') AS entryId, json_extract(h.value,'$.date') AS serviceDate, json_extract(h.value,'$.km') AS serviceKm
+    FROM fleet_snapshot s, json_each(s.data,'$.bikes') b, json_each(b.value,'$.history') h
+    WHERE s.id=1 AND json_extract(b.value,'$.id') IN (${ids.map(() => '?').join(',')})
+    AND json_extract(h.value,'$.type') != 'check' ORDER BY bikeName, serviceKm DESC LIMIT 200`).bind(...ids).all();
+  const options = (rows.results || []).sort((a,b) => String(a.bikeName).localeCompare(String(b.bikeName), "el") || Number(b.serviceKm || 0) - Number(a.serviceKm || 0));
+  return json({ options });
+}
+
 async function listAdminServiceDocuments(request, env) {
   let actor;
   try { actor = await authenticateExternal(request, env, "fleet.view"); }
   catch (error) { return json({ error: error?.message || "Χρειάζεται σύνδεση διαχείρισης." }, Number(error?.status) || 401); }
   if (!actor) return json({ error: "Χρειάζεται σύνδεση διαχείρισης." }, 401);
-  const snapshot = await readSnapshot(env);
+  const summary = await snapshotSummary(env);
+  const invoiceRows = await env.DB.prepare(`SELECT json_extract(b.value,'$.id') AS bike_id,
+    json_extract(b.value,'$.name') AS bike_name, h.value AS entry_json
+    FROM fleet_snapshot s, json_each(s.data,'$.bikes') b, json_each(b.value,'$.history') h
+    WHERE s.id=1 AND json_extract(h.value,'$.type') != 'check'
+    AND (json_array_length(h.value,'$.attachments') > 0 OR json_extract(h.value,'$.invoiceData.qrUrl') IS NOT NULL)
+    AND NOT EXISTS (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=json_extract(b.value,'$.id'))`).all();
+  const bikes = new Map();
+  for (const row of invoiceRows.results || []) {
+    if (!bikes.has(row.bike_id)) bikes.set(row.bike_id, { id: row.bike_id, name: row.bike_name, history: [] });
+    bikes.get(row.bike_id).history.push(JSON.parse(row.entry_json));
+  }
+  const snapshot = { version: summary.version, data: { bikes: [...bikes.values()] } };
   const documents = [];
   for (const bike of snapshot.data.bikes || []) {
     for (const entry of bike.history || []) {
@@ -938,88 +950,89 @@ async function markAdminServiceDocumentSeen(request, env) {
   const entryId = cleanText(body.entryId, 100);
   const key = cleanText(body.key, 500);
   if (!bikeId || !entryId) return json({ error: "Λείπει η σύνδεση με το service." }, 400);
-  const snapshot = await readSnapshot(env);
-  const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-  const bikeIndex = (fleet.bikes || []).findIndex((item) => String(item.id) === bikeId);
-  const bike = bikeIndex >= 0 ? fleet.bikes[bikeIndex] : null;
-  const entry = bike && (bike.history || []).find((item) => String(item.id) === entryId);
-  if (!bike || !entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε." }, 404);
-  const now = new Date().toISOString();
-  const data = normalizeServiceInvoiceData(entry.invoiceData) || {};
-  data.reviewSeenAt = data.reviewSeenAt || now;
-  entry.invoiceData = data;
-  if (key) {
-    const attachment = (entry.attachments || []).find((item) => String(item.key) === key);
+  for (let attempt=0; attempt<5; attempt++) {
+    const located = await readServiceEntry(env, bikeId, entryId);
+    if (!located || located.entry.type === "check") return json({ error: "Το service δεν βρέθηκε." }, 404);
+    const entry = located.entry;
+    const now = new Date().toISOString();
+    const data = normalizeServiceInvoiceData(entry.invoiceData) || {};
+    data.reviewSeenAt = data.reviewSeenAt || now;
+    entry.invoiceData = data;
+    const attachment = key && (entry.attachments || []).find(item => String(item.key) === key);
     if (attachment) attachment.reviewSeenAt = attachment.reviewSeenAt || now;
+    entry.updatedAt = now;
+    const version = await writeServiceEntry(env, located, entry, "admin-service-document-seen", now);
+    if (version) return json({ ok: true, reviewSeenAt: data.reviewSeenAt, version });
   }
-  entry.updatedAt = now;
-  bike.updatedAt = now;
-  fleet.bikes[bikeIndex] = normalizeBike(bike);
-  const stored = await writeSnapshot(env, normalizeFleet(fleet), "admin-service-document-seen", snapshot.version + 1);
-  return json({ ok: true, reviewSeenAt: data.reviewSeenAt, version: stored.version });
+  return json({ error: "Το service ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά." }, 409);
 }
 
-async function applyServiceDocumentReprocess(env, request, actor, snapshot, fleet, bike, entry, attachment, current, extracted, ocrWarning, options = {}) {
-  const fresh = refineInvoicePlateForFleet(normalizeServiceDocumentOcr({
-    ...(extracted || current),
-    qrUrl: attachment.qrUrl || current.qrUrl || "",
-    source: extracted?.source || current.source || options.source || "reprocessed"
-  }) || {}, fleet.bikes);
-  const confirmed = Boolean(current.confirmedAt || current.reviewStatus === "confirmed");
-  // Manual corrections remain authoritative after confirmation. For an
-  // unconfirmed invoice the new extraction replaces the old one.
-  const data = confirmed
-    ? mergeServerInvoiceData(fresh, current)
-    : mergeServerInvoiceData(current, fresh);
-  const now = new Date().toISOString();
-  data.ocrReprocessedAt = now;
-  // Keep human-entered invoice fields; refresh metadata of the latest attempt.
-  for (const field of ["ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence"]) {
-    if (fresh[field] !== undefined) data[field] = fresh[field];
-  }
-  data.reviewStatus = current.reviewStatus || data.reviewStatus || "";
-  if (current.confirmedAt) data.confirmedAt = current.confirmedAt;
-  if (current.reviewedBy) data.reviewedBy = current.reviewedBy;
-  attachment.ocr = normalizeServiceDocumentOcr(data);
-  attachment.ocrError = cleanText(ocrWarning, 500);
-  attachment.name = uniqueInvoiceDisplayName(
-    buildInvoiceDisplayName(bike.name, data.invoiceDate, entry.date, attachment.name),
-    entry.attachments,
-    attachment.key
-  );
-  entry.invoiceData = attachment.ocr;
-  entry.tasks = mergeInvoiceTasks(entry.tasks, invoiceWorkItems(fresh).concat(invoiceWorkItems(attachment.ocr)));
-  entry.notes = entry.tasks.join("\n");
-  if (attachment.ocr.supplier) entry.workshop = attachment.ocr.supplier;
-  entry.updatedAt = now;
-  bike.updatedAt = now;
-  const bikeIndex = (fleet.bikes || []).findIndex((item) => String(item.id) === String(bike.id));
-  fleet.bikes[bikeIndex] = normalizeBike(bike);
-  const stored = await writeSnapshot(env, normalizeFleet(fleet), options.source || "admin-service-document-reprocess", snapshot.version + 1);
-  const operationId = crypto.randomUUID();
-  await env.DB.batch([
-    env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
-      VALUES (?,?,?,'available',1,?) ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,
-      odometer=excluded.odometer,version=vehicle_registry.version+1,updated_at=excluded.updated_at`)
-      .bind(bike.id, bike.name, bike.currentKm, now),
-    env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)")
-      .bind(operationId, JSON.stringify({ bike: fleet.bikes[bikeIndex] }), now)
-  ]);
-  const warnings = serviceDocumentWarnings(bike, entry, attachment.ocr);
-  if (options.audit !== false && actor) {
-    await recordExternalAudit(env, request, actor, "service_document_reprocessed", "service_document", attachment.key,
+async function applyServiceDocumentReprocess(env, request, actor, snapshot, fleet, originalBike, originalEntry, originalAttachment, previous, extracted, ocrWarning, options = {}) {
+  const names = await fleetNames(env);
+  for (let attempt=0; attempt<5; attempt++) {
+    const located = await readServiceEntry(env, originalBike.id, originalEntry.id);
+    const bike = located?.bike;
+    const entry = located?.entry;
+    const attachment = entry?.attachments?.find(item => String(item.key) === String(originalAttachment.key));
+    if (!attachment) throw new Error("Το τιμολόγιο διαγράφηκε κατά την ανάγνωση.");
+    const current = invoiceDataForServiceDocument(entry, attachment);
+    const fresh = refineInvoicePlateForFleet(normalizeServiceDocumentOcr({
+      ...(extracted || current),
+      qrUrl: attachment.qrUrl || current.qrUrl || "",
+      source: extracted?.source || current.source || options.source || "reprocessed"
+    }) || {}, names);
+    const confirmed = Boolean(current.confirmedAt || current.reviewStatus === "confirmed");
+    // Manual corrections remain authoritative after confirmation. For an
+    // unconfirmed invoice the new extraction replaces the old one.
+    const data = confirmed
+      ? mergeServerInvoiceData(fresh, current)
+      : mergeServerInvoiceData(current, fresh);
+    const now = new Date().toISOString();
+    data.ocrReprocessedAt = now;
+    // Keep human-entered invoice fields; refresh metadata of the latest attempt.
+    for (const field of ["ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence"]) {
+      if (fresh[field] !== undefined) data[field] = fresh[field];
+    }
+    data.reviewStatus = current.reviewStatus || data.reviewStatus || "";
+    if (current.confirmedAt) data.confirmedAt = current.confirmedAt;
+    if (current.reviewedBy) data.reviewedBy = current.reviewedBy;
+    attachment.ocr = normalizeServiceDocumentOcr(data);
+    attachment.ocrError = cleanText(ocrWarning, 500);
+    attachment.name = uniqueInvoiceDisplayName(
+      buildInvoiceDisplayName(bike.name, data.invoiceDate, entry.date, attachment.name),
+      entry.attachments,
+      attachment.key
+    );
+    entry.invoiceData = attachment.ocr;
+    entry.tasks = mergeInvoiceTasks(entry.tasks, invoiceWorkItems(fresh).concat(invoiceWorkItems(attachment.ocr)));
+    entry.notes = entry.tasks.join("\n");
+    if (attachment.ocr.supplier) entry.workshop = attachment.ocr.supplier;
+    entry.updatedAt = now;
+    bike.updatedAt = now;
+    const normalizedEntry = normalizeHistory([entry])[0];
+    const version = await writeServiceEntry(env, located, normalizedEntry, options.source || "admin-service-document-reprocess", now);
+    if (!version) continue;
+    const operationId = crypto.randomUUID();
+    const bikeRow = await env.DB.prepare("SELECT b.value AS bike_json FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? LIMIT 1")
+      .bind(bike.id).first();
+    if (!bikeRow?.bike_json) throw new Error("Η μηχανή αφαιρέθηκε κατά την ανάγνωση.");
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
+        VALUES (?,?,?,'available',1,?) ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,
+        odometer=excluded.odometer,version=vehicle_registry.version+1,updated_at=excluded.updated_at`)
+        .bind(bike.id, bike.name, bike.currentKm, now),
+      env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)")
+        .bind(operationId, '{"bike":' + bikeRow.bike_json + '}', now)
+    ]);
+    const warnings = serviceDocumentWarnings(bike, normalizedEntry, attachment.ocr);
+    if (options.audit !== false && actor) await recordExternalAudit(env, request, actor, "service_document_reprocessed", "service_document", attachment.key,
       { bikeId: bike.id, entryId: entry.id, previous: current },
       { bikeId: bike.id, entryId: entry.id, invoiceData: attachment.ocr, warnings },
       options.auditLabel || "Νέα ανάγνωση και καθαρισμός παλιού τιμολογίου", false);
+    return { confirmedPreserved: confirmed, ocrWarning: cleanText(ocrWarning, 500),
+      document: adminServiceDocumentRecord(bike, normalizedEntry, attachment), version, operationId, warnings };
   }
-  return {
-    confirmedPreserved: confirmed,
-    ocrWarning: cleanText(ocrWarning, 500),
-    document: adminServiceDocumentRecord(bike, entry, attachment, null, fleet.bikes),
-    version: stored.version,
-    operationId,
-    warnings
-  };
+  throw new Error("Το service ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά την ανάγνωση.");
 }
 
 async function reprocessAdminServiceDocument(request, env) {
@@ -1038,27 +1051,13 @@ async function reprocessAdminServiceDocument(request, env) {
   const bucket = env.SERVICE_DOCS || env.RELEASES;
   if (!bucket) return json({ error: "Δεν έχει συνδεθεί χώρος αποθήκευσης τιμολογίων." }, 503);
 
-  const snapshot = await readSnapshot(env);
-  const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-  let bike = null;
-  let entry = null;
-  let attachment = null;
-  let bikeIndex = -1;
-  for (let index = 0; index < (fleet.bikes || []).length && !attachment; index += 1) {
-    const candidateBike = fleet.bikes[index];
-    for (const candidateEntry of (candidateBike.history || [])) {
-      const candidateAttachment = (candidateEntry.attachments || []).find((item) => String(item.key) === key);
-      if (candidateAttachment) {
-        bike = candidateBike;
-        entry = candidateEntry;
-        attachment = candidateAttachment;
-        bikeIndex = index;
-        break;
-      }
-    }
-  }
-  if (!bike || !entry || !attachment || entry.type === "check") return json({ error: "Το τιμολόγιο δεν βρέθηκε." }, 404);
-
+  const located = await readServiceDocument(env, key);
+  if (!located || located.entry.type === "check") return json({ error: "Το τιμολόγιο δεν βρέθηκε." }, 404);
+  const bike = located.bike;
+  const entry = located.entry;
+  const attachment = entry.attachments.find(item => String(item.key) === key);
+  const fleet = { bikes: await fleetNames(env) };
+  const snapshot = { version: located.version };
   const object = await bucket.get(key);
   if (!object) return json({ error: "Το αρχείο του τιμολογίου δεν βρέθηκε στο R2." }, 404);
   const type = documentContentType(object.httpMetadata?.contentType || "", attachment.name || key);
@@ -1318,23 +1317,12 @@ async function serverInvoiceReprocessBatch(request, env) {
   const key = cleanText(body.key, 500);
   if (!isServiceDocumentKey(key) || key !== String(item.key)) return json({ error: "Το αποτέλεσμα δεν αντιστοιχεί στο τρέχον τιμολόγιο." }, 409);
 
-  const snapshot = await readSnapshot(env);
-  const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-  let bike = null;
-  let entry = null;
-  let attachment = null;
-  for (const candidateBike of fleet.bikes || []) {
-    for (const candidateEntry of candidateBike.history || []) {
-      const candidateAttachment = (candidateEntry.attachments || []).find((candidate) => String(candidate.key) === key);
-      if (candidateAttachment) {
-        bike = candidateBike;
-        entry = candidateEntry;
-        attachment = candidateAttachment;
-        break;
-      }
-    }
-    if (attachment) break;
-  }
+  const located = await readServiceDocument(env, key);
+  const bike = located?.bike;
+  const entry = located?.entry;
+  const attachment = entry?.attachments?.find(candidate => String(candidate.key) === key);
+  const snapshot = { version: located?.version || 0 };
+  const fleet = { bikes: [] };
 
   let failed = false;
   let skipped = false;
@@ -2286,7 +2274,8 @@ async function hideArchivedBikes(env, fleet) {
 async function readSnapshot(env) {
   const row = await env.DB.prepare("SELECT version, data, source, updated_at FROM fleet_snapshot WHERE id = 1").first();
   let data = { bikes: [] };
-  try { data = normalizeFleet(JSON.parse(row?.data || '{"bikes":[]}')); } catch {}
+  data = JSON.parse(row?.data || '{"bikes":[]}');
+  if (!Array.isArray(data.bikes)) throw new Error("Invalid canonical fleet snapshot");
   data = await hideArchivedBikes(env, data);
   return {
     version: Number(row?.version || 0),
@@ -2297,8 +2286,9 @@ async function readSnapshot(env) {
 }
 
 async function writeSnapshot(env, fleet, source, requestedVersion) {
-  const current = await readSnapshot(env);
-  const version = Math.max(current.version + 1, cleanInteger(requestedVersion, 0, Number.MAX_SAFE_INTEGER, 0));
+  if (source === "backup-restore") fleet = normalizeFleet(fleet);
+  const current = await env.DB.prepare("SELECT version FROM fleet_snapshot WHERE id = 1").first();
+  const version = Math.max(Number(current?.version || 0) + 1, cleanInteger(requestedVersion, 0, Number.MAX_SAFE_INTEGER, 0));
   const now = new Date().toISOString();
   await env.DB.prepare("UPDATE fleet_snapshot SET version = ?, data = ?, source = ?, updated_at = ? WHERE id = 1")
     .bind(version, JSON.stringify(fleet), source, now).run();
@@ -2436,7 +2426,7 @@ async function statusResponse(env) {
   const [lastSeen, pinHashValue, snapshot, latestClient, activeWeb, users, activeShifts, openAlerts, pwaSeen, lastBackup] = await Promise.all([
     getSetting(env, "server_last_seen"),
     getSetting(env, "pin_hash"),
-    readSnapshot(env),
+    snapshotSummary(env),
     env.DB.prepare("SELECT version, created_at, size_bytes FROM fleet_releases WHERE kind = 'client' AND active = 1 LIMIT 1").first(),
     env.DB.prepare("SELECT version, created_at FROM fleet_releases WHERE kind = 'web' AND active = 1 LIMIT 1").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM app_users WHERE active=1").first(),
@@ -2454,7 +2444,7 @@ async function statusResponse(env) {
     snapshotVersion: snapshot.version,
     snapshotUpdatedAt: snapshot.updatedAt || null,
     snapshotSource: snapshot.source,
-    bikes: snapshot.data.bikes.length,
+    bikes: snapshot.bikes,
     databaseOk: true,
     storageOk: Boolean(env.RELEASES),
     fleetControlOk: true,
@@ -2481,15 +2471,72 @@ async function mayViewFleet(request, env) {
 
 async function snapshotResponse(request, env) {
   if (!await mayViewFleet(request, env)) return json({ error: "Χρειάζεται σύνδεση για την προβολή του στόλου." }, 401);
-  const snapshot = await readSnapshot(env);
-  return json({ ...snapshot.data, version: snapshot.version, updatedAt: snapshot.updatedAt, source: snapshot.source });
+  const row = await visibleSnapshotRow(env);
+  return snapshotJsonResponse(row, { updatedAt: row?.updated_at || "", archivedBikeIds: [...await activeArchivedBikeIds(env)] });
+}
+
+function snapshotJsonResponse(row, extra = {}) {
+  const metadata = JSON.stringify({ version: Number(row?.version || 0), source: row?.source || "canonical", ...extra });
+  return new Response('{"bikes":' + (row?.bikes_json || '[]') + ',' + metadata.slice(1), {
+    headers: baseHeaders({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" })
+  });
 }
 
 async function legacySyncGet(request, env) {
   if (!await mayViewFleet(request, env)) return json({ error: "Χρειάζεται σύνδεση για την προβολή του στόλου." }, 401);
-  const snapshot = await readSnapshot(env);
+  const row = await visibleSnapshotRow(env);
   const archivedBikeIds = [...await activeArchivedBikeIds(env)];
-  return json({ bikes: snapshot.data.bikes, archivedBikeIds, serverTime: new Date().toISOString(), version: snapshot.version, source: snapshot.source });
+  return snapshotJsonResponse(row, { archivedBikeIds, serverTime: new Date().toISOString() });
+}
+
+async function syncSingleBike(request, env, serverOnly) {
+  const fromServer = await serverAuthorized(request, env);
+  if (serverOnly && !fromServer) return json({ error: "Μη έγκυρος server." }, 401);
+  let actor = null, pinUsed = false;
+  if (!fromServer) {
+    try { actor = await authenticateExternal(request, env, "fleet.manage"); }
+    catch { return json({ error: "Δεν επιτρέπεται. Συνδέσου με λογαριασμό διαχείρισης." }, 401); }
+    if (!isManagementActor(actor)) {
+      const pin = await verifyPin(request, env, cleanText(request.headers.get("x-admin-pin"), 8));
+      if (!pin.ok) return json({ error: pin.blocked ? "Πολλές προσπάθειες PIN. Δοκίμασε αργότερα." : "Το δεύτερο Admin PIN δεν είναι σωστό." }, pin.blocked ? 429 : 403);
+      pinUsed = true;
+    }
+  }
+  const body = await request.json();
+  const incoming = normalizeBike(body?.bike);
+  if (!incoming) return json({ error: "Μη έγκυρα στοιχεία μηχανής." }, 400);
+  if ((await activeArchivedBikeIds(env)).has(incoming.id)) return json({ error: "Η μηχανή έχει αρχειοθετηθεί.", code: "bike_archived" }, 409);
+  for (let attempt=0; attempt<5; attempt++) {
+    const located = await readSnapshotBike(env, incoming.id);
+    const bike = located ? mergeBike(located.bike, incoming) : incoming;
+    const corrected = incoming.historyCorrectedAt && incoming.historyCorrectedAt > String(located?.bike.historyCorrectedAt || "");
+    if (corrected) {
+      bike.odometerFloorKm = await workforceOdometerFloor(env, incoming.id);
+      Object.assign(bike, normalizeBike(bike));
+    }
+    if (located && JSON.stringify(bike) === located.json) {
+      if (fromServer) await touchServer(env);
+      return json({ saved: true, unchanged: true, bike, version: located.version });
+    }
+    if (!located && (await snapshotSummary(env)).bikes >= MAX_BIKES) return json({ error: "Έχει συμπληρωθεί το όριο των 40 μηχανών." }, 409);
+    const now = new Date().toISOString();
+    const version = await writeSnapshotBike(env, located, bike, fromServer ? "canonical" : "provisional", now);
+    if (!version) continue;
+    if (fromServer) await touchServer(env);
+    else {
+      const operationId = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO fleet_operations (id, source, type, payload, status, created_at) VALUES (?, 'authenticated-client', 'snapshot_merge', ?, 'pending', ?)")
+        .bind(operationId, JSON.stringify({ bikes: [bike] }), now).run();
+      if (corrected) await env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
+        VALUES (?,?,?,'available',1,?) ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,
+        odometer=excluded.odometer,version=vehicle_registry.version+1,updated_at=excluded.updated_at`).bind(bike.id,bike.name,bike.currentKm,now).run();
+      await recordExternalAudit(env, request, actor, "fleet_snapshot_merged", "fleet", bike.id,
+        { version: located?.version || 0 }, { version, changed: [{ id: bike.id, name: bike.name, odometer: bike.currentKm, lastServiceKm: bike.lastServiceKm }] },
+        "Επιβεβαιωμένη αλλαγή από Fleet Control", pinUsed);
+    }
+    return json({ saved: true, bike, version, updatedAt: now });
+  }
+  return json({ error: "Η μηχανή ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά.", code: "snapshot_conflict" }, 409);
 }
 
 async function legacySyncPost(request, env) {
@@ -2835,8 +2882,8 @@ async function serverPending(request, env) {
   if (!await serverAuthorized(request, env)) return json({ error: "Μη έγκυρος server." }, 401);
   await touchServer(env);
   const limit = cleanInteger(new URL(request.url).searchParams.get("limit"), 1, MAX_PENDING, 50);
-  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending' ORDER BY created_at LIMIT ?")
-    .bind(limit).all();
+  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending' AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY created_at LIMIT ?")
+    .bind(new Date().toISOString(), limit).all();
   const operations = (result.results || []).map((row) => {
     let payload = {};
     try { payload = JSON.parse(row.payload); } catch {}
@@ -2865,6 +2912,9 @@ async function serverOperationProgress(request, env) {
   if (!row || row.type !== "service_document_render") return json({ error: "Η εργασία τιμολογίου δεν βρέθηκε." }, 404);
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
+  const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
+  const completed = (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  if (row.status === "applied" || completed) return json({ ok: true, jobId, status: "completed", progress: 100 });
   const progress = cleanInteger(body.progress, 0, 99, 0);
   payload.progress = progress;
   payload.progressStage = cleanText(body.stage, 160) || payload.progressStage || "Σε επεξεργασία από τον Server";
@@ -2893,9 +2943,17 @@ async function serverOperationError(request, env) {
   if (!row || row.type !== "service_document_render") return json({ error: "Η εργασία τιμολογίου δεν βρέθηκε." }, 404);
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
-  const attempts = Math.max(0, Number(payload.attemptCount || 0)) + 1;
+  const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
+  const completed = (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  if (row.status === "applied" || completed) return json({ ok: true, jobId, status: "completed", progress: 100 });
+  const transient = body.retryable === true;
+  const attempts = Math.max(0, Number(payload.attemptCount || 0)) + (transient ? 0 : 1);
   const status = attempts >= SERVICE_RENDER_MAX_ATTEMPTS ? "error" : "pending";
   payload.attemptCount = attempts;
+  if (transient) {
+    payload.transientAttemptCount = Math.max(0, Number(payload.transientAttemptCount || 0)) + 1;
+    payload.nextAttemptAt = new Date(Date.now() + Math.min(60000, 1000 * 2 ** Math.min(payload.transientAttemptCount, 6))).toISOString();
+  } else delete payload.nextAttemptAt;
   payload.lastError = errorMessage;
   payload.lastAttemptAt = new Date().toISOString();
   payload.progressStage = status === "error" ? "Αποτυχία · χρειάζεται επανάληψη" : "Προσωρινό σφάλμα · θα ξαναδοκιμάσει";
@@ -2953,14 +3011,14 @@ async function uploadServerRenderedServiceDocument(request, env) {
   if (!bytes.byteLength || bytes.byteLength > 15 * 1024 * 1024) return json({ error: "Το τιμολόγιο δεν μπορεί να ξεπερνά τα 15 MB." }, 413);
   if (detectDocumentContentType(bytes) !== "application/pdf") return json({ error: "Ο Server δεν δημιούργησε έγκυρο PDF." }, 415);
 
-  const snapshot = await readSnapshot(env);
-  const bike = (snapshot.data.bikes || []).find((item) => String(item.id) === bikeId);
-  const entry = bike && (Array.isArray(bike.history) ? bike.history : []).find((item) => String(item.id) === entryId);
+  const located = await readServiceEntry(env, bikeId, entryId);
+  const bike = located?.bike;
+  const entry = located?.entry;
   if (!bike || !entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε ή διαγράφηκε." }, 404);
   const existing = (Array.isArray(entry.attachments) ? entry.attachments : []).find((item) =>
     String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === qrUrl
   );
-  if (existing) return json({ ok: true, duplicate: true, attachment: existing, version: snapshot.version });
+  if (existing) return json({ ok: true, duplicate: true, attachment: existing, version: located.version });
   if ((entry.attachments || []).length >= MAX_SERVICE_ATTACHMENTS) return json({ error: "Μπορείς να κρατήσεις έως 10 τιμολόγια σε ένα service. Τα υπάρχοντα αρχεία διατηρούνται." }, 409);
 
   const localHeader = decodeJsonHeader(request.headers.get("x-fleet-local-ocr"));
@@ -3039,6 +3097,10 @@ async function uploadServerRenderedServiceDocument(request, env) {
   if (!stored.attached) {
     await bucket.delete(key);
     return json({ error: stored.error || "Το service δεν βρέθηκε ή διαγράφηκε." }, stored.status || 404);
+  }
+  if (stored.duplicate && stored.attachment?.key !== key) {
+    await bucket.delete(key);
+    return json({ ok: true, duplicate: true, attachment: stored.attachment, version: stored.version });
   }
   return json({ ok: true, attachment, extracted, extractionError: ocrError, fallbackUsed, ocrSource: extracted?.ocrSource || "", version: stored.version, requiresConfirmation: Boolean(extracted) }, 201);
 }

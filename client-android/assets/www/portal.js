@@ -126,6 +126,7 @@
       localStorage.removeItem(USER_CACHE);
       localStorage.removeItem("moto-service-tracker-v1");
       localStorage.removeItem("fleet-control-pending-fleet-change");
+      localStorage.removeItem("fleet-control-pending-fleet-change-bikes");
     } catch (error) {}
     try {
       if (window.AndroidFleet && typeof window.AndroidFleet.clearAuthToken === "function") window.AndroidFleet.clearAuthToken();
@@ -196,24 +197,36 @@
     if (settings.pin) headers.set("X-Admin-Pin", settings.pin);
     if (settings.idempotency) headers.set("X-Idempotency-Key", settings.idempotency);
     let response;
-    try {
-      response = await fetch(apiBase + path, {
-        method: settings.method || (settings.body === undefined ? "GET" : "POST"),
-        headers: headers,
-        body: settings.body === undefined ? undefined : JSON.stringify(settings.body),
-        cache: "no-store"
-      });
-    } catch (error) {
-      throw new Error("Δεν ήταν δυνατή η σύνδεση με τον Server. Η ενέργεια δεν ολοκληρώθηκε.");
+    const method = settings.method || (settings.body === undefined ? "GET" : "POST");
+    const attempts = method === "GET" ? 3 : 1;
+    for (let attempt=0; attempt<attempts; attempt++) {
+      try {
+        response = await fetch(apiBase + path, { method: method, headers: headers,
+          body: settings.body === undefined ? undefined : JSON.stringify(settings.body), cache: "no-store" });
+      } catch (error) {
+        if (attempt+1 < attempts) { await new Promise(resolve => setTimeout(resolve, 500*(attempt+1))); continue; }
+        throw new Error("Δεν ήταν δυνατή η σύνδεση με τον Server. Τα υπάρχοντα δεδομένα διατηρούνται· δοκίμασε ξανά.");
+      }
+      if (![429,502,503,504].includes(response.status) || attempt+1 === attempts) break;
+      if (response.body && response.body.cancel) await response.body.cancel().catch(function () {});
+      await new Promise(resolve => setTimeout(resolve, 500*(attempt+1)));
     }
-    const payload = await response.json().catch(function () { return {}; });
+    let payload;
+    try { payload = await response.json(); }
+    catch (error) {
+      if (response.ok) throw new Error("Ο Server δεν επέστρεψε έγκυρα δεδομένα. Τα υπάρχοντα δεδομένα διατηρούνται· δοκίμασε ξανά.");
+      payload = {};
+    }
     recordApiTiming(path, response, startedAt);
     if (!response.ok) {
       if (response.status === 401 && settings.keepSession !== true) {
         clearSession();
         showAuth();
       }
-      const error = new Error(payload.error || "Η ενέργεια δεν ολοκληρώθηκε.");
+      const transient = [429,502,503,504].includes(response.status);
+      const ray = response.headers.get("CF-Ray");
+      const error = new Error(payload.error || (transient ? "Προσωρινή υπερφόρτωση του Server · δοκίμασε ξανά (HTTP " + response.status + ")." : "Η ενέργεια δεν ολοκληρώθηκε (HTTP " + response.status + ")."));
+      if (ray && /^[A-Za-z0-9-]{1,100}$/.test(ray)) error.message += " · Ray " + ray;
       error.code = payload.code || "";
       error.status = response.status;
       error.conflict = payload.conflict || null;
@@ -2930,7 +2943,7 @@
       const correctionBadge = data.correctedByUserAt ? '<span class="invoice-user-correction">✓ Διορθώθηκε από χρήστη</span>' : "";
       const newBadge = item.isNew ? '<span class="invoice-new-badge">ΝΕΟ</span>' : '';
       const retryJobId = item.jobId || data.qrJobId || '';
-      const retryHtml = retryJobId && (item.canRetry || ["error", "delayed"].includes(String(item.status))) ? '<button class="secondary-button invoice-retry-button" type="button" data-invoice-retry="' + escapeHtml(retryJobId) + '" data-invoice-retry-record="' + escapeHtml(item.id) + '">Επανάληψη</button>' : '';
+      const retryHtml = (retryJobId || (item.key && item.error)) && (item.canRetry || ["error", "delayed"].includes(String(item.status))) ? '<button class="secondary-button invoice-retry-button" type="button" data-invoice-retry="' + escapeHtml(retryJobId) + '" data-invoice-retry-record="' + escapeHtml(item.id) + '">Επανάληψη</button>' : '';
       const forceAiHtml = hasPdf && can("fleet.manage") ? '<button class="secondary-button invoice-force-ai-button" type="button" data-invoice-force-ai="' + escapeHtml(item.id) + '" ' + (state.invoiceReprocessBusy ? 'disabled' : '') + '>⚡ Workers AI</button>' : '';
       const deleteHtml = can("fleet.manage") ? '<button class="secondary-button invoice-delete-button" type="button" data-invoice-delete="' + escapeHtml(item.id) + '">Διαγραφή</button>' : '';
       return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? 'PDF διαθέσιμο' : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα PDF</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη PDF</button>' + deleteHtml + '</div></article>';
@@ -3177,6 +3190,15 @@
   async function retryInvoiceDocument(id) {
     const record = invoiceDocumentById(id);
     if (!record) return;
+    if (record.key && record.error) {
+      try {
+        const result = await api("/api/admin/service-documents/reprocess", { method: "POST", body: { key: record.key, forceAi: true } });
+        if (result.document) state.invoiceDocuments = state.invoiceDocuments.map(item => String(item.id) === String(record.id) ? result.document : item);
+        renderInvoiceQueue();
+        toast(result.ocrWarning ? "Η νέα ανάγνωση δεν ολοκληρώθηκε. Το PDF παραμένει αποθηκευμένο· δες το σφάλμα στην κάρτα." : "Η ανάγνωση του αποθηκευμένου PDF ολοκληρώθηκε.");
+      } catch (error) { toast(error.message); }
+      return;
+    }
     const jobId = record.jobId || (record.invoiceData && record.invoiceData.qrJobId);
     if (!jobId) return void toast("Δεν βρέθηκε εργασία για επανάληψη.");
     try {
@@ -3185,8 +3207,9 @@
       await loadInvoices();
       for (let attempt = 0; attempt < 42; attempt += 1) {
         await new Promise(function (resolve) { setTimeout(resolve, 3000); });
-        const status = await api("/api/service-documents/jobs/" + encodeURIComponent(jobId));
-        await loadInvoices();
+        let status;
+        try { status = await api("/api/service-documents/jobs/" + encodeURIComponent(jobId)); await loadInvoices(); }
+        catch (error) { if (error.status === 401 || error.status === 403) throw error; continue; }
         if (status.status === "completed") { toast("Το PDF του τιμολογίου είναι έτοιμο."); break; }
         if (status.status === "error") { toast("Η επανάληψη απέτυχε. Δες το σφάλμα στην κάρτα."); break; }
       }
@@ -3291,10 +3314,21 @@
     } catch (error) { toast(error.message); }
   }
 
-  function openAdminInvoiceReview(id) {
+  async function openAdminInvoiceReview(id) {
     const record = invoiceDocumentById(id);
     if (!record) return;
     if (record.status === "processing" || record.status === "delayed") return;
+    const opening = Symbol("invoice-review");
+    state.invoiceReviewOpening = opening;
+    if (record.transferOptionsLazy && record.key) {
+      try {
+        const options = await api("/api/admin/service-documents/transfer-options?bikeId=" + encodeURIComponent(record.bikeId)
+          + "&entryId=" + encodeURIComponent(record.entryId) + "&key=" + encodeURIComponent(record.key));
+        record.transferOptions = Array.isArray(options.options) ? options.options : [];
+        record.transferOptionsLazy = false;
+      } catch (error) { toast(error.message); return; }
+    }
+    if (state.invoiceReviewOpening !== opening) return;
     markInvoiceSeen(record);
     state.invoiceReviewDocument = record;
     const data = record.invoiceData || {};
