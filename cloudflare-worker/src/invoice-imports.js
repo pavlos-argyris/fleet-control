@@ -3,7 +3,7 @@ export const INVOICE_IMPORT_SCHEMA = `CREATE TABLE IF NOT EXISTS invoice_import_
  id TEXT PRIMARY KEY NOT NULL, owner_id TEXT NOT NULL, data TEXT NOT NULL,
  status TEXT NOT NULL DEFAULT 'processing', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS invoice_import_drafts_owner_status ON invoice_import_drafts(owner_id,status,created_at);
-CREATE UNIQUE INDEX IF NOT EXISTS invoice_import_drafts_active_qr ON invoice_import_drafts(owner_id,json_extract(data,'$.qrUrl')) WHERE status IN ('processing','ready','committing');`;
+CREATE INDEX IF NOT EXISTS invoice_import_drafts_active_qr ON invoice_import_drafts(owner_id,json_extract(data,'$.qrUrl')) WHERE status IN ('processing','ready','committing');`;
 
 export async function invoiceDuplicates(
   env,
@@ -313,23 +313,17 @@ export async function routeInvoiceImports(request, env, deps) {
       progressStage: "Προσχέδιο QR · αναμονή Server",
       attemptCount: 0,
     };
-    try {
-      await env.DB.batch([
-        env.DB.prepare(
-          "INSERT INTO invoice_import_drafts(id,owner_id,data,status,created_at,updated_at) VALUES(?,?,?,'processing',?,?)",
-        ).bind(id, actor.id, JSON.stringify(data), now, now),
-        env.DB.prepare(
-          "INSERT INTO fleet_operations(id,source,type,payload,status,created_at) VALUES(?,'invoice-import','service_document_render',?,'pending',?)",
-        ).bind(jobId, JSON.stringify(payload), now),
-      ]);
-    } catch (error) {
-      const existing = await env.DB.prepare(
-        "SELECT id FROM invoice_import_drafts WHERE owner_id=? AND status IN('processing','ready','committing') AND json_extract(data,'$.qrUrl')=? LIMIT 1",
-      )
-        .bind(actor.id, qrUrl)
-        .first();
-      if (existing) return deps.json({ duplicate: true, draftId: existing.id });
-      throw error;
+    // Atomic insert guards prevent racing scans without a unique constraint
+    // that would reject older draft rows during a merge-style backup restore.
+    const inserted=await env.DB.batch([
+      env.DB.prepare("INSERT INTO invoice_import_drafts(id,owner_id,data,status,created_at,updated_at) SELECT ?,?,?,'processing',?,? WHERE NOT EXISTS(SELECT 1 FROM invoice_import_drafts WHERE owner_id=? AND status IN('processing','ready','committing') AND json_extract(data,'$.qrUrl')=?) AND (SELECT COUNT(*) FROM invoice_import_drafts WHERE owner_id=? AND status IN('processing','ready','committing'))<200")
+        .bind(id,actor.id,JSON.stringify(data),now,now,actor.id,qrUrl,actor.id),
+      env.DB.prepare("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) SELECT ?,'invoice-import','service_document_render',?,'pending',? WHERE EXISTS(SELECT 1 FROM invoice_import_drafts WHERE id=?)")
+        .bind(jobId,JSON.stringify(payload),now,id)
+    ]);
+    if(!inserted[0].meta?.changes){
+      const existing=await env.DB.prepare("SELECT id FROM invoice_import_drafts WHERE owner_id=? AND status IN('processing','ready','committing') AND json_extract(data,'$.qrUrl')=? LIMIT 1").bind(actor.id,qrUrl).first();
+      return existing?deps.json({duplicate:true,draftId:existing.id}):deps.json({error:'Υπάρχουν ήδη 200 ενεργά προσχέδια.'},409);
     }
     return deps.json({ queued: true, draftId: id, jobId }, 202);
   }
@@ -392,12 +386,11 @@ export async function routeInvoiceImports(request, env, deps) {
     });
   if (!["ready", "committing"].includes(row.status) || !data.attachment)
     return deps.json({ error: "Περίμενε να ολοκληρωθεί η ανάλυση." }, 409);
-  const matches = await invoiceDuplicates(env, {
+  const matches = (await invoiceDuplicates(env, {
     qrUrl: data.qrUrl,
     supplier: data.invoiceData?.supplier || "",
     invoiceNumber: data.invoiceData?.invoiceNumber || "",
-    excludeKey: data.attachment.key,
-  });
+  })).filter(match=>!(row.status==='committing'&&match.key===data.attachment.key&&match.bikeId===data.commitIntent?.bikeId&&match.entryId===(data.commitIntent?.entryId||'draft-service-'+row.id)));
   if (matches.length && !body.allowDuplicate)
     return deps.json(
       {

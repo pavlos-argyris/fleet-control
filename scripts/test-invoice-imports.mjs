@@ -40,7 +40,7 @@ const db = {
     sqlite.exec("BEGIN");
     try {
       const r = [];
-      for (const s of stmts) r.push(await s.run());
+      for (const s of stmts) {const value=s.db.prepare(s.sql).run(...s.args);r.push({meta:{changes:Number(value.changes),last_row_id:Number(value.lastInsertRowid)}});}
       sqlite.exec("COMMIT");
       return r;
     } catch (e) {
@@ -495,3 +495,25 @@ assert.equal((await fallback.json()).aiUsed, true);
 console.log(
   "OK invoice drafts: auth, unsafe URLs, duplicate QR/identity, retry fencing, isolated preview, impact/date validation, idempotent commit, separate invoice date, rules, pause/resume and ambiguous AI fallback.",
 );
+
+// Restoring an older active draft must not make an otherwise valid merged
+// backup fail because another draft of that QR exists after the backup.
+const restoreQr=qr+'-restore',restoreId='restored-draft',owner=sqlite.prepare("SELECT owner_id FROM invoice_import_drafts LIMIT 1").get().owner_id;
+sqlite.prepare("INSERT INTO invoice_import_drafts(id,owner_id,data,status,created_at,updated_at) VALUES(?,?,?,'ready',?,?)").run(restoreId,owner,JSON.stringify({qrUrl:restoreQr}),stamp,stamp);
+sqlite.prepare("INSERT INTO invoice_import_drafts(id,owner_id,data,status,created_at,updated_at) VALUES(?,?,?,'ready',?,?)").run('post-backup-draft',owner,JSON.stringify({qrUrl:restoreQr}),stamp,stamp);
+const beforeOps=sqlite.prepare('SELECT count(*) n FROM fleet_operations').get().n;
+assert.equal((await (await call(endpoint,{action:'scan',value:restoreQr},token)).json()).duplicate,true);
+assert.equal(sqlite.prepare('SELECT count(*) n FROM fleet_operations').get().n,beforeOps);
+// A recovered old draft cannot silently attach the same R2 object elsewhere.
+sqlite.prepare("UPDATE invoice_import_drafts SET status='ready' WHERE id=?").run(draft.draftId);
+const recovered=await call(endpoint,{...commit,entryId:'service',confirmImpact:true},token);assert.equal(recovered.status,409);assert.equal((await recovered.json()).code,'duplicate_invoice');
+console.log('OK draft recovery guards: merge-compatible restored rows, no new duplicate scan job and explicit duplicate confirmation for an already-linked recovered PDF.');
+
+const concurrentQr=qr+'-concurrent';const concurrent=await Promise.all([call(endpoint,{action:'scan',value:concurrentQr},token),call(endpoint,{action:'scan',value:concurrentQr},token)]);
+assert.deepEqual(concurrent.map(r=>r.status).sort(),[200,202]);assert.equal(sqlite.prepare("SELECT count(*) n FROM invoice_import_drafts WHERE json_extract(data,'$.qrUrl')=? AND status='processing'").get(concurrentQr).n,1);
+assert.equal(sqlite.prepare("SELECT count(*) n FROM fleet_operations WHERE json_extract(payload,'$.qrUrl')=? AND status='pending'").get(concurrentQr).n,1);
+let active=sqlite.prepare("SELECT count(*) n FROM invoice_import_drafts WHERE owner_id=? AND status IN('processing','ready','committing')").get(owner).n;
+for(let i=active;i<199;i++)sqlite.prepare("INSERT INTO invoice_import_drafts(id,owner_id,data,status,created_at,updated_at) VALUES(?,?,?,'ready',?,?)").run('limit-'+i,owner,JSON.stringify({qrUrl:qr+'-limit-'+i}),stamp,stamp);
+const limited=await Promise.all(Array.from({length:3},(_,i)=>call(endpoint,{action:'scan',value:qr+'-racing-limit-'+i},token)));
+assert.equal(limited.filter(r=>r.status===202).length,1);assert.equal(limited.filter(r=>r.status===409).length,2);assert.equal(sqlite.prepare("SELECT count(*) n FROM invoice_import_drafts WHERE owner_id=? AND status IN('processing','ready','committing')").get(owner).n,200);
+console.log('OK concurrent QR scans: exactly one draft/job for a duplicate race and exactly 200 active drafts at a racing limit.');
