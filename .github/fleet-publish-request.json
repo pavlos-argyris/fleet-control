@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-f2f1aa59-8fdc-426e-ab45-a6c25abb91a9",
-  "sourceCommit": "2fea67ca31fb3077a8b26ebbe56631846712747e",
-  "releaseVersion": "5.42.1",
-  "requestedAt": "2026-10-10T21:26:49.805Z",
-  "reason": "Publish verified Fleet 5.42.1 with local OCR, QR imports, hourly OTA and D1 startup regression fix"
+  "requestId": "fleet-e0e11360-e8f6-4baf-a1ce-f9388382f199",
+  "sourceCommit": "a65eeb2164422eb5e8fbc1044cf1414f999a59a6",
+  "releaseVersion": "5.43.0",
+  "requestedAt": "2026-10-11T19:57:28.726Z",
+  "reason": "User authorized automatic Fleet 5.43.0 release; exact source CI 38170025878 passed; compatible APKs and service, invoice, history and restore changes verified."
 }
