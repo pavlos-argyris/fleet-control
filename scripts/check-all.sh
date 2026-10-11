@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+python3 scripts/prepare-pdf-viewer.py
 python3 scripts/check-source-safety.py
 node scripts/check-web-assets.mjs cloudflare-worker/public client-android/assets/www
 node --check server-android/assets/www/app.js

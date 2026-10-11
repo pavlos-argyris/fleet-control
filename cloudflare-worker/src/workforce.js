@@ -784,6 +784,7 @@ export async function routeWorkforce(request, env, path, deps) {
     if (path === "/api/server/system-export/page" && request.method === "GET") return systemExportPage(request, env, deps);
     if (path === "/api/server/system-export" && request.method === "GET") return systemExport(request, env, deps);
     if (path === "/api/server/system-import" && request.method === "PUT") return systemImport(request, env, deps);
+    if (path === "/api/server/system-import/preview" && request.method === "POST") return systemImportPreview(request, env, deps);
       return null;
     })();
   } catch (error) {
@@ -5176,7 +5177,8 @@ function importStatement(env, table, row) {
     alert_rules: ["type","enabled","severity","channel","updated_at","updated_by"],
     deleted_records: ["id","record_type","record_id","label","payload","deleted_at","deleted_by","deleted_by_name","reason","restored_at","restored_by","restore_reason"],
     audit_log: ["id","timestamp","user_id","user_name","role","action","object_type","object_id","old_value","new_value","reason","ip_address","device_id","admin_pin_used"],
-    system_settings: ["key","value","updated_at","updated_by"]
+    system_settings: ["key","value","updated_at","updated_by"],
+    invoice_import_drafts: ["id","owner_id","data","status","created_at","updated_at"]
   };
   const columns = columnsByTable[table];
   if (!columns) return null;
@@ -5200,6 +5202,10 @@ async function systemImport(request, env, deps) {
   await requirePin(request, env, deps);
   const body = await bodyJson(request);
   if (Number(body.schemaVersion) < 2 || !body.workforce || typeof body.workforce !== "object") throw new ApiError(400, "Το system backup δεν είναι έγκυρο.");
+  if (body.restoreGuard) {
+    const guard=body.restoreGuard;
+    if (!guard.digest || Date.now()-Number(guard.at)>300000 || Number(guard.at)>Date.now()+10000 || await restoreStateDigest(env)!==guard.digest) throw new ApiError(409,"Τα δεδομένα άλλαξαν ή η προεπισκόπηση έληξε. Άνοιξε ξανά το backup πριν την επαναφορά.");
+  }
   const statements = [];
   for (const table of EXPORT_TABLES) {
     const rows = Array.isArray(body.workforce[table]) ? body.workforce[table] : [];
@@ -5209,7 +5215,46 @@ async function systemImport(request, env, deps) {
     });
   }
   for (let index = 0; index < statements.length; index += 70) await env.DB.batch(statements.slice(index, index + 70));
-  if (body.fleet && Array.isArray(body.fleet.bikes)) await deps.writeSnapshot(env, body.fleet, "backup-restore", Date.now());
+  if (body.fleet && Array.isArray(body.fleet.bikes)) {
+    const current=await deps.readSnapshot(env);
+    const restored=deps.mergeRestoreFleet?deps.mergeRestoreFleet(current.data,body.fleet):body.fleet;
+    await deps.writeSnapshot(env, restored, "backup-restore", Date.now());
+  }
   await audit(env, request, null, "system_backup_restored", "backup", text(body.createdAt, 40), null, { records: statements.length }, "Restore από Server APK", true);
   return wfJson({ restored: true, records: statements.length });
+}
+
+async function restoreStateDigest(env) {
+  const signatures=[];
+  for(const table of EXPORT_TABLES) {
+    const columns=(await env.DB.prepare(`PRAGMA table_info(${table})`).all()).results||[];
+    const fields=columns.flatMap(c=>["'"+c.name.replace(/'/g,"''")+"'",'"'+c.name.replace(/"/g,'""')+'"']).join(',');
+    const row=await env.DB.prepare(`SELECT COALESCE(json_group_array(json(row_json)),'[]') AS data FROM (SELECT json_object(${fields}) AS row_json FROM ${table} ORDER BY rowid)`).first();
+    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(row?.data||'[]'));
+    signatures.push(table+':'+Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join(''));
+  }
+  const snapshot=await env.DB.prepare('SELECT version,data FROM fleet_snapshot WHERE id=1').first();
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signatures.join('|')+'|'+(snapshot?.version||0)+'|'+(snapshot?.data||'')));
+  return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function systemImportPreview(request,env,deps) {
+  if(!await deps.serverAuthorized(request,env))throw new ApiError(401,'Μη έγκυρος Server.');
+  await requirePin(request,env,deps);const body=await bodyJson(request);
+  if(Number(body.schemaVersion)<2||!body.workforce||typeof body.workforce!=='object')throw new ApiError(400,'Το backup δεν είναι έγκυρο.');
+  const before=await restoreStateDigest(env),tables=[];let added=0,replaced=0,preserved=0,ignored=0;
+  for(const table of EXPORT_TABLES){
+    const rows=Array.isArray(body.workforce[table])?body.workforce[table]:[],columns=(await env.DB.prepare(`PRAGMA table_info(${table})`).all()).results||[];
+    const keys=columns.filter(c=>c.pk).sort((a,b)=>a.pk-b.pk).map(c=>c.name);
+    if(!keys.length)throw new ApiError(400,'Δεν αναγνωρίστηκε το κλειδί του πίνακα '+table+'.');
+    const seen=new Set();for(const row of rows){if(!row||typeof row!=='object'||keys.some(k=>row[k]==null||String(row[k])===''))throw new ApiError(400,'Μη έγκυρη εγγραφή στο '+table+'.');const id=JSON.stringify(keys.map(k=>row[k]));if(seen.has(id))throw new ApiError(400,'Διπλό κλειδί στο backup: '+table+'.');seen.add(id);}
+    const join=keys.map(k=>`json_extract(j.value,'$.${k}')=t."${k}"`).join(' AND '),data=JSON.stringify(rows);
+    const matches=await env.DB.prepare(`SELECT COUNT(*) AS n FROM json_each(?) j JOIN ${table} t ON ${join}`).bind(data).first();
+    const current=await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first();
+    const matched=Number(matches?.n||0),appendOnly=['audit_log','pay_rule_versions'].includes(table);
+    const item={table,added:rows.length-matched,replaced:appendOnly?0:matched,preserved:Number(current?.n||0)-matched,ignored:appendOnly?matched:0};
+    tables.push(item);added+=item.added;replaced+=item.replaced;preserved+=item.preserved;ignored+=item.ignored;
+  }
+  const after=await restoreStateDigest(env);if(before!==after)throw new ApiError(409,'Τα δεδομένα αλλάζουν αυτή τη στιγμή. Δοκίμασε ξανά την προεπισκόπηση.');
+  return wfJson({preview:true,createdAt:body.createdAt||'',tables,added,replaced,preserved,ignored,restoreGuard:{digest:after,at:Date.now()},warning:'Οι αντίστοιχες εγγραφές αντικαθίστανται από το backup. Πρόσθετες εγγραφές που δεν περιέχει διατηρούνται. Η συνολική επαναφορά συσκευής και cloud γίνεται σε στάδια.'});
 }

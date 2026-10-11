@@ -133,8 +133,7 @@ public final class BackupManager {
         }
     }
 
-    public static synchronized JSONObject restoreBackup(Context context, FleetDataStore store, Uri uri) throws Exception {
-        SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    public static synchronized JSONObject readBackup(Context context, FleetDataStore store, Uri uri) throws Exception {
         InputStream input = context.getContentResolver().openInputStream(uri);
         if (input == null) throw new IllegalArgumentException("Το αρχείο backup δεν είναι διαθέσιμο.");
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -156,7 +155,6 @@ public final class BackupManager {
         if (fleet == null || fleet.optJSONArray("bikes") == null) {
             throw new IllegalArgumentException("Το αρχείο δεν είναι έγκυρο Fleet Control backup.");
         }
-        createPreRestoreBackup(context, store);
         if (root.optJSONObject("workforce") == null) {
             JSONObject upgraded = store.fullBackupPayload();
             upgraded.put("fleet", fleet);
@@ -164,6 +162,19 @@ public final class BackupManager {
             root = upgraded;
         }
         root.put("schemaVersion", 3);
+        if (root.optJSONObject("fleet") == null) root.put("fleet", new JSONObject(fleet.toString()));
+        return root;
+    }
+
+    public static synchronized JSONObject restoreBackup(Context context, FleetDataStore store, Uri uri) throws Exception {
+        return restorePreparedBackup(context, store, uri, readBackup(context, store, uri));
+    }
+
+    public static synchronized JSONObject restorePreparedBackup(Context context, FleetDataStore store, Uri uri, JSONObject prepared) throws Exception {
+        JSONObject root = new JSONObject(prepared.toString());
+        JSONObject fleet = root.getJSONObject("fleet");
+        SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        createPreRestoreBackup(context, store);
         JSONObject settings = root.optJSONObject("settings");
         if (settings != null) {
             String workerUrl = settings.optString("workerUrl", preferences.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL));

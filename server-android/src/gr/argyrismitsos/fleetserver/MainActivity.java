@@ -38,6 +38,16 @@ public final class MainActivity extends Activity {
     private SharedPreferences preferences;
     private ExecutorService executor;
     private String pendingRestorePin = "";
+    private Uri pendingRestoreUri;
+    private JSONObject pendingRestoreData;
+    private JSONObject pendingRestoreGuard;
+    private String pendingRestoreLocalState = "";
+    private String pendingRestoreBase = "";
+
+
+    private void clearRestoreData() { pendingRestoreUri=null;pendingRestoreData=null;pendingRestoreGuard=null;pendingRestoreLocalState="";pendingRestoreBase=""; }
+    private void clearRestorePreview() { pendingRestorePin="";clearRestoreData(); }
+    private String localRestoreState() throws Exception { return store.getFleet().toString()+"|"+store.getSystemExport().toString(); }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -330,6 +340,46 @@ public final class MainActivity extends Activity {
             pickFile("*/*", PICK_BACKUP_FILE);
         }
 
+        @JavascriptInterface public void cancelBackupRestore() { clearRestorePreview(); }
+        @JavascriptInterface public void confirmBackupRestore() {
+            runTask("backupRestore", new Task() {
+                @Override public JSONObject run() throws Exception {
+                    try {
+                        if (pendingRestoreData == null || pendingRestoreUri == null || pendingRestoreGuard == null) throw new IllegalStateException("Άνοιξε πρώτα την προεπισκόπηση backup.");
+                        if (!localRestoreState().equals(pendingRestoreLocalState)) throw new IllegalStateException("Τα τοπικά δεδομένα άλλαξαν. Άνοιξε ξανά το backup.");
+                        String base = pendingRestoreBase;
+                        Map<String, String> verifyHeaders = SyncService.serverHeaders();
+                        verifyHeaders.put("X-Admin-Pin", pendingRestorePin);
+                        JSONObject refreshed = FleetHttp.sendJson(base + "/api/server/system-import/preview", "POST", pendingRestoreData, verifyHeaders);
+                        if (!refreshed.getJSONObject("restoreGuard").optString("digest").equals(pendingRestoreGuard.optString("digest"))) throw new IllegalStateException("Τα δεδομένα cloud άλλαξαν. Άνοιξε ξανά το backup.");
+                        if (!localRestoreState().equals(pendingRestoreLocalState)) throw new IllegalStateException("Τα τοπικά δεδομένα άλλαξαν. Άνοιξε ξανά το backup.");
+                        JSONObject backup = BackupManager.restorePreparedBackup(getApplicationContext(), store, pendingRestoreUri, pendingRestoreData);
+                        backup.put("restoreGuard", refreshed.getJSONObject("restoreGuard"));
+                        Map<String, String> headers = SyncService.serverHeaders();
+                        headers.put("X-Admin-Pin", pendingRestorePin);
+                        JSONObject remote = FleetHttp.sendJson(base + "/api/server/system-import", "PUT", backup, headers);
+                        JSONObject fleet = backup.optJSONObject("fleet");
+                        int bikes = fleet == null || fleet.optJSONArray("bikes") == null ? 0 : fleet.optJSONArray("bikes").length();
+                        JSONObject documentRestore = backup.optJSONObject("documentRestore");
+                        JSONObject documentUpload;
+                        try {
+                            documentUpload = ServiceDocumentStore.uploadRestoredDocuments(getApplicationContext(), documentRestore, base, headers);
+                        } catch (Exception error) {
+                            documentUpload = new JSONObject().put("uploaded", 0).put("missing", 0).put("expected", documentRestore == null ? 0 : documentRestore.optInt("expected", 0)).put("error", error.getMessage() == null ? "Δεν ολοκληρώθηκε η μεταφόρτωση τιμολογίων." : error.getMessage());
+                        }
+                        return new JSONObject().put("bikes", bikes).put("records", remote.optInt("records", 0))
+                                .put("documentsExpected", documentRestore == null ? 0 : documentRestore.optInt("expected", 0))
+                                .put("documentsRestoredLocally", documentRestore == null ? 0 : documentRestore.optInt("restored", 0))
+                                .put("documentsUploaded", documentUpload.optInt("uploaded", 0))
+                                .put("documentsMissing", documentUpload.optInt("missing", 0))
+                                .put("documentsUploadError", documentUpload.optString("error", ""));
+                    } finally {
+                        clearRestorePreview();
+                    }
+                }
+            });
+        }
+
         @JavascriptInterface public void resumeInvoiceBatch() {
             runTask("invoiceResume",new Task(){public JSONObject run() throws Exception {
                 String base=preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
@@ -431,32 +481,17 @@ public final class MainActivity extends Activity {
                 @Override public JSONObject run() throws Exception { return UpdateManager.uploadWebPackage(getApplicationContext(), uri); }
             });
         } else if (requestCode == PICK_BACKUP_FILE) {
-            runTask("backupRestore", new Task() {
+            runTask("backupPreview", new Task() {
                 @Override public JSONObject run() throws Exception {
-                    try {
-                        JSONObject backup = BackupManager.restoreBackup(getApplicationContext(), store, uri);
-                        Map<String, String> headers = SyncService.serverHeaders();
-                        headers.put("X-Admin-Pin", pendingRestorePin);
-                        String base = preferences.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
-                        JSONObject remote = FleetHttp.sendJson(base + "/api/server/system-import", "PUT", backup, headers);
-                        JSONObject fleet = backup.optJSONObject("fleet");
-                        int bikes = fleet == null || fleet.optJSONArray("bikes") == null ? 0 : fleet.optJSONArray("bikes").length();
-                        JSONObject documentRestore = backup.optJSONObject("documentRestore");
-                        JSONObject documentUpload;
-                        try {
-                            documentUpload = ServiceDocumentStore.uploadRestoredDocuments(getApplicationContext(), documentRestore, base, headers);
-                        } catch (Exception error) {
-                            documentUpload = new JSONObject().put("uploaded", 0).put("missing", 0).put("expected", documentRestore == null ? 0 : documentRestore.optInt("expected", 0)).put("error", error.getMessage() == null ? "Δεν ολοκληρώθηκε η μεταφόρτωση τιμολογίων." : error.getMessage());
-                        }
-                        return new JSONObject().put("bikes", bikes).put("records", remote.optInt("records", 0))
-                                .put("documentsExpected", documentRestore == null ? 0 : documentRestore.optInt("expected", 0))
-                                .put("documentsRestoredLocally", documentRestore == null ? 0 : documentRestore.optInt("restored", 0))
-                                .put("documentsUploaded", documentUpload.optInt("uploaded", 0))
-                                .put("documentsMissing", documentUpload.optInt("missing", 0))
-                                .put("documentsUploadError", documentUpload.optString("error", ""));
-                    } finally {
-                        pendingRestorePin = "";
-                    }
+                    clearRestoreData();
+                    String base = preferences.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
+                    JSONObject backup = BackupManager.readBackup(getApplicationContext(), store, uri);
+                    String local = localRestoreState();
+                    Map<String,String> headers = SyncService.serverHeaders(); headers.put("X-Admin-Pin",pendingRestorePin);
+                    JSONObject result = FleetHttp.sendJson(base+"/api/server/system-import/preview","POST",backup,headers);
+                    if (!local.equals(localRestoreState())) throw new IllegalStateException("Τα τοπικά δεδομένα άλλαξαν. Άνοιξε ξανά το backup.");
+                    pendingRestoreData=backup;pendingRestoreUri=uri;pendingRestoreGuard=result.getJSONObject("restoreGuard");pendingRestoreLocalState=local;pendingRestoreBase=base;
+                    return result;
                 }
             });
         }

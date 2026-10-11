@@ -19,7 +19,7 @@ import java.util.concurrent.*;
 
 /** Text first, bounded local OCR second. Originals and user confirmations stay separate. */
 public final class InvoicePipeline {
-    public static final String VERSION="reader-2.0-pdfbox-2.0.27-tess-5.5.1-fast";
+    public static final String VERSION="reader-2.1-amounts-pdfbox-2.0.27-tess-5.5.1-fast";
     public interface Progress { void stage(String text); }
     private static int activeOcr=0;
     private static boolean resourcesReady=false;

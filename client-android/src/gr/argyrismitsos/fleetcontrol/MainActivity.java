@@ -54,6 +54,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MainActivity extends Activity {
     private static final String CHANNEL_ID = "fleet_service_alerts";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 41;
+    private static final int HISTORY_EXPORT_REQUEST = 209;
+    private byte[] pendingHistoryExport;
     private static final int FILE_CHOOSER_REQUEST = 42;
     private static final int CAMERA_PERMISSION_REQUEST = 43;
     private static final String SESSION_PREFERENCES = "fleet_control_session";
@@ -242,6 +244,18 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == HISTORY_EXPORT_REQUEST) {
+            final byte[] bytes = pendingHistoryExport; pendingHistoryExport = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && bytes != null) {
+                final Uri target = data.getData();
+                new Thread(new Runnable() { public void run() {
+                    try { OutputStream output = getContentResolver().openOutputStream(target); if(output == null) throw new IllegalStateException("Δεν άνοιξε το αρχείο.");
+                        try { output.write(bytes); output.flush(); } finally { output.close(); }
+                        runOnUiThread(new Runnable() { public void run() { Toast.makeText(MainActivity.this,"Το Excel αποθηκεύτηκε.",Toast.LENGTH_SHORT).show(); }});
+                    } catch(Exception error) { runOnUiThread(new Runnable() { public void run() { Toast.makeText(MainActivity.this,"Δεν αποθηκεύτηκε το Excel. Δοκίμασε ξανά.",Toast.LENGTH_LONG).show(); }}); }
+                }}).start();
+            }
+        }
         if (requestCode == FILE_CHOOSER_REQUEST) {
             if (fileChooserCallback != null) {
                 Uri[] result = null;
@@ -497,6 +511,22 @@ public class MainActivity extends Activity {
                     }
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void exportHistoryExcel(final String encoded, final String requestedName) {
+            if (encoded == null || encoded.length() > 36 * 1024 * 1024 || pendingHistoryExport != null) return;
+            try {
+                final byte[] bytes = Base64.decode(encoded,Base64.DEFAULT);
+                if(bytes.length < 4 || bytes[0] != 80 || bytes[1] != 75) return;
+                runOnUiThread(new Runnable() { public void run() {
+                    pendingHistoryExport = bytes;
+                    Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT); intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+                    intent.putExtra(Intent.EXTRA_TITLE,"Fleet_Service_History.xlsx");
+                    try { startActivityForResult(intent,HISTORY_EXPORT_REQUEST); } catch(Exception error) { pendingHistoryExport=null;Toast.makeText(MainActivity.this,"Δεν υπάρχει εφαρμογή αποθήκευσης αρχείων.",Toast.LENGTH_LONG).show(); }
+                }});
+            } catch(Exception ignored) {}
         }
 
         @JavascriptInterface

@@ -524,6 +524,14 @@ public final class LocalInvoiceReader {
         return text.length() > MAX_PARSE_TEXT ? text.substring(0, MAX_PARSE_TEXT) : text;
     }
 
+    private static String findLabeledMoney(String text, String label) {
+        Pattern pattern = Pattern.compile("(?m)^\s*" + label + "\s*:?\s*(-?\d+(?:[.,]\d{3})*[.,]\d{2})\s*(?:€|EUR)?\s*$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+        Matcher matcher = pattern.matcher(text == null ? "" : text);
+        String found = "";
+        while (matcher.find()) { if (found.length() > 0) return ""; found = matcher.group(1); }
+        return found;
+    }
+
     private static JSONObject extractFields(String rawText) throws Exception {
         String text = rawText == null ? "" : rawText;
         List<String> lines = lines(text);
@@ -546,6 +554,11 @@ public final class LocalInvoiceReader {
         if (odometer.length() > 0) result.put("odometerKm", odometer);
         if (date.length() > 0) result.put("invoiceDate", date);
         if (total.length() > 0) result.put("totalAmount", total);
+        String net = findLabeledMoney(text, "(?:σύνολο\\s+καθαρού\\s+ποσού|καθαρή\\s+αξία|αξία\\s+προ\\s+φπα|net\\s+amount)");
+        String vat = findLabeledMoney(text, "(?:σύνολο\\s+φ\\.?π\\.?α\\.?|σύνολο\\s+φπα|ποσό\\s+φπα|φπα|vat\\s+amount)");
+        if (net.length() > 0) result.put("netAmount", net);
+        if (vat.length() > 0) result.put("vatAmount", vat);
+
         if (supplier.length() > 0) result.put("supplier", supplier);
         if (invoiceNumber.length() > 0) result.put("invoiceNumber", invoiceNumber);
         if (comments.length() > 0) result.put("comments", comments);

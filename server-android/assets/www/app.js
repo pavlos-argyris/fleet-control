@@ -295,6 +295,15 @@
         el.settingsMessage.textContent = payload.ok ? (payload.serverOnline ? "Η σύνδεση λειτουργεί και ο server φαίνεται online." : "Η Cloudflare πύλη λειτουργεί. Η υπηρεσία θα συνδεθεί σε λίγο.") : payload.message;
       } else if (event === "backup") {
         el.backupMessage.textContent = payload.ok ? "Το backup αποθηκεύτηκε: " + payload.fileName : payload.message;
+      } else if (event === "backupPreview") {
+        if(!payload.ok){el.backupMessage.textContent=payload.message;return;}
+        const d=document.createElement('dialog');d.className='backup-restore-preview';
+        d.innerHTML='<div class="dialog-head"><h2>Πριν από την επαναφορά</h2></div><p>Προσθήκες: <strong>'+Number(payload.added||0)+'</strong><br>Εγγραφές που αντικαθίστανται: <strong>'+Number(payload.replaced||0)+'</strong><br>Πρόσθετες εγγραφές που διατηρούνται: <strong>'+Number(payload.preserved||0)+'</strong></p><p>Οι εγγραφές με ίδιο κλειδί αντικαθίστανται από το backup. Οι επιπλέον εγγραφές παραμένουν. Θα δημιουργηθεί τοπικό αντίγραφο πριν την αλλαγή. Η επαναφορά συσκευής και cloud γίνεται σε στάδια· αν διακοπεί, έλεγξε το αποτέλεσμα πριν επαναλάβεις.</p><details><summary>Ανά κατηγορία</summary><div data-tables></div></details><div class="dialog-buttons"><button type="button" class="secondary" data-cancel>Ακύρωση</button><button type="button" class="primary" data-confirm>Επιβεβαίωση επαναφοράς</button></div>';
+        payload.tables.forEach(function(t){const row=document.createElement('p');row.textContent=t.table+': +'+t.added+' / αντικατάσταση '+t.replaced+' / διατήρηση '+t.preserved;d.querySelector('[data-tables]').append(row);});
+        document.body.append(d);let confirmed=false;
+        d.querySelector('[data-cancel]').onclick=function(){d.close();};
+        d.querySelector('[data-confirm]').onclick=function(){confirmed=true;d.querySelector('[data-confirm]').disabled=true;bridge.confirmBackupRestore();d.close();el.backupMessage.textContent='Επαναφορά σε εξέλιξη…';};
+        d.addEventListener('close',function(){if(!confirmed)bridge.cancelBackupRestore();d.remove();},{once:true});d.showModal();
       } else if (event === "backupRestore") {
         if (!payload.ok) {
           el.backupMessage.textContent = payload.message;

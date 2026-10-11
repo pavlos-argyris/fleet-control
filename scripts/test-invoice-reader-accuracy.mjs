@@ -55,6 +55,7 @@ public class ReaderAccuracyTest {
     equal("",field("findDate","Ημερομηνία Έκδοσης 31/02/2026\\nΗμερομηνία Παράδοσης 01/03/2026"));
     equal("",field("findInvoiceTotal","Σύνολο Καθαρού Ποσού 27,42\\nΝέο Υπόλοιπο 21354,32"));
     equal("34.00",field("findInvoiceTotal","Σύνολο 34.00"));
+    equal("27,42",data.optString("netAmount"));equal("6,58",data.optString("vatAmount"));
     String actual=data.optString("rawText");
     JSONObject labelled=LocalInvoiceReader.readText(actual.replace("82.385","χλμ: 82.385")); equal("82385",labelled.optString("odometerKm"));
     JSONObject sku=LocalInvoiceReader.readText(actual.replace("Σχόλια","KM95000 Κωδικός είδους\\nΣχόλια")); equal("82385",sku.optString("odometerKm"));

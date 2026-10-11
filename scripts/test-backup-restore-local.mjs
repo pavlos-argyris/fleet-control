@@ -720,6 +720,22 @@ assert.equal(batchComplete.batch.status, "completed");
     body: { bikeId: reviewBike.id, entryId: "review", key: document.key, invoiceData: { plate: "BTO-758" } } }));
   assert.equal(changed.document.status, "warning");
   assert.ok(changed.document.warnings.some(item => item.type === "plate"));
+
+  const kept=ok(await call('/api/admin/service-documents/review',{method:'POST',token:ownerToken,body:{bikeId:reviewBike.id,entryId:'review',key:document.key,keepOnCurrent:true,expectedServiceKm:9100,expectedEntryUpdatedAt:changed.document.serviceUpdatedAt,mileageDecision:'keep',invoiceData:{plate:'BTO-758',odometerKm:'9200',totalAmount:'59',netAmount:'50',vatAmount:'9'}}}));
+  assert.equal(kept.document.status,'confirmed');assert.deepEqual(kept.document.warnings,[]);assert.equal(kept.document.serviceKm,9100);assert.equal(kept.document.invoiceData.odometerKm,'9200');
+  const revision=kept.document.reviewJournal.at(-1);assert.ok(revision.id);
+  const undone=ok(await call('/api/admin/service-documents/undo-review',{method:'POST',token:ownerToken,body:{bikeId:reviewBike.id,entryId:'review',revisionId:revision.id}}));
+  assert.equal(undone.document.invoiceData.totalAmount,'50');assert.equal(undone.document.invoiceData.odometerKm,'9100');
+  assert.equal(undone.bike.history.find(e=>e.id==='check').km,12000,'Undo preserves unrelated mileage records');
+  ok(await call('/api/admin/service-documents/undo-review',{method:'POST',token:ownerToken,body:{bikeId:reviewBike.id,entryId:'review',revisionId:revision.id}}),409,'Already undone cannot replay');
+  const next=ok(await call('/api/admin/service-documents/review',{method:'POST',token:ownerToken,body:{bikeId:reviewBike.id,entryId:'review',key:document.key,keepOnCurrent:true,expectedServiceKm:9100,mileageDecision:'keep',invoiceData:{odometerKm:'9300'}}}));
+  const later=ok(await call('/api/sync',{token:ownerToken}));const rb=later.bikes.find(b=>b.id===reviewBike.id);rb.history.find(e=>e.id==='review').notes='A newer edit';rb.history.find(e=>e.id==='review').updatedAt=iso(Date.now()+10000);rb.updatedAt=iso(Date.now()+10000);ok(await call('/api/sync',{method:'POST',token:ownerToken,body:later}));
+  ok(await call('/api/admin/service-documents/undo-review',{method:'POST',token:ownerToken,body:{bikeId:reviewBike.id,entryId:'review',revisionId:next.document.reviewJournal.at(-1).id}}),409,'Later edit prevents unsafe undo');
+  const retryForm=new FormData();retryForm.set('bikeId',reviewBike.id);retryForm.set('entryId','review');retryForm.set('uploadId','stable-upload-test-123456');retryForm.set('file',new Blob(['%PDF-1.4 test upload'],{type:'application/pdf'}),'retry.pdf');
+  const firstUpload=ok(await callRaw('/api/service-documents',{method:'POST',token:ownerToken,body:retryForm}),201);
+  const secondUpload=ok(await callRaw('/api/service-documents',{method:'POST',token:ownerToken,body:retryForm}),200);
+  assert.equal(firstUpload.attachment.key,secondUpload.attachment.key);assert.equal(secondUpload.duplicate,true);
+  console.log('OK new review decisions: keep mismatch completes, dual readings persist, safe undo and stale protection, original upload ID prevents duplicate lost-response retries');
   console.log("OK invoice review API: explicit keep, completed status, durable user badge, confirmed manual mileage correction, stale protection and reprocessing preservation");
 }
 
@@ -754,9 +770,22 @@ assert.ok(savedEmployee);
 await db.prepare("UPDATE app_users SET full_name=? WHERE id=?").bind("Changed after backup", employeeA.id).run();
 const createdAfterBackup = await createEmployee({ fullName: "After backup", username: "after-backup", password: "Simulation-after-123", usesOwnVehicle: true });
 const serverBackupShape = { ...savedExport, schemaVersion: 3 };
+
+ok(await call('/api/server/system-import/preview',{method:'POST',body:serverBackupShape}),401,'Preview requires server credentials');
+const stateBeforePreview=(await db.prepare('SELECT full_name FROM app_users WHERE id=?').bind(employeeA.id).first()).full_name;
+const preview=ok(await call('/api/server/system-import/preview',{method:'POST',server:true,headers:{'X-Admin-Pin':recoveryPin},body:serverBackupShape}));
+assert.equal(preview.tables.length,28);assert.ok(preview.preserved>=1);assert.ok(preview.replaced>=1);assert.equal((await db.prepare('SELECT full_name FROM app_users WHERE id=?').bind(employeeA.id).first()).full_name,stateBeforePreview,'Preview must not change rows');
+await db.prepare('UPDATE app_users SET full_name=? WHERE id=?').bind('Changed during preview',employeeA.id).run();
+ok(await call('/api/server/system-import',{method:'PUT',server:true,headers:{'X-Admin-Pin':recoveryPin},body:{...serverBackupShape,restoreGuard:preview.restoreGuard}}),409,'Stale preview rejected before changes');
+assert.equal((await db.prepare('SELECT full_name FROM app_users WHERE id=?').bind(employeeA.id).first()).full_name,'Changed during preview');
+const currentFleet=ok(await call('/api/sync',{token:ownerToken}));currentFleet.bikes.push({id:'post-backup-bike',name:'BTO 999',intervalKm:3000,lastServiceKm:0,currentKm:0,createdAt:iso(Date.now()),updatedAt:iso(Date.now()),history:[]});ok(await call('/api/sync',{method:'POST',token:ownerToken,body:currentFleet}));
+const refreshed=ok(await call('/api/server/system-import/preview',{method:'POST',server:true,headers:{'X-Admin-Pin':recoveryPin},body:serverBackupShape}));serverBackupShape.restoreGuard=refreshed.restoreGuard;
 const imported = ok(await call("/api/server/system-import", { method: "PUT", server: true, headers: { "X-Admin-Pin": recoveryPin }, body: serverBackupShape }), 200, "restore simulated system backup");
 const restoredName = await db.prepare("SELECT full_name FROM app_users WHERE id=?").bind(employeeA.id).first();
 const laterRecord = await db.prepare("SELECT id FROM app_users WHERE id=?").bind(createdAfterBackup.id).first();
 assert.equal(restoredName.full_name, savedEmployee.full_name);
 assert.ok(laterRecord, "Current restore keeps post-backup workforce records: it is an upsert, not a point-in-time reset.");
 console.log(JSON.stringify({ recoveryCheck: "passed", data: "synthetic in-memory only", exportedTables: Object.keys(savedExport.workforce).length, restoredRecords: imported.records, savedRecordRestored: true, postBackupRecordPreserved: true, exactPointInTimeRestore: false }));
+
+assert.ok(ok(await call('/api/sync',{token:ownerToken})).bikes.some(b=>b.id==='post-backup-bike'),'Restore must preserve newly added bikes');
+console.log('OK read-only restore preview: 28 table counts, guard against later changes, refresh then import, preserved post-backup fleet and workforce records.');

@@ -416,7 +416,8 @@
 
   function renderCacheStatus(){
     let banner=$('localCacheStatus');if(!banner){banner=document.createElement('div');banner.id='localCacheStatus';banner.className='local-cache-status';$('portal').prepend(banner);}
-    banner.textContent=state.previewSession?'Αποθηκευμένα δεδομένα · αναμονή επιβεβαίωσης σύνδεσης'+(state.cacheAt?' · '+formatDateTime(state.cacheAt):''):'Τελευταία λήψη δεδομένων: '+(state.cacheAt?formatDateTime(state.cacheAt):'—');
+    banner.classList.toggle('is-hidden',!state.previewSession);
+    banner.textContent=state.previewSession?'Αποθηκευμένα δεδομένα · αναμονή επιβεβαίωσης σύνδεσης'+(state.cacheAt?' · '+formatDateTime(state.cacheAt):''):'';
   }
 
   async function initialize() {
@@ -3416,6 +3417,10 @@
     $("invoiceReviewDownload").disabled = !available;
     $("invoiceReviewSave").disabled = !available;
     $("invoiceReviewError").textContent = available ? "" : "Το PDF δεν έχει ολοκληρωθεί ακόμη από τον Server.";
+    if(window.FleetServiceUI)window.FleetServiceUI.reviewExtras($("invoiceReviewForm"),data,function(field){
+      const values={plate:$("invoiceReviewPlate").value,odometerKm:$("invoiceReviewOdometer").value,totalAmount:$("invoiceReviewTotal").value,invoiceDate:$("invoiceReviewDate").value};
+      window.FleetServiceUI.pdfEvidence(async function(){const headers={Authorization:'Bearer '+state.token};const response=await fetch(apiBase+'/api/service-documents/'+record.key.split('/').map(encodeURIComponent).join('/'),{headers,cache:'no-store'});if(!response.ok)throw new Error('Το PDF δεν είναι διαθέσιμο.');return response.blob();},field,values[field],record.name);
+    },function(){window.FleetServiceUI.journal({id:record.entryId,km:record.serviceKm,updatedAt:record.serviceUpdatedAt,reviewJournal:record.reviewJournal},async function(id){await api('/api/admin/service-documents/undo-review',{method:'POST',body:{bikeId:record.bikeId,entryId:record.entryId,revisionId:id}});$("invoiceReviewDialog").close();await loadInvoices();});});
     $("invoiceReviewDialog").showModal();
   }
 
@@ -3437,6 +3442,8 @@
       lineItems: tasks,
       comments: $("invoiceReviewComments").value.trim()
     });
+    const reviewTools = $("invoiceReviewForm")?.querySelector('[data-service-review-tools]');
+    if(reviewTools){invoiceData.netAmount=reviewTools.querySelector('[data-service-net]').value.trim();invoiceData.vatAmount=reviewTools.querySelector('[data-service-vat]').value.trim();}
     const transferBox = $("invoiceReviewTransfer");
     const transferVisible = transferBox && !transferBox.classList.contains("is-hidden");
     if (transferVisible && !state.invoiceReviewTransferChoice) {
@@ -3452,8 +3459,12 @@
     if (!destination) return void ($("invoiceReviewError").textContent = "Το service προορισμού δεν βρέθηκε.");
     const invoiceKm = Number(String(invoiceData.odometerKm || "").replace(/[^0-9]/g, ""));
     if (invoiceKm > 2000000000) return void ($("invoiceReviewError").textContent = "Γράψε σωστά τα χιλιόμετρα.");
-    const updateServiceKm = invoiceKm > 0 && invoiceKm !== Number(destination.serviceKm);
-    if (updateServiceKm && !window.confirm("Να διορθωθούν τα χιλιόμετρα του service από " + km(destination.serviceKm) + " σε " + km(invoiceKm) + ";")) return;
+    let mileageDecision = null;
+    if (invoiceKm > 0 && invoiceKm !== Number(destination.serviceKm)) {
+      mileageDecision = await window.FleetServiceUI.mileage(destination.serviceKm, invoiceKm);
+      if (!mileageDecision) return;
+    }
+    const updateServiceKm = mileageDecision === "apply";
     const button = $("invoiceReviewSave");
     button.disabled = true;
     $("invoiceReviewError").textContent = "";
@@ -3462,7 +3473,9 @@
         bikeId: record.bikeId, entryId: record.entryId, key: record.key, invoiceData: invoiceData, tasks: tasks,
         keepOnCurrent: state.invoiceReviewTransferChoice === "keep",
         updateServiceKm: updateServiceKm,
-        expectedServiceKm: updateServiceKm ? Number(destination.serviceKm) : undefined,
+        mileageDecision: mileageDecision || undefined,
+        expectedServiceKm: Number(destination.serviceKm),
+        expectedEntryUpdatedAt: record.serviceUpdatedAt,
         moveToBikeId: moveToBikeId || undefined,
         moveToEntryId: moveToEntryId || undefined
       } });

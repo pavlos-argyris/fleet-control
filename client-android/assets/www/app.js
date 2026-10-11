@@ -385,6 +385,7 @@
   function normalizeBike(bike) {
     if (!bike || !bike.id || !bike.name) return null;
     const intervalKm = Math.max(1, Math.round(Number(bike.intervalKm) || 1));
+    const maintenancePlans = window.FleetServiceModel ? window.FleetServiceModel.plans(bike.maintenancePlans) : [];
     const historyDeletedIds = deletedHistoryIds(bike.historyDeletedIds);
     const deleted = new Set(historyDeletedIds);
     const history = Array.isArray(bike.history)
@@ -407,6 +408,7 @@
             km: Math.max(0, Math.round(Number(entry.km) || 0)),
             date: entry.date || today(),
             notes: notes,
+            reviewJournal: window.FleetServiceModel ? window.FleetServiceModel.journal(entry.reviewJournal) : [],
             tasks: tasks,
             workshop: String(entry.workshop || "").trim().slice(0, 120),
             cost: String(entry.cost == null ? (entry.serviceCost || "") : entry.cost).trim().slice(0, 60),
@@ -422,6 +424,7 @@
                 id: String(file.id || ""),
                 key: String(file.key || ""),
                 name: String(file.name || "τιμολόγιο"),
+                uploadId: String(file.uploadId || ""),
                 contentType: String(file.contentType || "application/octet-stream"),
                 size: Math.max(0, Number(file.size) || 0),
                 uploadedAt: normalizedIso(file.uploadedAt),
@@ -457,6 +460,7 @@
     return {
       id: bike.id,
       name: String(bike.name),
+      maintenancePlans: maintenancePlans,
       intervalKm: intervalKm,
       lastServiceKm: lastServiceKm,
       currentKm: currentKm,
@@ -613,10 +617,10 @@
   }
 
   function selectedInvoiceFiles(input) {
-    return Array.from(input && input.files || []);
+    return Array.from(input && (input.fleetDraftFiles || input.files) || []);
   }
 
-  function invoiceSelectionError(entry, files, qrValue) {
+  function invoiceSelectionError(entry, files, qrValue, allowQueued) {
     const existing = Array.isArray(entry && entry.attachments) ? entry.attachments : [];
     const qrUrl = normalizeQrUrl(qrValue);
     const duplicateQr = qrUrl && existing.some(function (file) { return normalizeQrUrl(file.qrUrl || file.qrValue) === qrUrl; });
@@ -624,7 +628,7 @@
     if (existing.length + additions > MAX_SERVICE_ATTACHMENTS) {
       return "Μπορείς να κρατήσεις έως " + MAX_SERVICE_ATTACHMENTS + " τιμολόγια σε ένα service. Υπάρχουν ήδη " + existing.length + ".";
     }
-    if (additions && navigator.onLine === false) return "Για την προσθήκη τιμολογίων χρειάζεται σύνδεση. Τα επιλεγμένα αρχεία παραμένουν εδώ για να ξαναδοκιμάσεις.";
+    if (additions && navigator.onLine === false && !allowQueued) return "Για την προσθήκη τιμολογίων χρειάζεται σύνδεση. Τα επιλεγμένα αρχεία παραμένουν εδώ για να ξαναδοκιμάσεις.";
     return "";
   }
 
@@ -774,7 +778,7 @@
   function normalizeInvoiceData(value) {
     if (!value || typeof value !== "object") return null;
     const result = {};
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom"].forEach(function (field) {
       if (value[field] != null && String(value[field]).trim()) result[field] = String(value[field]).trim().slice(0, field === "rawText" ? 12000 : 2000);
     });
     ["analysisEngine","analysisVersion"].forEach(function(field){if(value[field])result[field]=String(value[field]).slice(0,100);});
@@ -792,7 +796,7 @@
     const first = normalizeInvoiceData(primary) || {};
     const second = normalizeInvoiceData(fallback) || {};
     const merged = { ...second, ...first };
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom"].forEach(function (field) {
       if (!String(first[field] || "").trim() && String(second[field] || "").trim()) merged[field] = second[field];
     });
     if (!Array.isArray(first.parts) && Array.isArray(second.parts)) merged.parts = second.parts;
@@ -998,7 +1002,7 @@
     }
     const invoiceKm = parseInvoiceKm(data && data.odometerKm);
     const serviceKm = Math.round(Number(entry && entry.km) || 0);
-    if (invoiceKm && serviceKm && invoiceKm !== serviceKm) {
+    if (invoiceKm && invoiceKm !== serviceKm && !(window.FleetServiceModel && window.FleetServiceModel.resolved(entry, data))) {
       warnings.push("Τα χιλιόμετρα του τιμολογίου (" + formatKm(invoiceKm) + ") διαφέρουν από την καταχώρηση service (" + formatKm(serviceKm) + ").");
     }
     return warnings;
@@ -1008,6 +1012,7 @@
     const data = mergeInvoiceData(reviewData, attachment ? attachment.ocr : entry && entry.invoiceData);
     if (!bike || !entry || !data) return;
     const now = new Date().toISOString();
+    const beforeReview = window.FleetServiceModel && window.FleetServiceModel.state(entry, attachment ? invoiceDataFromAttachment(attachment) : entry.invoiceData);
     if (reviewData.applyServiceKmCorrection === true && data.confirmedAt && data.serviceKmAfterCorrection && Number(data.serviceKmBeforeCorrection) === Number(entry.km)) {
       entry.km = parseInvoiceKm(data.serviceKmAfterCorrection);
       bike.historyCorrectedAt = now;
@@ -1023,6 +1028,7 @@
       attachment.name = invoiceDisplayName(bike, data, entry, attachment);
       ensureAttachmentQr(attachment, data.qrUrl);
     }
+    if (reviewData.userReviewIntent && window.FleetServiceModel) window.FleetServiceModel.decision(entry, attachment ? attachment.key : "local", beforeReview, data, currentUser && currentUser.username, now, false);
     entry.updatedAt = now;
     bike.updatedAt = now;
     refreshMajorTracking(bike);
@@ -2499,6 +2505,7 @@
     body.append("entryId", String(entryId));
     if (qrValue) body.append("qrValue", qrValue);
     body.append("file", file, file.name || "invoice");
+    if(file.fleetUploadId)body.append("uploadId",file.fleetUploadId);
     const headers = {};
     if (webToken) headers.Authorization = "Bearer " + webToken;
     const response = await fetch(apiBase + "/api/service-documents", {
@@ -2625,7 +2632,7 @@
   }
 
   async function attachInvoicesToEntry(bikeId, entryId, files, qrValue, options) {
-    files = Array.from(files || []);
+    files = Array.from(files || []).filter(function(file){const entry=getHistoryEntry(getBike(bikeId),entryId);return !file.fleetUploadId || !(entry && entry.attachments || []).some(function(a){return a.uploadId === file.fleetUploadId;});});
     options = options || {};
     const entry = getHistoryEntry(getBike(bikeId), entryId);
     const selectionError = invoiceSelectionError(entry, files, qrValue);
@@ -2702,6 +2709,7 @@
       workPerformed: String(data.workPerformed || "").trim(),
       comments: String(data.comments || data.notes || "").trim(),
       laborAmount: String(data.laborAmount || "").trim(),
+      netAmount: String(data.netAmount || "").trim(),
       vatAmount: String(data.vatAmount || "").trim(),
       parts: Array.isArray(data.parts) ? data.parts.slice() : [],
       rawText: String(data.rawText || "").trim(),
@@ -2734,6 +2742,10 @@
     elements.invoiceReviewMismatch.textContent = warning;
     elements.invoiceReviewMismatch.classList.toggle("is-hidden", !warning);
     elements.invoiceReviewError.textContent = attachment.ocrError || attachment.qrError || "";
+    if (window.FleetServiceUI) window.FleetServiceUI.reviewExtras(elements.invoiceReviewForm, initial, function(field) {
+      const values = { plate: elements.invoiceReviewPlate.value, odometerKm: elements.invoiceReviewOdometerKm.value, totalAmount: elements.invoiceReviewTotal.value, invoiceDate: elements.invoiceReviewDate.value };
+      window.FleetServiceUI.pdfEvidence(function(){ return servicePdfBlob(attachment.key); }, field, values[field], attachment.name);
+    }, function(){ window.FleetServiceUI.journal(entry, function(id){ return undoInvoiceDecision(bike, entry, id); }); });
     elements.invoiceReviewDialog.showModal();
     return new Promise(function (resolve) {
       let settled = false;
@@ -2767,18 +2779,27 @@
           qrUrl: initial.qrUrl,
           confirmedAt: new Date().toISOString()
         };
-        resolve(Object.assign(normalizeInvoiceData(result), { applyServiceKmCorrection: Boolean(initial.serviceKmAfterCorrection) }));
+        if (window.FleetServiceUI) {
+          const tools = elements.invoiceReviewForm.querySelector("[data-service-review-tools]");
+          result.netAmount = tools.querySelector("[data-service-net]").value.trim();
+          result.vatAmount = tools.querySelector("[data-service-vat]").value.trim();
+        }
+        resolve(Object.assign(normalizeInvoiceData(result), { userReviewIntent: true, applyServiceKmCorrection: Boolean(initial.serviceKmAfterCorrection) }));
       };
-      const onSubmit = function (event) {
+      const onSubmit = async function (event) {
         event.preventDefault();
         delete initial.serviceKmBeforeCorrection;
         delete initial.serviceKmAfterCorrection;
         const nextKm = parseInvoiceKm(elements.invoiceReviewOdometerKm.value);
         if (nextKm > 2000000000) { elements.invoiceReviewError.textContent = "Γράψε σωστά τα χιλιόμετρα."; return; }
         if (nextKm && nextKm !== Number(entry.km)) {
-          if (!window.confirm("Να διορθωθούν τα χιλιόμετρα του service από " + formatKm(entry.km) + " σε " + formatKm(nextKm) + ";")) return;
-          initial.serviceKmBeforeCorrection = String(entry.km);
-          initial.serviceKmAfterCorrection = String(nextKm);
+          const choice = window.FleetServiceUI ? await window.FleetServiceUI.mileage(entry.km, nextKm) : (window.confirm("Να διορθωθούν τα χιλιόμετρα του service;") ? "apply" : null);
+          if (!choice) return;
+          initial.mileageResolution = choice;
+          initial.mileageResolutionEntryId = String(entry.id);
+          initial.mileageResolutionRead = String(nextKm);
+          initial.mileageResolutionServiceKm = String(choice === "apply" ? nextKm : entry.km);
+          if (choice === "apply") { initial.serviceKmBeforeCorrection = String(entry.km); initial.serviceKmAfterCorrection = String(nextKm); }
         }
         if (elements.invoiceReviewPlate.value && invoicePlateKey(elements.invoiceReviewPlate.value) !== invoicePlateKey(bike.name)) {
           if (!window.confirm("Η πινακίδα διαφέρει. Να κρατηθεί το τιμολόγιο στο " + bike.name + ";")) return;
@@ -2800,18 +2821,17 @@
   }
 
   async function reviewStoredServiceDocument(entryId, key) {
-    const bike = getBike(activeBikeId);
-    const entry = getHistoryEntry(bike, entryId);
-    const attachment = entry && Array.isArray(entry.attachments)
-      ? entry.attachments.find(function (file) { return String(file.key) === String(key); })
-      : null;
+    const bike = getBike(activeBikeId), entry = getHistoryEntry(bike,entryId);
+    const attachment=entry && (entry.attachments||[]).find(file=>String(file.key)===String(key));
     if (!bike || !entry || !attachment) return;
-    const reviewData = await reviewInvoiceAttachment(attachment, bike, entry);
+    const expected=String(entry.updatedAt||'');
+    const reviewData=await reviewInvoiceAttachment(attachment,bike,entry);
     if (!reviewData) return;
-    applyInvoiceReviewToEntry(bike, entry, attachment, reviewData);
-    saveBikes();
-    renderDetail();
-    showToast("Τα στοιχεία του τιμολογίου αποθηκεύτηκαν στο service.");
+    try {
+      const result=await serviceReviewApi('/api/admin/service-documents/review', {bikeId:bike.id,entryId:entry.id,key:attachment.key,invoiceData:reviewData,keepOnCurrent:true,updateServiceKm:reviewData.applyServiceKmCorrection===true,mileageDecision:reviewData.mileageResolution,expectedServiceKm:Number(entry.km),expectedEntryUpdatedAt:expected});
+      mergeBackgroundBike(result.bike); saveBikes(); renderDetail();
+      showToast('Ο έλεγχος αποθηκεύτηκε. Οι δύο ενδείξεις διατηρούνται στο ιστορικό.');
+    } catch(error) { showToast(error.message || 'Δεν αποθηκεύτηκε ο έλεγχος. Δοκίμασε ξανά.'); }
   }
 
   function blobToBase64(blob) {
@@ -3403,6 +3423,7 @@
     elements.serviceDate.value = today();
     elements.serviceNextPreview.textContent = "Δεν αλλάζει — " + formatKm(bike.nextServiceKm);
     elements.serviceDialog.showModal();
+    if (typeof installServiceDraftTools === "function") installServiceDraftTools(bike);
     updateServicePreview();
     setTimeout(function () {
       elements.serviceKm.focus();
@@ -3466,7 +3487,7 @@
     }
     const invoiceFiles = selectedInvoiceFiles(elements.serviceInvoiceFile);
     const invoiceQrValue = elements.serviceInvoiceQrValue && elements.serviceInvoiceQrValue.value;
-    const selectionError = invoiceSelectionError(null, invoiceFiles, invoiceQrValue);
+    const selectionError = invoiceSelectionError(null, invoiceFiles, invoiceQrValue, typeof queueServiceDocuments === "function" && Boolean(window.indexedDB));
     if (selectionError) {
       elements.serviceFormError.textContent = selectionError;
       return;
@@ -3480,6 +3501,7 @@
     if(serviceDate<latestServiceDate&&(serviceKm>Number(bike.currentKm)||oilChanged&&serviceKm>Number(bike.lastServiceKm))&&
       !window.confirm("Η ημερομηνία είναι παλαιότερη από το τελευταίο service αλλά αλλάζει τα τρέχοντα χιλιόμετρα ή τον κύκλο λαδιών.\nΤρέχοντα: "+formatKm(bike.currentKm)+" → "+formatKm(Math.max(bike.currentKm,serviceKm))+"\nΕπόμενα λάδια: "+formatKm(bike.nextServiceKm)+" → "+formatKm(oilChanged&&serviceKm>=bike.lastServiceKm?serviceKm+bike.intervalKm:bike.nextServiceKm)+"\nΝα συνεχίσω;"))return;
     const now = new Date().toISOString();
+    const previousBikeState = { lastServiceKm:bike.lastServiceKm,nextServiceKm:bike.nextServiceKm,currentKm:bike.currentKm,updatedAt:bike.updatedAt };
     const startsOilCycle = oilChanged && serviceKm >= Number(bike.lastServiceKm || 0);
     if (startsOilCycle) {
       bike.lastServiceKm = serviceKm;
@@ -3497,8 +3519,8 @@
       date: serviceDate,
       notes: tasks.join("\n"),
       tasks: tasks,
-      workshop: elements.serviceWorkshop.value.trim().slice(0, 120),
-      cost: elements.serviceCost.value.trim().slice(0, 60),
+      workshop: "",
+      cost: "",
       oilChanged: oilChanged,
       majorService: majorService,
       majorServiceMilestoneKm: majorService ? serviceKm : 0,
@@ -3509,12 +3531,21 @@
     if (invoiceQrValue) {
       newEntry.invoiceData = mergeInvoiceData({ qrUrl: normalizeQrUrl(invoiceQrValue), source: "qr" }, null);
     }
+    if (hasInvoice && typeof queueServiceDocuments === "function" && window.indexedDB) {
+      try { await queueServiceDocuments(bike.id,entryId,invoiceFiles,invoiceQrValue); }
+      catch(error) { Object.assign(bike,previousBikeState); elements.serviceFormError.textContent = "Δεν αποθηκεύτηκαν τα τιμολόγια: " + error.message; return; }
+    }
     bike.history.unshift(newEntry);
     refreshMajorTracking(bike);
     saveBikes();
     renderHome();
     if (activeBikeId === bike.id) renderDetail();
     elements.serviceDialog.close();
+    if (typeof clearServiceDraft === "function") clearServiceDraft(bike.id);
+    if (event.submitter && event.submitter.dataset.saveNext !== undefined) openServiceDialog(bike);
+    if (hasInvoice && typeof processServiceOutbox === "function" && window.indexedDB) {
+      processServiceOutbox(); showToast("Το service αποθηκεύτηκε. Τα τιμολόγια παραμένουν στην ουρά μέχρι να ολοκληρωθούν."); return;
+    }
     const normalMessage = startsOilCycle
       ? "Νέο επόμενο σέρβις: " + formatKm(bike.nextServiceKm)
       : "Το σέρβις καταχωρήθηκε. Η μέτρηση λαδιών δεν άλλαξε.";
@@ -3677,7 +3708,7 @@
         ? '<ul class="report-task-list report-task-list-compact">' + tasks.map(function (task) { return '<li>' + escapeHtml(task) + '</li>'; }).join("") + '</ul>'
         : "—";
       const supplier = serviceSupplier(entry);
-      return `<tr><td>${reportServiceDateCell(entry)}</td><td>${escapeHtml(formatKm(entry.km))}</td><td>${taskMarkup}</td><td>${escapeHtml(supplier ? supplier.value : "—")}</td><td>${escapeHtml(reportCost(entry))}</td><td>${reportInvoiceCell(entry)}</td></tr>`;
+      return `<tr><td>${reportServiceDateCell(entry)}</td><td>${window.FleetServiceUI ? window.FleetServiceUI.kmDetail(entry) : escapeHtml(formatKm(entry.km))}</td><td>${taskMarkup}</td><td>${escapeHtml(supplier ? supplier.value : "—")}</td><td>${escapeHtml(reportCost(entry))}</td><td>${reportInvoiceCell(entry)}</td></tr>`;
     }).join("");
   }
 
@@ -3710,12 +3741,7 @@
   };
 
   function exportActiveBikeHistory() {
-    const bike = getBike(activeBikeId);
-    if (!bike) return;
-    const rows = reportRowsForBike(bike);
-    const serviceCount = (bike.history || []).filter(function (entry) { return entry.type === "service"; }).length;
-    const created = new Date().toLocaleString("el-GR");
-    showHistoryReport("Ιστορικό service · " + bike.name, '<div class="history-report-content">' + reportHeaderMarkup("Ιστορικό Service", "Αναλυτικό ιστορικό συντήρησης για το επιλεγμένο μηχανάκι", [["Μηχανάκι", bike.name], ["Καταχωρήσεις", serviceCount + " service"], ["Δημιουργήθηκε", created]]) + '<div class="history-report-section-intro"><strong>Εργασίες, κόστος και ψηφιακά τιμολόγια</strong><span>Οι εργασίες εμφανίζονται ανά γραμμή. Το QR παραμένει διαθέσιμο δίπλα στο αντίστοιχο τιμολόγιο.</span></div><table><thead><tr><th>Ημερομηνία</th><th>Χιλιόμετρα</th><th>Εργασίες</th><th>Προμηθευτής</th><th>Κόστος</th><th>Τιμολόγιο / QR</th></tr></thead><tbody>' + (rows || '<tr><td colspan="6">Δεν υπάρχουν service.</td></tr>') + '</tbody></table><footer class="history-report-footer">Fleet Control • Εσωτερική αναφορά συντήρησης</footer></div>');
+    if (getBike(activeBikeId)) showServiceCostsReport([String(activeBikeId)]);
   }
 
   function openFleetExportDialog() {
@@ -3739,19 +3765,81 @@
   }
 
   function exportSelectedFleetHistory() {
-    const ids = Array.from(elements.fleetExportList.querySelectorAll("[data-export-bike]:checked")).map(function (input) { return input.value; });
-    const selected = bikes.filter(function (bike) { return ids.includes(String(bike.id)); });
-    if (!selected.length) return showToast("Επίλεξε τουλάχιστον ένα μηχανάκι.");
-    const serviceCount = selected.reduce(function (total, bike) { return total + (bike.history || []).filter(function (entry) { return entry.type === "service"; }).length; }, 0);
-    const created = new Date().toLocaleString("el-GR");
-    const sections = selected.map(function (bike) {
-      const rows = reportRowsForBike(bike);
-      const count = (bike.history || []).filter(function (entry) { return entry.type === "service"; }).length;
-      return `<section class="history-report-bike-section"><div class="history-report-bike-heading"><div><span class="history-report-kicker">ΜΗΧΑΝΑΚΙ</span><h2>${escapeHtml(bike.name)}</h2></div><span>${count} service</span></div><table><thead><tr><th>Ημερομηνία</th><th>Χλμ.</th><th>Εργασίες</th><th>Προμηθευτής</th><th>Κόστος</th><th>Τιμολόγιο / QR</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Δεν υπάρχουν service.</td></tr>'}</tbody></table></section>`;
-    }).join("<hr>");
-    showHistoryReport("Αναλυτικό ιστορικό στόλου", '<div class="history-report-content">' + reportHeaderMarkup("Αναλυτικό Ιστορικό Service", "Συγκεντρωτική αναφορά συντήρησης επιλεγμένων μηχανών", [["Μηχανάκια", String(selected.length)], ["Καταχωρήσεις", serviceCount + " service"], ["Δημιουργήθηκε", created]]) + '<div class="history-report-section-intro"><strong>Συγκεντρωτικά στοιχεία στόλου</strong><span>Κάθε μηχανάκι έχει ξεχωριστή ενότητα με εργασίες, κόστος, PDF τιμολογίων και QR.</span></div>' + sections + '<footer class="history-report-footer">Fleet Control • Εσωτερική αναφορά συντήρησης</footer></div>');
-    elements.fleetExportDialog.close();
+    const ids=Array.from(elements.fleetExportList.querySelectorAll('[data-export-bike]:checked')).map(input=>input.value);
+    if (!ids.length) return showToast('Επίλεξε τουλάχιστον ένα μηχανάκι.');
+    elements.fleetExportDialog.close();showServiceCostsReport(ids);
   }
+
+  async function serviceReviewApi(path, body) {
+    const response=await fetch(apiBase+path,{method:'POST',headers:requestHeaders(true),body:JSON.stringify(body),cache:'no-store'});
+    const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||'Δεν ολοκληρώθηκε η αποθήκευση.');return result;
+  }
+  async function servicePdfBlob(key) {
+    const response=await fetch(apiBase+'/api/service-documents/'+key.split('/').map(encodeURIComponent).join('/'),{headers:requestHeaders(false),cache:'no-store'});
+    if(!response.ok)throw new Error('Το PDF δεν είναι διαθέσιμο.');return response.blob();
+  }
+  async function undoInvoiceDecision(bike,entry,id) {
+    const result=await serviceReviewApi('/api/admin/service-documents/undo-review',{bikeId:bike.id,entryId:entry.id,revisionId:id});
+    mergeBackgroundBike(result.bike);saveBikes();renderDetail();showToast('Η απόφαση αναιρέθηκε.');
+  }
+  function showServiceCostsReport(ids, options) {
+    options=options||{basis:'service',from:'',to:''};const M=window.FleetServiceModel,U=window.FleetServiceUI;
+    const selected=bikes.filter(b=>ids.includes(String(b.id))),summary=M.summary(selected,options),all=M.summary(bikes,options);
+    const reportRows=[];const sections=summary.rows.map(row=>{
+      const lines=row.entries.map(({entry,cents,hasAmount,files})=>{
+        const shown=Object.assign({},entry,{attachments:files});
+        reportRows.push([row.bike.name,entry.date,Number(entry.km),files.map(f=>M.invoice(f).odometerKm||'').join(' / '),files.map(f=>M.invoice(f).serviceKmBeforeCorrection||'').filter(Boolean).join(' / '),(entry.tasks||[]).join('; '),hasAmount?cents/100:'',files.map(f=>M.invoice(f).invoiceDate||'').join(' / ')]);
+        return '<tr><td>'+reportServiceDateCell(shown)+'</td><td>'+U.kmDetail(entry)+'</td><td>'+escapeHtml((entry.tasks||[]).join(' · '))+'</td><td>'+escapeHtml(serviceSupplier(entry)?.value||'—')+'</td><td>'+escapeHtml(hasAmount?M.euro(cents):'Χωρίς ποσό')+'</td><td>'+reportInvoiceCell(shown)+'</td></tr>';
+      }).join('');
+      return '<section class="history-report-bike-section"><div class="history-report-bike-heading"><h2>'+escapeHtml(row.bike.name)+'</h2><strong>'+escapeHtml(M.euro(row.cents))+'</strong></div><p>'+row.entries.length+' service'+(row.missing?' · '+row.missing+' χωρίς ποσό':'')+(row.pending?' · '+row.pending+' χωρίς επιβεβαίωση':'')+'</p><table><thead><tr><th>Ημερομηνία</th><th>Χιλιόμετρα</th><th>Εργασίες</th><th>Προμηθευτής</th><th>Τελικό κόστος</th><th>Τιμολόγιο / QR</th></tr></thead><tbody>'+(lines||'<tr><td colspan="6">Δεν υπάρχουν service στην περίοδο.</td></tr>')+'</tbody></table></section>';
+    }).join('');
+    const controls='<div class="service-report-controls"><label>Ημερομηνία βάσει<select data-cost-basis><option value="service" '+(options.basis==='service'?'selected':'')+'>Service</option><option value="invoice" '+(options.basis==='invoice'?'selected':'')+'>Τιμολογίου</option></select></label><label>Από<input data-cost-from type="date" value="'+escapeHtml(options.from)+'"></label><label>Έως<input data-cost-to type="date" value="'+escapeHtml(options.to)+'"></label><button type="button" class="secondary-button" data-cost-filter>Εφαρμογή περιόδου</button><button type="button" class="secondary-button" data-cost-xlsx>Λήψη Excel</button></div>';
+    const markup='<div class="history-report-content">'+reportHeaderMarkup('Πλήρες ιστορικό service','Κόστος και ενδείξεις χιλιομέτρων',[["Μηχανάκια",selected.length],["Περίοδος",(options.from||'Αρχή')+' – '+(options.to||'Σήμερα')],["Ημερομηνία βάσει",options.basis==='invoice'?'Τιμολογίου':'Service']])+controls+'<div class="service-cost-summary"><div><small>Επιλεγμένα μηχανάκια</small><strong>'+escapeHtml(M.euro(summary.cents))+'</strong></div><div><small>Όλος ο ενεργός στόλος · ίδια περίοδος</small><strong>'+escapeHtml(M.euro(all.cents))+'</strong></div></div><p>Τα ποσά περιλαμβάνουν ΦΠΑ και πιστωτικά. '+(summary.missing?summary.missing+' τιμολόγια/service χωρίς ποσό· το σύνολο είναι ελλιπές. ':'')+(summary.pending?summary.pending+' τιμολόγια δεν έχουν ακόμη επιβεβαιωθεί. ':'')+(summary.duplicates?'Διπλά αρχεία με ίδιο κλειδί υπολογίζονται μία φορά. ':'')+'</p>'+sections+'</div>';
+    if(elements.historyReportDialog.open){elements.historyReportTitle.textContent='Πλήρες ιστορικό service';elements.historyReportBody.innerHTML=markup;}else showHistoryReport('Πλήρες ιστορικό service',markup);
+    const container=elements.historyReportBody;
+    container.querySelector('[data-cost-filter]').onclick=()=>{const from=container.querySelector('[data-cost-from]').value,to=container.querySelector('[data-cost-to]').value;if(from&&to&&from>to)return showToast('Η αρχή πρέπει να είναι πριν από το τέλος της περιόδου.');showServiceCostsReport(ids,{basis:container.querySelector('[data-cost-basis]').value,from,to});};
+    container.querySelector('[data-cost-xlsx]').onclick=async()=>{const rows=[['Πινακίδα','Ημερομηνία service','Χλμ. service','Χλμ. τιμολογίου','Αρχικά χλμ.','Εργασίες','Τελικό κόστος €','Ημερομηνίες τιμολογίων'],...reportRows,[],['Σύνολο επιλεγμένων','','','','','',summary.cents/100],['Σύνολο ενεργού στόλου','','','','','',all.cents/100]];const blob=window.FleetServiceExport.workbook(rows),name='Fleet_Service_History.xlsx';if(window.AndroidFleet?.exportHistoryExcel){window.AndroidFleet.exportHistoryExcel(await blobToBase64(blob),name);return;}const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);};
+  }
+  function serviceStorageScope() {return apiBase+'|'+String(currentUser?.id||currentUser?.userId||currentUser?.username||'');}
+  let draftTimer=null,draftWrites=Promise.resolve(),outboxRunning=false;
+  function captureServiceDraft() {
+    return {km:elements.serviceKm.value,date:elements.serviceDate.value,tasks:Array.from(elements.serviceTaskInputs).filter(i=>i.checked).map(i=>i.value),notes:elements.serviceNotes.value,qr:elements.serviceInvoiceQrValue.value,files:selectedInvoiceFiles(elements.serviceInvoiceFile)};
+  }
+  function saveServiceDraft() {
+    if(!window.FleetServiceStorage||!elements.serviceDialog.open||!currentUser)return;
+    const data=captureServiceDraft(),scope=serviceStorageScope(),key=elements.serviceBikeId.value;
+    if(data.files.reduce((n,f)=>n+f.size,0)>100*1024*1024)return showToast('Το προσχέδιο μπορεί να κρατήσει έως 100 MB τιμολογίων.');
+    draftWrites=draftWrites.catch(()=>{}).then(()=>window.FleetServiceStorage.put(scope,'draft',key,data)).catch(e=>showToast('Δεν αποθηκεύτηκε το προσχέδιο: '+e.message));
+  }
+  function clearServiceDraft(id) {
+    clearTimeout(draftTimer);elements.serviceInvoiceFile.fleetDraftFiles=null;const scope=serviceStorageScope();
+    draftWrites=draftWrites.catch(()=>{}).then(()=>window.FleetServiceStorage.remove(scope,'draft',id)).catch(e=>showToast('Το service αποθηκεύτηκε, αλλά δεν καθαρίστηκε το προσχέδιο: '+e.message));
+  }
+  function installServiceDraftTools(bike) {
+    elements.serviceInvoiceFile.fleetDraftFiles=null;
+    const toolbar=elements.serviceForm.querySelector('[data-service-draft-tools]');if(!toolbar)return;
+    toolbar.innerHTML='<button type="button" class="secondary-button" data-draft-recover>Ανάκτηση προσχεδίου</button><button type="button" class="secondary-button" data-service-templates>Πρότυπα εργασιών</button><small>Τα προσχέδια κρατούνται σε αυτή τη συσκευή, για τον λογαριασμό σου.</small>';
+    toolbar.querySelector('[data-draft-recover]').onclick=async()=>{try{await draftWrites;const row=await window.FleetServiceStorage.get(serviceStorageScope(),'draft',bike.id);if(!row)return showToast('Δεν υπάρχει αποθηκευμένο προσχέδιο για αυτό το μηχανάκι.');const d=row.data;elements.serviceKm.value=d.km;elements.serviceDate.value=d.date;elements.serviceNotes.value=d.notes;elements.serviceInvoiceQrValue.value=d.qr;elements.serviceTaskInputs.forEach(i=>i.checked=d.tasks.includes(i.value));elements.serviceInvoiceFile.fleetDraftFiles=d.files||[];updateInvoiceFileName(elements.serviceInvoiceFile,elements.serviceInvoiceFileName);updateServicePreview();showToast('Το προσχέδιο ανακτήθηκε. Έλεγξε τα στοιχεία πριν αποθηκεύσεις.');}catch(e){showToast(e.message);}};
+    toolbar.querySelector('[data-service-templates]').onclick=async()=>{try{const scope=serviceStorageScope(),records=await window.FleetServiceStorage.list(scope,'template');const d=window.FleetServiceUI.dialog('Πρότυπα εργασιών','<p>Εφαρμόζονται μόνο οι εργασίες. Χιλιόμετρα, ημερομηνία και τιμολόγια παραμένουν όπως τα έγραψες.</p>'+records.map(r=>'<button type="button" class="service-choice" data-template="'+escapeHtml(r.key)+'"><strong>'+escapeHtml(r.data.name)+'</strong><small>'+escapeHtml(r.data.tasks.join(' · '))+'</small></button>').join('')+'<label class="field"><span>Όνομα νέου προτύπου</span><input data-template-name maxlength="80"></label><div class="service-tools-toolbar"><button type="button" class="primary-button" data-template-save>Αποθήκευση τρεχουσών εργασιών</button><button type="button" class="ghost-button" data-template-close>Κλείσιμο</button></div>');d.querySelectorAll('[data-template]').forEach(b=>b.onclick=()=>{const t=records.find(r=>r.key===b.dataset.template).data;elements.serviceTaskInputs.forEach(i=>i.checked=t.tasks.includes(i.value));elements.serviceNotes.value=t.notes;updateServicePreview();saveServiceDraft();d.close();});d.querySelector('[data-template-close]').onclick=()=>d.close();d.querySelector('[data-template-save]').onclick=async()=>{const name=d.querySelector('[data-template-name]').value.trim(),data=captureServiceDraft();if(!name||!data.tasks.length&&!data.notes)return showToast('Γράψε όνομα και επίλεξε εργασίες.');if(records.length>=20)return showToast('Μπορείς να αποθηκεύσεις έως 20 πρότυπα σε αυτή τη συσκευή.');await window.FleetServiceStorage.put(scope,'template',uid(),{name,tasks:data.tasks,notes:data.notes});d.close();showToast('Το πρότυπο αποθηκεύτηκε.');};}catch(e){showToast(e.message);}};
+    if(!elements.serviceForm.dataset.draftInstalled){elements.serviceForm.dataset.draftInstalled='1';elements.serviceForm.addEventListener('input',()=>{clearTimeout(draftTimer);draftTimer=setTimeout(saveServiceDraft,400);});elements.serviceInvoiceFile.addEventListener('change',()=>{elements.serviceInvoiceFile.fleetDraftFiles=null;saveServiceDraft();});elements.serviceDialog.addEventListener('cancel',saveServiceDraft);elements.serviceDialog.querySelectorAll('[data-close-dialog]').forEach(b=>b.addEventListener('click',saveServiceDraft,true));}
+  }
+  async function queueServiceDocuments(bikeId,entryId,files,qr) {
+    const items=files.length?files.map((file,i)=>({file,qr:i===0?qr:'',uploadId:crypto.randomUUID(),done:false})):[{file:null,qr,uploadId:'',done:false}];
+    await window.FleetServiceStorage.put(serviceStorageScope(),'outbox',entryId,{bikeId,entryId,items});
+  }
+  async function processServiceOutbox() {
+    if(outboxRunning||!webToken||!canManageHistory()||navigator.onLine===false||!window.FleetServiceStorage)return;
+    outboxRunning=true;const scope=serviceStorageScope();
+    try{const rows=await window.FleetServiceStorage.list(scope,'outbox');if(!rows.length)return;await syncNow();
+      for(const row of rows){if(scope!==serviceStorageScope()||!webToken||!canManageHistory()||navigator.onLine===false)break;const job=row.data,entry=getHistoryEntry(getBike(job.bikeId),job.entryId);if(!entry)continue;
+        try{for(const item of job.items){if(item.done)continue;const existing=item.uploadId&&(entry.attachments||[]).some(f=>f.uploadId===item.uploadId);if(!existing){const file=item.file;if(file)file.fleetUploadId=item.uploadId;const result=await attachInvoicesToEntry(job.bikeId,job.entryId,file?[file]:[],item.qr,{background:true,deferQrCompletion:true});if(result.failures.length)throw new Error(result.failures[0].error);}item.done=true;await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);}await window.FleetServiceStorage.remove(scope,'outbox',job.entryId);renderHome();if(activeBikeId===job.bikeId)renderDetail();}
+        catch(error){job.error=String(error.message||error).slice(0,400);await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);showToast('Το service αποθηκεύτηκε. Εκκρεμεί τιμολόγιο: '+job.error);}
+      }
+    }catch(error){console.warn('Δεν ολοκληρώθηκε η ουρά τιμολογίων.');}finally{outboxRunning=false;}
+  }
+  window.addEventListener('online',processServiceOutbox);setInterval(processServiceOutbox,60000);setTimeout(processServiceOutbox,5000);
+  const maintenanceButton=document.createElement('button');maintenanceButton.type='button';maintenanceButton.className='secondary-button';maintenanceButton.textContent='Συντήρηση ανά εργασία';
+  elements.detailExportButton.after(maintenanceButton);maintenanceButton.onclick=()=>{const bike=getBike(activeBikeId);if(bike)window.FleetServiceUI.maintenance(bike,async plans=>{if(!canManageHistory())throw new Error('Χρειάζεται πρόσβαση διαχείρισης.');bike.maintenancePlans=plans;bike.updatedAt=new Date().toISOString();saveBikes();await syncNow();showToast('Τα όρια συντήρησης αποθηκεύτηκαν.');});};
 
   document.querySelectorAll("[data-close-dialog]").forEach(function (button) {
     button.addEventListener("click", function () {
@@ -3922,7 +4010,9 @@
   elements.serviceForm.addEventListener("submit", function (event) {
     event.preventDefault();
     requireEditAccess(function () {
-      handleServiceSubmit({ preventDefault: function () {} });
+      if(elements.serviceForm.dataset.saving)return;
+      elements.serviceForm.dataset.saving="1";
+      Promise.resolve(handleServiceSubmit({ preventDefault: function () {}, submitter:event.submitter })).catch(function(error){showToast(error.message);}).finally(function(){delete elements.serviceForm.dataset.saving;});
     });
   });
   elements.serviceInvoiceFile.addEventListener("change", function () {

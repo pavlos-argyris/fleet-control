@@ -1,5 +1,6 @@
-const CACHE_NAME = "fleet-control-v5-42-0";
+const CACHE_NAME = "fleet-control-v5-43-0";
 const APP_SHELL = [
+  "./service-model.js", "./service-tools.js", "./service-tools.css", "./service-storage.js", "./service-export.js",
   "./local-view-cache.js", "./invoice-import-ui.js",
   "./",
   "./index.html",

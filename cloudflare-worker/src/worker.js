@@ -1,3 +1,5 @@
+import '../public/service-model.js';
+const ServiceModel = globalThis.FleetServiceModel;
 import { INVOICE_IMPORT_SCHEMA, routeInvoiceImports, readImportDraftForJob, finishImportDraft, restartImportDraft, invoiceDuplicates } from './invoice-imports.js';
 import { visibleSnapshotRow, snapshotSummary, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike } from "./snapshot-store.js";
 import { routeReleases } from "./releases.js";
@@ -145,6 +147,7 @@ async function route(request, env) {
   if (path === "/api/admin/service-documents/reprocess-batch" && (request.method === "GET" || request.method === "POST")) return invoiceReprocessBatch(request, env);
   if (path === "/api/admin/service-documents/seen" && request.method === "POST") return markAdminServiceDocumentSeen(request, env);
   if (path === "/api/admin/service-documents/reprocess" && request.method === "POST") return reprocessAdminServiceDocument(request, env);
+  if (path === "/api/admin/service-documents/undo-review" && request.method === "POST") return undoServiceReview(request, env);
   if (path === "/api/admin/service-documents/review" && request.method === "POST") return reviewAdminServiceDocument(request, env);
   if (path.startsWith("/api/service-documents/") && request.method === "GET") return downloadServiceDocument(request, env);
   const fleetHistoryMatch = path.match(/^\/api\/admin\/fleet\/([^/]+)\/history\/([^/]+)\/(edit|delete)$/);
@@ -188,6 +191,7 @@ async function route(request, env) {
     readFleetRegistry: fleetRegistrySnapshot,
     writeSnapshot,
     touchServer,
+    mergeRestoreFleet: (current, incoming) => mergeFleets(normalizeFleet(current), normalizeFleet(incoming)),
     restoreFleetHistoryEntries
   });
   if (workforce) return workforce;
@@ -220,19 +224,23 @@ async function uploadServiceDocument(request, env) {
   const bike = (snapshot.data.bikes || []).find((item) => String(item.id) === bikeId);
   const entry = bike && (bike.history || []).find((item) => String(item.id) === entryId);
   if (!entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε. Αποθήκευσε πρώτα το service και ξαναδοκίμασε." }, 404);
+  const uploadId = cleanText(form.get("uploadId"), 100);
+  if (uploadId && !/^[a-zA-Z0-9_-]{16,100}$/.test(uploadId)) return json({ error: "Μη έγκυρος κωδικός αποστολής." }, 400);
+  const existing = uploadId && (entry.attachments || []).find(item => item.uploadId === uploadId);
+  if (existing) return json({ ok: true, attachment: existing, duplicate: true });
   if ((entry.attachments || []).length >= MAX_SERVICE_ATTACHMENTS) return json({ error: "Μπορείς να κρατήσεις έως 10 τιμολόγια σε ένα service. Τα υπάρχοντα αρχεία διατηρούνται." }, 409);
   const originalName = cleanText(file.name || "invoice", 120).replace(/[^a-zA-Z0-9._-]+/g, "_");
-  const key = `service-documents/${encodeURIComponent(bikeId)}/${encodeURIComponent(entryId)}/${crypto.randomUUID()}-${originalName}`;
+  const key = `service-documents/${encodeURIComponent(bikeId)}/${encodeURIComponent(entryId)}/${uploadId || crypto.randomUUID()}-${originalName}`;
   const bucket = env.SERVICE_DOCS || env.RELEASES;
   if (!bucket) return json({ error: "Δεν έχει συνδεθεί χώρος αποθήκευσης τιμολογίων." }, 503);
   await bucket.put(key, file, { httpMetadata: { contentType: type, contentDisposition: `inline; filename="${originalName}"` }, customMetadata: { bikeId, entryId, uploadedBy: actor.id || actor.username || "admin", qrUrl: qrUrlFromValue(qrValue) } });
-  const attachment = { id: key.split("/").pop(), key, name: originalName, originalName, contentType: type, size: Number(file.size || 0), uploadedAt: new Date().toISOString(), qrValue, qrUrl: qrUrlFromValue(qrValue) };
+  const attachment = { uploadId, id: key.split("/").pop(), key, name: originalName, originalName, contentType: type, size: Number(file.size || 0), uploadedAt: new Date().toISOString(), qrValue, qrUrl: qrUrlFromValue(qrValue) };
   const stored = await attachServiceDocumentMetadata(env, bikeId, entryId, attachment);
   if (!stored.attached) {
     await bucket.delete(key);
     return json({ error: stored.error || "Το service δεν βρέθηκε ή διαγράφηκε." }, stored.status || 404);
   }
-  return json({ ok: true, attachment }, 201);
+  return json({ ok: true, attachment: stored.attachment || attachment }, 201);
 }
 
 async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
@@ -904,6 +912,8 @@ function adminServiceDocumentRecord(bike, entry, attachment, pending = null, all
     entryId: String(entry?.id || pending?.entryId || ""),
     serviceDate: String(entry?.date || pending?.serviceDate || ""),
     serviceKm: Number(entry?.km || pending?.serviceKm || 0),
+    serviceUpdatedAt: String(entry?.updatedAt || ""),
+    reviewJournal: ServiceModel.journal(entry?.reviewJournal),
     tasks: Array.isArray(entry?.tasks) ? entry.tasks.slice(0, 30) : [],
     key: String(attachment?.key || ""),
     name,
@@ -1568,9 +1578,12 @@ async function reviewAdminServiceDocument(request, env) {
   const entry = bike && (bike.history || []).find((item) => String(item.id) === entryId);
   const attachment = entry && (entry.attachments || []).find((item) => String(item.key) === key);
   if (!bike || !entry || !attachment || entry.type === "check") return json({ error: "Το τιμολόγιο ή το service δεν βρέθηκε." }, 404);
+  if (body.expectedEntryUpdatedAt !== undefined && String(body.expectedEntryUpdatedAt) !== String(entry.updatedAt || "")) return json({ error: "Το service άλλαξε. Άνοιξε ξανά τον έλεγχο." }, 409);
   const submitted = body.invoiceData && typeof body.invoiceData === "object" ? body.invoiceData : {};
   const original = invoiceDataForServiceDocument(entry, attachment);
+  const beforeReview = ServiceModel.state(entry, original);
   const data = mergeServerInvoiceData(original, submitted);
+  for (const field of ["supplier","invoiceNumber","invoiceDate","plate","odometerKm","totalAmount","netAmount","vatAmount","workPerformed","comments"]) if (Object.hasOwn(submitted,field)) data[field] = cleanText(submitted[field],field === "workPerformed" ? 2000 : 500);
   const submittedTasks = Array.isArray(body.tasks) ? body.tasks : entry.tasks;
   const tasks = mergeInvoiceTasks(submittedTasks, invoiceWorkItems(data));
   const now = new Date().toISOString();
@@ -1584,6 +1597,10 @@ async function reviewAdminServiceDocument(request, env) {
   const destinationBike = fleet.bikes.find((item) => String(item.id) === destinationBikeId);
   const destinationEntry = destinationBike?.history?.find((item) => String(item.id) === destinationEntryId);
   if (!destinationBike || !destinationEntry || destinationEntry.type === "check") return json({ error: "Το service προορισμού δεν βρέθηκε." }, 404);
+  const destinationBefore = ServiceModel.state(destinationEntry, invoiceDataForServiceDocument(destinationEntry, attachment));
+  const destinationKmBefore = Number(destinationEntry.km);
+  if (body.mileageDecision && !["keep","apply"].includes(body.mileageDecision)) return json({ error: "Μη έγκυρη επιλογή χιλιομέτρων." }, 400);
+  if (body.mileageDecision && Number(body.expectedServiceKm) !== destinationKmBefore) return json({ error: "Τα χιλιόμετρα άλλαξαν. Άνοιξε ξανά τον έλεγχο." }, 409);
   if (body.updateServiceKm === true) {
     const invoiceKm = invoiceOdometer(data.odometerKm);
     if (!invoiceKm || invoiceKm > 2_000_000_000) return json({ error: "Γράψε σωστά τα χιλιόμετρα του τιμολογίου." }, 400);
@@ -1594,6 +1611,13 @@ async function reviewAdminServiceDocument(request, env) {
     destinationBike.historyCorrectedAt = now;
     destinationBike.odometerFloorKm = await workforceOdometerFloor(env, destinationBikeId);
     data.correctedByUserAt = now;
+  }
+  const reviewedKm = invoiceOdometer(data.odometerKm);
+  if (reviewedKm && (body.mileageDecision || body.updateServiceKm === true)) {
+    data.mileageResolution = body.updateServiceKm === true ? "apply" : "keep";
+    data.mileageResolutionEntryId = destinationEntryId;
+    data.mileageResolutionRead = String(reviewedKm);
+    data.mileageResolutionServiceKm = String(destinationEntry.km);
   }
   if (body.keepOnCurrent === true && data.plate && invoicePlateKey(data.plate) !== invoicePlateKey(bike.name)) {
     data.plateResolution = "kept-current";
@@ -1643,6 +1667,7 @@ async function reviewAdminServiceDocument(request, env) {
     if (data.supplier) targetEntry.workshop = data.supplier;
     targetEntry.invoiceData = data;
     targetEntry.updatedAt = now;
+    ServiceModel.decision(targetEntry, key, destinationBefore, data, data.reviewedBy, now, true);
     targetBike.updatedAt = now;
 
     const normalizedSource = normalizeBike(bike);
@@ -1683,6 +1708,7 @@ async function reviewAdminServiceDocument(request, env) {
   attachment.ocrError = "";
   attachment.reviewSeenAt = data.reviewSeenAt;
   attachment.name = uniqueInvoiceDisplayName(buildInvoiceDisplayName(bike.name, data.invoiceDate, entry.date, attachment.name), entry.attachments, attachment.key);
+  ServiceModel.decision(entry, key, beforeReview, data, data.reviewedBy, now, false);
   entry.updatedAt = now;
   bike.updatedAt = now;
   fleet.bikes[bikeIndex] = normalizeBike(bike);
@@ -2059,9 +2085,10 @@ function serviceDocumentWarnings(bike, entry, data) {
   }
   const invoiceKm = invoiceOdometer(data?.odometerKm);
   const serviceKm = Math.round(Number(entry?.km) || 0);
-  if (invoiceKm && serviceKm && invoiceKm !== serviceKm) {
+  if (invoiceKm && invoiceKm !== serviceKm && !ServiceModel.resolved(entry, data)) {
     warnings.push({ type: "odometer", label: "Διαφορετικά χιλιόμετρα", message: `Το τιμολόγιο γράφει ${invoiceKm.toLocaleString("el-GR")} χλμ., ενώ το service έχει ${serviceKm.toLocaleString("el-GR")} χλμ.` });
   }
+  if (ServiceModel.amounts(data).mismatch) warnings.push({ type: "amount", label: "Διαφορά ποσών", message: "Η καθαρή αξία και ο ΦΠΑ δεν συμφωνούν με το τελικό ποσό. Έλεγξε το PDF." });
   if (!data?.confirmedAt && String(data?.ocrFallbackUsed || "").toLowerCase() === "true") {
     const reason = cleanText(data?.ocrFallbackReason, 240) || "Η τοπική ανάγνωση ήταν αμφίβολη ή απέτυχε.";
     const manual = /^Ζητήθηκε χειροκίνητα/i.test(reason);
@@ -2089,7 +2116,7 @@ function normalizeInvoiceWorkPerformed(value, limit = 2000) {
 function normalizeServiceInvoiceData(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = {};
-  for (const field of ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"]) {
+  for (const field of ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom"]) {
     if (value[field] == null) continue;
     if (field === "qrProcessingProgress") {
       result[field] = String(cleanInteger(value[field], 0, 100, 5));
@@ -2145,7 +2172,7 @@ function normalizeInvoiceAnalysis(value,result) {
 function normalizeServiceDocumentOcr(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = {};
-  for (const field of ["rawText", "supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "plateAutoCorrectedFrom"]) {
+  for (const field of ["rawText", "supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom"]) {
     if (value[field] == null) continue;
     if (field === "qrProcessingProgress") {
       result[field] = String(cleanInteger(value[field], 0, 100, 5));
@@ -2191,6 +2218,7 @@ function normalizeServiceAttachments(value) {
       key,
       name: cleanText(item.name || "τιμολόγιο", 120),
       originalName: cleanText(item.originalName, 120),
+      uploadId: cleanText(item.uploadId, 100),
       contentType: cleanText(item.contentType || "application/octet-stream", 80).toLowerCase(),
       size: cleanInteger(item.size, 0, 15 * 1024 * 1024, 0),
       uploadedAt: isoDateTime(item.uploadedAt, ""),
@@ -2240,6 +2268,7 @@ function normalizeHistory(value) {
       // Legacy snapshots credited a rounded ten-thousand milestone. The
       // actual recorded odometer is now the only baseline for the next cycle.
       majorServiceMilestoneKm: majorService ? cleanInteger(item.km, 0, 2_000_000_000, 0) : 0,
+      reviewJournal: ServiceModel.journal(item.reviewJournal),
       attachments: type === "service" ? normalizeServiceAttachments(item.attachments) : [],
       invoiceData: type === "service" ? normalizeServiceInvoiceData(item.invoiceData) : null,
       createdAt: isoDateTime(item.createdAt, ""),
@@ -2319,6 +2348,7 @@ function normalizeBike(value) {
     nextServiceKm: lastServiceKm + intervalKm,
     lastCheckedAt: historyCorrectedAt ? derived.lastCheckedAt : cleanText(value.lastCheckedAt, 10),
     createdAt: isoDateTime(value.createdAt, now),
+    maintenancePlans: ServiceModel.plans(value.maintenancePlans),
     updatedAt: isoDateTime(value.updatedAt, now),
     history,
     historyDeletedIds,
@@ -3388,7 +3418,7 @@ function safeAssetPath(value) {
 
 function contentTypeFor(path) {
   const extension = path.split(".").pop()?.toLowerCase();
-  return ({ html: "text/html; charset=utf-8", css: "text/css; charset=utf-8", js: "text/javascript; charset=utf-8", json: "application/json; charset=utf-8", svg: "image/svg+xml", png: "image/png", webmanifest: "application/manifest+json" })[extension] || "application/octet-stream";
+  return ({ html: "text/html; charset=utf-8", css: "text/css; charset=utf-8", js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8", wasm: "application/wasm", json: "application/json; charset=utf-8", svg: "image/svg+xml", png: "image/png", webmanifest: "application/manifest+json" })[extension] || "application/octet-stream";
 }
 
 export { mergeBike, normalizeBike, normalizeFleet, normalizeServiceDocumentOcr, serviceDocumentWarnings, refineInvoicePlateForFleet, cleanInvoiceWorkText };
@@ -3522,4 +3552,33 @@ async function serveWeb(request, env) {
   headers.set("Referrer-Policy", "same-origin");
   headers.set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function undoServiceReview(request, env) {
+  let actor;
+  try { actor = await authenticateExternal(request, env, "fleet.manage"); }
+  catch(error) { return json({ error: error.message }, Number(error.status) || 401); }
+  if (!isManagementActor(actor)) return json({ error: "Χρειάζεται λογαριασμός διαχείρισης." },403);
+  const body=await request.json().catch(()=>({})), snapshot=await readSnapshot(env);
+  const fleet=JSON.parse(JSON.stringify(snapshot.data)),bike=fleet.bikes.find(b=>String(b.id)===String(body.bikeId));
+  const entry=bike?.history?.find(e=>String(e.id)===String(body.entryId));
+  const revision=entry?.reviewJournal?.find(r=>String(r.id)===String(body.revisionId));
+  const file=entry?.attachments?.find(f=>f.key===revision?.key);
+  if(!entry||!file||!revision)return json({error:"Η απόφαση ή το τιμολόγιο δεν βρέθηκε."},404);
+  const current=invoiceDataForServiceDocument(entry,file),before=ServiceModel.state(entry,current);
+  const data=ServiceModel.undo(entry,current,revision);
+  if(!data)return json({error:"Έχουν μεσολαβήσει αλλαγές ή η απόφαση έχει ήδη αναιρεθεί. Δεν άλλαξε κανένα δεδομένο."},409);
+  const now=new Date().toISOString();revision.undoneAt=now;revision.undoneBy=String(actor.full_name||actor.username||actor.id||'admin');
+  file.ocr=data;file.qrData=data;entry.invoiceData=data;entry.updatedAt=now;bike.updatedAt=now;
+  bike.historyCorrectedAt=now;bike.odometerFloorKm=await workforceOdometerFloor(env,bike.id);
+  const normalized=normalizeBike(bike);fleet.bikes[fleet.bikes.indexOf(bike)]=normalized;
+  const stored=await writeServiceReviewSnapshot(env,normalizeFleet(fleet),'admin-service-review-undo',snapshot.version);
+  if(!stored)return json({error:"Τα δεδομένα άλλαξαν ταυτόχρονα. Άνοιξε ξανά τον έλεγχο."},409);
+  const operationId=crypto.randomUUID();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)").bind(operationId,JSON.stringify({bike:normalized}),now),
+    env.DB.prepare("UPDATE vehicle_registry SET odometer=?,version=version+1,updated_at=? WHERE bike_id=?").bind(normalized.currentKm,now,bike.id)
+  ]);
+  await recordExternalAudit(env,request,actor,'service_review_undone','service_document',file.key,before,ServiceModel.state(entry,data),'Αναίρεση απόφασης τιμολογίου',false);
+  return json({ok:true,bike:normalized,document:adminServiceDocumentRecord(normalized,entry,file),version:stored.version,operationId});
 }

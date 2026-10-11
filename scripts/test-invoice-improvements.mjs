@@ -79,7 +79,7 @@ for (const accepted of [false, true]) {
   fields.invoiceReviewDialog = { close: () => { closed = true; } };
   const record = { id: 'invoice', key: 'file', bikeId: 'bike', entryId: 'entry', serviceKm: 9000, invoiceData: {} };
   const review = vm.createContext({ state: { invoiceReviewDocument: record, invoiceReviewTransferChoice: 'keep', invoiceDocuments: [record] },
-    $: name => fields[name], window: { confirm: message => { confirmations++; assert.match(message, /9000.*9100/); return accepted; } }, km: String,
+    $: name => fields[name], window: { FleetServiceUI: { mileage: async (current, read) => { confirmations++; assert.equal(current,9000); assert.equal(read,9100); return accepted ? 'apply' : null; } } }, km: String,
     api: async (url, options) => { requests++; assert.equal(url, '/api/admin/service-documents/review');
       assert.equal(options.body.keepOnCurrent, true); assert.equal(options.body.updateServiceKm, true); assert.equal(options.body.expectedServiceKm, 9000);
       return { document: { ...record, status: 'confirmed', serviceKm: 9100 } }; },

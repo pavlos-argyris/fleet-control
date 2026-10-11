@@ -11,10 +11,11 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=5.42.1">
-  <link rel="stylesheet" href="./scroll-stability.css?v=5.42.1">
-  <link rel="stylesheet" href="./client-ota.css?v=5.42.1">
-  <script src="./client-ota.js?v=5.42.1" defer></script>
+  <link rel="stylesheet" href="./styles.css?v=5.43.0">
+  <link rel="stylesheet" href="./scroll-stability.css?v=5.43.0">
+  <link rel="stylesheet" href="./client-ota.css?v=5.43.0">
+  <script src="./client-ota.js?v=5.43.0" defer></script>
+  <link rel="stylesheet" href="./service-tools.css?v=5.43.0">
 </head>
 <body>
   <div class="app-shell">
@@ -538,14 +539,8 @@
         <input id="serviceDate" type="date" required>
       </label>
       <p id="serviceMileageWarning" class="invoice-review-warning is-hidden" role="status"></p>
-      <label class="field">
-        <span>Συνεργείο <small>(προαιρετικό)</small></span>
-        <input id="serviceWorkshop" type="text" maxlength="120" placeholder="Όνομα συνεργείου" autocomplete="off">
-      </label>
-      <label class="field">
-        <span>Κόστος service <small>(προαιρετικό)</small></span>
-        <input id="serviceCost" type="text" inputmode="decimal" maxlength="60" placeholder="π.χ. 34,00 €" autocomplete="off">
-      </label>
+      <input id="serviceWorkshop" type="hidden" value="">
+      <input id="serviceCost" type="hidden" value="">
       <fieldset class="field service-task-field">
         <legend>Τι έγινε στο σέρβις;</legend>
           <div class="service-task-grid">
@@ -585,8 +580,10 @@
         </span>
         <small>Μπορείς να επιλέξεις πολλά PDF/φωτογραφίες: έως 10 τιμολόγια ανά service και 15 MB ανά αρχείο. Το QR αφορά το πρώτο επιλεγμένο τιμολόγιο.</small>
       </div>
+      <div class="service-tools-toolbar" data-service-draft-tools></div>
       <p id="serviceFormError" class="form-error" role="alert"></p>
       <div class="dialog-actions">
+        <button class="secondary-button" type="submit" data-save-next>Αποθήκευση &amp; επόμενο</button>
         <button class="ghost-button" type="button" data-close-dialog="serviceDialog">Άκυρο</button>
         <button class="primary-button grow" type="submit">Καταχώρηση</button>
       </div>
@@ -789,11 +786,15 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./scroll-stability.js?v=5.42.1" defer></script>
-  <script src="./fleet-config.js?v=5.42.1" defer></script>
-  <script src="./vendor/jsQR.js?v=5.42.1" defer></script>
-  <script src="./vendor/qrcode-generator.js?v=5.42.1" defer></script>
-  <script src="./local-view-cache.js?v=5.42.1" defer></script>
-  <script src="./app.js?v=5.42.1" defer></script>
+  <script src="./scroll-stability.js?v=5.43.0" defer></script>
+  <script src="./fleet-config.js?v=5.43.0" defer></script>
+  <script src="./vendor/jsQR.js?v=5.43.0" defer></script>
+  <script src="./vendor/qrcode-generator.js?v=5.43.0" defer></script>
+  <script src="./service-model.js?v=5.43.0" defer></script>
+  <script src="./service-tools.js?v=5.43.0" defer></script>
+  <script src="./service-storage.js?v=5.43.0" defer></script>
+  <script src="./service-export.js?v=5.43.0" defer></script>
+  <script src="./local-view-cache.js?v=5.43.0" defer></script>
+  <script src="./app.js?v=5.43.0" defer></script>
 </body>
 </html>
