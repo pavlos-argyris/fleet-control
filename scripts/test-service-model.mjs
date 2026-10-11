@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import '../cloudflare-worker/public/service-model.js';
 import '../cloudflare-worker/public/service-export.js';
 const M=globalThis.FleetServiceModel;
-for(const [input,expected] of [['9',900],['50,00',5000],['1.234,56',123456],['1,234.56',123456],['-5,00',-500],['0',0],['',null],['24%',null],['1.23.45',null]])assert.equal(M.cents(input),expected,input);
+for(const [input,expected] of [['9',900],['50,00',5000],['50 EUR',5000],['50 ευρώ',5000],['1.234,56',123456],['1,234.56',123456],['-5,00',-500],['0',0],['',null],['24%',null],['1.23.45',null]])assert.equal(M.cents(input),expected,input);
 const file=(key,amount,date)=>({key,ocr:{totalAmount:amount,invoiceDate:date,confirmedAt:'now'}});
 const bike={id:'a',name:'BTO 756',currentKm:20000,history:[{id:'e',type:'service',km:10000,date:'2026-10-01',tasks:['Αλλαγή λαδιών'],oilChanged:true,attachments:[file('one','9','2026-10-02'),file('two','50','2026-10-03')]},{id:'old',type:'service',km:30000,date:'2026-09-01',tasks:['Αλλαγή λαδιών'],oilChanged:true,attachments:[file('credit','-5','2026-09-02')]}]};
 assert.equal(M.summary([bike]).cents,5400);

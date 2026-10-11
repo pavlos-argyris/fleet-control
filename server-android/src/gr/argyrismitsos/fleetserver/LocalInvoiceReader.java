@@ -525,7 +525,7 @@ public final class LocalInvoiceReader {
     }
 
     private static String findLabeledMoney(String text, String label) {
-        Pattern pattern = Pattern.compile("(?m)^\s*" + label + "\s*:?\s*(-?\d+(?:[.,]\d{3})*[.,]\d{2})\s*(?:€|EUR)?\s*$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+        Pattern pattern = Pattern.compile("(?m)^\\s*" + label + "\\s*:?\\s*(-?\\d+(?:[.,]\\d{3})*[.,]\\d{2})\\s*(?:€|EUR)?\\s*$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
         Matcher matcher = pattern.matcher(text == null ? "" : text);
         String found = "";
         while (matcher.find()) { if (found.length() > 0) return ""; found = matcher.group(1); }

@@ -4,7 +4,7 @@
   const fields = ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','confirmedAt','reviewStatus','reviewedBy','correctedByUserAt','serviceKmBeforeCorrection','serviceKmAfterCorrection','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead'];
   function cents(value) {
     if (value == null || String(value).trim() === '') return null;
-    let s = String(value).replace(/[€\s\u00a0]/g,'');
+    let s = String(value).replace(/EUR|ευρώ|[€\s\u00a0]/gi,'');
     if (!/^-?\d+(?:[.,]\d+)*$/.test(s)) return null;
     const comma=s.lastIndexOf(','), dot=s.lastIndexOf('.'), pos=Math.max(comma,dot);
     if (comma>=0 && dot>=0) {

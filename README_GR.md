@@ -1,3 +1,7 @@
+# Τρέχον update 5.43.0
+
+[Οδηγίες service / backup / ιστορικού](docs/SERVICE_UPDATE_5.43.0_GR.md). Πλήρης παράδοση μέσω ιδιωτικού GitHub.
+
 # Fleet Control — πλήρες έργο και OTA
 
 Έκδοση πακέτου 5.42.1 · Client/Web 5.42.1 · Server 2.1.9 · Worker 5.5.1

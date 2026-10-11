@@ -1011,6 +1011,7 @@
   function applyInvoiceReviewToEntry(bike, entry, attachment, reviewData) {
     const data = mergeInvoiceData(reviewData, attachment ? attachment.ocr : entry && entry.invoiceData);
     if (!bike || !entry || !data) return;
+    if(reviewData.userReviewIntent)for(const field of ["supplier","invoiceNumber","invoiceDate","plate","odometerKm","totalAmount","netAmount","vatAmount","workPerformed","comments"])if(Object.hasOwn(reviewData,field))data[field]=String(reviewData[field]||"");
     const now = new Date().toISOString();
     const beforeReview = window.FleetServiceModel && window.FleetServiceModel.state(entry, attachment ? invoiceDataFromAttachment(attachment) : entry.invoiceData);
     if (reviewData.applyServiceKmCorrection === true && data.confirmedAt && data.serviceKmAfterCorrection && Number(data.serviceKmBeforeCorrection) === Number(entry.km)) {
@@ -1022,7 +1023,7 @@
     entry.invoiceData = data;
     if (data.supplier) entry.workshop = data.supplier;
     if (attachment) {
-      attachment.ocr = mergeInvoiceData(data, attachment.ocr);
+      attachment.ocr = reviewData.userReviewIntent ? Object.assign({},data) : mergeInvoiceData(data, attachment.ocr);
       attachment.qrData = data;
       if (data.qrUrl) attachment.qrUrl = data.qrUrl;
       attachment.name = invoiceDisplayName(bike, data, entry, attachment);
@@ -2784,7 +2785,9 @@
           result.netAmount = tools.querySelector("[data-service-net]").value.trim();
           result.vatAmount = tools.querySelector("[data-service-vat]").value.trim();
         }
-        resolve(Object.assign(normalizeInvoiceData(result), { userReviewIntent: true, applyServiceKmCorrection: Boolean(initial.serviceKmAfterCorrection) }));
+        const submittedReview = normalizeInvoiceData(result) || {};
+        for (const field of ["supplier","invoiceNumber","invoiceDate","plate","odometerKm","totalAmount","netAmount","vatAmount","workPerformed","comments"]) submittedReview[field] = String(result[field] || "");
+        resolve(Object.assign(submittedReview, { userReviewIntent: true, applyServiceKmCorrection: Boolean(initial.serviceKmAfterCorrection) }));
       };
       const onSubmit = async function (event) {
         event.preventDefault();
@@ -3669,6 +3672,7 @@
   }
 
   function invoiceMoneyCents(value) {
+    if (typeof window !== "undefined" && window.FleetServiceModel) return window.FleetServiceModel.cents(value);
     let text = String(value == null ? "" : value).replace(/€|EUR|ευρώ|\s/gi, "");
     if (!/^\d+(?:[.,]\d+)*$/.test(text)) return null;
     const last = Math.max(text.lastIndexOf(","), text.lastIndexOf("."));
