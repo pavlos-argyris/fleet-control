@@ -26,7 +26,7 @@ export async function routeReleases(request, env, helpers) {
       let body; try { body = JSON.parse(text); } catch { return json({ error: "Μη έγκυρο JSON." }, 400); }
       const releaseId = String(body.releaseId || ""), sourceCommit = String(body.sourceCommit || "");
       if (!ID.test(releaseId) || !/^[a-f0-9]{40}$/.test(sourceCommit)) return json({ error: "Λείπει έγκυρη ταυτότητα έκδοσης/κώδικα." }, 400);
-      const records = [], now = new Date().toISOString(), notes = String(body.notes || "").slice(0, 500);
+      const records = [], now = new Date().toISOString(), notes = String(body.notes || "").slice(0, 3000);
       for (const kind of ["client", "server"]) {
         const value = body[kind];
         if (!value || value.packageName !== PACKAGES[kind] || !Number.isSafeInteger(value.versionCode) || value.versionCode < 1 || !/^\d+(\.\d+){1,3}$/.test(value.version || "") || !SHA.test(value.sha256 || "") || !Number.isSafeInteger(value.sizeBytes) || value.sizeBytes < 1 || value.sizeBytes > APK_LIMIT) return json({ error: `Μη έγκυρο ${kind} manifest.` }, 400);

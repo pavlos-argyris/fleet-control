@@ -11,11 +11,12 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./portal.css?v=5.43.0">
-  <link rel="stylesheet" href="./scroll-stability.css?v=5.43.0">
-  <link rel="stylesheet" href="./client-ota.css?v=5.43.0">
-  <script src="./client-ota.js?v=5.43.0" defer></script>
-  <link rel="stylesheet" href="./service-tools.css?v=5.43.0">
+  <link rel="stylesheet" href="./portal.css?v=5.44.0">
+  <link rel="stylesheet" href="./scroll-stability.css?v=5.44.0">
+  <link rel="stylesheet" href="./client-ota.css?v=5.44.0">
+  <script src="./client-ota.js?v=5.44.0" defer></script>
+  <link rel="stylesheet" href="./service-tools.css?v=5.44.0">
+  <link rel="stylesheet" href="./service-followup.css?v=5.44.0">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -162,7 +163,7 @@
         <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
           <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
             <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
-              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.43.0" title="Fleet Control — διαχείριση στόλου"></iframe>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.44.0" title="Fleet Control — διαχείριση στόλου"></iframe>
           </div>
           <details class="fleet-availability-panel fleet-availability-bottom">
             <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
@@ -174,7 +175,7 @@
         <section id="viewInvoices" class="app-view is-hidden" data-view="invoices">
           <div class="section-toolbar invoice-section-toolbar">
             <div><span class="overline">ΕΛΕΓΧΟΣ ΤΙΜΟΛΟΓΙΩΝ</span><h2>Τιμολόγια service</h2><p>Τα QR που ολοκληρώθηκαν στον Server και τα αρχεία που χρειάζονται επιβεβαίωση.</p></div>
-            <div class="toolbar-filters"><select id="invoiceStatusFilter" aria-label="Φίλτρο τιμολογίων"><option value="">Όλα</option><option value="new">Νέα</option><option value="processing">Σε επεξεργασία</option><option value="needs_review">Προς έλεγχο</option><option value="warning">Με προειδοποίηση</option><option value="confirmed">Ολοκληρωμένα</option><option value="error">Με σφάλμα</option></select><select id="invoicePlateFilter" aria-label="Ομαδοποίηση ανά πινακίδα"><option value="">Όλες οι πινακίδες</option></select><button id="reprocessInvoices" class="secondary-button invoice-reprocess-all-button" type="button">↻ Νέα ανάγνωση όλων</button><button id="openInvoiceImports" class="primary-button" type="button">▦ Μαζική σάρωση QR</button><button id="invoiceReaderRules" class="secondary-button" type="button">Κανόνες ανάγνωσης</button><button id="invoiceRetryFailed" class="secondary-button" type="button">Επανάληψη αποτυχημένων</button><button id="invoiceBatchPause" class="secondary-button" type="button">Παύση / συνέχεια</button><label class="invoice-force-read"><input id="invoiceForceRead" type="checkbox"> Νέα ανάλυση από την αρχή</label><button id="refreshInvoices" class="secondary-button" type="button">Ανανέωση</button></div>
+            <div class="toolbar-filters"><select id="invoiceStatusFilter" aria-label="Φίλτρο τιμολογίων"><option value="">Όλα</option><option value="new">Νέα</option><option value="processing">Σε επεξεργασία</option><option value="needs_review">Προς έλεγχο</option><option value="warning">Με προειδοποίηση</option><option value="confirmed">Ολοκληρωμένα</option><option value="error">Με σφάλμα</option></select><select id="invoicePlateFilter" aria-label="Ομαδοποίηση ανά πινακίδα"><option value="">Όλες οι πινακίδες</option></select><button id="reprocessInvoices" class="secondary-button invoice-reprocess-all-button" type="button">↻ Νέα ανάγνωση όλων</button><button id="openInvoiceImports" class="primary-button" type="button">▦ Μαζική σάρωση QR</button><button id="invoiceReaderRules" class="secondary-button" type="button">Κανόνες ανάγνωσης</button><button id="invoiceRetryFailed" class="secondary-button" type="button">Επανάληψη αποτυχημένων</button><button id="invoiceBatchPause" class="secondary-button" type="button">Παύση / συνέχεια</button><label class="invoice-force-read"><input id="invoiceForceRead" type="checkbox"> Νέα ανάλυση από την αρχή</label><button type="button" class="secondary-button" data-open-followup="pending">Εκκρεμότητες στόλου</button><button id="invoiceSequentialReview" type="button" class="secondary-button">Διαδοχικός έλεγχος</button><button id="refreshInvoices" class="secondary-button" type="button">Ανανέωση</button></div>
           </div>
           <div class="report-types invoice-view-tabs" role="group" aria-label="Προβολή τιμολογίων"><button type="button" class="active" data-invoice-view="review" aria-pressed="true">Έλεγχος τιμολογίων</button><button type="button" data-invoice-view="files" aria-pressed="false">▤ Λίστα τιμολογίων</button></div>
           <input id="invoiceFileSearch" class="invoice-file-search" type="search" placeholder="Αναζήτηση πινακίδας ή αρχείου" aria-label="Αναζήτηση στη λίστα τιμολογίων" hidden>
@@ -335,15 +336,17 @@
   <dialog id="installGuideDialog" class="app-dialog install-guide-dialog"><div class="dialog-body"><div class="dialog-head"><div><span class="overline">iPHONE / iPAD</span><h2>Εγκατάσταση Web App</h2></div><button id="installGuideClose" type="button" aria-label="Κλείσιμο">×</button></div><p id="iosInstallIntro" class="helper-copy">Δεν χρειάζεται αρχείο IPA. Το Fleet Control εγκαθίσταται ως Web App από το Safari.</p><ol class="install-steps"><li><b>1</b><span>Άνοιξε αυτή τη σελίδα στο <strong>Safari</strong>.</span></li><li><b>2</b><span>Πάτησε <strong>Κοινοποίηση</strong> και μετά <strong>Προσθήκη στην οθόνη Αφετηρίας</strong>.</span></li><li><b>3</b><span>Ενεργοποίησε <strong>Άνοιγμα ως εφαρμογή Web</strong> και πάτησε <strong>Προσθήκη</strong>.</span></li></ol><div class="install-guide-actions"><button id="iosShareButton" class="primary-button" type="button">Άνοιγμα κοινοποίησης</button><button id="iosCopyLink" class="secondary-button" type="button">Αντιγραφή συνδέσμου</button></div><p id="iosInstallStatus" class="security-note">Μετά την προσθήκη θα εμφανιστεί κανονικό εικονίδιο Fleet Control στην Αφετηρία.</p></div></dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./scroll-stability.js?v=5.43.0" defer></script>
-  <script src="./fleet-config.js?v=5.43.0"></script>
-  <script src="./service-model.js?v=5.43.0" defer></script>
-  <script src="./service-tools.js?v=5.43.0" defer></script>
-  <script src="./service-storage.js?v=5.43.0" defer></script>
-  <script src="./service-export.js?v=5.43.0" defer></script>
-  <script src="./local-view-cache.js?v=5.43.0"></script>
-  <script src="./portal.js?v=5.43.0"></script>
+  <script src="./scroll-stability.js?v=5.44.0" defer></script>
+  <script src="./fleet-config.js?v=5.44.0"></script>
+  <script src="./service-model.js?v=5.44.0" defer></script>
+  <script src="./service-tools.js?v=5.44.0" defer></script>
+  <script src="./service-storage.js?v=5.44.0" defer></script>
+  <script src="./service-export.js?v=5.44.0" defer></script>
+  <script src="./local-view-cache.js?v=5.44.0"></script>
+  <script src="./portal.js?v=5.44.0"></script>
   <script src="./vendor/jsQR.js"></script>
-  <script src="./invoice-import-ui.js?v=5.43.0"></script>
+  <script src="./invoice-import-ui.js?v=5.44.0"></script>
+  <script src="./service-followup.js?v=5.44.0" defer></script>
+  <script src="./sequential-review.js?v=5.44.0" defer></script>
 </body>
 </html>

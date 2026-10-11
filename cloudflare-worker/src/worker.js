@@ -148,6 +148,7 @@ async function route(request, env) {
   if (path === "/api/admin/service-documents/seen" && request.method === "POST") return markAdminServiceDocumentSeen(request, env);
   if (path === "/api/admin/service-documents/reprocess" && request.method === "POST") return reprocessAdminServiceDocument(request, env);
   if (path === "/api/admin/service-documents/undo-review" && request.method === "POST") return undoServiceReview(request, env);
+  if (path === "/api/admin/service-followup" && request.method === "POST") return updateServiceFollowup(request, env);
   if (path === "/api/admin/service-documents/review" && request.method === "POST") return reviewAdminServiceDocument(request, env);
   if (path.startsWith("/api/service-documents/") && request.method === "GET") return downloadServiceDocument(request, env);
   const fleetHistoryMatch = path.match(/^\/api\/admin\/fleet\/([^/]+)\/history\/([^/]+)\/(edit|delete)$/);
@@ -2269,6 +2270,8 @@ function normalizeHistory(value) {
       // actual recorded odometer is now the only baseline for the next cycle.
       majorServiceMilestoneKm: majorService ? cleanInteger(item.km, 0, 2_000_000_000, 0) : 0,
       reviewJournal: ServiceModel.journal(item.reviewJournal),
+      invoiceExpectation: ServiceModel.expectation(item.invoiceExpectation),
+      kmAcknowledgments: ServiceModel.kmAcknowledgments(item.kmAcknowledgments),
       attachments: type === "service" ? normalizeServiceAttachments(item.attachments) : [],
       invoiceData: type === "service" ? normalizeServiceInvoiceData(item.invoiceData) : null,
       createdAt: isoDateTime(item.createdAt, ""),
@@ -2375,7 +2378,13 @@ function mergeBike(first, second) {
   const historyMap = new Map();
   [...first.history, ...second.history].forEach((entry) => {
     const existing = historyMap.get(entry.id);
-    if (!existing || historyEntryStamp(entry) >= historyEntryStamp(existing)) historyMap.set(entry.id, entry);
+    if (!existing) historyMap.set(entry.id, entry);
+    else if (historyEntryStamp(entry) >= historyEntryStamp(existing)) historyMap.set(entry.id, {
+      ...entry,
+      invoiceExpectation: entry.invoiceExpectation || existing.invoiceExpectation,
+      kmAcknowledgments: ServiceModel.kmAcknowledgments([...(existing.kmAcknowledgments||[]),...(entry.kmAcknowledgments||[])].filter((v,i,a)=>a.findLastIndex(x=>x.signature===v.signature)===i)),
+      reviewJournal: entry.reviewJournal?.length ? entry.reviewJournal : existing.reviewJournal
+    });
   });
   const history = [...historyMap.values()]
     .filter((entry) => !deleted.has(entry.id))
@@ -3552,6 +3561,40 @@ async function serveWeb(request, env) {
   headers.set("Referrer-Policy", "same-origin");
   headers.set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function updateServiceFollowup(request, env) {
+  let actor;
+  try { actor = await authenticateExternal(request, env, 'fleet.manage'); }
+  catch(error) { return json({error:error.message},Number(error.status)||401); }
+  if(!isManagementActor(actor))return json({error:'Χρειάζεται λογαριασμός διαχείρισης.'},403);
+  const body=await request.json().catch(()=>({}));
+  if(!['invoice-expectation','acknowledge-km'].includes(body.action))return json({error:'Μη έγκυρη ενέργεια.'},400);
+  const located=await readSnapshotBike(env,cleanText(body.bikeId,100));
+  const bike=located?.bike,entry=bike?.history?.find(e=>String(e.id)===String(body.entryId));
+  if(!entry)return json({error:'Η καταχώρηση δεν βρέθηκε.'},404);
+  if((await activeArchivedBikeIds(env)).has(bike.id))return json({error:'Η μηχανή βρίσκεται στον κάδο. Επαναφέρετέ τη πριν αλλάξετε την καταχώρηση.'},409);
+  if(typeof body.expectedEntryUpdatedAt!=='string'||body.expectedEntryUpdatedAt!==String(entry.updatedAt||''))return json({error:'Η καταχώρηση άλλαξε. Ανανέωσε τη λίστα πριν αποθηκεύσεις.'},409);
+  const reason=cleanText(body.reason,500),now=new Date().toISOString(),name=String(actor.full_name||actor.username||actor.id||'admin').slice(0,120);
+  const before={invoiceExpectation:entry.invoiceExpectation,kmAcknowledgments:entry.kmAcknowledgments};
+  if(body.action==='invoice-expectation') {
+    if(entry.type==='check'||!['expected','not_expected'].includes(body.status))return json({error:'Μη έγκυρη επιλογή τιμολογίου.'},400);
+    if(body.status==='not_expected'&&((entry.attachments||[]).some(f=>f.key)||ServiceModel.pendingInvoice(entry)))return json({error:'Υπάρχει ήδη τιμολόγιο ή ανάγνωση σε εξέλιξη για αυτό το service.'},409);
+    if(body.status==='not_expected'&&reason.length<3)return json({error:'Γράψε μια σύντομη εξήγηση.'},400);
+    entry.invoiceExpectation={status:body.status,reason,at:now,actor:name};
+  } else {
+    const mismatch=ServiceModel.chronology(bike).find(r=>String(r.entry.id)===String(entry.id)&&r.signature===body.signature);
+    if(!mismatch)return json({error:'Οι ημερομηνίες ή οι ενδείξεις άλλαξαν. Ανανέωσε τον έλεγχο.'},409);
+    if(reason.length<3)return json({error:'Γράψε γιατί η μικρότερη ένδειξη είναι σωστή, π.χ. αλλαγή κοντέρ.'},400);
+    entry.kmAcknowledgments=ServiceModel.kmAcknowledgments([...(entry.kmAcknowledgments||[]).filter(a=>a.signature!==mismatch.signature),{signature:mismatch.signature,reason,at:now,actor:name}]);
+  }
+  entry.updatedAt=now;bike.updatedAt=now;const normalized=normalizeBike(bike);
+  const version=await writeSnapshotBike(env,located,normalized,'admin-service-followup',now);
+  if(!version)return json({error:'Τα δεδομένα άλλαξαν ταυτόχρονα. Ανανέωσε τη λίστα.'},409);
+  const operationId=crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)").bind(operationId,JSON.stringify({bike:normalized}),now).run();
+  await recordExternalAudit(env,request,actor,'service_followup_'+body.action,'fleet_history',entry.id,before,{invoiceExpectation:entry.invoiceExpectation,kmAcknowledgments:entry.kmAcknowledgments},reason,false);
+  return json({ok:true,bike:normalized,version,operationId});
 }
 
 async function undoServiceReview(request, env) {

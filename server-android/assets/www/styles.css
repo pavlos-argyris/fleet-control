@@ -200,3 +200,5 @@ dialog label { display: block; margin-bottom: .75rem; }
 @media(prefers-reduced-motion:reduce){.ota-progress.is-active::after{animation:none;transform:none;opacity:.4}}
 
 .backup-restore-preview{width:min(600px,calc(100vw - 24px));padding:1.25rem;max-height:88dvh;overflow:auto}.backup-restore-preview p{line-height:1.55;font-size:.85rem}.backup-restore-preview summary{cursor:pointer;font-weight:700}
+
+.backup-health-card{padding:16px;margin:16px 0;border:1px solid #d5e7df;border-radius:18px;background:#f1f8f4}.backup-health-card p{font-size:13px;line-height:1.6;overflow-wrap:anywhere}.backup-health-card small{display:block;font-size:12px;line-height:1.6;color:#56776b}.backup-health-card .dialog-buttons{flex-wrap:wrap}.backup-health-warning{color:#a05b20}

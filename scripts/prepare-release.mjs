@@ -30,7 +30,7 @@ manifest.web = { version: config.web.version, files: walk('cloudflare-worker/pub
 manifest.worker = config.worker;
 fs.writeFileSync('dist/release-manifest.json', JSON.stringify(manifest, null, 2) + '\n');
 execFileSync('git', ['archive', '--format=zip', '-o', `dist/Fleet_Control_Source_v${config.releaseVersion}.zip`, commit]);
-execFileSync('git', ['archive', '--format=zip', '-o', `dist/Fleet_Control_Worker_v${config.worker.version}.zip`, commit, 'cloudflare-worker', 'scripts/prepare-pdf-viewer.py', 'vendor/pdf-viewer-6.4.299.zip', 'third-party/PDFJS_LICENSE.txt', 'release-config.json', 'docs/SERVICE_UPDATE_5.43.0_GR.md']);
+execFileSync('git', ['archive', '--format=zip', '-o', `dist/Fleet_Control_Worker_v${config.worker.version}.zip`, commit, 'cloudflare-worker', 'scripts/prepare-pdf-viewer.py', 'vendor/pdf-viewer-6.4.299.zip', 'third-party/PDFJS_LICENSE.txt', 'release-config.json', 'docs/SERVICE_UPDATE_5.43.0_GR.md', 'docs/FOLLOWUP_UPDATE_5.44.0_GR.md']);
 execFileSync('python3', ['scripts/package-web.py', `dist/Fleet_Control_Web_Assets_v${config.web.version}.zip`]);
 execFileSync('python3', ['scripts/package-invoice-dependencies.py', `dist/Fleet_Invoice_Build_Inputs_v${config.releaseVersion}.zip`]);
 const sums = walk('dist').filter(f => f.path !== 'SHA256SUMS.txt').map(f => `${f.sha256}  ${f.path}`).join('\n') + '\n';

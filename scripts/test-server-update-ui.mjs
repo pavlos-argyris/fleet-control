@@ -16,7 +16,8 @@ let saveOk = true, saved;
 const bridge = { getDashboard: () => JSON.stringify(data), saveSettings: raw => {
   saved = JSON.parse(raw); if (!saveOk) return JSON.stringify({ ok: false, message: 'error' });
   data = { ...data, ...saved }; return JSON.stringify({ ...data, ok: true });
-}, loadReleases() {}, checkServerUpdate() {} };
+}, loadReleases() {}, checkServerUpdate() {}, verifyLastBackup(){backupChecks++;}, chooseBackupVerification(){selectedChecks++;} };
+let backupChecks=0,selectedChecks=0;
 let tick;
 const context = vm.createContext({ console, window: { AndroidServer: bridge, scrollTo() {} },
   document: { getElementById: element, querySelectorAll: () => [] }, setInterval: fn => { tick = fn; }, setTimeout: () => 1, clearTimeout() {} });
@@ -44,5 +45,12 @@ data.ota = { stage: 'installing', installStatus: 'confirmation', installMessage:
 tick(); assert.equal(element('installServerUpdate').textContent, 'Επιβεβαίωση στο Android'); assert.equal(element('installServerUpdate').disabled, false);
 context.window.FleetServer.onNativeEvent('releases', { ok: true, releases: [{ kind: 'server', version: '2.1.5', notes: 'Πρώτο, Δεύτερο', created_at: '2026-10-10' }] });
 assert.match(element('releaseList').innerHTML, /<li>Πρώτο<\/li><li>Δεύτερο<\/li>/);
+data.backupMetadata={time:'2026-10-11T10:00:00Z',fileName:'good.fcbackup',includedDocuments:3,expectedDocuments:5,missingDocuments:2,workforceIncluded:true};
+data.canVerifyLastBackup=true;data.lastBackupResult='Αποτυχία νεότερης προσπάθειας';data.backupVerification={fileName:'good.fcbackup',checkedAt:'2026-10-11T10:10:00Z',complete:false,message:'Λείπουν 2 τιμολόγια.'};tick();
+assert.match(element('lastBackup').textContent,/good.fcbackup/);assert.doesNotMatch(element('lastBackup').textContent,/Αποτυχία/);
+assert.match(element('backupContents').textContent,/3 \/ 5/);assert.match(element('backupContents').textContent,/Λείπουν 2/);assert.match(element('backupVerificationStatus').textContent,/Λείπουν 2/);
+element('verifyLastBackup').listeners.click();assert.equal(backupChecks,1);assert.match(element('backupMessage').textContent,/Δεν γίνεται επαναφορά/);
+element('verifyBackupFile').listeners.click();assert.equal(selectedChecks,1);assert.match(element('backupMessage').textContent,/χωρίς επαναφορά/);
+context.window.FleetServer.onNativeEvent('backupVerification',{ok:true,message:'Το backup διαβάζεται.',bikes:2,historyEntries:5,records:10,documentsMessage:'Ελέγχθηκαν CRC και SHA.'});assert.match(element('backupMessage').textContent,/CRC και SHA/);
 for (const id of nodes.keys()) assert.ok(html.includes('id="' + id + '"'), 'Missing HTML element: ' + id);
 console.log('OK actual Server UI: draft settings survive 1-second polling/focus/native events, save success/failure, escaped bullet notes, download progress, truthful indeterminate backup and Android confirmation.');

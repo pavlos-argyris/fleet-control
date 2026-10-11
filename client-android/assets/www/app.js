@@ -409,6 +409,8 @@
             date: entry.date || today(),
             notes: notes,
             reviewJournal: window.FleetServiceModel ? window.FleetServiceModel.journal(entry.reviewJournal) : [],
+            invoiceExpectation: window.FleetServiceModel ? window.FleetServiceModel.expectation(entry.invoiceExpectation) : null,
+            kmAcknowledgments: window.FleetServiceModel ? window.FleetServiceModel.kmAcknowledgments(entry.kmAcknowledgments) : [],
             tasks: tasks,
             workshop: String(entry.workshop || "").trim().slice(0, 120),
             cost: String(entry.cost == null ? (entry.serviceCost || "") : entry.cost).trim().slice(0, 60),
@@ -513,7 +515,12 @@
     const historyMap = new Map();
     (first.history || []).concat(second.history || []).forEach(function (entry) {
       const existing = historyMap.get(entry.id);
-      if (!existing || historyStamp(entry) >= historyStamp(existing)) historyMap.set(entry.id, entry);
+      if (!existing) historyMap.set(entry.id,entry);
+      else if(historyStamp(entry)>=historyStamp(existing))historyMap.set(entry.id,Object.assign({},entry,{
+        invoiceExpectation:entry.invoiceExpectation||existing.invoiceExpectation,
+        kmAcknowledgments:window.FleetServiceModel?window.FleetServiceModel.kmAcknowledgments((existing.kmAcknowledgments||[]).concat(entry.kmAcknowledgments||[]).filter((v,i,a)=>a.map(x=>x.signature).lastIndexOf(v.signature)===i)):[],
+        reviewJournal:entry.reviewJournal?.length?entry.reviewJournal:existing.reviewJournal
+      }));
     });
     const history = Array.from(historyMap.values()).filter(function (entry) { return !deleted.has(entry.id); }).sort(function (a, b) {
       return String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id));
@@ -1197,6 +1204,7 @@
         if (response.status === 401) {
           webToken = "";
           cloudSnapshotVersion = null;
+          window.FleetFollowup?.reset();
           currentUser = null;
           bikes = [];
           try {
@@ -3842,6 +3850,17 @@
     }catch(error){console.warn('Δεν ολοκληρώθηκε η ουρά τιμολογίων.');}finally{outboxRunning=false;}
   }
   window.addEventListener('online',processServiceOutbox);setInterval(processServiceOutbox,60000);setTimeout(processServiceOutbox,5000);
+  window.FleetFollowupAdapter={
+    canManage:canManageHistory,context:serviceStorageScope,toast:showToast,getBikes:()=>bikes,
+    getOutbox:async()=>currentUser&&window.FleetServiceStorage?window.FleetServiceStorage.list(serviceStorageScope(),'outbox'):[],
+    retryOutbox:processServiceOutbox,
+    api:async(path,options)=>{options=options||{};const response=await fetch(apiBase+path,{method:options.method||'GET',headers:requestHeaders(!!options.body),body:options.body?JSON.stringify(options.body):undefined,cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Δεν ολοκληρώθηκε η ενέργεια.');return data;},
+    applyBike:bike=>{mergeBackgroundBike(bike);saveBikes();renderHome();if(activeBikeId===bike.id)renderDetail();},
+    edit:(bikeId,entryId,purpose)=>{openDetail(bikeId);openHistoryEntryDialog(entryId);if(purpose==='invoice'){elements.historyEntryReason.value='Προσθήκη τιμολογίου σε υπάρχον service';elements.historyEntryInvoiceQrValue.focus();elements.historyEntryInvoiceQrValue.scrollIntoView({block:'nearest'});}},
+    review:(record)=>{openDetail(record.bikeId);return reviewStoredServiceDocument(record.entryId,record.key);},
+    openDocument:record=>openServiceDocument(record),
+    retry:async record=>{const data=await window.FleetFollowupAdapter.api(record.key&&record.error?'/api/admin/service-documents/reprocess':'/api/admin/service-documents/restart',{method:'POST',body:record.key&&record.error?{key:record.key,forceAi:true}:{jobId:record.jobId||record.invoiceData?.qrJobId||'',bikeId:record.bikeId,entryId:record.entryId,qrUrl:record.qrUrl}});showToast('Η νέα προσπάθεια καταχωρήθηκε.');return data;}
+  };
   const maintenanceButton=document.createElement('button');maintenanceButton.type='button';maintenanceButton.className='secondary-button';maintenanceButton.textContent='Συντήρηση ανά εργασία';
   elements.detailExportButton.after(maintenanceButton);maintenanceButton.onclick=()=>{const bike=getBike(activeBikeId);if(bike)window.FleetServiceUI.maintenance(bike,async plans=>{if(!canManageHistory())throw new Error('Χρειάζεται πρόσβαση διαχείρισης.');bike.maintenancePlans=plans;bike.updatedAt=new Date().toISOString();saveBikes();await syncNow();showToast('Τα όρια συντήρησης αποθηκεύτηκαν.');});};
 

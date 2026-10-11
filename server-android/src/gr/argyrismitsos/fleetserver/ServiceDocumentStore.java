@@ -94,6 +94,7 @@ public final class ServiceDocumentStore {
     public static byte[] createArchive(Context context, JSONObject fleet) throws Exception {
         JSONArray manifest = new JSONArray();
         List<JSONObject> documents = new ArrayList<JSONObject>();
+        java.util.Set<String> includedKeys = new java.util.HashSet<String>();
         JSONArray bikes = fleet == null ? null : fleet.optJSONArray("bikes");
         if (bikes != null) for (int i = 0; i < bikes.length(); i++) {
             JSONObject bike = bikes.optJSONObject(i);
@@ -109,7 +110,8 @@ public final class ServiceDocumentStore {
                     String key = attachment.optString("key", "");
                     if (key.length() == 0) continue;
                     File local = localFile(context, key, attachment.optString("name", ""));
-                    if (!local.exists()) continue;
+                    if (!local.exists() || local.length()==0 || includedKeys.contains(key)) continue;
+                    includedKeys.add(key);
                     String zipName = "documents/" + documents.size() + extension(attachment.optString("name", ""));
                     JSONObject metadata = new JSONObject();
                     metadata.put("zipName", zipName);
@@ -120,6 +122,11 @@ public final class ServiceDocumentStore {
                     metadata.put("originalName", attachment.optString("originalName", ""));
                     metadata.put("contentType", attachment.optString("contentType", "application/pdf"));
                     metadata.put("size", local.length());
+                    MessageDigest contentDigest=MessageDigest.getInstance("SHA-256");
+                    FileInputStream checksumInput=new FileInputStream(local);
+                    try { byte[] checkBuffer=new byte[65536];int count;while((count=checksumInput.read(checkBuffer))!=-1)contentDigest.update(checkBuffer,0,count); }
+                    finally { checksumInput.close(); }
+                    metadata.put("sha256",BackupArchiveVerifier.hex(contentDigest.digest()));
                     metadata.put("qrValue", attachment.optString("qrValue", ""));
                     metadata.put("qrUrl", attachment.optString("qrUrl", ""));
                     metadata.put("renderJobId", attachment.optString("renderJobId", ""));

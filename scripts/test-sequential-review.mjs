@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import {createRequire} from 'node:module';
+const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{JSDOM}=require('jsdom');
+const dom=new JSDOM('<select id="invoicePlateFilter"><option selected>BTO</option></select><dialog id="invoiceReviewDialog"><form><button type="button" id="invoiceReviewSave">Αποθήκευση</button></form></dialog>',{url:'https://fixture.invalid',runScripts:'outside-only'}),w=dom.window,d=w.document.getElementById('invoiceReviewDialog'),save=w.document.getElementById('invoiceReviewSave');
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+let docs=[{id:'1',key:'one',status:'needs_review'},{id:'2',key:'two',status:'needs_review'},{id:'3',key:'three',status:'needs_review'},{id:'4',status:'processing'}],opened=[],fail=true,busy=false;
+w.FleetInvoiceApi={toast(){},getDocuments:()=>docs,reviewBusy:()=>busy,review:async id=>{opened.push(id);d.showModal();w.FleetSequentialReview.decorate();}};
+w.eval(fs.readFileSync('cloudflare-worker/public/sequential-review.js','utf8'));w.document.dispatchEvent(new w.Event('DOMContentLoaded'));
+save.onclick=()=>{if(fail)return;const id=opened.at(-1);docs=docs.map(r=>r.id===id?{...r,status:'confirmed'}:r);w.FleetSequentialReview.saved(id);d.close();};
+const tick=()=>new Promise(r=>setTimeout(r,10));
+w.FleetSequentialReview.start(docs);await tick();assert.deepEqual(opened,['1']);
+w.document.querySelector('[data-sequential-save]').click();await tick();assert.deepEqual(opened,['1'],'Failed save keeps current review and never advances');assert.equal(d.open,true);
+busy=true;w.document.querySelector('[data-sequential-skip]').click();await tick();assert.deepEqual(opened,['1'],'Cannot skip while a save or mileage confirmation is active');busy=false;
+fail=false;w.document.querySelector('[data-sequential-save]').click();await tick();assert.deepEqual(opened,['1','2']);assert.equal(w.document.getElementById('invoicePlateFilter').value,'BTO');
+w.document.querySelector('[data-sequential-skip]').click();await tick();assert.deepEqual(opened,['1','2','3']);assert.equal(docs.find(r=>r.id==='2').status,'needs_review');
+w.document.querySelector('[data-sequential-stop]').click();await tick();assert.equal(d.open,false);
+w.FleetSequentialReview.start([docs[2]]);await tick();save.click();await tick();assert.equal(d.open,false,'Ordinary Save exits the sequence without opening another invoice');
+w.close();console.log('OK actual sequential review: stable initial IDs, successful save-only advance, failed-save preservation, filter retention, busy guard, skip without mutation and pause/ordinary-save exit.');

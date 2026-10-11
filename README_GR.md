@@ -1,3 +1,8 @@
+# Fleet Control 5.44.0
+
+Client/Web 5.44.0, Server 2.2.1, Worker 5.7.0.
+Οδηγίες νέων επιλογών: [FOLLOWUP_UPDATE_5.44.0_GR.md](docs/FOLLOWUP_UPDATE_5.44.0_GR.md).
+
 # Τρέχον update 5.43.0
 
 [Οδηγίες service / backup / ιστορικού](docs/SERVICE_UPDATE_5.43.0_GR.md). Πλήρης παράδοση μέσω ιδιωτικού GitHub.

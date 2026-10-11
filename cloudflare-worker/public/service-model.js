@@ -79,5 +79,48 @@
     const remainingKm=e&&p.km?Number(e.km)+p.km-Number(bike.currentKm):null,remainingDays=e&&p.days?p.days-days:null;
     return {plan:p,entry:e,remainingKm,remainingDays,due:(remainingKm!=null&&remainingKm<=0)||(remainingDays!=null&&remainingDays<=0)};
   });}
-  root.FleetServiceModel={cents,euro,date,invoice,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults};
+  function expectation(value) {
+    if (!value || !['expected','not_expected'].includes(value.status)) return null;
+    return {status:value.status,reason:String(value.reason||'').trim().slice(0,500),at:String(value.at||'').slice(0,40),actor:String(value.actor||'').slice(0,120)};
+  }
+  function kmAcknowledgments(value) {
+    return (Array.isArray(value)?value:[]).filter(v=>v&&typeof v.signature==='string'&&v.reason&&v.at).slice(-20)
+      .map(v=>({signature:v.signature.slice(0,700),reason:String(v.reason).trim().slice(0,500),at:String(v.at).slice(0,40),actor:String(v.actor||'').slice(0,120)}));
+  }
+  function chronology(bike) {
+    const days=new Map(),result=[];
+    for(const e of bike.history||[]) {
+      const d=date(e.date),n=Number(e.km);
+      if(!d||e.km==null||e.km===''||!Number.isSafeInteger(n)||n<0||n>2000000000)continue;
+      if(!days.has(d))days.set(d,[]);days.get(d).push(e);
+    }
+    let previous=null;
+    for(const d of [...days.keys()].sort()) {
+      const entries=days.get(d).sort((a,b)=>Number(b.km)-Number(a.km)||String(a.id).localeCompare(String(b.id)));
+      if(previous)for(const entry of entries)if(Number(entry.km)<Number(previous.km)) {
+        const signature=JSON.stringify([String(previous.id),date(previous.date),Number(previous.km),String(entry.id),d,Number(entry.km)]);
+        const acknowledgment=kmAcknowledgments(entry.kmAcknowledgments).find(a=>a.signature===signature)||null;
+        result.push({bike,entry,previous,signature,acknowledgment});
+      }
+      previous=entries[0];
+    }
+    return result;
+  }
+  function pendingInvoice(entry) {
+    const data=entry.invoiceData||{};
+    return !!data.qrUrl && !['completed','failed','error','cancelled','superseded'].includes(data.qrProcessingStatus||'');
+  }
+  function missingInvoices(bikes,options) {
+    options=options||{};const queued=new Set(options.queuedEntryIds||[]),rows=[];
+    for(const bike of bikes||[])for(const entry of bike.history||[]) {
+      if(entry.type==='check'||(entry.attachments||[]).some(f=>f.key)||pendingInvoice(entry)||queued.has(String(entry.id)))continue;
+      if(options.bikeId&&String(bike.id)!==String(options.bikeId))continue;
+      const d=date(entry.date);if((options.from||options.to)&&(!d||(options.from&&d<options.from)||(options.to&&d>options.to)))continue;
+      const exempt=expectation(entry.invoiceExpectation)?.status==='not_expected';
+      if(exempt&&!options.includeExempt)continue;
+      rows.push({bike,entry,exempt});
+    }
+    return rows.sort((a,b)=>date(b.entry.date).localeCompare(date(a.entry.date))||String(a.bike.name).localeCompare(String(b.bike.name),'el')||String(a.entry.id).localeCompare(String(b.entry.id)));
+  }
+  root.FleetServiceModel={cents,euro,date,invoice,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,pendingInvoice,missingInvoices};
 })(globalThis);

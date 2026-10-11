@@ -120,6 +120,7 @@
   }
 
   function clearSession() {
+    window.FleetSequentialReview?.stop();window.FleetFollowup?.reset();if($("invoiceReviewDialog")?.open)$("invoiceReviewDialog").close();
     if(window.FleetViewCache)window.FleetViewCache.clear();
     state.previewSession=false;
     try {
@@ -2890,6 +2891,8 @@
       return;
     }
     const filesView = state.invoiceView === "files";
+    if($("invoiceSequentialReview"))$("invoiceSequentialReview").hidden=filesView||!can("fleet.manage");
+    if(filesView)state.invoiceVisibleDocuments=[];
     if ($("invoiceStatusFilter")) $("invoiceStatusFilter").hidden = filesView;
     if ($("invoiceQueueSummary")) $("invoiceQueueSummary").hidden = filesView;
     if ($("invoiceFileSearch")) $("invoiceFileSearch").hidden = !filesView;
@@ -2923,6 +2926,7 @@
       return String(item.status) === filter;
     };
     const filtered = records.filter(function (item) { return statusMatch(item) && (!plateSelect || !plateSelect.value || plateKey(item) === plateSelect.value); });
+    state.invoiceVisibleDocuments = filtered;
     const counts = records.reduce(function (result, item) {
       result.total += 1;
       if (["processing", "delayed"].includes(item.status)) result.processing += 1;
@@ -3422,9 +3426,17 @@
       window.FleetServiceUI.pdfEvidence(async function(){const headers={Authorization:'Bearer '+state.token};const response=await fetch(apiBase+'/api/service-documents/'+record.key.split('/').map(encodeURIComponent).join('/'),{headers,cache:'no-store'});if(!response.ok)throw new Error('Το PDF δεν είναι διαθέσιμο.');return response.blob();},field,values[field],record.name);
     },function(){window.FleetServiceUI.journal({id:record.entryId,km:record.serviceKm,updatedAt:record.serviceUpdatedAt,reviewJournal:record.reviewJournal},async function(id){await api('/api/admin/service-documents/undo-review',{method:'POST',body:{bikeId:record.bikeId,entryId:record.entryId,revisionId:id}});$("invoiceReviewDialog").close();await loadInvoices();});});
     $("invoiceReviewDialog").showModal();
+    window.FleetSequentialReview?.decorate();
   }
 
   async function saveAdminInvoiceReview(event) {
+    if(event?.preventDefault)event.preventDefault();
+    if(state.invoiceReviewSubmitting)return;
+    state.invoiceReviewSubmitting=true;
+    try{return await performAdminInvoiceReview(event);}finally{state.invoiceReviewSubmitting=false;}
+  }
+
+  async function performAdminInvoiceReview(event) {
     if (event && event.preventDefault) event.preventDefault();
     const record = state.invoiceReviewDocument;
     if (!record || !record.key) return void ($("invoiceReviewError").textContent = "Το PDF δεν είναι ακόμη διαθέσιμο για επιβεβαίωση.");
@@ -3483,6 +3495,7 @@
       if (result.document) state.invoiceDocuments.push(result.document);
       // Every invoice on this service uses the corrected manual mileage.
       await loadInvoices().catch(function () { toast("Αποθηκεύτηκε. Ανανέωσε τη λίστα τιμολογίων για τις υπόλοιπες αλλαγές."); });
+      window.FleetSequentialReview?.saved(record.id);
       $("invoiceReviewDialog").close();
       renderInvoiceQueue();
       toast("Τα στοιχεία του τιμολογίου επιβεβαιώθηκαν και αποθηκεύτηκαν.");
@@ -4229,6 +4242,7 @@
     $("refreshInvoices").addEventListener("click", loadInvoices);
     $("invoiceFileSearch").addEventListener("input", renderInvoiceQueue);
     $("invoiceStatusFilter").addEventListener("change", renderInvoiceQueue);
+    $("invoiceSequentialReview")?.addEventListener("click",()=>window.FleetSequentialReview.start(state.invoiceVisibleDocuments||[]));
     if ($("invoicePlateFilter")) $("invoicePlateFilter").addEventListener("change", renderInvoiceQueue);
     $("invoiceReviewForm").addEventListener("submit", saveAdminInvoiceReview);
     $("invoiceReviewOpen").addEventListener("click", function () { openInvoiceDocument(state.invoiceReviewDocument, false); });
@@ -4441,7 +4455,16 @@
   window.FleetInvoiceApi={api,can,toast,openPdf:openInvoiceDocument,refresh:loadInvoices,
     reprocess:(mode,failedOnly,forceRead)=>reprocessAllInvoiceDocuments(mode,failedOnly,forceRead),
     batchAction:action=>publishInvoiceReprocessBatch(action),getBatch:()=>({id:state.invoiceReprocessBatchId,busy:state.invoiceReprocessBusy}),
-    getDocuments:()=>state.invoiceDocuments};
+    getDocuments:()=>state.invoiceDocuments,review:openAdminInvoiceReview,reviewBusy:()=>!!state.invoiceReviewSubmitting};
+  window.FleetFollowupAdapter={
+    canManage:()=>can("fleet.manage"),context:()=>apiBase+"|"+String(state.user?.id||""),toast,api,getBikes:()=>[],
+    getOutbox:async()=>{if(!state.user||!window.FleetServiceStorage)return [];const scope=apiBase+"|"+String(state.user.id||state.user.username||"");const rows=await window.FleetServiceStorage.list(scope,"outbox");if(location.protocol!=="file:"&&apiBase===location.origin)rows.push(...await window.FleetServiceStorage.list("|"+String(state.user.id||state.user.username||""),"outbox"));return rows;},
+    retryOutbox:async()=>{await goTo("fleet");ensureFleetModule();const frame=$("fleetModuleFrame");for(let i=0;i<80;i++){try{if(frame.contentWindow?.FleetFollowupAdapter){await frame.contentWindow.FleetFollowupAdapter.retryOutbox();return;}}catch(e){}await new Promise(r=>setTimeout(r,100));}throw new Error("Άνοιξε την καρτέλα Fleet στην ίδια συσκευή για να συνεχιστούν οι τοπικές αποστολές.");},
+    edit:async(bikeId,entryId,purpose)=>{await goTo("fleet");ensureFleetModule();const frame=$("fleetModuleFrame");for(let i=0;i<80;i++){try{const adapter=frame.contentWindow?.FleetFollowupAdapter;if(adapter&&adapter.canManage()){adapter.edit(bikeId,entryId,purpose);return;}}catch(e){}await new Promise(r=>setTimeout(r,100));}toast("Άνοιξε την καταχώρηση στην καρτέλα Fleet για να προσθέσεις QR ή να τη διορθώσεις.");},
+    review:async r=>{if(!state.invoiceDocuments.some(d=>String(d.id)===String(r.id)))await loadInvoices();return openAdminInvoiceReview(r.id);},
+    openDocument:r=>openInvoiceDocument(r,false),
+    retry:async r=>{const data=r.key&&r.error?await api("/api/admin/service-documents/reprocess",{method:"POST",body:{key:r.key,forceAi:true}}):await api("/api/admin/service-documents/restart",{method:"POST",body:{jobId:r.jobId||r.invoiceData?.qrJobId||"",bikeId:r.bikeId,entryId:r.entryId,qrUrl:r.qrUrl}});toast("Η νέα προσπάθεια καταχωρήθηκε.");await loadInvoices();return data;}
+  };
   initialize();
   window.addEventListener("beforeinstallprompt", function (event) {
     event.preventDefault();

@@ -33,6 +33,7 @@ public final class MainActivity extends Activity {
     private static final int PICK_WEB_PACKAGE = 203;
     private static final int PICK_BACKUP_FILE = 204;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 205;
+    private static final int PICK_BACKUP_VERIFY = 206;
     private WebView webView;
     private FleetDataStore store;
     private SharedPreferences preferences;
@@ -180,6 +181,9 @@ public final class MainActivity extends Activity {
         result.put("backupFolderSelected", preferences.getString(BackupManager.KEY_FOLDER_URI, "").length() > 0);
         result.put("lastBackupTime", preferences.getString(BackupManager.KEY_LAST_TIME, ""));
         result.put("lastBackupResult", preferences.getString(BackupManager.KEY_LAST_RESULT, "Δεν έχει γίνει ακόμη"));
+        result.put("backupMetadata",new JSONObject(preferences.getString(BackupManager.KEY_LAST_METADATA,"{}")));
+        result.put("backupVerification",new JSONObject(preferences.getString(BackupManager.KEY_VERIFICATION,"{}")));
+        result.put("canVerifyLastBackup",preferences.getString(BackupManager.KEY_LAST_URI,"").length()>0);
         result.put("databaseOk", preferences.getBoolean("database_ok", false));
         result.put("storageOk", preferences.getBoolean("storage_ok", false));
         result.put("fleetControlOk", preferences.getBoolean("fleet_control_ok", false));
@@ -329,6 +333,14 @@ public final class MainActivity extends Activity {
             });
         }
 
+        @JavascriptInterface public void verifyLastBackup() {
+            runTask("backupVerification",new Task(){@Override public JSONObject run()throws Exception{
+                String uri=preferences.getString(BackupManager.KEY_LAST_URI,"");if(uri.length()==0)throw new IllegalArgumentException("Διάλεξε ένα backup για έλεγχο ή δημιούργησε νέο αντίγραφο.");
+                return BackupManager.verifyAndRemember(getApplicationContext(),Uri.parse(uri));
+            }});
+        }
+        @JavascriptInterface public void chooseBackupVerification() { pickFile("*/*",PICK_BACKUP_VERIFY); }
+
         @JavascriptInterface
         public void chooseBackupFile(String adminPin) {
             String pin = adminPin == null ? "" : adminPin.trim();
@@ -460,6 +472,7 @@ public final class MainActivity extends Activity {
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
             if (requestCode == PICK_CLIENT_APK) emitError("clientUpload", "Η επιλογή αρχείου ακυρώθηκε.");
             if (requestCode == PICK_WEB_PACKAGE) emitError("webUpload", "Η επιλογή αρχείου ακυρώθηκε.");
+            if (requestCode == PICK_BACKUP_VERIFY) emitError("backupVerification", "Ο έλεγχος ακυρώθηκε. Δεν έγινε επαναφορά.");
             if (requestCode == PICK_BACKUP_FILE) {
                 pendingRestorePin = "";
                 emitError("backupRestore", "Η επιλογή backup ακυρώθηκε.");
@@ -480,6 +493,8 @@ public final class MainActivity extends Activity {
             runTask("webUpload", new Task() {
                 @Override public JSONObject run() throws Exception { return UpdateManager.uploadWebPackage(getApplicationContext(), uri); }
             });
+        } else if (requestCode == PICK_BACKUP_VERIFY) {
+            runTask("backupVerification",new Task(){@Override public JSONObject run()throws Exception{return BackupManager.verifyAndRemember(getApplicationContext(),uri);}});
         } else if (requestCode == PICK_BACKUP_FILE) {
             runTask("backupPreview", new Task() {
                 @Override public JSONObject run() throws Exception {

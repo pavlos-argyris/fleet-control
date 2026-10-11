@@ -789,3 +789,32 @@ console.log(JSON.stringify({ recoveryCheck: "passed", data: "synthetic in-memory
 
 assert.ok(ok(await call('/api/sync',{token:ownerToken})).bikes.some(b=>b.id==='post-backup-bike'),'Restore must preserve newly added bikes');
 console.log('OK read-only restore preview: 28 table counts, guard against later changes, refresh then import, preserved post-backup fleet and workforce records.');
+
+// Actual authenticated follow-up endpoints and old-client synchronization.
+{
+  const bike={id:'followup-bike',name:'BTO-756',currentKm:10000,lastServiceKm:0,intervalKm:3000,createdAt:iso(Date.now()),updatedAt:iso(Date.now()),history:[
+    {id:'prior',type:'service',date:'2026-09-01',km:10000,createdAt:iso(Date.now()),updatedAt:iso(Date.now()),tasks:['Γενικός έλεγχος'],attachments:[]},
+    {id:'lower',type:'service',date:'2026-10-01',km:9000,createdAt:iso(Date.now()),updatedAt:iso(Date.now()),tasks:['Γενικός έλεγχος'],attachments:[]}
+  ]};
+  const seeded=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike}}));
+  let current=seeded.bike||ok(await call('/api/snapshot',{token:ownerToken})).bikes.find(b=>b.id===bike.id);
+  const target=()=>current.history.find(e=>e.id==='lower');
+  const base=()=>({bikeId:bike.id,entryId:'lower',expectedEntryUpdatedAt:target().updatedAt});
+  ok(await call('/api/admin/service-followup',{method:'POST',body:{...base(),action:'invoice-expectation',status:'not_expected',reason:'Δωρεάν εργασία'}}),401,'Management login required');
+  ok(await call('/api/admin/service-followup',{method:'POST',token:ownerToken,body:{...base(),action:'invoice-expectation',status:'not_expected',reason:''}}),400,'No unexplained exemption');
+  const queryLog=[],previousPrepare=db.prepare.bind(db);db.prepare=sql=>{queryLog.push(sql);return previousPrepare(sql);};
+  const stale=base();current=ok(await call('/api/admin/service-followup',{method:'POST',token:ownerToken,body:{...base(),action:'invoice-expectation',status:'not_expected',reason:'Δωρεάν εργασία',actor:'spoofed'}})).bike;
+  db.prepare=previousPrepare;assert.ok(queryLog.some(sql=>sql.includes('b.value AS bike_json')));assert.ok(!queryLog.some(sql=>/SELECT\s+data\s*,?\s*version/i.test(sql)),'Follow-up reads only one bike, never unrelated histories');
+  assert.equal(target().invoiceExpectation.status,'not_expected');assert.notEqual(target().invoiceExpectation.actor,'spoofed');assert.equal(target().km,9000);
+  ok(await call('/api/admin/service-followup',{method:'POST',token:ownerToken,body:{...stale,action:'invoice-expectation',status:'expected'}}),409,'Stale decision cannot overwrite');
+  const mismatch=globalThis.FleetServiceModel.chronology(current)[0];
+  ok(await call('/api/admin/service-followup',{method:'POST',token:ownerToken,body:{...base(),action:'acknowledge-km',signature:mismatch.signature+'changed',reason:'Αλλαγή κοντέρ'}}),409,'Signature must match both entries');
+  current=ok(await call('/api/admin/service-followup',{method:'POST',token:ownerToken,body:{...base(),action:'acknowledge-km',signature:mismatch.signature,reason:'Αλλαγή κοντέρ'}})).bike;
+  assert.equal(globalThis.FleetServiceModel.chronology(current)[0].acknowledgment.reason,'Αλλαγή κοντέρ');assert.equal(target().km,9000);
+  const oldClient=JSON.parse(JSON.stringify(current));oldClient.updatedAt=iso(Date.now()+1000);for(const e of oldClient.history){delete e.invoiceExpectation;delete e.kmAcknowledgments;delete e.reviewJournal;}
+  const merged=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:oldClient}})).bike;
+  const kept=merged.history.find(e=>e.id==='lower');assert.equal(kept.invoiceExpectation.status,'not_expected');assert.equal(kept.kmAcknowledgments.length,1,'Older clients cannot strip new metadata');
+  current=merged;current=ok(await call('/api/admin/service-followup',{method:'POST',token:ownerToken,body:{...base(),action:'invoice-expectation',status:'expected'}})).bike;assert.equal(target().invoiceExpectation.status,'expected','Exemption is reversible');
+  assert.ok(db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action LIKE 'service_followup_%'").get().n>=3);
+  console.log('OK actual service follow-up API: management auth, mandatory reasons, actor from session, stale/fingerprint guards, unchanged odometers, reversible exemptions, central audit and compatibility with older clients.');
+}

@@ -236,7 +236,13 @@
     const frequencyLabel = state.backupFrequency === "weekly" ? "Κάθε Δευτέρα" : state.backupFrequency === "weekdays" ? "Δευτέρα–Παρασκευή" : "Καθημερινά";
     el.backupSchedule.textContent = frequencyLabel + " στις " + String(state.backupHour == null ? 3 : state.backupHour).padStart(2, "0") + ":00";
     el.autoBackupState.textContent = state.automaticBackup ? "Ενεργό" : "Κλειστό";
-    el.lastBackup.textContent = state.lastBackupTime ? formatDate(state.lastBackupTime) + " • " + (state.lastBackupResult || "Επιτυχία") : "Δεν έχει γίνει ακόμη";
+    const backupInfo=state.backupMetadata||{},verification=state.backupVerification||{};
+    el.lastBackup.textContent = backupInfo.time ? formatDate(backupInfo.time)+" • "+backupInfo.fileName : state.lastBackupTime ? formatDate(state.lastBackupTime)+" • Παλαιότερο αντίγραφο" : "Δεν έχει γίνει ακόμη";
+    document.getElementById("verifyLastBackup").disabled=!state.canVerifyLastBackup;
+    document.getElementById("backupContents").textContent=backupInfo.fileName ? "Τιμολόγια στο αντίγραφο: "+Number(backupInfo.includedDocuments||0)+" / "+Number(backupInfo.expectedDocuments||0)+(backupInfo.missingDocuments?" · Λείπουν "+backupInfo.missingDocuments+". Άνοιξε τον συγχρονισμό και δημιούργησε ξανά backup.":" · Τα αναμενόμενα τιμολόγια περιλαμβάνονται.") + (backupInfo.workforceIncluded===false?" Δεν υπάρχει συγχρονισμένο αντίγραφο προσωπικού/συστήματος· συγχρόνισε και πάρε νέο backup.":"") : "Τα στοιχεία περιεχομένου θα εμφανιστούν μετά το επόμενο backup.";
+    document.getElementById("backupContents").classList.toggle("backup-health-warning",!!backupInfo.fileName&&(!!backupInfo.missingDocuments||backupInfo.workforceIncluded===false));
+    document.getElementById("backupVerificationStatus").textContent=verification.checkedAt ? formatDate(verification.checkedAt)+" • "+verification.fileName+" • "+verification.message : "Δεν έχει γίνει έλεγχος αναγνωσιμότητας.";
+    document.getElementById("backupVerificationStatus").classList.toggle("backup-health-warning",!!verification.checkedAt&&!verification.complete);
     el.retentionLabel.textContent = "Τα τελευταία " + (state.backupRetention || 30) + " αντίγραφα";
 
     if (!settingsDirty) {
@@ -295,6 +301,8 @@
         el.settingsMessage.textContent = payload.ok ? (payload.serverOnline ? "Η σύνδεση λειτουργεί και ο server φαίνεται online." : "Η Cloudflare πύλη λειτουργεί. Η υπηρεσία θα συνδεθεί σε λίγο.") : payload.message;
       } else if (event === "backup") {
         el.backupMessage.textContent = payload.ok ? "Το backup αποθηκεύτηκε: " + payload.fileName : payload.message;
+      } else if (event === "backupVerification") {
+        el.backupMessage.textContent=payload.ok ? payload.message+" Μηχανάκια: "+Number(payload.bikes||0)+" · Εγγραφές ιστορικού: "+Number(payload.historyEntries||0)+" · Εγγραφές συστήματος: "+Number(payload.records||0)+". "+payload.documentsMessage : payload.message;
       } else if (event === "backupPreview") {
         if(!payload.ok){el.backupMessage.textContent=payload.message;return;}
         const d=document.createElement('dialog');d.className='backup-restore-preview';
@@ -345,6 +353,8 @@
     setTimeout(function () { render(dashboard()); }, 500);
   });
   document.getElementById("chooseFolder").addEventListener("click", function () { if (bridge) bridge.chooseBackupFolder(); });
+  document.getElementById("verifyLastBackup").addEventListener("click",function(){el.backupMessage.textContent="Έλεγχος αναγνωσιμότητας σε εξέλιξη… Δεν γίνεται επαναφορά.";if(bridge)bridge.verifyLastBackup();});
+  document.getElementById("verifyBackupFile").addEventListener("click",function(){el.backupMessage.textContent="Διάλεξε backup για έλεγχο, χωρίς επαναφορά.";if(bridge)bridge.chooseBackupVerification();});
   document.getElementById("backupNow").addEventListener("click", function () { el.backupMessage.textContent = "Δημιουργία backup…"; if (bridge) bridge.backupNow(); });
   document.getElementById("restoreBackup").addEventListener("click", function () { el.restorePinForm.reset(); el.restorePinError.textContent = ""; el.restorePinDialog.showModal(); });
   document.getElementById("uploadClient").addEventListener("click", function () { busy("Περιμένω να επιλέξεις το νέο APK…"); if (bridge) bridge.chooseClientApk(); });

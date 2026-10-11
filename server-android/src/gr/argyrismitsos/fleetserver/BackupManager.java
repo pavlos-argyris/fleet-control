@@ -43,6 +43,9 @@ public final class BackupManager {
     public static final String KEY_LAST_DAY = "last_backup_day";
     public static final String KEY_LAST_TIME = "last_backup_time";
     public static final String KEY_LAST_RESULT = "last_backup_result";
+    public static final String KEY_LAST_URI = "last_backup_uri";
+    public static final String KEY_LAST_METADATA = "last_backup_metadata";
+    public static final String KEY_VERIFICATION = "backup_verification";
 
     private BackupManager() {
     }
@@ -66,6 +69,12 @@ public final class BackupManager {
         settings.put("automaticBackup", preferences.getBoolean("automatic_backup", true));
         settings.put("automaticStart", preferences.getBoolean("automatic_start", true));
         export.put("settings", settings);
+        byte[] documents = ServiceDocumentStore.createArchive(context, export.optJSONObject("fleet"));
+        int expectedDocuments = attachmentKeys(export.optJSONObject("fleet")).size();
+        int includedDocuments = documents.length > 22 ? BackupArchiveVerifier.inspect(documents).size() - 1 : 0;
+        JSONObject documentsBackup = new JSONObject().put("expected", expectedDocuments).put("included", includedDocuments)
+                .put("archiveSha256", documents.length > 22 ? BackupArchiveVerifier.digest(documents) : "");
+        export.put("documentsBackup", documentsBackup);
         final byte[] backupBytes = encrypt(export.toString(2).getBytes(Charset.forName("UTF-8")));
         Uri parentDocument = DocumentsContract.buildDocumentUriUsingTree(
                 treeUri, DocumentsContract.getTreeDocumentId(treeUri));
@@ -85,7 +94,6 @@ public final class BackupManager {
             throw error;
         }
 
-        byte[] documents = ServiceDocumentStore.createArchive(context, export.optJSONObject("fleet"));
         if (documents.length > 22) {
             String documentsName = "FleetControl_documents_" + stamp + ".fcdocs";
             Uri documentsUri = DocumentsContract.createDocument(resolver, parentDocument, "application/octet-stream", documentsName);
@@ -107,7 +115,9 @@ public final class BackupManager {
         preferences.edit()
                 .putString(KEY_LAST_DAY, day)
                 .putString(KEY_LAST_TIME, isoNow())
-                .putString(KEY_LAST_RESULT, "Επιτυχία")
+                .putString(KEY_LAST_RESULT, expectedDocuments > includedDocuments ? "Τα δεδομένα αποθηκεύτηκαν· λείπουν " + (expectedDocuments-includedDocuments) + " τιμολόγια" : "Επιτυχία")
+                .putString(KEY_LAST_URI, document.toString())
+                .putString(KEY_LAST_METADATA, new JSONObject().put("fileName",fileName).put("time",isoNow()).put("expectedDocuments",expectedDocuments).put("includedDocuments",includedDocuments).put("missingDocuments",Math.max(0,expectedDocuments-includedDocuments)).put("workforceIncluded",export.optJSONObject("workforce")!=null&&export.optJSONObject("workforce").length()>0).toString())
                 .apply();
         cleanupOldBackups(context, treeUri, Math.max(1, preferences.getInt(KEY_RETENTION, 30)));
         return fileName;
@@ -133,7 +143,7 @@ public final class BackupManager {
         }
     }
 
-    public static synchronized JSONObject readBackup(Context context, FleetDataStore store, Uri uri) throws Exception {
+    private static JSONObject readBackupRoot(Context context, Uri uri) throws Exception {
         InputStream input = context.getContentResolver().openInputStream(uri);
         if (input == null) throw new IllegalArgumentException("Το αρχείο backup δεν είναι διαθέσιμο.");
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -155,6 +165,14 @@ public final class BackupManager {
         if (fleet == null || fleet.optJSONArray("bikes") == null) {
             throw new IllegalArgumentException("Το αρχείο δεν είναι έγκυρο Fleet Control backup.");
         }
+        org.json.JSONArray bikes=fleet.optJSONArray("bikes");
+        for(int i=0;i<bikes.length();i++){JSONObject bike=bikes.optJSONObject(i);if(bike==null||bike.optString("id","").length()==0||(bike.has("history")&&bike.optJSONArray("history")==null))throw new IllegalArgumentException("Μη έγκυρη καταχώρηση στόλου στο backup.");org.json.JSONArray history=bike.optJSONArray("history");if(history!=null)for(int j=0;j<history.length();j++)if(history.optJSONObject(j)==null)throw new IllegalArgumentException("Μη έγκυρο ιστορικό στο backup.");}
+        return root;
+    }
+
+    public static synchronized JSONObject readBackup(Context context, FleetDataStore store, Uri uri) throws Exception {
+        JSONObject root=readBackupRoot(context,uri);
+        JSONObject fleet=root.optJSONObject("fleet");if(fleet==null)fleet=root;
         if (root.optJSONObject("workforce") == null) {
             JSONObject upgraded = store.fullBackupPayload();
             upgraded.put("fleet", fleet);
@@ -164,6 +182,62 @@ public final class BackupManager {
         root.put("schemaVersion", 3);
         if (root.optJSONObject("fleet") == null) root.put("fleet", new JSONObject(fleet.toString()));
         return root;
+    }
+
+    private static java.util.Set<String> attachmentKeys(JSONObject fleet) {
+        java.util.Set<String> keys=new java.util.HashSet<String>();
+        org.json.JSONArray bikes=fleet==null?null:fleet.optJSONArray("bikes");
+        if(bikes!=null)for(int i=0;i<bikes.length();i++){
+            JSONObject bike=bikes.optJSONObject(i);org.json.JSONArray history=bike==null?null:bike.optJSONArray("history");
+            if(history!=null)for(int j=0;j<history.length();j++){
+                JSONObject entry=history.optJSONObject(j);org.json.JSONArray files=entry==null?null:entry.optJSONArray("attachments");
+                if(files!=null)for(int k=0;k<files.length();k++){JSONObject f=files.optJSONObject(k);if(f!=null&&f.optString("key","").length()>0)keys.add(f.optString("key"));}
+            }
+        }
+        return keys;
+    }
+
+    public static synchronized JSONObject verifyBackup(Context context, Uri uri) throws Exception {
+        JSONObject root=readBackupRoot(context,uri),fleet=root.optJSONObject("fleet");if(fleet==null)fleet=root;
+        java.util.Set<String> expected=attachmentKeys(fleet),found=new java.util.HashSet<String>();
+        org.json.JSONArray bikes=fleet.optJSONArray("bikes");int historyCount=0;
+        for(int i=0;i<bikes.length();i++){JSONObject b=bikes.optJSONObject(i);org.json.JSONArray h=b==null?null:b.optJSONArray("history");if(h!=null)historyCount+=h.length();}
+        JSONObject workforce=root.optJSONObject("workforce");int records=0;
+        if(workforce!=null){java.util.Iterator<String> names=workforce.keys();while(names.hasNext()){String name=names.next();Object rows=workforce.opt(name);if(!(rows instanceof org.json.JSONArray))throw new IllegalArgumentException("Μη έγκυρη κατηγορία δεδομένων backup.");records+=((org.json.JSONArray)rows).length();}}
+        Uri docs=findSiblingDocumentsArchive(context,uri);String documentMessage="Δεν απαιτούνται συνοδευτικά τιμολόγια.";
+        if(docs!=null){
+            InputStream input=context.getContentResolver().openInputStream(docs);if(input==null)throw new IllegalArgumentException("Το αρχείο τιμολογίων δεν είναι αναγνώσιμο.");
+            ByteArrayOutputStream output=new ByteArrayOutputStream();try{byte[] buffer=new byte[65536];int n;while((n=input.read(buffer))!=-1){if(output.size()+n>MAX_BACKUP_BYTES)throw new IllegalArgumentException("Το αρχείο τιμολογίων είναι πολύ μεγάλο.");output.write(buffer,0,n);}}finally{input.close();}
+            byte[] plain=decryptIfNeeded(output.toByteArray());JSONObject metadata=root.optJSONObject("documentsBackup");String sha=metadata==null?"":metadata.optString("archiveSha256","");
+            if(sha.length()>0&&!sha.equals(BackupArchiveVerifier.digest(plain)))throw new IllegalArgumentException("Το συνοδευτικό αρχείο τιμολογίων δεν αντιστοιχεί σε αυτό το backup.");
+            java.util.Map<String,BackupArchiveVerifier.Item> items=BackupArchiveVerifier.inspect(plain);
+            org.json.JSONArray manifest=new org.json.JSONArray(new String(items.get("fleet-control-documents.json").manifest,Charset.forName("UTF-8")));
+            java.util.Set<String> zipNames=new java.util.HashSet<String>();
+            for(int i=0;i<manifest.length();i++){
+                JSONObject f=manifest.optJSONObject(i);if(f==null)throw new IllegalArgumentException("Μη έγκυρος κατάλογος τιμολογίων.");
+                String zipName=f.optString("zipName","");if(!zipNames.add(zipName))throw new IllegalArgumentException("Διπλό αρχείο στον κατάλογο τιμολογίων.");
+                BackupArchiveVerifier.Item item=items.get(zipName);
+                if(!BackupArchiveVerifier.matches(item,f.optLong("size",-1),f.optString("sha256",""))||item.size==0)throw new IllegalArgumentException("Λείπει ή αλλοιώθηκε τιμολόγιο στο συνοδευτικό αρχείο.");
+                if("application/pdf".equals(f.optString("contentType",""))&&!new String(item.prefix,Charset.forName("US-ASCII")).startsWith("%PDF-"))throw new IllegalArgumentException("Το συνοδευτικό τιμολόγιο δεν έχει έγκυρη κεφαλίδα PDF.");
+                if(expected.contains(f.optString("key","")))found.add(f.optString("key"));
+            }
+            documentMessage="Ελέγχθηκαν αποκρυπτογράφηση, δομή και CRC όλων των αρχείων"+(sha.length()>0?" και SHA-256 συνοδευτικού":" (παλαιότερο backup χωρίς συνολικό SHA-256)")+".";
+        }else if(!expected.isEmpty())documentMessage="Δεν βρέθηκε το συνοδευτικό αρχείο στον επιλεγμένο φάκελο backup. Τοποθέτησέ το δίπλα στο αρχείο δεδομένων και έλεγξε ξανά.";
+        int missing=expected.size()-found.size();boolean systemIncluded=workforce!=null&&workforce.length()>0;boolean complete=missing==0&&systemIncluded;
+        JSONObject result=new JSONObject().put("fileName",queryDisplayName(context,uri)).put("checkedAt",isoNow()).put("readable",true).put("complete",complete)
+                .put("bikes",bikes.length()).put("historyEntries",historyCount).put("workforceIncluded",systemIncluded).put("records",records)
+                .put("expectedDocuments",expected.size()).put("includedDocuments",found.size()).put("missingDocuments",missing).put("documentsMessage",documentMessage)
+                .put("message",complete?"Το backup είναι αναγνώσιμο και περιέχει τα αναμενόμενα τιμολόγια.":"Τα δεδομένα διαβάζονται, αλλά το αντίγραφο είναι ελλιπές."+(missing>0?" Λείπουν "+missing+" τιμολόγια.":"")+(!systemIncluded?" Δεν περιλαμβάνονται δεδομένα προσωπικού/συστήματος.":""));
+        context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_VERIFICATION,result.toString()).apply();
+        return result;
+    }
+
+    public static JSONObject verifyAndRemember(Context context, Uri uri) throws Exception {
+        try { return verifyBackup(context,uri); }
+        catch(Exception error){
+            JSONObject failed=new JSONObject().put("fileName",queryDisplayName(context,uri)).put("checkedAt",isoNow()).put("readable",false).put("complete",false).put("message",error.getMessage()==null?"Το backup δεν ήταν αναγνώσιμο.":error.getMessage());
+            context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_VERIFICATION,failed.toString()).apply();throw error;
+        }
     }
 
     public static synchronized JSONObject restoreBackup(Context context, FleetDataStore store, Uri uri) throws Exception {

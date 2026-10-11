@@ -84,7 +84,7 @@ for (const accepted of [false, true]) {
       assert.equal(options.body.keepOnCurrent, true); assert.equal(options.body.updateServiceKm, true); assert.equal(options.body.expectedServiceKm, 9000);
       return { document: { ...record, status: 'confirmed', serviceKm: 9100 } }; },
     loadInvoices: async () => {}, renderInvoiceQueue: () => {}, toast: () => {} });
-  vm.runInContext(extract(portal, 'saveAdminInvoiceReview'), review);
+  vm.runInContext(extract(portal, 'saveAdminInvoiceReview')+'\n'+extract(portal, 'performAdminInvoiceReview'), review);
   await review.saveAdminInvoiceReview({ preventDefault() {} });
   assert.equal(confirmations, 1); assert.equal(requests, Number(accepted)); assert.equal(closed, accepted);
   if (!accepted) assert.equal(fields.invoiceReviewSave.disabled, false);

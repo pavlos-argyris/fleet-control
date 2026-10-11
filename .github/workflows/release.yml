@@ -70,6 +70,7 @@ jobs:
       - run: node scripts/test-server-http.mjs
       - run: node scripts/test-server-snapshot-sync.mjs
       - run: node scripts/test-server-system-mirror.mjs
+      - run: node scripts/test-backup-archive.mjs
       - name: Restore original signing key
         env:
           FLEET_KEYSTORE_BASE64: ${{ secrets.FLEET_KEYSTORE_BASE64 }}
@@ -100,7 +101,7 @@ jobs:
             echo 'The saved release matches. Continuing the deployment retry.'
           else
             FLEET_SOURCE_COMMIT="$(git rev-parse HEAD)"
-            gh release create "$FLEET_TAG" --target "$FLEET_SOURCE_COMMIT" --title "Fleet Control $FLEET_TAG" --notes-file docs/RELEASE_NOTES_CURRENT.md dist/*.apk dist/*.zip dist/release-manifest.json dist/SHA256SUMS.txt
+            gh release create "$FLEET_TAG" --target "$FLEET_SOURCE_COMMIT" --title "Fleet Control $FLEET_TAG" --notes-file docs/RELEASE_NOTES_CURRENT.md dist/*.apk dist/*.apk.idsig dist/*.zip dist/release-manifest.json dist/SHA256SUMS.txt
           fi
       - run: node scripts/configure-worker.mjs
       - name: Set publishing credential and deploy compatible Worker

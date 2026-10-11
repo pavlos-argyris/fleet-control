@@ -16,6 +16,8 @@ node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
 node scripts/test-invoice-imports.mjs
 node scripts/test-service-model.mjs
+node scripts/test-service-followup.mjs
+node scripts/test-sequential-review.mjs
 node scripts/test-pdf-evidence.mjs
 node scripts/test-new-service-ui.mjs
 node scripts/test-view-cache.mjs
