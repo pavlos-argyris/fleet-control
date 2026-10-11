@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-e0e11360-e8f6-4baf-a1ce-f9388382f199",
-  "sourceCommit": "a65eeb2164422eb5e8fbc1044cf1414f999a59a6",
-  "releaseVersion": "5.43.0",
-  "requestedAt": "2026-10-11T19:57:28.726Z",
-  "reason": "User authorized automatic Fleet 5.43.0 release; exact source CI 38170025878 passed; compatible APKs and service, invoice, history and restore changes verified."
+  "requestId": "fleet-c1358349-31cd-44a7-943a-d7086016c225",
+  "sourceCommit": "81d8ee7b9721004a15d238c32aa001001d330fa3",
+  "releaseVersion": "5.44.0",
+  "requestedAt": "2026-10-11T21:25:50.964Z",
+  "reason": "Ο χρήστης επέλεξε τις βελτιώσεις 1, 2, 3, 5 και 6 και έχει ζητήσει αυτόματη δημοσίευση των ολοκληρωμένων ενημερώσεων μετά από επιτυχείς ελέγχους."
 }
