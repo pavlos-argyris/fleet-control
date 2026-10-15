@@ -120,7 +120,7 @@
     dialog.id = "invoiceImportDialog";
     dialog.className = "app-dialog wide-dialog";
     dialog.innerHTML =
-      '<div class="dialog-head"><div><span class="overline">ΠΡΟΣΧΕΔΙΑ ΤΙΜΟΛΟΓΙΩΝ</span><h2>Μαζική σάρωση QR</h2></div><button type="button" id="invoiceImportClose" aria-label="Κλείσιμο">×</button></div><p class="invoice-import-help">Σάρωσε διαδοχικά QR. Ο Server διαβάζει κάθε τιμολόγιο και το κρατά ως προσχέδιο. Διάλεξε μηχανάκι και service, έλεγξε τα πεδία και μετά πάτησε αποθήκευση. Η ημερομηνία τιμολογίου παραμένει χωριστή από την ημερομηνία service.</p><div class="invoice-import-toolbar"><button type="button" id="invoiceImportCamera" class="primary-button">Άνοιγμα κάμερας</button><button type="button" id="invoiceImportStop" class="secondary-button">Σταμάτημα κάμερας</button><button type="button" id="invoiceImportRefresh" class="secondary-button">Ανανέωση</button></div><video id="invoiceImportVideo" class="invoice-import-video" autoplay muted playsinline hidden></video><label class="field"><span>Σύνδεσμοι QR — ένας ανά γραμμή</span><textarea id="invoiceImportQr" rows="2" placeholder="https://…"></textarea></label><div class="invoice-import-toolbar"><button type="button" id="invoiceImportAdd" class="secondary-button">Προσθήκη συνδέσμων</button><button type="button" id="invoiceImportCommitAll" class="primary-button">Αποθήκευση επιλεγμένων</button></div><p id="invoiceImportStatus" class="invoice-import-status" role="status" aria-live="polite"></p><div id="invoiceImportList" class="invoice-import-list"></div>';
+      '<div class="dialog-head"><div><span class="overline">ΠΡΟΣΧΕΔΙΑ ΤΙΜΟΛΟΓΙΩΝ</span><h2>Μαζική σάρωση QR</h2></div><button type="button" id="invoiceImportClose" class="ghost-button service-back-button" aria-label="Πίσω">← Πίσω</button></div><p class="invoice-import-help">Σάρωσε διαδοχικά QR. Ο Server διαβάζει κάθε τιμολόγιο και το κρατά ως προσχέδιο. Διάλεξε μηχανάκι και service, έλεγξε τα πεδία και μετά πάτησε αποθήκευση. Η ημερομηνία τιμολογίου παραμένει χωριστή από την ημερομηνία service.</p><div class="invoice-import-toolbar"><button type="button" id="invoiceImportCamera" class="primary-button">Άνοιγμα κάμερας</button><button type="button" id="invoiceImportStop" class="secondary-button">Σταμάτημα κάμερας</button><button type="button" id="invoiceImportRefresh" class="secondary-button">Ανανέωση</button></div><video id="invoiceImportVideo" class="invoice-import-video" autoplay muted playsinline hidden></video><label class="field"><span>Σύνδεσμοι QR — ένας ανά γραμμή</span><textarea id="invoiceImportQr" rows="2" placeholder="https://…"></textarea></label><div class="invoice-import-toolbar"><button type="button" id="invoiceImportAdd" class="secondary-button">Προσθήκη συνδέσμων</button><button type="button" id="invoiceImportCommitAll" class="primary-button">Αποθήκευση επιλεγμένων</button></div><p id="invoiceImportStatus" class="invoice-import-status" role="status" aria-live="polite"></p><div id="invoiceImportList" class="invoice-import-list"></div>';
     document.body.appendChild(dialog);
     $("invoiceImportClose").onclick = close;
     dialog.addEventListener("cancel", (e) => {
@@ -577,8 +577,10 @@
     ensureDialog();
     dialog.showModal();
     sessionScans = new Set();
-    history.pushState({ invoiceImports: true }, "");
-    historyOpen = true;
+    if (!window.FleetNavigation) {
+      history.pushState({ invoiceImports: true }, "");
+      historyOpen = true;
+    }
     await refresh(true);
     if (!dialog.open) return;
     timer = setInterval(() => {
@@ -663,7 +665,7 @@
       rulesDialog.id = "invoiceRulesDialog";
       rulesDialog.className = "app-dialog";
       rulesDialog.innerHTML =
-        '<form><div class="dialog-head"><h2>Κανόνες ανάγνωσης</h2><button type="button" data-dismiss>×</button></div><p class="invoice-import-help">Εγκεκριμένες επικεφαλίδες ανά προμηθευτή. Δεν αντικαθιστούν αριθμούς πινακίδας ή χιλιομέτρων. Ο Server λαμβάνει τις αλλαγές στον επόμενο έλεγχο έως 5 λεπτά.</p><div class="invoice-rules-list">' +
+        '<form><div class="dialog-head"><h2>Κανόνες ανάγνωσης</h2><button type="button" class="ghost-button service-back-button" data-dismiss>← Πίσω</button></div><p class="invoice-import-help">Εγκεκριμένες επικεφαλίδες ανά προμηθευτή. Δεν αντικαθιστούν αριθμούς πινακίδας ή χιλιομέτρων. Ο Server λαμβάνει τις αλλαγές στον επόμενο έλεγχο έως 5 λεπτά.</p><div class="invoice-rules-list">' +
         (result.rules || [])
           .map(
             (r) =>
@@ -673,7 +675,7 @@
               esc(r.label) +
               " → " +
               esc(labels[r.field]) +
-              '</span><button type="button" data-rule-delete="' +
+              '</span><button type="button" class="secondary-button" data-rule-delete="' +
               esc(r.id) +
               '">Αφαίρεση</button></div>',
           )
@@ -684,7 +686,7 @@
             (f) => '<option value="' + f + '">' + esc(labels[f]) + "</option>",
           )
           .join("") +
-        '</select></label><p class="form-error" data-error></p><div class="dialog-actions"><button type="button" class="secondary-button" data-dismiss>Κλείσιμο</button><button class="primary-button" type="submit">Έγκριση κανόνα</button></div></form>';
+        '</select></label><p class="form-error" data-error></p><div class="dialog-actions"><button type="button" class="secondary-button" data-dismiss>Πίσω</button><button class="primary-button" type="submit">Έγκριση κανόνα</button></div></form>';
       document.body.appendChild(rulesDialog);
       rulesDialog
         .querySelectorAll("[data-dismiss]")

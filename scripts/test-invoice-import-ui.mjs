@@ -100,6 +100,7 @@ w.FleetInvoiceApi = {
     return {};
   },
 };
+w.eval(fs.readFileSync('cloudflare-worker/public/fleet-navigation.js','utf8'));
 w.eval(
   fs.readFileSync("cloudflare-worker/public/invoice-import-ui.js", "utf8"),
 );
@@ -107,7 +108,9 @@ const $ = (id) => w.document.getElementById(id),
   flush = async () => {
     for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
   };
+const historyBeforeImports=w.history.length;
 await w.FleetInvoiceImports.open();
+assert.equal(w.history.length,historyBeforeImports+1,'Imports must not add a second navigation guard');
 assert.equal($("invoiceImportDialog").open, true);
 assert.match($("invoiceImportList").textContent, /Αναμονή/);
 draft.status = "ready";
