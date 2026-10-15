@@ -853,19 +853,33 @@ public class MainActivity extends Activity {
         try { return Long.parseLong(digits); } catch (NumberFormatException error) { return 0L; }
     }
 
+    private boolean backNavigationPending = false;
+
     @Override
     public void onBackPressed() {
-        if (clientOtaOpen && webView!=null) {webView.evaluateJavascript("if(window.FleetClientOta)window.FleetClientOta.close();",null);return;}
+        if (clientOtaOpen && webView != null) {
+            webView.evaluateJavascript("if(window.FleetClientOta)window.FleetClientOta.close();", null);
+            return;
+        }
+        if (backNavigationPending) return;
+        if (webView == null) { finishBackNavigation(); return; }
+        backNavigationPending = true;
+        webView.evaluateJavascript("(function(){return !!(window.FleetNavigation && window.FleetNavigation.back());})()", new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String handled) {
+                backNavigationPending = false;
+                if (!"true".equals(handled) && webView != null) finishBackNavigation();
+            }
+        });
+    }
+
+    private void finishBackNavigation() {
         if (historyReportOpen && webView != null) {
             historyReportOpen = false;
             webView.evaluateJavascript("(function(){if(window.FleetControlCloseHistoryReport){window.FleetControlCloseHistoryReport();}else{history.back();}})();", null);
             return;
         }
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else super.onBackPressed();
     }
 
     @Override

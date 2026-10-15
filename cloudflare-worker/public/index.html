@@ -11,12 +11,12 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=5.44.0">
-  <link rel="stylesheet" href="./scroll-stability.css?v=5.44.0">
-  <link rel="stylesheet" href="./client-ota.css?v=5.44.0">
-  <script src="./client-ota.js?v=5.44.0" defer></script>
-  <link rel="stylesheet" href="./service-tools.css?v=5.44.0">
-  <link rel="stylesheet" href="./service-followup.css?v=5.44.0">
+  <link rel="stylesheet" href="./styles.css?v=5.45.0">
+  <link rel="stylesheet" href="./scroll-stability.css?v=5.45.0">
+  <link rel="stylesheet" href="./client-ota.css?v=5.45.0">
+  <script src="./client-ota.js?v=5.45.0" defer></script>
+  <link rel="stylesheet" href="./service-tools.css?v=5.45.0">
+  <link rel="stylesheet" href="./service-followup.css?v=5.45.0">
 </head>
 <body>
   <div class="app-shell">
@@ -139,7 +139,11 @@
           </div>
         </section>
 
-        <div class="followup-entry-buttons"><button type="button" class="secondary-button" data-open-followup="missing">Service χωρίς τιμολόγιο</button><button type="button" class="secondary-button" data-open-followup="pending">Εκκρεμότητες</button><button type="button" class="secondary-button" data-open-followup="mileage">Έλεγχος ιστορικού χιλιομέτρων</button></div>
+        <section class="followup-entry-section" aria-label="Έλεγχοι στόλου"><div class="followup-section-heading"><span class="eyebrow">ΟΡΓΑΝΩΣΗ ΣΤΟΛΟΥ</span><h2>Τι χρειάζεται έλεγχο;</h2><p>Διάλεξε μια λίστα για να δεις τις καταχωρήσεις και τις διαθέσιμες ενέργειες.</p></div><div class="followup-entry-buttons">
+          <button type="button" class="secondary-button followup-launcher" data-open-followup="missing"><span><strong>Service χωρίς τιμολόγιο</strong><small>Βρες service χωρίς PDF. Πρόσθεσε QR/αρχείο ή δήλωσε γιατί δεν αναμένεται τιμολόγιο.</small></span><b aria-hidden="true">→</b></button>
+          <button type="button" class="secondary-button followup-launcher" data-open-followup="pending"><span><strong>Εκκρεμότητες</strong><small>Δες τι περιμένει έλεγχο, ανάλυση ή αποστολή και κάνε νέα προσπάθεια όπου χρειάζεται.</small></span><b aria-hidden="true">→</b></button>
+          <button type="button" class="secondary-button followup-launcher" data-open-followup="mileage"><span><strong>Έλεγχος ιστορικού χιλιομέτρων</strong><small>Βρες μικρότερες ενδείξεις σε μεταγενέστερες ημερομηνίες. Έλεγξε ή επιβεβαίωσέ τες με εξήγηση.</small></span><b aria-hidden="true">→</b></button>
+        </div></section>
         <div class="fleet-settings-grid">
           <button id="pinSettingsButton" class="pin-settings-button is-hidden" type="button">
             <span class="pin-settings-icon">
@@ -526,7 +530,7 @@
           <h2>Καταχώρηση σέρβις</h2>
           <p id="serviceBikeName" class="dialog-context"></p>
         </div>
-        <button class="close-button" type="button" data-close-dialog="serviceDialog" aria-label="Κλείσιμο">×</button>
+        <button class="ghost-button service-back-button" type="button" data-close-dialog="serviceDialog" aria-label="Πίσω">← Πίσω</button>
       </div>
       <input id="serviceBikeId" type="hidden">
       <label class="field">
@@ -582,11 +586,12 @@
         </span>
         <small>Μπορείς να επιλέξεις πολλά PDF/φωτογραφίες: έως 10 τιμολόγια ανά service και 15 MB ανά αρχείο. Το QR αφορά το πρώτο επιλεγμένο τιμολόγιο.</small>
       </div>
-      <div class="service-tools-toolbar" data-service-draft-tools></div>
+      <div class="service-tools-toolbar service-draft-tools" data-service-draft-tools></div>
+      <p id="serviceSaveNextHelp" class="service-action-help">«Αποθήκευση &amp; επόμενο»: καταχωρεί αυτό το service και ανοίγει αμέσως κενή φόρμα για νέο service στο ίδιο μηχανάκι. Τα τιμολόγια συνεχίζουν στο παρασκήνιο.</p>
       <p id="serviceFormError" class="form-error" role="alert"></p>
       <div class="dialog-actions">
-        <button class="secondary-button" type="submit" data-save-next>Αποθήκευση &amp; επόμενο</button>
-        <button class="ghost-button" type="button" data-close-dialog="serviceDialog">Άκυρο</button>
+        <button class="secondary-button service-save-next" type="submit" data-save-next aria-describedby="serviceSaveNextHelp">Αποθήκευση &amp; επόμενο</button>
+        <button class="ghost-button" type="button" data-close-dialog="serviceDialog">Πίσω</button>
         <button class="primary-button grow" type="submit">Καταχώρηση</button>
       </div>
     </form>
@@ -788,16 +793,17 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./scroll-stability.js?v=5.44.0" defer></script>
-  <script src="./fleet-config.js?v=5.44.0" defer></script>
-  <script src="./vendor/jsQR.js?v=5.44.0" defer></script>
-  <script src="./vendor/qrcode-generator.js?v=5.44.0" defer></script>
-  <script src="./service-model.js?v=5.44.0" defer></script>
-  <script src="./service-tools.js?v=5.44.0" defer></script>
-  <script src="./service-storage.js?v=5.44.0" defer></script>
-  <script src="./service-export.js?v=5.44.0" defer></script>
-  <script src="./local-view-cache.js?v=5.44.0" defer></script>
-  <script src="./app.js?v=5.44.0" defer></script>
-  <script src="./service-followup.js?v=5.44.0" defer></script>
+  <script src="./scroll-stability.js?v=5.45.0" defer></script>
+  <script src="./fleet-config.js?v=5.45.0" defer></script>
+  <script src="./vendor/jsQR.js?v=5.45.0" defer></script>
+  <script src="./vendor/qrcode-generator.js?v=5.45.0" defer></script>
+  <script src="./service-model.js?v=5.45.0" defer></script>
+  <script src="./fleet-navigation.js?v=5.45.0" defer></script>
+  <script src="./service-tools.js?v=5.45.0" defer></script>
+  <script src="./service-storage.js?v=5.45.0" defer></script>
+  <script src="./service-export.js?v=5.45.0" defer></script>
+  <script src="./local-view-cache.js?v=5.45.0" defer></script>
+  <script src="./app.js?v=5.45.0" defer></script>
+  <script src="./service-followup.js?v=5.45.0" defer></script>
 </body>
 </html>

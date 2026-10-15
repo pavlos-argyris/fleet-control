@@ -35,7 +35,7 @@ function fixture() {
   const trace = [];
   const field = (value = "") => ({ value, checked: false, focus: () => trace.push("focus"), textContent: "",
     classList: { toggle(name, hidden) { this[name] = hidden; } } });
-  const elements = {};
+  const elements = { serviceForm: { dataset: {} } };
   for (const key of ["serviceBikeId", "serviceKm", "serviceDate", "serviceOilChanged", "serviceMajorService",
     "serviceNotes", "serviceWorkshop", "serviceCost", "serviceFormError", "serviceMileageWarning", "serviceNextPreview",
     "historyEntryBikeId", "historyEntryId", "historyEntryKm", "historyEntryDate", "historyEntryNotes", "historyEntryWorkshop",

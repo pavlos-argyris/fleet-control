@@ -1,3 +1,8 @@
+# Fleet Control 5.45.0
+
+Client/Web 5.45.0 · Server 2.2.1 · Worker 5.7.1.
+[Κουμπιά, εξηγήσεις και επιστροφή](docs/UI_NAVIGATION_UPDATE_5.45.0_GR.md).
+
 # Fleet Control 5.44.0
 
 Client/Web 5.44.0, Server 2.2.1, Worker 5.7.0.

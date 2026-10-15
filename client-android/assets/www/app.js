@@ -3423,7 +3423,10 @@
   }
 
   function openServiceDialog(bike) {
+    if (elements.serviceDialog.open) saveServiceDraft();
+    clearTimeout(draftTimer);
     elements.serviceForm.reset();
+    elements.serviceInvoiceFile.fleetDraftFiles = null;
     updateInvoiceFileName(elements.serviceInvoiceFile, elements.serviceInvoiceFileName);
     clearInvoiceQrStatus("service");
     elements.serviceFormError.textContent = "";
@@ -3467,6 +3470,9 @@
 
   async function handleServiceSubmit(event) {
     event.preventDefault();
+    if (elements.serviceForm.dataset.submitting === '1') return;
+    elements.serviceForm.dataset.submitting = '1';
+    try {
     const bike = getBike(elements.serviceBikeId.value);
     if (!bike) return;
     const serviceKm = Math.round(Number(elements.serviceKm.value));
@@ -3580,6 +3586,9 @@
           }
         });
       }
+    }
+    } finally {
+      delete elements.serviceForm.dataset.submitting;
     }
   }
 
@@ -3829,11 +3838,54 @@
   }
   function installServiceDraftTools(bike) {
     elements.serviceInvoiceFile.fleetDraftFiles=null;
-    const toolbar=elements.serviceForm.querySelector('[data-service-draft-tools]');if(!toolbar)return;
-    toolbar.innerHTML='<button type="button" class="secondary-button" data-draft-recover>Ανάκτηση προσχεδίου</button><button type="button" class="secondary-button" data-service-templates>Πρότυπα εργασιών</button><small>Τα προσχέδια κρατούνται σε αυτή τη συσκευή, για τον λογαριασμό σου.</small>';
-    toolbar.querySelector('[data-draft-recover]').onclick=async()=>{try{await draftWrites;const row=await window.FleetServiceStorage.get(serviceStorageScope(),'draft',bike.id);if(!row)return showToast('Δεν υπάρχει αποθηκευμένο προσχέδιο για αυτό το μηχανάκι.');const d=row.data;elements.serviceKm.value=d.km;elements.serviceDate.value=d.date;elements.serviceNotes.value=d.notes;elements.serviceInvoiceQrValue.value=d.qr;elements.serviceTaskInputs.forEach(i=>i.checked=d.tasks.includes(i.value));elements.serviceInvoiceFile.fleetDraftFiles=d.files||[];updateInvoiceFileName(elements.serviceInvoiceFile,elements.serviceInvoiceFileName);updateServicePreview();showToast('Το προσχέδιο ανακτήθηκε. Έλεγξε τα στοιχεία πριν αποθηκεύσεις.');}catch(e){showToast(e.message);}};
-    toolbar.querySelector('[data-service-templates]').onclick=async()=>{try{const scope=serviceStorageScope(),records=await window.FleetServiceStorage.list(scope,'template');const d=window.FleetServiceUI.dialog('Πρότυπα εργασιών','<p>Εφαρμόζονται μόνο οι εργασίες. Χιλιόμετρα, ημερομηνία και τιμολόγια παραμένουν όπως τα έγραψες.</p>'+records.map(r=>'<button type="button" class="service-choice" data-template="'+escapeHtml(r.key)+'"><strong>'+escapeHtml(r.data.name)+'</strong><small>'+escapeHtml(r.data.tasks.join(' · '))+'</small></button>').join('')+'<label class="field"><span>Όνομα νέου προτύπου</span><input data-template-name maxlength="80"></label><div class="service-tools-toolbar"><button type="button" class="primary-button" data-template-save>Αποθήκευση τρεχουσών εργασιών</button><button type="button" class="ghost-button" data-template-close>Κλείσιμο</button></div>');d.querySelectorAll('[data-template]').forEach(b=>b.onclick=()=>{const t=records.find(r=>r.key===b.dataset.template).data;elements.serviceTaskInputs.forEach(i=>i.checked=t.tasks.includes(i.value));elements.serviceNotes.value=t.notes;updateServicePreview();saveServiceDraft();d.close();});d.querySelector('[data-template-close]').onclick=()=>d.close();d.querySelector('[data-template-save]').onclick=async()=>{const name=d.querySelector('[data-template-name]').value.trim(),data=captureServiceDraft();if(!name||!data.tasks.length&&!data.notes)return showToast('Γράψε όνομα και επίλεξε εργασίες.');if(records.length>=20)return showToast('Μπορείς να αποθηκεύσεις έως 20 πρότυπα σε αυτή τη συσκευή.');await window.FleetServiceStorage.put(scope,'template',uid(),{name,tasks:data.tasks,notes:data.notes});d.close();showToast('Το πρότυπο αποθηκεύτηκε.');};}catch(e){showToast(e.message);}};
-    if(!elements.serviceForm.dataset.draftInstalled){elements.serviceForm.dataset.draftInstalled='1';elements.serviceForm.addEventListener('input',()=>{clearTimeout(draftTimer);draftTimer=setTimeout(saveServiceDraft,400);});elements.serviceInvoiceFile.addEventListener('change',()=>{elements.serviceInvoiceFile.fleetDraftFiles=null;saveServiceDraft();});elements.serviceDialog.addEventListener('cancel',saveServiceDraft);elements.serviceDialog.querySelectorAll('[data-close-dialog]').forEach(b=>b.addEventListener('click',saveServiceDraft,true));}
+    const scope=serviceStorageScope(),toolbar=elements.serviceForm.querySelector('[data-service-draft-tools]');if(!toolbar)return;
+    const session=Symbol();toolbar.fleetDraftSession=session;
+    const active=()=>toolbar.fleetDraftSession===session&&scope===serviceStorageScope()&&elements.serviceDialog.open&&elements.serviceBikeId.value===bike.id&&toolbar.isConnected;
+    toolbar.innerHTML='<button type="button" class="service-choice" data-draft-recover><strong>Ανάκτηση προσχεδίου</strong><small>Επαναφέρει όσα είχες αφήσει χωρίς καταχώρηση για αυτό το μηχανάκι, μαζί με QR και αρχεία.</small></button><button type="button" class="service-choice" data-service-templates><strong>Πρότυπα εργασιών</strong><small>Αποθήκευσε και εφάρμοσε συνηθισμένους συνδυασμούς εργασιών και σημειώσεων.</small></button><p data-draft-status role="status">Το προσχέδιο αποθηκεύεται αυτόματα σε αυτή τη συσκευή για τον λογαριασμό σου. Δεν είναι καταχωρημένο service.</p>';
+    toolbar.querySelector('[data-draft-recover]').onclick=async()=>{
+      const button=toolbar.querySelector('[data-draft-recover]');if(button.disabled)return;button.disabled=true;
+      try{
+        await draftWrites;const row=await window.FleetServiceStorage.get(scope,'draft',bike.id);if(!active())return;
+        if(!row)return showToast('Δεν υπάρχει αποθηκευμένο προσχέδιο για αυτό το μηχανάκι.');
+        if(!window.confirm('Να ανακτήσω το αποθηκευμένο προσχέδιο; Τα στοιχεία, οι εργασίες, το QR και τα αρχεία που εμφανίζονται τώρα στη φόρμα θα αντικατασταθούν. Δεν καταχωρείται service μέχρι να πατήσεις αποθήκευση.'))return;
+        clearTimeout(draftTimer);const d=row.data;
+        elements.serviceKm.value=d.km||'';elements.serviceDate.value=d.date||'';elements.serviceNotes.value=d.notes||'';elements.serviceInvoiceQrValue.value=d.qr||'';
+        elements.serviceTaskInputs.forEach(i=>i.checked=(d.tasks||[]).includes(i.value));elements.serviceInvoiceFile.value='';elements.serviceInvoiceFile.fleetDraftFiles=d.files||[];
+        updateInvoiceFileName(elements.serviceInvoiceFile,elements.serviceInvoiceFileName);updateServicePreview();
+        elements.serviceInvoiceQrStatus.textContent=d.qr?'QR ανακτημένου προσχεδίου · θα σταλεί με την καταχώρηση.':'';
+        toolbar.querySelector('[data-draft-status]').textContent='Το προσχέδιο ανακτήθηκε. Έλεγξε τα στοιχεία και πάτησε «Καταχώρηση» ή «Αποθήκευση & επόμενο».';
+        showToast('Το προσχέδιο ανακτήθηκε. Έλεγξε τα στοιχεία πριν αποθηκεύσεις.');
+      }catch(e){showToast(e.message);}finally{button.disabled=false;}
+    };
+    toolbar.querySelector('[data-service-templates]').onclick=async()=>{
+      try{
+        const records=await window.FleetServiceStorage.list(scope,'template');if(!active())return;
+        const d=window.FleetServiceUI.dialog('Πρότυπα εργασιών','<p class="service-section-help">Ένα πρότυπο θυμάται τις επιλεγμένες εργασίες και τις «Άλλες εργασίες». Με την εφαρμογή του αντικαθιστά μόνο αυτά τα δύο πεδία. Χιλιόμετρα, ημερομηνία, QR και αρχεία παραμένουν όπως είναι. Αποθηκεύεται μόνο σε αυτή τη συσκευή και στον λογαριασμό σου.</p>'+(records.length?records.map(r=>'<button type="button" class="service-choice" data-template="'+escapeHtml(r.key)+'"><strong>'+escapeHtml(r.data.name)+'</strong><small>'+escapeHtml((r.data.tasks||[]).concat(r.data.notes?[r.data.notes]:[]).join(' · '))+'</small></button>').join(''):'<p class="service-template-empty">Δεν έχεις αποθηκευμένα πρότυπα. Διάλεξε εργασίες στη φόρμα service, δώσε ένα όνομα παρακάτω και αποθήκευσέ τες ως πρότυπο.</p>')+'<label class="field"><span>Όνομα νέου προτύπου</span><input data-template-name maxlength="80" placeholder="π.χ. Λάδια και φίλτρο"></label><p data-template-error class="form-error" role="alert"></p><div class="service-tools-toolbar"><button type="button" class="primary-button" data-template-save>Αποθήκευση τρεχουσών εργασιών</button><button type="button" class="ghost-button" data-template-close>Πίσω στο service</button></div>');
+        d.querySelectorAll('[data-template]').forEach(button=>button.onclick=()=>{
+          if(!active())return d.close();
+          if(!window.confirm('Να εφαρμοστεί το πρότυπο; Θα αντικαταστήσει τις επιλεγμένες εργασίες και τις «Άλλες εργασίες». Τα υπόλοιπα στοιχεία παραμένουν.'))return;
+          const t=records.find(r=>r.key===button.dataset.template).data;
+          elements.serviceTaskInputs.forEach(i=>i.checked=(t.tasks||[]).includes(i.value));elements.serviceNotes.value=t.notes||'';updateServicePreview();saveServiceDraft();d.close();showToast('Εφαρμόστηκε το πρότυπο. Δεν έχει καταχωρηθεί ακόμη το service.');
+        });
+        d.querySelector('[data-template-close]').onclick=()=>d.close();
+        d.querySelector('[data-template-save]').onclick=async()=>{
+          const button=d.querySelector('[data-template-save]'),error=d.querySelector('[data-template-error]');if(button.disabled||!active())return;
+          const name=d.querySelector('[data-template-name]').value.trim(),data=captureServiceDraft();error.textContent='';
+          if(!name||!data.tasks.length&&!data.notes.trim()){error.textContent='Γράψε όνομα και διάλεξε τουλάχιστον μία εργασία ή συμπλήρωσε «Άλλες εργασίες».';return;}
+          if(records.length>=20){error.textContent='Μπορείς να αποθηκεύσεις έως 20 πρότυπα σε αυτή τη συσκευή.';return;}
+          button.disabled=true;
+          try{await window.FleetServiceStorage.put(scope,'template',uid(),{name,tasks:data.tasks,notes:data.notes});if(!active())return d.close();d.close();showToast('Το πρότυπο αποθηκεύτηκε. Το service δεν έχει ακόμη καταχωρηθεί.');}
+          catch(e){if(d.open)error.textContent='Δεν αποθηκεύτηκε το πρότυπο: '+e.message;}finally{button.disabled=false;}
+        };
+      }catch(e){showToast(e.message);}
+    };
+    if(!elements.serviceForm.dataset.draftInstalled){
+      elements.serviceForm.dataset.draftInstalled='1';
+      elements.serviceForm.addEventListener('input',()=>{clearTimeout(draftTimer);draftTimer=setTimeout(saveServiceDraft,400);});
+      elements.serviceInvoiceFile.addEventListener('change',()=>{elements.serviceInvoiceFile.fleetDraftFiles=null;saveServiceDraft();});
+      elements.serviceDialog.addEventListener('cancel',saveServiceDraft);
+      elements.serviceDialog.querySelectorAll('[data-close-dialog]').forEach(button=>button.addEventListener('click',saveServiceDraft,true));
+    }
   }
   async function queueServiceDocuments(bikeId,entryId,files,qr) {
     const items=files.length?files.map((file,i)=>({file,qr:i===0?qr:'',uploadId:crypto.randomUUID(),done:false})):[{file:null,qr,uploadId:'',done:false}];

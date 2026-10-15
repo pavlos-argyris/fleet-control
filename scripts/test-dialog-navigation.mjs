@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createRequire} from 'node:module';
+const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{JSDOM}=require('jsdom');
+const dom=new JSDOM('<main><dialog id="outer"></dialog><dialog id="inner"></dialog><iframe></iframe></main>',{url:'https://fixture.invalid/index.html#bike=one',runScripts:'outside-only'}),w=dom.window;
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+w.eval(fs.readFileSync('cloudflare-worker/public/fleet-navigation.js','utf8'));
+const wait=()=>new Promise(r=>setTimeout(r,45)),outer=w.document.querySelector('#outer'),inner=w.document.querySelector('#inner');
+let cancels=0,unrelatedPops=0;outer.addEventListener('cancel',()=>cancels++);w.addEventListener('popstate',()=>unrelatedPops++);
+const original=w.history.length;outer.showModal();inner.showModal();assert.equal(w.history.length,original+1,'One guarded navigation layer for nested dialogs');
+assert.equal(w.FleetNavigation.back(),true);assert.equal(inner.open,false);assert.equal(outer.open,true);await wait();
+w.history.back();await wait();assert.equal(outer.open,false);assert.equal(cancels,1);assert.equal(unrelatedPops,0,'Closing dialogs must not change the underlying Fleet view');assert.equal(w.location.hash,'#bike=one');
+outer.showModal();outer.close();inner.showModal();await wait();assert.equal(inner.open,true,'Save-next must not close the new form on the pending history event');assert.equal(w.FleetNavigation.back(),true);await wait();
+outer.showModal();inner.showModal();const prevent=e=>e.preventDefault();inner.addEventListener('cancel',prevent);assert.equal(w.FleetNavigation.back(),true);assert.equal(inner.open,true,'Busy/cancelled dialogs retain their own cancellation semantics');inner.removeEventListener('cancel',prevent);inner.close();outer.close();await wait();
+let child=0;w.document.querySelector('iframe').contentWindow.FleetNavigation={back(){child++;return true;}};assert.equal(w.FleetNavigation.back(),true);assert.equal(child,1);w.document.querySelector('iframe').classList.add('is-hidden');assert.equal(w.FleetNavigation.back(),false,'Hidden frames never consume Back');
+w.eval(fs.readFileSync('cloudflare-worker/public/service-tools.js','utf8'));const tools=w.FleetServiceUI.dialog('Πρότυπα εργασιών','<p>Εξήγηση</p>');assert.ok(tools.querySelector('[data-service-back]'));tools.querySelector('[data-service-back]').click();await wait();assert.equal(tools.isConnected,false);
+const native=fs.readFileSync('client-android/src/gr/argyrismitsos/fleetcontrol/MainActivity.java','utf8');assert.match(native,/FleetNavigation\.back\(\)/);assert.match(native,/ValueCallback<String>/);assert.match(native,/!"true"\.equals\(handled\)/);
+dom.window.close();console.log('OK actual dialog navigation: native dispatch, nested Back, browser Back without losing Fleet route, reopen/save-next, cancelled close, visible iframe and explicit Back.');
