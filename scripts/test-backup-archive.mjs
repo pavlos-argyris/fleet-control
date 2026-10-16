@@ -26,5 +26,5 @@ with zipfile.ZipFile(p/'large.zip','w',compression=zipfile.ZIP_DEFLATED) as z:z.
   execFileSync('java',['-cp',temp,'ArchiveTest',temp],{stdio:'inherit'});
   const java=fs.readFileSync('server-android/src/gr/argyrismitsos/fleetserver/BackupManager.java','utf8'),verify=java.slice(java.indexOf('public static synchronized JSONObject verifyBackup('),java.indexOf('public static JSONObject verifyAndRemember('));
   assert.doesNotMatch(verify,/restoreArchive|restorePreparedBackup|importFleet|setFleet|writeLocalBytes|createDocument/);
-  assert.match(verify,/BackupArchiveVerifier\.matches/);assert.match(verify,/archiveSha256/);assert.match(verify,/missingDocuments/);assert.match(verify,/workforceIncluded/);
+  assert.match(verify,/BackupArchiveVerifier\.matches/);assert.match(verify,/archiveSha256/);assert.match(verify,/missingDocuments/);assert.match(verify,/workforceIncluded/);assert.match(verify,/documentInventory\(root\)/);assert.match(java,/createArchive\(context, documentFleet\)/);const inventory=java.slice(java.indexOf('private static JSONObject documentInventory('),java.indexOf('private static java.util.Set<String> attachmentKeys'));assert.match(inventory,/deleted_records/);assert.match(inventory,/isNull\("restored_at"\)/);assert.doesNotMatch(inventory,/mergeFleet|setFleet|importFleet/);
 }finally{fs.rmSync(temp,{recursive:true,force:true});}

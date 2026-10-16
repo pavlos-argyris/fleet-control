@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import '../cloudflare-worker/public/service-model.js';
+import '../cloudflare-worker/public/fleet-operations-model.js';
+import {normalizeBike,mergeBike} from '../cloudflare-worker/src/worker.js';
+const M=globalThis.FleetServiceModel,O=globalThis.FleetOperationsModel;
+const b={id:'bike',name:'ΒΤΟ 756',intervalKm:3000,lastServiceKm:10000,currentKm:12000,history:[{id:'oil',type:'service',date:'2026-10-01',km:10000,oilChanged:true,tasks:['Αλλαγή λαδιών'],cost:'59'},{id:'check',type:'check',date:'2026-10-11',km:12000}]};
+const original=JSON.stringify(b),impact=O.impact(b,'edit',{...b.history[0],km:9500});assert.equal(impact.before.nextServiceKm,13000);assert.equal(impact.after.nextServiceKm,12500);assert.equal(impact.after.currentKm,12000);assert.equal(JSON.stringify(b),original,'Preview is read-only');
+const old=O.impact(b,'create',{id:'historic',type:'service',date:'2026-09-01',km:9000,oilChanged:true});assert.equal(old.after.lastServiceKm,10000);assert.ok(old.warnings.length);
+const rows=O.costUsage([b],{from:'2026-10-01',to:'2026-10-11'});assert.equal(rows[0].distance,2000);assert.equal(rows[0].per1000Cents,2950);assert.equal(rows[0].complete,true);
+assert.equal(O.costUsage([b],{from:'2026-09-01',to:'2026-10-11'})[0].complete,false);
+const reset={...b,history:[...b.history,{id:'reset',type:'check',date:'2026-10-12',km:100}]};assert.equal(O.costUsage([reset],{from:'2026-10-01',to:'2026-10-12'})[0].per1000Cents,null);
+const empty={...b,history:[b.history[0]]};assert.equal(O.costUsage([empty],{})[0].per1000Cents,null);
+const docs=[{key:'one',bikeId:'bike',bikeName:'../ΒΤΟ/756',name:'../τιμολόγιο.pdf',contentType:'application/pdf',invoiceData:{invoiceDate:'2026-10-02'}},{key:'one',bikeId:'bike',name:'duplicate.pdf'},{key:'image',bikeId:'bike',name:'picture.png',contentType:'image/png'},{key:'undated',bikeId:'bike',bikeName:'BTO',name:'unknown.pdf'}];
+const selected=O.pdfs(docs,{bikeIds:['bike'],from:'2026-10-01',to:'2026-10-31'});assert.equal(selected.length,1);assert.ok(selected[0].zipName.startsWith('_ΒΤΟ_756/2026-10-02_'));assert.ok(!selected[0].zipName.split('/').includes('..'));assert.equal(O.pdfs(docs,{bikeIds:['bike']}).length,2);
+const t1='2026-10-01T00:00:00.000Z',t2='2026-10-02T00:00:00.000Z',t3='2026-10-03T00:00:00.000Z';
+const restored=normalizeBike({...b,updatedAt:t2,historyRestores:[{id:'oil',at:t2}],historyDeletes:[{id:'oil',at:t1}]});const stale=normalizeBike({...b,updatedAt:t3,historyDeletedIds:['oil'],history:[]});const merged=mergeBike(restored,stale);assert.ok(merged.history.some(e=>e.id==='oil'),'A stale deletion must not undo an explicit restore');
+const deleted=mergeBike(merged,normalizeBike({...merged,historyDeletedIds:['oil'],historyDeletes:[{id:'oil',at:t3}],history:[],updatedAt:t3}));assert.ok(!deleted.history.some(e=>e.id==='oil'),'A new explicit delete overrides the old restore');
+const plan={id:'p',date:'2026-11-01',status:'planned',tasks:['Λάδια'],updatedAt:t2};const withPlan=normalizeBike({...b,serviceAppointments:[plan],updatedAt:t2});assert.equal(mergeBike(withPlan,stale).serviceAppointments.length,1,'Old clients retain planned appointments');
+assert.equal(O.appointments([plan,{...plan,status:'completed',completedEntryId:'entry',updatedAt:t3}])[0].status,'completed');
+// The shipped binary ZIP implementation is inspected with Python's actual ZIP/CRC reader.
+const sandbox={TextEncoder,Uint8Array,Uint32Array,DataView,Blob,globalThis:null};sandbox.globalThis=sandbox;vm.runInNewContext(fs.readFileSync('cloudflare-worker/public/service-export.js','utf8'),sandbox);
+const zip=sandbox.FleetServiceExport.archive([['ΒΤΟ 756/2026-10-02_test.pdf',new Uint8Array(Buffer.from('%PDF-1.4\nfixture\n%%EOF'))]]);const {execFileSync}=await import('node:child_process');const bytes=Buffer.from(await zip.arrayBuffer());execFileSync('python3',['-c',"import sys,io,zipfile; z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())); assert z.testzip() is None; assert z.read(z.namelist()[0]).startswith(b'%PDF-'); assert z.namelist()[0].startswith('ΒΤΟ 756/')"],{input:bytes});
+console.log('OK operations model: read-only consequences, exact monetary ratios, incomplete periods/resets, safe Unicode PDF ZIP paths and CRC, restored tombstone fencing and appointments survive old clients.');

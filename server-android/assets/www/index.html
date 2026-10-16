@@ -142,7 +142,7 @@
           <div class="status-row"><span class="row-copy"><strong>Διατήρηση</strong><small id="retentionLabel">Τα τελευταία 30 αντίγραφα</small></span></div>
         </div>
         <button id="backupNow" class="primary-action" type="button">Δημιουργία backup τώρα</button>
-        <div class="backup-health-card"><strong>Έλεγχος αντιγράφου ασφαλείας</strong><p id="backupContents">Τα στοιχεία περιεχομένου θα εμφανιστούν μετά το επόμενο backup.</p><p id="backupVerificationStatus" role="status">Δεν έχει γίνει έλεγχος αναγνωσιμότητας.</p><div class="dialog-buttons"><button id="verifyLastBackup" class="secondary-action" type="button">Έλεγχος τελευταίου backup</button><button id="verifyBackupFile" class="secondary-action" type="button">Έλεγχος άλλου αρχείου</button></div><small>Διαβάζει και ελέγχει τα δεδομένα και τα συνοδευτικά PDF, χωρίς επαναφορά. Το .fcdocs πρέπει να είναι στον επιλεγμένο φάκελο backup.</small></div>
+        <div class="backup-health-card"><strong>Έλεγχος αντιγράφου ασφαλείας</strong><p id="backupContents">Τα στοιχεία περιεχομένου θα εμφανιστούν μετά το επόμενο backup.</p><p id="backupVerificationStatus" role="status">Δεν έχει γίνει έλεγχος αναγνωσιμότητας.</p><div class="dialog-buttons"><button id="verifyLastBackup" class="secondary-action" type="button">Έλεγχος τελευταίου backup</button><button id="verifyBackupFile" class="secondary-action" type="button">Έλεγχος άλλου αρχείου</button></div><small>Διαβάζει και ελέγχει τα δεδομένα και τα συνοδευτικά PDF, χωρίς επαναφορά. Το .fcdocs πρέπει να είναι στον επιλεγμένο φάκελο backup. Συνυπολογίζονται και τα διαθέσιμα τοπικά PDF των service στον κάδο.</small></div>
         <button id="restoreBackup" class="secondary-action full-action" type="button">Επαναφορά από αρχείο backup</button>
         <p id="backupMessage" class="action-message"></p>
       </section>
@@ -234,6 +234,8 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="./scroll-stability.js"></script>
+  <script src="./fleet-navigation.js"></script>
   <script src="./app.js"></script>
+  <script src="./server-diagnostics.js"></script>
 </body>
 </html>

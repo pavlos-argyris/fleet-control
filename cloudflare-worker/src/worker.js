@@ -1,7 +1,10 @@
 import '../public/service-model.js';
 const ServiceModel = globalThis.FleetServiceModel;
+import '../public/fleet-operations-model.js';
+const OperationsModel = globalThis.FleetOperationsModel;
 import { INVOICE_IMPORT_SCHEMA, routeInvoiceImports, readImportDraftForJob, finishImportDraft, restartImportDraft, invoiceDuplicates } from './invoice-imports.js';
 import { visibleSnapshotRow, snapshotSummary, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike } from "./snapshot-store.js";
+import { routeServiceOperations } from './service-operations.js';
 import { routeReleases } from "./releases.js";
 import {
   authenticateExternal,
@@ -120,6 +123,9 @@ async function route(request, env) {
 
   const ota = await routeReleases(request, env, { json, secureEqual, serverAuthorized, digestHex, invalidateWeb: () => { activeWebReleaseCache = { value: null, expiresAt: 0, db: null }; } });
   if (ota) return ota;
+  const operations=await routeServiceOperations(request,env,{json,authenticateExternal,isManagementActor,snapshotSummary,statusPayload,readSnapshotBike,writeSnapshotBike,activeArchivedBikeIds,workforceOdometerFloor,normalizeBike,restoreFleetHistoryEntries,recordExternalAudit,historyChanges,impactToken,queueBike,ensureLegacyOilHistory});
+  if(operations)return operations;
+
 
   if (path === "/api/status" && request.method === "GET") return statusResponse(env);
   if (path === "/api/client-update" && request.method === "GET") return clientUpdateResponse(request, env);
@@ -397,8 +403,8 @@ async function downloadServiceDocument(request, env) {
   if (!object) return json({ error: "Το τιμολόγιο δεν βρέθηκε." }, 404);
   const headers = new Headers();
   object.writeHttpMetadata(headers);
-  const snapshot = await readSnapshot(env);
-  for (const bike of snapshot.data.bikes || []) {
+  const located=await readServiceDocument(env,key);
+  for (const bike of located?[{history:[located.entry]}]:[]) {
     const attachment = (bike.history || []).flatMap((entry) => entry.attachments || []).find((item) => String(item.key) === key);
     if (attachment?.name) {
       const safeName = String(attachment.name).replace(/[\r\n"\\]/g, "_");
@@ -2274,6 +2280,7 @@ function normalizeHistory(value) {
       kmAcknowledgments: ServiceModel.kmAcknowledgments(item.kmAcknowledgments),
       attachments: type === "service" ? normalizeServiceAttachments(item.attachments) : [],
       invoiceData: type === "service" ? normalizeServiceInvoiceData(item.invoiceData) : null,
+      appointmentId: cleanText(item.appointmentId,100),
       createdAt: isoDateTime(item.createdAt, ""),
       updatedAt: isoDateTime(item.updatedAt, isoDateTime(item.createdAt, ""))
     }];
@@ -2328,7 +2335,8 @@ function normalizeBike(value) {
   if (!id || !name) return null;
   const now = new Date().toISOString();
   const intervalKm = cleanInteger(value.intervalKm, 1, 10_000_000, 1);
-  const historyDeletedIds = normalizeDeletedHistoryIds(value.historyDeletedIds);
+  const historyRestores=OperationsModel.lifecycle(value.historyRestores), historyDeletes=OperationsModel.lifecycle(value.historyDeletes);
+  const historyDeletedIds = OperationsModel.deletedIds(normalizeDeletedHistoryIds(value.historyDeletedIds),historyRestores,historyDeletes);
   const deleted = new Set(historyDeletedIds);
   const history = normalizeHistory(value.history).filter((entry) => !deleted.has(entry.id));
   const historyCorrectedAt = isoDateTime(value.historyCorrectedAt, "");
@@ -2352,6 +2360,8 @@ function normalizeBike(value) {
     lastCheckedAt: historyCorrectedAt ? derived.lastCheckedAt : cleanText(value.lastCheckedAt, 10),
     createdAt: isoDateTime(value.createdAt, now),
     maintenancePlans: ServiceModel.plans(value.maintenancePlans),
+    serviceAppointments: OperationsModel.appointments(value.serviceAppointments),
+    historyRestores, historyDeletes,
     updatedAt: isoDateTime(value.updatedAt, now),
     history,
     historyDeletedIds,
@@ -2373,7 +2383,8 @@ function normalizeFleet(value) {
 
 function mergeBike(first, second) {
   const latest = String(second.updatedAt) >= String(first.updatedAt) ? second : first;
-  const historyDeletedIds = [...new Set([...(first.historyDeletedIds || []), ...(second.historyDeletedIds || [])])].slice(0, MAX_HISTORY);
+  const historyRestores=OperationsModel.mergeLifecycle(first.historyRestores,second.historyRestores),historyDeletes=OperationsModel.mergeLifecycle(first.historyDeletes,second.historyDeletes);
+  const historyDeletedIds = OperationsModel.deletedIds([...(first.historyDeletedIds||[]),...(second.historyDeletedIds||[])],historyRestores,historyDeletes);
   const deleted = new Set(historyDeletedIds);
   const historyMap = new Map();
   [...first.history, ...second.history].forEach((entry) => {
@@ -2381,6 +2392,7 @@ function mergeBike(first, second) {
     if (!existing) historyMap.set(entry.id, entry);
     else if (historyEntryStamp(entry) >= historyEntryStamp(existing)) historyMap.set(entry.id, {
       ...entry,
+      appointmentId:entry.appointmentId||existing.appointmentId,
       invoiceExpectation: entry.invoiceExpectation || existing.invoiceExpectation,
       kmAcknowledgments: ServiceModel.kmAcknowledgments([...(existing.kmAcknowledgments||[]),...(entry.kmAcknowledgments||[])].filter((v,i,a)=>a.findLastIndex(x=>x.signature===v.signature)===i)),
       reviewJournal: entry.reviewJournal?.length ? entry.reviewJournal : existing.reviewJournal
@@ -2398,6 +2410,8 @@ function mergeBike(first, second) {
     : Math.max(first.lastServiceKm, second.lastServiceKm, ...history.filter((entry) => entry.type === "service" && entry.oilChanged).map((entry) => entry.km), 0);
   return normalizeBike({
     ...latest,
+    historyRestores,historyDeletes,
+    serviceAppointments:OperationsModel.appointments([...(first.serviceAppointments||[]),...(second.serviceAppointments||[])]),
     lastServiceKm,
     currentKm: historyCorrectedAt ? derived.currentKm : Math.max(first.currentKm, second.currentKm, lastServiceKm),
     nextServiceKm: lastServiceKm + latest.intervalKm,
@@ -2821,22 +2835,23 @@ async function fleetHistoryAction(request, env, rawBikeId, rawEntryId, action) {
     return json({ error: "Η καταχώρηση προέρχεται από βάρδια. Διόρθωσέ την από τη Διαχείριση Βαρδιών.", code: "shift_history_managed" }, 409);
   }
 
-  const snapshot = await readSnapshot(env);
-  const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-  const bikeIndex = (fleet.bikes || []).findIndex((item) => String(item.id) === bikeId);
-  if (bikeIndex < 0) return json({ error: "Το μηχανάκι δεν βρέθηκε." }, 404);
-  const bike = fleet.bikes[bikeIndex];
+  const located=await readSnapshotBike(env,bikeId);
+  if(!located||(await activeArchivedBikeIds(env)).has(bikeId))return json({error:'Το ενεργό μηχανάκι δεν βρέθηκε.'},404);
+  const bike=JSON.parse(JSON.stringify(located.bike));
   bike.history = Array.isArray(bike.history) ? bike.history : [];
   bike.historyDeletedIds = normalizeDeletedHistoryIds(bike.historyDeletedIds);
   const entryIndex = bike.history.findIndex((entry) => String(entry.id) === entryId);
   if (entryIndex < 0) {
     if (action === "delete" && bike.historyDeletedIds.includes(entryId)) {
-      return json({ deleted: true, unchanged: true, bike: normalizeBike(bike), version: snapshot.version });
+      return json({ deleted: true, unchanged: true, bike: normalizeBike(bike), version: located.version });
     }
     return json({ error: "Η καταχώρηση δεν βρέθηκε ή έχει ήδη διαγραφεί." }, 404);
   }
   const oldEntry = JSON.parse(JSON.stringify(bike.history[entryIndex]));
-  const now = new Date().toISOString();
+  if(body.expectedEntryUpdatedAt!==undefined&&String(body.expectedEntryUpdatedAt)!==String(oldEntry.updatedAt||''))return json({error:'Η καταχώρηση άλλαξε. Άνοιξε ξανά τον έλεγχο.'},409);
+  if(body.impactToken){const floor=await workforceOdometerFloor(env,bikeId);if(!located||body.impactToken!==await impactToken(located.json,action,entryId,body,floor))return json({error:'Το ιστορικό άλλαξε. Άνοιξε ξανά την προεπισκόπηση.'},409);}
+
+  const now = new Date(Math.max(Date.now(),Date.parse(bike.updatedAt||'')+1||0)).toISOString();
   const recycleId = action === "delete" ? crypto.randomUUID() : null;
   ensureLegacyOilHistory(bike, now);
 
@@ -2885,6 +2900,7 @@ async function fleetHistoryAction(request, env, rawBikeId, rawEntryId, action) {
     bike.history[entryIndex] = updated;
   } else {
     if (body.confirmDelete !== true) return json({ error: "Χρειάζεται επιβεβαίωση διαγραφής." }, 400);
+    bike.historyDeletes=OperationsModel.mergeLifecycle(bike.historyDeletes,[{id:entryId,at:now}]);
     bike.history.splice(entryIndex, 1);
     bike.historyDeletedIds = [...new Set([entryId, ...bike.historyDeletedIds])].slice(0, MAX_HISTORY);
   }
@@ -2893,8 +2909,21 @@ async function fleetHistoryAction(request, env, rawBikeId, rawEntryId, action) {
   bike.updatedAt = now;
   bike.odometerFloorKm = await workforceOdometerFloor(env, bikeId);
   const normalizedBike = normalizeBike(bike);
-  fleet.bikes[bikeIndex] = normalizedBike;
-  const stored = await writeSnapshot(env, normalizeFleet(fleet), `admin-history-${action}`, snapshot.version + 1);
+  const reason = cleanText(body.reason, 500) || (action === "delete" ? "Διαγραφή λανθασμένης καταχώρησης" : "Διόρθωση καταχώρησης ιστορικού");
+  let version;
+  if(action==='delete'){
+    const path=`$.bikes[${located.index}]`;
+    const archive=env.DB.prepare(`INSERT INTO deleted_records
+      (id,record_type,record_id,label,payload,deleted_at,deleted_by,deleted_by_name,reason)
+      SELECT ?,'fleet_history',?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM fleet_snapshot WHERE id=1 AND json_extract(data,?)=?)
+      AND NOT EXISTS(SELECT 1 FROM vehicle_archives WHERE active=1 AND bike_id=?)`)
+      .bind(recycleId,`${bikeId}:${entryId}`,`${bike.name} • ${oldEntry.type==='service'?'Service':'Έλεγχος χιλιομέτρων'}`,JSON.stringify({bikeId,bikeName:bike.name,entry:oldEntry}),now,String(actor.user_id||actor.id||''),cleanText(actor.full_name||actor.fullName||'',120),reason,path,located.json,bikeId);
+    const update=env.DB.prepare(`UPDATE fleet_snapshot SET data=json_set(data,?,json(?)),version=version+1,source=?,updated_at=? WHERE id=1 AND json_extract(data,?)=? AND EXISTS(SELECT 1 FROM deleted_records WHERE id=?) AND NOT EXISTS(SELECT 1 FROM vehicle_archives WHERE active=1 AND bike_id=?)`)
+      .bind(path,JSON.stringify(normalizedBike),'admin-history-delete',now,path,located.json,recycleId,bikeId);
+    const results=await env.DB.batch([archive,update]);
+    version=Number(results[1]?.meta?.changes)?Number((await env.DB.prepare('SELECT version FROM fleet_snapshot WHERE id=1').first()).version):0;
+  }else version=await writeSnapshotBike(env,located,normalizedBike,'admin-history-edit',now);
+  if(!version)return json({error:'Έγινε άλλη αλλαγή ταυτόχρονα. Άνοιξε ξανά την καταχώρηση.'},409);
   const operationId = crypto.randomUUID();
   const statements = [
     env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
@@ -2904,15 +2933,6 @@ async function fleetHistoryAction(request, env, rawBikeId, rawEntryId, action) {
     env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)")
       .bind(operationId, JSON.stringify({ bike: normalizedBike }), now)
   ];
-  const reason = cleanText(body.reason, 500) || (action === "delete" ? "Διαγραφή λανθασμένης καταχώρησης" : "Διόρθωση καταχώρησης ιστορικού");
-  if (action === "delete") {
-    statements.push(env.DB.prepare(`INSERT INTO deleted_records
-      (id,record_type,record_id,label,payload,deleted_at,deleted_by,deleted_by_name,reason)
-      VALUES (?,'fleet_history',?,?,?,?,?,?,?)`)
-      .bind(recycleId, `${bikeId}:${entryId}`, `${bike.name} • ${oldEntry.type === "service" ? "Service" : "Έλεγχος χιλιομέτρων"}`,
-        JSON.stringify({ bikeId, bikeName: bike.name, entry: oldEntry }), now,
-        String(actor.user_id || actor.id || ""), cleanText(actor.full_name || actor.fullName || "", 120), reason));
-  }
   await env.DB.batch(statements);
   await recordExternalAudit(env, request, actor, action === "delete" ? "fleet_history_entry_deleted" : "fleet_history_entry_edited",
     "fleet_history", `${bikeId}:${entryId}`, oldEntry, action === "delete" ? { recycleId } : normalizedBike.history.find((entry) => entry.id === entryId), reason, false);
@@ -2921,49 +2941,31 @@ async function fleetHistoryAction(request, env, rawBikeId, rawEntryId, action) {
     deleted: action === "delete",
     recycleId,
     bike: normalizedBike,
-    version: stored.version,
+    version,
     operationId
   });
 }
 
 async function restoreFleetHistoryEntries(env, requestedEntries) {
-  const records = Array.isArray(requestedEntries) ? requestedEntries.slice(0, MAX_HISTORY) : [];
-  if (!records.length) return { restored: 0, bikes: [] };
-  const snapshot = await readSnapshot(env);
-  const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-  const changed = new Map();
-  const now = new Date().toISOString();
-  let restored = 0;
-  for (const record of records) {
-    const bikeId = cleanText(record?.bikeId, 100);
-    const entry = record?.entry && typeof record.entry === "object" ? normalizeHistory([record.entry])[0] : null;
-    const bike = (fleet.bikes || []).find((item) => String(item.id) === bikeId);
-    if (!bike || !entry) continue;
-    bike.history = Array.isArray(bike.history) ? bike.history : [];
-    bike.historyDeletedIds = normalizeDeletedHistoryIds(bike.historyDeletedIds).filter((id) => id !== entry.id);
-    if (!bike.history.some((item) => String(item.id) === entry.id)) {
-      bike.history.unshift({ ...entry, updatedAt: now });
-      restored += 1;
-    }
-    bike.historyCorrectedAt = now;
-    bike.updatedAt = now;
-    const normalized = normalizeBike(bike);
-    Object.assign(bike, normalized);
-    changed.set(bikeId, normalized);
+  const records=Array.isArray(requestedEntries)?requestedEntries.slice(0,MAX_HISTORY):[];const changed=[];let restored=0,version=0;
+  const archived=await activeArchivedBikeIds(env);
+  for(const record of records){
+    const bikeId=cleanText(record?.bikeId,100),entry=record?.entry&&normalizeHistory([record.entry])[0];if(!entry||archived.has(bikeId))continue;
+    const located=await readSnapshotBike(env,bikeId);if(!located)continue;const bike=located.bike;
+    const existing=(bike.history||[]).find(e=>String(e.id)===entry.id);
+    if(existing){if(OperationsModel.lifecycle(bike.historyRestores).some(r=>r.id===entry.id)){restored++;changed.push(normalizeBike(bike));}continue;}
+    if(record.expectedBikeUpdatedAt!==undefined&&record.expectedBikeUpdatedAt!==bike.updatedAt)throw Object.assign(new Error('Το ιστορικό άλλαξε. Άνοιξε ξανά την προεπισκόπηση.'),{status:409});
+    if((bike.history||[]).length>=MAX_HISTORY)throw Object.assign(new Error('Το ιστορικό έχει 500 καταχωρήσεις. Η ανάκτηση δεν αφαίρεσε παλιές εγγραφές.'),{status:409});
+    const now=new Date(Math.max(Date.now(),Date.parse(bike.updatedAt||'')+1||0)).toISOString();
+    ensureLegacyOilHistory(bike,now);
+    bike.historyRestores=OperationsModel.mergeLifecycle(bike.historyRestores,[{id:entry.id,at:now}]);bike.historyDeletedIds=normalizeDeletedHistoryIds(bike.historyDeletedIds).filter(id=>id!==entry.id);
+    bike.history=[{...entry,updatedAt:now},...(bike.history||[])];bike.historyCorrectedAt=now;bike.updatedAt=now;bike.odometerFloorKm=await workforceOdometerFloor(env,bikeId);
+    const normalized=normalizeBike(bike);version=await writeSnapshotBike(env,located,normalized,'service-trash-restore',now);
+    if(!version)throw Object.assign(new Error('Έγινε άλλη αλλαγή ταυτόχρονα. Ανανέωσε την προεπισκόπηση.'),{status:409});
+    await env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at) VALUES (?,?,?,'available',1,?) ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,odometer=MAX(vehicle_registry.odometer,excluded.odometer),version=vehicle_registry.version+1,updated_at=excluded.updated_at`).bind(normalized.id,normalized.name,normalized.currentKm,now).run();
+    await queueBike(env,normalized,now);changed.push(normalized);restored++;
   }
-  if (!changed.size) return { restored: 0, bikes: [] };
-  const stored = await writeSnapshot(env, normalizeFleet(fleet), "recycle-restore", snapshot.version + 1);
-  const statements = [];
-  for (const bike of changed.values()) {
-    statements.push(env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
-      VALUES (?,?,?,'available',1,?) ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,
-      odometer=MAX(vehicle_registry.odometer,excluded.odometer),version=vehicle_registry.version+1,updated_at=excluded.updated_at`)
-      .bind(bike.id, bike.name, bike.currentKm, now));
-    statements.push(env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)")
-      .bind(crypto.randomUUID(), JSON.stringify({ bike }), now));
-  }
-  for (let index = 0; index < statements.length; index += 80) await env.DB.batch(statements.slice(index, index + 80));
-  return { restored, bikes: [...changed.values()], version: stored.version };
+  return {restored,bikes:changed,version};
 }
 
 async function login(request, env) {
@@ -3308,10 +3310,12 @@ async function restoreServerServiceDocument(request, env) {
   if (!key.startsWith(expectedPrefix)) return json({ error: "Το τιμολόγιο backup δεν αντιστοιχεί στο service." }, 400);
   const bucket = env.SERVICE_DOCS || env.RELEASES;
   if (!bucket) return json({ error: "Δεν έχει συνδεθεί χώρος αποθήκευσης τιμολογίων." }, 503);
-  const snapshot = await readSnapshot(env);
-  const bike = (snapshot.data.bikes || []).find((item) => String(item.id) === bikeId);
-  const entry = bike && (bike.history || []).find((item) => String(item.id) === entryId);
-  if (!bike || !entry || entry.type === "check") return json({ error: "Το service του backup δεν βρέθηκε." }, 404);
+  const located=await readServiceEntry(env,bikeId,entryId);
+  const entry=located?.entry;
+  if(!entry||entry.type==='check'){
+    const archived=await env.DB.prepare(`SELECT 1 AS found FROM deleted_records r,json_each(r.payload,'$.entry.attachments') a WHERE r.record_type='fleet_history' AND r.restored_at IS NULL AND json_extract(r.payload,'$.bikeId')=? AND json_extract(r.payload,'$.entry.id')=? AND json_extract(a.value,'$.key')=? LIMIT 1`).bind(bikeId,entryId,key).first();
+    if(!archived)return json({error:'Το service ή το συνδεδεμένο αρχείο στον κάδο δεν βρέθηκε.'},404);
+  }
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (!bytes.byteLength || bytes.byteLength > 15 * 1024 * 1024) return json({ error: "Το τιμολόγιο backup δεν έχει έγκυρο μέγεθος." }, 400);
   const detected = detectDocumentContentType(bytes);
@@ -3625,3 +3629,14 @@ async function undoServiceReview(request, env) {
   await recordExternalAudit(env,request,actor,'service_review_undone','service_document',file.key,before,ServiceModel.state(entry,data),'Αναίρεση απόφασης τιμολογίου',false);
   return json({ok:true,bike:normalized,document:adminServiceDocumentRecord(normalized,entry,file),version:stored.version,operationId});
 }
+
+async function statusPayload(env){const response=await statusResponse(env);return response.json();}
+async function queueBike(env,bike,now){await env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)").bind(crypto.randomUUID(),JSON.stringify({bike}),now).run();}
+function historyChanges(body,entry){
+ const km=Number(body.km),date=strictCalendarDate(body.date);
+ if(body.km==null||body.km===''||!Number.isSafeInteger(km)||km<0||km>2000000000||!date)throw Object.assign(new Error('Συμπλήρωσε σωστά χιλιόμετρα και ημερομηνία.'),{status:400});
+ if(entry.type==='check')return {km,date};
+ let tasks=(Array.isArray(body.tasks)?body.tasks:[]).map(t=>cleanText(t,120)).filter(Boolean).slice(0,30);tasks=tasks.filter(t=>!['Αλλαγή λαδιών','Μεγάλο service'].includes(t));if(body.oilChanged===true)tasks.unshift('Αλλαγή λαδιών');if(body.majorService===true)tasks.unshift('Μεγάλο service');if(!tasks.length)throw Object.assign(new Error('Διάλεξε τουλάχιστον μία εργασία.'),{status:400});
+ return {km,date,tasks:[...new Set(tasks)].slice(0,30),oilChanged:body.oilChanged===true,majorService:body.majorService===true,cost:cleanText(body.cost,60),workshop:cleanText(body.workshop,120)};
+}
+async function impactToken(bikeJson,action,entryId,body,floor){const fields={};for(const k of ['km','date','tasks','oilChanged','majorService','cost','workshop'])if(body[k]!==undefined)fields[k]=body[k];return digestHex(new TextEncoder().encode(JSON.stringify([bikeJson,action,entryId,fields,floor])));}

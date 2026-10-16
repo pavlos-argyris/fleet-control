@@ -1,3 +1,8 @@
+# Fleet Control 5.46.0
+
+Client/Web 5.46.0 · Server 2.2.2 · Worker 5.8.0.
+[Εργαλεία στόλου, ZIP και διάγνωση](docs/OPERATIONS_UPDATE_5.46.0_GR.md).
+
 # Fleet Control 5.45.0
 
 Client/Web 5.45.0 · Server 2.2.1 · Worker 5.7.1.

@@ -56,6 +56,12 @@ public class MainActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 41;
     private static final int HISTORY_EXPORT_REQUEST = 209;
     private byte[] pendingHistoryExport;
+    private static final int INVOICE_ZIP_REQUEST=210,DIAGNOSTIC_EXPORT_REQUEST=211;
+    private String pendingInvoiceZipJson, pendingInvoiceZipToken;
+    private byte[] pendingDiagnosticReport;
+    private final AtomicBoolean invoiceZipCancelled=new AtomicBoolean(false);
+    private volatile boolean invoiceZipRunning=false;
+
     private static final int FILE_CHOOSER_REQUEST = 42;
     private static final int CAMERA_PERMISSION_REQUEST = 43;
     private static final String SESSION_PREFERENCES = "fleet_control_session";
@@ -244,6 +250,15 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if(requestCode==INVOICE_ZIP_REQUEST){
+            final String manifest=pendingInvoiceZipJson,token=pendingInvoiceZipToken;pendingInvoiceZipJson=null;pendingInvoiceZipToken=null;
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&manifest!=null&&token!=null)writeInvoiceZip(data.getData(),manifest,token);
+            else {invoiceZipRunning=false;emitInvoiceZip("cancelled",0,0);}
+        }
+        if(requestCode==DIAGNOSTIC_EXPORT_REQUEST){
+            final byte[] bytes=pendingDiagnosticReport;pendingDiagnosticReport=null;
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&bytes!=null){final Uri target=data.getData();new Thread(new Runnable(){public void run(){try{OutputStream output=getContentResolver().openOutputStream(target);if(output==null)throw new Exception();try{output.write(bytes);}finally{output.close();}}catch(Exception ignored){runOnUiThread(new Runnable(){public void run(){Toast.makeText(MainActivity.this,"Δεν αποθηκεύτηκε η αναφορά.",Toast.LENGTH_LONG).show();}});}}}).start();}
+        }
         if (requestCode == HISTORY_EXPORT_REQUEST) {
             final byte[] bytes = pendingHistoryExport; pendingHistoryExport = null;
             if (resultCode == RESULT_OK && data != null && data.getData() != null && bytes != null) {
@@ -514,6 +529,21 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void exportInvoiceZip(final String manifest,final String token){
+            if(manifest==null||manifest.length()>512*1024||token==null||token.length()<20||token.length()>4096)return;
+            runOnUiThread(new Runnable(){public void run(){if(invoiceZipRunning)return;try{
+                org.json.JSONArray files=new org.json.JSONObject(manifest).getJSONArray("files");if(files.length()<1||files.length()>500)return;
+                invoiceZipRunning=true;invoiceZipCancelled.set(false);pendingInvoiceZipJson=manifest;pendingInvoiceZipToken=token;
+                Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/zip");intent.putExtra(Intent.EXTRA_TITLE,"Fleet_Invoices.zip");startActivityForResult(intent,INVOICE_ZIP_REQUEST);
+            }catch(Exception error){pendingInvoiceZipJson=null;pendingInvoiceZipToken=null;invoiceZipRunning=false;emitInvoiceZip("error",0,0);}}});
+        }
+        @JavascriptInterface public void cancelInvoiceZip(){invoiceZipCancelled.set(true);}
+        @JavascriptInterface public void exportDiagnosticReport(final String json){
+            if(json==null||json.length()>65536)return;
+            try{final org.json.JSONObject report=new org.json.JSONObject(json);if(!"Fleet Control diagnostics".equals(report.optString("report")))return;final byte[] bytes=json.getBytes("UTF-8");runOnUiThread(new Runnable(){public void run(){if(pendingDiagnosticReport!=null)return;try{pendingDiagnosticReport=bytes;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");intent.putExtra(Intent.EXTRA_TITLE,"Fleet_Diagnostics.json");startActivityForResult(intent,DIAGNOSTIC_EXPORT_REQUEST);}catch(Exception ignored){pendingDiagnosticReport=null;}}});}catch(Exception ignored){}
+        }
+
+        @JavascriptInterface
         public void exportHistoryExcel(final String encoded, final String requestedName) {
             if (encoded == null || encoded.length() > 36 * 1024 * 1024 || pendingHistoryExport != null) return;
             try {
@@ -523,7 +553,7 @@ public class MainActivity extends Activity {
                     pendingHistoryExport = bytes;
                     Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT); intent.addCategory(Intent.CATEGORY_OPENABLE);
                     intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-                    intent.putExtra(Intent.EXTRA_TITLE,"Fleet_Service_History.xlsx");
+                    intent.putExtra(Intent.EXTRA_TITLE,requestedName!=null&&requestedName.matches("[A-Za-z0-9_-]{1,90}\\.xlsx")?requestedName:"Fleet_Service_History.xlsx");
                     try { startActivityForResult(intent,HISTORY_EXPORT_REQUEST); } catch(Exception error) { pendingHistoryExport=null;Toast.makeText(MainActivity.this,"Δεν υπάρχει εφαρμογή αποθήκευσης αρχείων.",Toast.LENGTH_LONG).show(); }
                 }});
             } catch(Exception ignored) {}
@@ -853,6 +883,24 @@ public class MainActivity extends Activity {
         try { return Long.parseLong(digits); } catch (NumberFormatException error) { return 0L; }
     }
 
+    private void emitInvoiceZip(final String status,final int files,final int total){
+        try{final String json=new org.json.JSONObject().put("status",status).put("files",files).put("total",total).toString();mainHandler.post(new Runnable(){public void run(){if(webView!=null)webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('fleet-invoice-zip',{detail:"+json+"}));",null);}});}catch(Exception ignored){}
+    }
+    private void writeInvoiceZip(final Uri target,final String manifest,final String token){
+        new Thread(new Runnable(){public void run(){boolean success=false;int count=0;try{
+            org.json.JSONArray rows=new org.json.JSONObject(manifest).getJSONArray("files");final java.util.List<InvoiceZipWriter.Item> files=new java.util.ArrayList<InvoiceZipWriter.Item>();for(int i=0;i<rows.length();i++){org.json.JSONObject row=rows.getJSONObject(i);files.add(new InvoiceZipWriter.Item(row.getString("key"),row.getString("name")));}count=files.size();
+            OutputStream output=getContentResolver().openOutputStream(target);if(output==null)throw new Exception("Output unavailable");
+            try{InvoiceZipWriter.write(files,output,new InvoiceZipWriter.Source(){public InputStream open(String key)throws Exception{
+                final HttpURLConnection connection=(HttpURLConnection)new URL("https://fleet-control.pavlosargyris.workers.dev/api/service-documents/"+Uri.encode(key,"/")).openConnection();connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(20000);connection.setReadTimeout(45000);connection.setRequestProperty("Authorization","Bearer "+token);
+                try{if(connection.getResponseCode()!=200||connection.getContentLength()>InvoiceZipWriter.MAX_FILE)throw new Exception("PDF unavailable");return new java.io.FilterInputStream(connection.getInputStream()){@Override public void close()throws java.io.IOException{try{super.close();}finally{connection.disconnect();}}};}catch(Exception error){connection.disconnect();throw error;}
+            }},new InvoiceZipWriter.Control(){public boolean cancelled(){return invoiceZipCancelled.get();}public void progress(int done,int total,long bytes){emitInvoiceZip("progress",done,total);}});}finally{output.close();}
+            success=true;emitInvoiceZip("complete",count,count);
+        }catch(Exception error){emitInvoiceZip(invoiceZipCancelled.get()?"cancelled":"error",0,count);}finally{
+            if(!success){try{android.provider.DocumentsContract.deleteDocument(getContentResolver(),target);}catch(Exception ignored){}}
+            invoiceZipRunning=false;
+        }}}).start();
+    }
+
     private boolean backNavigationPending = false;
 
     @Override
@@ -884,6 +932,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        invoiceZipCancelled.set(true);pendingInvoiceZipJson=null;pendingInvoiceZipToken=null;
         activityResumed = false;
         mainHandler.removeCallbacks(periodicUpdateCheck);
         if (webView != null) {

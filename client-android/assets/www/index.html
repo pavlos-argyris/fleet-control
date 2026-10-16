@@ -11,12 +11,12 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=5.45.0">
-  <link rel="stylesheet" href="./scroll-stability.css?v=5.45.0">
-  <link rel="stylesheet" href="./client-ota.css?v=5.45.0">
-  <script src="./client-ota.js?v=5.45.0" defer></script>
-  <link rel="stylesheet" href="./service-tools.css?v=5.45.0">
-  <link rel="stylesheet" href="./service-followup.css?v=5.45.0">
+  <link rel="stylesheet" href="./styles.css?v=5.46.0">
+  <link rel="stylesheet" href="./scroll-stability.css?v=5.46.0">
+  <link rel="stylesheet" href="./client-ota.css?v=5.46.0">
+  <script src="./client-ota.js?v=5.46.0" defer></script>
+  <link rel="stylesheet" href="./service-tools.css?v=5.46.0">
+  <link rel="stylesheet" href="./service-followup.css?v=5.46.0">
 </head>
 <body>
   <div class="app-shell">
@@ -143,7 +143,7 @@
           <button type="button" class="secondary-button followup-launcher" data-open-followup="missing"><span><strong>Service χωρίς τιμολόγιο</strong><small>Βρες service χωρίς PDF. Πρόσθεσε QR/αρχείο ή δήλωσε γιατί δεν αναμένεται τιμολόγιο.</small></span><b aria-hidden="true">→</b></button>
           <button type="button" class="secondary-button followup-launcher" data-open-followup="pending"><span><strong>Εκκρεμότητες</strong><small>Δες τι περιμένει έλεγχο, ανάλυση ή αποστολή και κάνε νέα προσπάθεια όπου χρειάζεται.</small></span><b aria-hidden="true">→</b></button>
           <button type="button" class="secondary-button followup-launcher" data-open-followup="mileage"><span><strong>Έλεγχος ιστορικού χιλιομέτρων</strong><small>Βρες μικρότερες ενδείξεις σε μεταγενέστερες ημερομηνίες. Έλεγξε ή επιβεβαίωσέ τες με εξήγηση.</small></span><b aria-hidden="true">→</b></button>
-        </div></section>
+        </div></section><section class="followup-entry-section"><div class="followup-section-heading"><span class="eyebrow">ΕΡΓΑΛΕΙΑ ΣΤΟΛΟΥ</span><h2>Οργάνωση και έλεγχος</h2></div><div class="followup-entry-buttons operations-entry-grid"><button type="button" class="secondary-button followup-launcher" data-open-operations="trash"><span><strong>Κάδος service</strong><small>Έλεγχος και ανάκτηση καταχωρήσεων με τα τιμολόγιά τους.</small></span><b aria-hidden="true">→</b></button><button type="button" class="secondary-button followup-launcher" data-open-operations="plans"><span><strong>Προγραμματισμένα service</strong><small>Ραντεβού συνεργείου και επιβεβαίωση όταν ολοκληρωθούν.</small></span><b aria-hidden="true">→</b></button><button type="button" class="secondary-button followup-launcher" data-open-operations="zip"><span><strong>Λήψη τιμολογίων ZIP</strong><small>Όλα τα επιλεγμένα PDF σε φακέλους ανά πινακίδα.</small></span><b aria-hidden="true">→</b></button><button type="button" class="secondary-button followup-launcher" data-open-operations="cost"><span><strong>Κόστος ανά 1.000 χλμ.</strong><small>Σύγκριση συντήρησης με έλεγχο πληρότητας δεδομένων.</small></span><b aria-hidden="true">→</b></button><button type="button" class="secondary-button followup-launcher" data-open-operations="diagnostics"><span><strong>Διάγνωση προβλήματος</strong><small>Έλεγχος σύνδεσης και εκκρεμοτήτων με ασφαλή αναφορά.</small></span><b aria-hidden="true">→</b></button></div></section>
         <div class="fleet-settings-grid">
           <button id="pinSettingsButton" class="pin-settings-button is-hidden" type="button">
             <span class="pin-settings-icon">
@@ -793,17 +793,19 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./scroll-stability.js?v=5.45.0" defer></script>
-  <script src="./fleet-config.js?v=5.45.0" defer></script>
-  <script src="./vendor/jsQR.js?v=5.45.0" defer></script>
-  <script src="./vendor/qrcode-generator.js?v=5.45.0" defer></script>
-  <script src="./service-model.js?v=5.45.0" defer></script>
-  <script src="./fleet-navigation.js?v=5.45.0" defer></script>
-  <script src="./service-tools.js?v=5.45.0" defer></script>
-  <script src="./service-storage.js?v=5.45.0" defer></script>
-  <script src="./service-export.js?v=5.45.0" defer></script>
-  <script src="./local-view-cache.js?v=5.45.0" defer></script>
-  <script src="./app.js?v=5.45.0" defer></script>
-  <script src="./service-followup.js?v=5.45.0" defer></script>
+  <script src="./scroll-stability.js?v=5.46.0" defer></script>
+  <script src="./fleet-config.js?v=5.46.0" defer></script>
+  <script src="./vendor/jsQR.js?v=5.46.0" defer></script>
+  <script src="./vendor/qrcode-generator.js?v=5.46.0" defer></script>
+  <script src="./service-model.js?v=5.46.0" defer></script>
+  <script src="./fleet-operations-model.js?v=5.46.0" defer></script>
+  <script src="./fleet-navigation.js?v=5.46.0" defer></script>
+  <script src="./service-tools.js?v=5.46.0" defer></script>
+  <script src="./service-storage.js?v=5.46.0" defer></script>
+  <script src="./service-export.js?v=5.46.0" defer></script>
+  <script src="./local-view-cache.js?v=5.46.0" defer></script>
+  <script src="./app.js?v=5.46.0" defer></script>
+  <script src="./service-followup.js?v=5.46.0" defer></script>
+  <script src="./fleet-operations.js?v=5.46.0" defer></script>
 </body>
 </html>

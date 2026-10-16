@@ -253,3 +253,9 @@ for (const accepted of [false, true]) {
   if(!accepted)assert.deepEqual(plain(ctx.bikes),before);else assert.equal(ctx.bikes[0].lastServiceKm,11000);
 }
 console.log("OK historical service impact: confirmation occurs before odometer/oil-cycle mutations; rejection preserves the entire bike.");
+{
+ const {ctx}=fixture();ctx.remoteHistoryAction=async()=>{throw Object.assign(new Error('Το ιστορικό άλλαξε'),{status:409});};
+ const job={id:'stale-preview',bikeId:'bike',entryId:'entry-1',payload:{impactToken:'old'},files:[],qrValue:'',saved:false,label:'Test'};ctx.enqueueHistoryEntrySave(job);await ctx.historyEntrySaveQueue;
+ assert.equal(job.status,'error');assert.equal(job.requiresPreview,true);assert.match(ctx.backgroundHistorySaveMarkup('bike','entry-1'),/Επανέλεγχος αλλαγών/);
+}
+console.log('OK stale background edits retain their job and request a fresh consequence preview instead of replaying an old confirmation.');

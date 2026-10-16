@@ -386,7 +386,8 @@
     if (!bike || !bike.id || !bike.name) return null;
     const intervalKm = Math.max(1, Math.round(Number(bike.intervalKm) || 1));
     const maintenancePlans = window.FleetServiceModel ? window.FleetServiceModel.plans(bike.maintenancePlans) : [];
-    const historyDeletedIds = deletedHistoryIds(bike.historyDeletedIds);
+    const historyRestores=window.FleetOperationsModel?.lifecycle(bike.historyRestores)||[],historyDeletes=window.FleetOperationsModel?.lifecycle(bike.historyDeletes)||[];
+    const historyDeletedIds = window.FleetOperationsModel?window.FleetOperationsModel.deletedIds(deletedHistoryIds(bike.historyDeletedIds),historyRestores,historyDeletes):deletedHistoryIds(bike.historyDeletedIds);
     const deleted = new Set(historyDeletedIds);
     const history = Array.isArray(bike.history)
       ? bike.history.slice(0, 500).map(function (entry) {
@@ -408,6 +409,7 @@
             km: Math.max(0, Math.round(Number(entry.km) || 0)),
             date: entry.date || today(),
             notes: notes,
+            appointmentId:String(entry.appointmentId||'').slice(0,100),
             reviewJournal: window.FleetServiceModel ? window.FleetServiceModel.journal(entry.reviewJournal) : [],
             invoiceExpectation: window.FleetServiceModel ? window.FleetServiceModel.expectation(entry.invoiceExpectation) : null,
             kmAcknowledgments: window.FleetServiceModel ? window.FleetServiceModel.kmAcknowledgments(entry.kmAcknowledgments) : [],
@@ -463,6 +465,8 @@
       id: bike.id,
       name: String(bike.name),
       maintenancePlans: maintenancePlans,
+      serviceAppointments:window.FleetOperationsModel?.appointments(bike.serviceAppointments)||[],
+      historyRestores,historyDeletes,
       intervalKm: intervalKm,
       lastServiceKm: lastServiceKm,
       currentKm: currentKm,
@@ -510,13 +514,15 @@
     const firstTime = new Date(first.updatedAt || 0).getTime() || 0;
     const secondTime = new Date(second.updatedAt || 0).getTime() || 0;
     const latest = secondTime >= firstTime ? second : first;
-    const historyDeletedIds = deletedHistoryIds((first.historyDeletedIds || []).concat(second.historyDeletedIds || []));
+    const historyRestores=window.FleetOperationsModel?.mergeLifecycle(first.historyRestores,second.historyRestores)||[],historyDeletes=window.FleetOperationsModel?.mergeLifecycle(first.historyDeletes,second.historyDeletes)||[];
+    const historyDeletedIds = window.FleetOperationsModel?window.FleetOperationsModel.deletedIds((first.historyDeletedIds||[]).concat(second.historyDeletedIds||[]),historyRestores,historyDeletes):deletedHistoryIds((first.historyDeletedIds || []).concat(second.historyDeletedIds || []));
     const deleted = new Set(historyDeletedIds);
     const historyMap = new Map();
     (first.history || []).concat(second.history || []).forEach(function (entry) {
       const existing = historyMap.get(entry.id);
       if (!existing) historyMap.set(entry.id,entry);
       else if(historyStamp(entry)>=historyStamp(existing))historyMap.set(entry.id,Object.assign({},entry,{
+        appointmentId:entry.appointmentId||existing.appointmentId,
         invoiceExpectation:entry.invoiceExpectation||existing.invoiceExpectation,
         kmAcknowledgments:window.FleetServiceModel?window.FleetServiceModel.kmAcknowledgments((existing.kmAcknowledgments||[]).concat(entry.kmAcknowledgments||[]).filter((v,i,a)=>a.map(x=>x.signature).lastIndexOf(v.signature)===i)):[],
         reviewJournal:entry.reviewJournal?.length?entry.reviewJournal:existing.reviewJournal
@@ -536,6 +542,7 @@
       ? corrected.lastServiceKm
       : Math.max(Number(first.lastServiceKm) || 0, Number(second.lastServiceKm) || 0, serviceHistoryKm);
     return normalizeBike(Object.assign({}, latest, {
+      historyRestores,historyDeletes,serviceAppointments:window.FleetOperationsModel?.appointments((first.serviceAppointments||[]).concat(second.serviceAppointments||[]))||[],
       lastServiceKm: lastServiceKm,
       currentKm: historyCorrectedAt ? corrected.currentKm : Math.max(Number(first.currentKm) || 0, Number(second.currentKm) || 0, lastServiceKm),
       nextServiceKm: lastServiceKm + Number(latest.intervalKm),
@@ -1204,7 +1211,7 @@
         if (response.status === 401) {
           webToken = "";
           cloudSnapshotVersion = null;
-          window.FleetFollowup?.reset();
+          window.FleetFollowup?.reset();window.FleetOperations?.reset();
           currentUser = null;
           bikes = [];
           try {
@@ -2358,7 +2365,7 @@
         try { sessionStorage.setItem("fleet-control-return-to-fleet", "1"); } catch (error) {}
         returnToPortal(true);
       }
-      throw new Error(data.error || "Η διόρθωση δεν ολοκληρώθηκε.");
+      throw Object.assign(new Error(data.error || "Η διόρθωση δεν ολοκληρώθηκε."),{status:response.status});
     }
     return data;
   }
@@ -2952,7 +2959,7 @@
     return Array.from(backgroundHistorySaves.values()).filter(function (job) {
       return job.bikeId === bikeId && job.entryId === entryId;
     }).map(function (job) {
-      if (job.status === "error") return '<div class="history-invoice-warning" role="alert">Η αποθήκευση δεν ολοκληρώθηκε: ' + escapeHtml(job.error) + ' <button type="button" class="document-retry-button" data-retry-service-save="' + escapeHtml(job.id) + '">Επανάληψη</button></div>';
+      if (job.status === "error") return '<div class="history-invoice-warning" role="alert">Η αποθήκευση δεν ολοκληρώθηκε: ' + escapeHtml(job.error) + ' <button type="button" class="document-retry-button" data-retry-service-save="' + escapeHtml(job.id) + '">' + (job.requiresPreview?'Επανέλεγχος αλλαγών':'Επανάληψη') + '</button></div>';
       return '<div class="history-invoice-warning" role="status">' + (job.saved ? "Αποστολή τιμολογίων / QR στο παρασκήνιο…" : "Αποθήκευση αλλαγών στο παρασκήνιο…") + '</div>';
     }).join("");
   }
@@ -2987,6 +2994,7 @@
       showToast(job.label + " · " + (invoiceResult ? invoiceBatchMessage(invoiceResult) : "Οι αλλαγές αποθηκεύτηκαν."));
     } catch (error) {
       job.status = "error";
+      job.requiresPreview=!job.saved&&Number(error.status)===409;
       job.error = error && error.message || "Η αποθήκευση απέτυχε.";
       showToast(job.label + " · " + job.error + " Μπορείς να πατήσεις Επανάληψη στο ιστορικό.");
     } finally {
@@ -3042,6 +3050,7 @@
       majorService: isService && elements.historyEntryMajorService.checked,
       reason: elements.historyEntryReason.value.trim().slice(0, 500)
     };
+    if(typeof confirmServiceImpact==='function'&&!await confirmServiceImpact(bike,entry,'edit',payload))return;
     if (navigator.onLine === false) {
       localHistoryEdit(bike, entry.id, payload);
       saveBikes();
@@ -3066,15 +3075,13 @@
       return;
     }
     const entryLabel = entry.type === "service" ? "το σέρβις" : "τον έλεγχο χιλιομέτρων";
-    if (!window.confirm("Να μεταφερθεί " + entryLabel + " στα " + formatKm(entry.km) + " στον Κάδο ανακύκλωσης;")) return;
+    const deletePayload={confirmDelete:true,reason:elements.historyEntryReason.value.trim().slice(0,500)};
+    if(typeof confirmServiceImpact==='function'){if(!await confirmServiceImpact(bike,entry,'delete',deletePayload))return;}else if(!window.confirm('Να μεταφερθεί η καταχώρηση στον Κάδο;'))return;
     elements.historyEntryError.textContent = "";
     elements.historyEntrySaveButton.disabled = true;
     elements.historyEntryDeleteButton.disabled = true;
     try {
-      const result = await remoteHistoryAction(bike.id, entry.id, "delete", {
-        confirmDelete: true,
-        reason: elements.historyEntryReason.value.trim().slice(0, 500)
-      });
+      const result = await remoteHistoryAction(bike.id, entry.id, "delete", deletePayload);
       replaceCorrectedBike(result.bike);
       if (elements.historyEntryDialog.open) elements.historyEntryDialog.close();
       showToast("Η καταχώρηση μεταφέρθηκε στον Κάδο ανακύκλωσης.");
@@ -3509,6 +3516,10 @@
       elements.serviceFormError.textContent = selectionError;
       return;
     }
+    if(window.FleetOperations&&window.FleetOperationsModel){
+      const preview=window.FleetOperationsModel.impact(bike,'create',{id:'preview',type:'service',km:serviceKm,date:serviceDate,tasks,oilChanged,majorService,attachments:[]});
+      if((preview.changed||preview.warnings.length)&&!await window.FleetOperations.confirmImpact(preview,'Πριν καταχωρήσεις το service'))return;
+    }else{
     if (serviceKm < Number(bike.lastServiceKm || 0) && !window.confirm("Προειδοποίηση: το service στα " + formatKm(serviceKm) + " έχει λιγότερα χιλιόμετρα από την τελευταία αλλαγή λαδιών στα " + formatKm(bike.lastServiceKm) + ". Θα προστεθεί στο ιστορικό χωρίς να μειωθούν τα τρέχοντα χιλιόμετρα ή η ενεργή μέτρηση λαδιών. Θέλεις να συνεχίσεις;")) {
       elements.serviceKm.focus();
       return;
@@ -3517,6 +3528,7 @@
     const latestServiceDate=(bike.history||[]).filter(function(e){return e.type==="service";}).map(function(e){return String(e.date||"");}).sort().pop()||"";
     if(serviceDate<latestServiceDate&&(serviceKm>Number(bike.currentKm)||oilChanged&&serviceKm>Number(bike.lastServiceKm))&&
       !window.confirm("Η ημερομηνία είναι παλαιότερη από το τελευταίο service αλλά αλλάζει τα τρέχοντα χιλιόμετρα ή τον κύκλο λαδιών.\nΤρέχοντα: "+formatKm(bike.currentKm)+" → "+formatKm(Math.max(bike.currentKm,serviceKm))+"\nΕπόμενα λάδια: "+formatKm(bike.nextServiceKm)+" → "+formatKm(oilChanged&&serviceKm>=bike.lastServiceKm?serviceKm+bike.intervalKm:bike.nextServiceKm)+"\nΝα συνεχίσω;"))return;
+    }
     const now = new Date().toISOString();
     const previousBikeState = { lastServiceKm:bike.lastServiceKm,nextServiceKm:bike.nextServiceKm,currentKm:bike.currentKm,updatedAt:bike.updatedAt };
     const startsOilCycle = oilChanged && serviceKm >= Number(bike.lastServiceKm || 0);
@@ -3821,6 +3833,19 @@
     container.querySelector('[data-cost-filter]').onclick=()=>{const from=container.querySelector('[data-cost-from]').value,to=container.querySelector('[data-cost-to]').value;if(from&&to&&from>to)return showToast('Η αρχή πρέπει να είναι πριν από το τέλος της περιόδου.');showServiceCostsReport(ids,{basis:container.querySelector('[data-cost-basis]').value,from,to});};
     container.querySelector('[data-cost-xlsx]').onclick=async()=>{const rows=[['Πινακίδα','Ημερομηνία service','Χλμ. service','Χλμ. τιμολογίου','Αρχικά χλμ.','Εργασίες','Τελικό κόστος €','Ημερομηνίες τιμολογίων'],...reportRows,[],['Σύνολο επιλεγμένων','','','','','',summary.cents/100],['Σύνολο ενεργού στόλου','','','','','',all.cents/100]];const blob=window.FleetServiceExport.workbook(rows),name='Fleet_Service_History.xlsx';if(window.AndroidFleet?.exportHistoryExcel){window.AndroidFleet.exportHistoryExcel(await blobToBase64(blob),name);return;}const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);};
   }
+  async function confirmServiceImpact(bike,entry,action,payload) {
+    if(!window.FleetOperations||!window.FleetOperationsModel)return true;
+    const scope=serviceStorageScope(),formWasOpen=elements.historyEntryDialog.open;let data;
+    try{
+    if(navigator.onLine===false){data={impact:window.FleetOperationsModel.impact(bike,action,action==='delete'?entry:Object.assign({},entry,payload))};}
+    else data=await window.FleetFollowupAdapter.api('/api/admin/service-impact',{method:'POST',body:{bikeId:bike.id,entryId:entry.id,action,changes:payload}});
+    if(scope!==serviceStorageScope()||formWasOpen&&!elements.historyEntryDialog.open)return false;
+    if(!await window.FleetOperations.confirmImpact(data.impact,action==='delete'?'Πριν μεταφέρεις στον κάδο':'Πριν αποθηκεύσεις τις αλλαγές'))return false;
+    if(scope!==serviceStorageScope()||formWasOpen&&!elements.historyEntryDialog.open)return false;
+    if(data.impactToken){payload.impactToken=data.impactToken;payload.expectedEntryUpdatedAt=data.expectedEntryUpdatedAt;}
+    return true;
+    }catch(error){elements.historyEntryError.textContent=error.message||'Δεν φορτώθηκε η προεπισκόπηση. Δοκίμασε ξανά.';showToast(elements.historyEntryError.textContent);return false;}
+  }
   function serviceStorageScope() {return apiBase+'|'+String(currentUser?.id||currentUser?.userId||currentUser?.username||'');}
   let draftTimer=null,draftWrites=Promise.resolve(),outboxRunning=false;
   function captureServiceDraft() {
@@ -3906,7 +3931,12 @@
     canManage:canManageHistory,context:serviceStorageScope,toast:showToast,getBikes:()=>bikes,
     getOutbox:async()=>currentUser&&window.FleetServiceStorage?window.FleetServiceStorage.list(serviceStorageScope(),'outbox'):[],
     retryOutbox:processServiceOutbox,
-    api:async(path,options)=>{options=options||{};const response=await fetch(apiBase+path,{method:options.method||'GET',headers:requestHeaders(!!options.body),body:options.body?JSON.stringify(options.body):undefined,cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Δεν ολοκληρώθηκε η ενέργεια.');return data;},
+    getPdfBlob:record=>servicePdfBlob(record.key),
+    exportNativeZip:files=>window.AndroidFleet.exportInvoiceZip(JSON.stringify({files}),webToken),
+    localDiagnostics:async()=>({outbox:(await window.FleetServiceStorage?.list(serviceStorageScope(),'outbox')||[]).length,failedSaves:Array.from(backgroundHistorySaves.values()).filter(j=>j.status==='error').length}),
+    saveWorkbook:async(blob,name)=>{if(window.AndroidFleet?.exportHistoryExcel){window.AndroidFleet.exportHistoryExcel(await blobToBase64(blob),name);return;}const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),60000);},
+    saveDiagnosticReport:report=>{if(window.AndroidFleet?.exportDiagnosticReport)window.AndroidFleet.exportDiagnosticReport(JSON.stringify(report));else{const u=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download='Fleet_Diagnostics.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),60000);}},
+    api:async(path,options)=>{options=options||{};const response=await fetch(apiBase+path,{method:options.method||'GET',headers:requestHeaders(!!options.body),body:options.body?JSON.stringify(options.body):undefined,cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||'Δεν ολοκληρώθηκε η ενέργεια.'),{status:response.status,rayId:response.headers.get('cf-ray')||''});return data;},
     applyBike:bike=>{mergeBackgroundBike(bike);saveBikes();renderHome();if(activeBikeId===bike.id)renderDetail();},
     edit:(bikeId,entryId,purpose)=>{openDetail(bikeId);openHistoryEntryDialog(entryId);if(purpose==='invoice'){elements.historyEntryReason.value='Προσθήκη τιμολογίου σε υπάρχον service';elements.historyEntryInvoiceQrValue.focus();elements.historyEntryInvoiceQrValue.scrollIntoView({block:'nearest'});}},
     review:(record)=>{openDetail(record.bikeId);return reviewStoredServiceDocument(record.entryId,record.key);},
@@ -3993,9 +4023,12 @@
   if (elements.refreshArchivedButton) elements.refreshArchivedButton.addEventListener("click", loadArchivedBikes);
   elements.detailHistory.addEventListener("click", function (event) {
     const retrySave = event.target.closest("[data-retry-service-save]");
-    if (retrySave) return requireEditAccess(function () {
+    if (retrySave) return requireEditAccess(async function () {
       const job = backgroundHistorySaves.get(retrySave.dataset.retryServiceSave);
-      if (job && job.status === "error") enqueueHistoryEntrySave(job);
+      if (job && job.status === "error") {
+        if(job.requiresPreview){const bike=getBike(job.bikeId),entry=getHistoryEntry(bike,job.entryId);if(!bike||!entry)return showToast('Η καταχώρηση δεν βρέθηκε. Ανανέωσε το ιστορικό.');if(!await confirmServiceImpact(bike,entry,'edit',job.payload))return;job.requiresPreview=false;}
+        enqueueHistoryEntrySave(job);
+      }
     });
     const retryQr = event.target.closest("[data-retry-qr]");
     if (retryQr) return requireEditAccess(function () { retryQrDocumentJob(activeBikeId, retryQr.dataset.retryQrEntry, retryQr.dataset.retryQr); });

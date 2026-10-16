@@ -69,8 +69,9 @@ public final class BackupManager {
         settings.put("automaticBackup", preferences.getBoolean("automatic_backup", true));
         settings.put("automaticStart", preferences.getBoolean("automatic_start", true));
         export.put("settings", settings);
-        byte[] documents = ServiceDocumentStore.createArchive(context, export.optJSONObject("fleet"));
-        int expectedDocuments = attachmentKeys(export.optJSONObject("fleet")).size();
+        JSONObject documentFleet=documentInventory(export);
+        byte[] documents = ServiceDocumentStore.createArchive(context, documentFleet);
+        int expectedDocuments = attachmentKeys(documentFleet).size();
         int includedDocuments = documents.length > 22 ? BackupArchiveVerifier.inspect(documents).size() - 1 : 0;
         JSONObject documentsBackup = new JSONObject().put("expected", expectedDocuments).put("included", includedDocuments)
                 .put("archiveSha256", documents.length > 22 ? BackupArchiveVerifier.digest(documents) : "");
@@ -184,6 +185,17 @@ public final class BackupManager {
         return root;
     }
 
+    // Inventory only: includes un-restored service trash without adding it to the live fleet.
+    private static JSONObject documentInventory(JSONObject root) throws Exception {
+        JSONObject source=root.optJSONObject("fleet");if(source==null)source=root;
+        JSONObject fleet=new JSONObject(source.toString());org.json.JSONArray bikes=fleet.optJSONArray("bikes");if(bikes==null){bikes=new org.json.JSONArray();fleet.put("bikes",bikes);}
+        JSONObject workforce=root.optJSONObject("workforce");org.json.JSONArray deleted=workforce==null?null:workforce.optJSONArray("deleted_records");
+        if(deleted!=null)for(int i=0;i<deleted.length();i++){JSONObject row=deleted.optJSONObject(i);if(row==null||!"fleet_history".equals(row.optString("record_type"))||(!row.isNull("restored_at")&&row.optString("restored_at","").length()>0))continue;
+            try{JSONObject payload=new JSONObject(row.optString("payload","{}")),entry=payload.optJSONObject("entry");if(entry==null||!"service".equals(entry.optString("type")))continue;bikes.put(new JSONObject().put("id",payload.optString("bikeId","")).put("history",new org.json.JSONArray().put(entry)));}catch(Exception ignored){}
+        }
+        return fleet;
+    }
+
     private static java.util.Set<String> attachmentKeys(JSONObject fleet) {
         java.util.Set<String> keys=new java.util.HashSet<String>();
         org.json.JSONArray bikes=fleet==null?null:fleet.optJSONArray("bikes");
@@ -199,7 +211,7 @@ public final class BackupManager {
 
     public static synchronized JSONObject verifyBackup(Context context, Uri uri) throws Exception {
         JSONObject root=readBackupRoot(context,uri),fleet=root.optJSONObject("fleet");if(fleet==null)fleet=root;
-        java.util.Set<String> expected=attachmentKeys(fleet),found=new java.util.HashSet<String>();
+        java.util.Set<String> expected=attachmentKeys(documentInventory(root)),found=new java.util.HashSet<String>();
         org.json.JSONArray bikes=fleet.optJSONArray("bikes");int historyCount=0;
         for(int i=0;i<bikes.length();i++){JSONObject b=bikes.optJSONObject(i);org.json.JSONArray h=b==null?null:b.optJSONArray("history");if(h!=null)historyCount+=h.length();}
         JSONObject workforce=root.optJSONObject("workforce");int records=0;
@@ -264,7 +276,7 @@ public final class BackupManager {
                     .putBoolean("automatic_start", settings.optBoolean("automaticStart", true))
                     .apply();
         }
-        JSONObject documentRestore = restoreSiblingDocuments(context, fleet, uri);
+        JSONObject documentRestore = restoreSiblingDocuments(context, documentInventory(root), uri);
         root.put("documentRestore", documentRestore);
         store.mergeFleet(fleet);
         store.setSystemExport(root);

@@ -265,6 +265,12 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         Set<String> deletedHistoryIds = new LinkedHashSet<String>();
         addDeletedHistory(deletedHistoryIds, first.optJSONArray("historyDeletedIds"));
         addDeletedHistory(deletedHistoryIds, second.optJSONArray("historyDeletedIds"));
+        Map<String,String> restores = mergeLifecycle(first, second, "historyRestores");
+        Map<String,String> deletes = mergeLifecycle(first, second, "historyDeletes");
+        for (String id : restores.keySet()) if (!HistoryMergePolicy.deleted(id,restores,deletes)) deletedHistoryIds.remove(id);
+        latest.put("historyRestores", lifecycleArray(restores));
+        latest.put("historyDeletes", lifecycleArray(deletes));
+        latest.put("serviceAppointments", mergeAppointments(first.optJSONArray("serviceAppointments"), second.optJSONArray("serviceAppointments")));
         Map<String, JSONObject> historyMap = new LinkedHashMap<String, JSONObject>();
         addHistory(historyMap, first.optJSONArray("history"));
         addHistory(historyMap, second.optJSONArray("history"));
@@ -325,6 +331,22 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         return latest;
     }
 
+    private static Map<String,String> mergeLifecycle(JSONObject first, JSONObject second, String field) {
+        Map<String,String> result = new LinkedHashMap<String,String>();
+        JSONObject[] sources = new JSONObject[]{first,second};
+        for(JSONObject source:sources){JSONArray rows=source.optJSONArray(field);if(rows==null)continue;for(int i=0;i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(row==null)continue;String id=row.optString("id",""),at=row.optString("at","");if(id.length()==0||at.length()==0)continue;if(!result.containsKey(id)||result.get(id).compareTo(at)<0)result.put(id,at);}}
+        return result;
+    }
+    private static JSONArray lifecycleArray(final Map<String,String> source) throws JSONException {
+        List<String> keys=new ArrayList<String>(source.keySet());Collections.sort(keys,new Comparator<String>(){public int compare(String a,String b){return source.get(b).compareTo(source.get(a));}});JSONArray result=new JSONArray();int count=0;for(String id:keys){if(count++>=MAX_HISTORY)break;result.put(new JSONObject().put("id",id).put("at",source.get(id)));}return result;
+    }
+    private static JSONArray mergeAppointments(JSONArray first, JSONArray second) throws JSONException {
+        Map<String,JSONObject> map=new LinkedHashMap<String,JSONObject>();
+        for(JSONArray rows:new JSONArray[]{first,second}){if(rows==null)continue;for(int i=0;i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(row==null)continue;String id=row.optString("id","");JSONObject old=map.get(id);if(id.length()>0&&(old==null||row.optString("updatedAt","").compareTo(old.optString("updatedAt",""))>=0))map.put(id,row);}}
+        List<JSONObject> sorted=new ArrayList<JSONObject>(map.values());Collections.sort(sorted,new Comparator<JSONObject>(){public int compare(JSONObject a,JSONObject b){return b.optString("updatedAt","").compareTo(a.optString("updatedAt",""));}});
+        JSONArray result=new JSONArray();for(int i=0;i<sorted.size()&&i<200;i++)result.put(sorted.get(i));return result;
+    }
+
     private void addHistory(Map<String, JSONObject> map, JSONArray items) {
         if (items == null) return;
         for (int i = 0; i < items.length(); i++) {
@@ -333,7 +355,10 @@ public final class FleetDataStore extends SQLiteOpenHelper {
             String id = item.optString("id", "").trim();
             if (id.length() == 0) continue;
             JSONObject current = map.get(id);
-            if (current == null || historyStamp(item).compareTo(historyStamp(current)) >= 0) map.put(id, item);
+            if (current == null || historyStamp(item).compareTo(historyStamp(current)) >= 0) {
+                if(current!=null&&item.optString("appointmentId","").length()==0&&current.optString("appointmentId","").length()>0){try{item.put("appointmentId",current.optString("appointmentId",""));}catch(JSONException ignored){}}
+                map.put(id,item);
+            }
         }
     }
 

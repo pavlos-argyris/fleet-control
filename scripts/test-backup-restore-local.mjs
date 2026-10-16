@@ -818,3 +818,53 @@ console.log('OK read-only restore preview: 28 table counts, guard against later 
   assert.ok(db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action LIKE 'service_followup_%'").get().n>=3);
   console.log('OK actual service follow-up API: management auth, mandatory reasons, actor from session, stale/fingerprint guards, unchanged odometers, reversible exemptions, central audit and compatibility with older clients.');
 }
+
+// Six operations improvements, using real Worker + SQLite + R2 simulation only.
+{
+ const id='operations-bike',stamp=iso(Date.now());const bike={id,name:'BTO 456',intervalKm:3000,lastServiceKm:10000,currentKm:12000,createdAt:stamp,updatedAt:stamp,history:[{id:'oil',type:'service',date:'2026-10-01',km:10000,oilChanged:true,tasks:['Αλλαγή λαδιών'],cost:'59',createdAt:stamp,updatedAt:stamp},{id:'reading',type:'check',date:'2026-10-02',km:12000,createdAt:stamp,updatedAt:stamp}]};
+ let current=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike}})).bike;
+ ok(await call('/api/admin/service-appointments'),401);ok(await call('/api/admin/fleet-diagnostics',{server:true}),401,'Server key cannot impersonate a fleet manager');
+ const planned={action:'create',id:'stable-appointment-id',bikeId:id,date:'2026-11-01',tasks:['Αλλαγή λαδιών'],notes:'Τρίτη πρωί'};
+ const created=ok(await call('/api/admin/service-appointments',{method:'POST',token:ownerToken,body:planned}));assert.equal(created.bike.currentKm,12000);assert.equal(created.bike.history.length,2);assert.equal(created.appointment.status,'planned');
+ const replay=ok(await call('/api/admin/service-appointments',{method:'POST',token:ownerToken,body:planned}));assert.equal(replay.bike.serviceAppointments.length,1);assert.equal(replay.unchanged,true);
+ const edit={bikeId:id,entryId:'oil',action:'edit',changes:{km:9500,date:'2026-10-01',tasks:['Αλλαγή λαδιών'],oilChanged:true,majorService:false,cost:'59',workshop:''}};
+ const beforePreview=ok(await call('/api/snapshot',{token:ownerToken})).version;
+ const preview=ok(await call('/api/admin/service-impact',{method:'POST',token:ownerToken,body:edit}));assert.equal(preview.impact.after.nextServiceKm,12500);assert.equal(preview.impact.after.currentKm,12000);assert.equal(ok(await call('/api/snapshot',{token:ownerToken})).version,beforePreview,'Preview must never write');
+ const changedPlan=ok(await call('/api/admin/service-appointments',{method:'POST',token:ownerToken,body:{action:'edit',id:created.appointment.id,bikeId:id,expectedUpdatedAt:created.appointment.updatedAt,date:'2026-11-02',tasks:['Φίλτρο']}}));
+ ok(await call('/api/admin/fleet/'+id+'/history/oil/edit',{method:'POST',token:ownerToken,body:{...edit.changes,impactToken:preview.impactToken,expectedEntryUpdatedAt:preview.expectedEntryUpdatedAt}}),409,'Changed bike invalidates accepted impact');
+ current=changedPlan.bike;const p=changedPlan.appointment;
+ const completion={action:'complete',id:p.id,bikeId:id,expectedUpdatedAt:p.updatedAt,expectedBikeUpdatedAt:current.updatedAt,date:'2026-10-03',km:12500,tasks:['Αλλαγή λαδιών'],oilChanged:true,majorService:false,confirm:true};
+ const completed=ok(await call('/api/admin/service-appointments',{method:'POST',token:ownerToken,body:completion}));assert.equal(completed.bike.lastServiceKm,12500);assert.equal(completed.bike.nextServiceKm,15500);assert.equal(completed.bike.history.length,3);assert.equal(completed.appointment.completedEntryId,completed.entryId);
+ const duplicate=ok(await call('/api/admin/service-appointments',{method:'POST',token:ownerToken,body:completion}));assert.equal(duplicate.entryId,completed.entryId);assert.equal(duplicate.bike.history.length,3);
+ const syncedOld=JSON.parse(JSON.stringify(completed.bike));delete syncedOld.serviceAppointments;syncedOld.updatedAt=iso(Date.now()+1000);const kept=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:syncedOld}})).bike;assert.equal(kept.serviceAppointments[0].status,'completed');
+ const dpreview=ok(await call('/api/admin/service-impact',{method:'POST',token:ownerToken,body:{bikeId:id,entryId:completed.entryId,action:'delete',changes:{}}}));
+ const deleted=ok(await call('/api/admin/fleet/'+id+'/history/'+completed.entryId+'/delete',{method:'POST',token:ownerToken,body:{confirmDelete:true,impactToken:dpreview.impactToken,expectedEntryUpdatedAt:dpreview.expectedEntryUpdatedAt}}));assert.ok(deleted.recycleId);assert.ok(deleted.bike.historyDeletes.some(e=>e.id===completed.entryId));
+ const trash=ok(await call('/api/admin/service-trash?bikeId='+id,{token:ownerToken}));assert.ok(trash.records.some(r=>r.id===deleted.recycleId));
+ const restore=ok(await call('/api/admin/service-trash?id='+deleted.recycleId,{token:ownerToken}));assert.equal(restore.impact.after.lastServiceKm,12500);
+ const restored=ok(await call('/api/admin/service-trash',{method:'POST',token:ownerToken,body:{id:deleted.recycleId,expectedDeletedAt:restore.deletedAt,expectedBikeUpdatedAt:restore.expectedBikeUpdatedAt,reason:'Διαγραφή κατά λάθος'}}));assert.ok(restored.bikes[0].history.some(e=>e.id===completed.entryId));
+ const staleDeleted=JSON.parse(JSON.stringify(deleted.bike));staleDeleted.updatedAt=iso(Date.now()+2000);delete staleDeleted.historyRestores;delete staleDeleted.historyDeletes;const survived=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:staleDeleted}})).bike;assert.ok(survived.history.some(e=>e.id===completed.entryId),'Old-client tombstone must never erase restored service');
+ const diag=ok(await call('/api/admin/fleet-diagnostics',{token:ownerToken}));assert.equal(diag.databaseOk,true);assert.equal(diag.workerVersion,'5.8.0');assert.ok(!JSON.stringify(diag).includes(SERVER_KEY));assert.ok(!JSON.stringify(diag).includes('BTO 456'));
+ const backup=ok(await call('/api/server/system-export',{server:true}));const savedBike=backup.fleet.bikes.find(b=>b.id===id);assert.equal(savedBike.serviceAppointments[0].status,'completed');assert.ok(savedBike.historyRestores.some(r=>r.id===completed.entryId));
+ console.log('OK actual operations API: manager auth, read-only/stale impact, idempotent appointment creation/completion, unchanged metrics until completion, direct trash preview/restore, stale deletion fences, safe diagnostics and backup metadata.');
+}
+// A PDF belonging to service trash can be recovered from a verified Server backup without restoring the live service first.
+{
+ const s=ok(await call('/api/snapshot',{token:ownerToken})),b=s.bikes.find(b=>b.id==='operations-bike'),entryId='trash-with-pdf',key='service-documents/operations-bike/'+entryId+'/archive.pdf';
+ b.updatedAt=iso(Date.now()+3000);b.history.unshift({id:entryId,type:'service',date:'2026-10-04',km:12600,tasks:['Φίλτρο'],createdAt:b.updatedAt,updatedAt:b.updatedAt,attachments:[{id:'archive.pdf',key,name:'archive.pdf',contentType:'application/pdf',size:20}]});
+ ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:b}}));const deleted=ok(await call('/api/admin/fleet/'+b.id+'/history/'+entryId+'/delete',{method:'POST',token:ownerToken,body:{confirmDelete:true}}));
+ const preview=ok(await call('/api/admin/service-trash?id='+deleted.recycleId,{token:ownerToken}));assert.equal(preview.files[0].available,false);
+ ok(await callRaw('/api/server/service-documents/restore?bikeId='+b.id+'&entryId='+entryId+'&key='+encodeURIComponent(key)+'&name=archive.pdf',{method:'PUT',server:true,body:new Uint8Array(Buffer.from('%PDF-1.4\narchived fixture'))}));
+ const available=ok(await call('/api/admin/service-trash?id='+deleted.recycleId,{token:ownerToken}));assert.equal(available.files[0].available,true);assert.ok(!ok(await call('/api/snapshot',{token:ownerToken})).bikes.find(x=>x.id===b.id).history.some(e=>e.id===entryId),'Uploading archived PDF must not restore the live service');
+ console.log('OK trash PDF backup recovery: only a key present in archived service is accepted; restored bytes become available without resurrecting the service.');
+}
+// Real SQLite transaction rollback: an archive insert cannot survive a failed live-history update, nor can history be lost.
+{
+ const id='operations-bike',current=ok(await call('/api/snapshot',{token:ownerToken})).bikes.find(b=>b.id===id),target=current.history.find(e=>e.id==='oil');
+ const archiveBefore=db.sqlite.prepare("SELECT COUNT(*) AS n FROM deleted_records WHERE record_id=?").get(id+':'+target.id).n;
+ const originalPrepare=db.prepare.bind(db);let injected=false;
+ db.prepare=sql=>{const statement=originalPrepare(sql);if(sql.startsWith('UPDATE fleet_snapshot SET data=json_set(data,?,json(?)),version=version+1')){const oldBind=statement.bind.bind(statement);statement.bind=(...args)=>{const bound=oldBind(...args);bound.run=async()=>{injected=true;throw new Error('Synthetic archive transaction failure');};return bound;};}return statement;};
+ const originalConsoleError=console.error;console.error=(...args)=>{if(args[0]?.message!=='Synthetic archive transaction failure')originalConsoleError(...args);};
+ try{ok(await call('/api/admin/fleet/'+id+'/history/'+target.id+'/delete',{method:'POST',token:ownerToken,body:{confirmDelete:true}}),500);}finally{console.error=originalConsoleError;}
+ db.prepare=originalPrepare;assert.equal(injected,true);assert.ok(ok(await call('/api/snapshot',{token:ownerToken})).bikes.find(b=>b.id===id).history.some(e=>e.id===target.id));assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM deleted_records WHERE record_id=?").get(id+':'+target.id).n,archiveBefore);
+ console.log('OK actual archive transaction failure: SQLite rolls back archive insertion and preserves the service unchanged.');
+}

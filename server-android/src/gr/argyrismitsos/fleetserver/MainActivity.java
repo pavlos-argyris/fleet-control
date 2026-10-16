@@ -284,6 +284,11 @@ public final class MainActivity extends Activity {
             }
         }
 
+        @JavascriptInterface public void copyDiagnosticReport(final String json){
+            if(json==null||json.length()>65536)return;
+            runOnUiThread(new Runnable(){public void run(){android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(clipboard!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Fleet diagnostics",json));}});
+        }
+
         @JavascriptInterface
         public void testConnection() {
             runTask("connection", new Task() {
@@ -516,11 +521,14 @@ public final class MainActivity extends Activity {
         JSONObject run() throws Exception;
     }
 
-    @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+    private boolean backNavigationPending=false;
+    @Override public void onBackPressed() {
+        if(backNavigationPending)return;
+        if(webView==null){super.onBackPressed();return;}
+        backNavigationPending=true;
+        webView.evaluateJavascript("(function(){return !!(window.FleetNavigation&&window.FleetNavigation.back());})()",new android.webkit.ValueCallback<String>(){public void onReceiveValue(String handled){backNavigationPending=false;if(!"true".equals(handled)&&webView!=null)finishBackNavigation();}});
     }
+    private void finishBackNavigation(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
 
     @Override protected void onResume() { super.onResume(); OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
     @Override protected void onPause() { OtaInstaller.pause(this); super.onPause(); }

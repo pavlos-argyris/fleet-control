@@ -120,7 +120,7 @@
   }
 
   function clearSession() {
-    window.FleetSequentialReview?.stop();window.FleetFollowup?.reset();if($("invoiceReviewDialog")?.open)$("invoiceReviewDialog").close();
+    window.FleetSequentialReview?.stop();window.FleetFollowup?.reset();window.FleetOperations?.reset();if($("invoiceReviewDialog")?.open)$("invoiceReviewDialog").close();
     if(window.FleetViewCache)window.FleetViewCache.clear();
     state.previewSession=false;
     try {
@@ -239,6 +239,7 @@
       const transient = [429,502,503,504].includes(response.status);
       const ray = response.headers.get("CF-Ray");
       const error = new Error(payload.error || (transient ? "Προσωρινή υπερφόρτωση του Server · δοκίμασε ξανά (HTTP " + response.status + ")." : "Η ενέργεια δεν ολοκληρώθηκε (HTTP " + response.status + ")."));
+      if (ray && /^[A-Za-z0-9-]{1,100}$/.test(ray)) error.rayId=ray;
       if (ray && /^[A-Za-z0-9-]{1,100}$/.test(ray)) error.message += " · Ray " + ray;
       error.code = payload.code || "";
       error.details=payload;
@@ -4459,6 +4460,10 @@
   window.FleetFollowupAdapter={
     canManage:()=>can("fleet.manage"),context:()=>apiBase+"|"+String(state.user?.id||""),toast,api,getBikes:()=>[],
     getOutbox:async()=>{if(!state.user||!window.FleetServiceStorage)return [];const scope=apiBase+"|"+String(state.user.id||state.user.username||"");const rows=await window.FleetServiceStorage.list(scope,"outbox");if(location.protocol!=="file:"&&apiBase===location.origin)rows.push(...await window.FleetServiceStorage.list("|"+String(state.user.id||state.user.username||""),"outbox"));return rows;},
+    getPdfBlob:async r=>(await fetchInvoiceDocument(r)).blob,
+    exportNativeZip:files=>window.AndroidFleet.exportInvoiceZip(JSON.stringify({files}),state.token),
+    localDiagnostics:async()=>({outbox:(await window.FleetFollowupAdapter.getOutbox()).length,failedSaves:0}),
+    saveDiagnosticReport:report=>{if(window.AndroidFleet?.exportDiagnosticReport)window.AndroidFleet.exportDiagnosticReport(JSON.stringify(report));else{const u=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download='Fleet_Diagnostics.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),60000);}},
     retryOutbox:async()=>{await goTo("fleet");ensureFleetModule();const frame=$("fleetModuleFrame");for(let i=0;i<80;i++){try{if(frame.contentWindow?.FleetFollowupAdapter){await frame.contentWindow.FleetFollowupAdapter.retryOutbox();return;}}catch(e){}await new Promise(r=>setTimeout(r,100));}throw new Error("Άνοιξε την καρτέλα Fleet στην ίδια συσκευή για να συνεχιστούν οι τοπικές αποστολές.");},
     edit:async(bikeId,entryId,purpose)=>{await goTo("fleet");ensureFleetModule();const frame=$("fleetModuleFrame");for(let i=0;i<80;i++){try{const adapter=frame.contentWindow?.FleetFollowupAdapter;if(adapter&&adapter.canManage()){adapter.edit(bikeId,entryId,purpose);return;}}catch(e){}await new Promise(r=>setTimeout(r,100));}toast("Άνοιξε την καταχώρηση στην καρτέλα Fleet για να προσθέσεις QR ή να τη διορθώσεις.");},
     review:async r=>{if(!state.invoiceDocuments.some(d=>String(d.id)===String(r.id)))await loadInvoices();return openAdminInvoiceReview(r.id);},
