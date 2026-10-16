@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-d63d7524-9e65-400d-8a5e-8c02116554ec",
-  "sourceCommit": "d15b8a5cfaba0ef92dba441b5584c674a26a182b",
-  "releaseVersion": "5.45.0",
-  "requestedAt": "2026-10-15T20:50:54.055Z",
-  "reason": "Authorized automatic publication of requested Fleet UI explanations, unified buttons and Back fixes after successful source CI"
+  "requestId": "fleet-e07910e6-5086-4d56-be4c-75782a24d9db",
+  "sourceCommit": "dc07beb46dc8d72a4b1a8aed2295ec63b248202a",
+  "releaseVersion": "5.46.0",
+  "requestedAt": "2026-10-16T21:16:57.722Z",
+  "reason": "User authorized all six Fleet improvements and automatic publication; pinned source dc07beb46dc8d72a4b1a8aed2295ec63b248202a passed Check saved source run 38968016633."
 }
