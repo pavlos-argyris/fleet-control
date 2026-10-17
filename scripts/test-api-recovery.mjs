@@ -36,7 +36,7 @@ const values=new Map();
 const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
 const bike1={id:'one',currentKm:10,history:[]},bike2={id:'two',currentKm:20,history:[]};
 let seen=[];let editDuringUpload=false;let failPost=false;
-const syncContext={bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,
+const syncContext={window:{},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,
  webToken:'fixture-token',apiBase:'https://fixture.invalid',navigator:{onLine:true},activeBikeId:null,localStorage:storage,
  STORAGE_KEY:'bikes',DIRTY_KEY:'dirty',DIRTY_BIKE_KEY:'dirty-ids',setSyncState(){},scheduleSync(){},renderHome(){},renderDetail(){},
  requestHeaders(){return {'Authorization':'Bearer fixture-token','Content-Type':'application/json'};},

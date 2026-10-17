@@ -120,6 +120,7 @@
   }
 
   function clearSession() {
+    window.FleetLive?.stop();window.FleetSharedReads?.clear();
     window.FleetSequentialReview?.stop();window.FleetFollowup?.reset();window.FleetOperations?.reset();if($("invoiceReviewDialog")?.open)$("invoiceReviewDialog").close();
     if(window.FleetViewCache)window.FleetViewCache.clear();
     state.previewSession=false;
@@ -194,7 +195,7 @@
     const settings = options || {};
     const requestToken=state.token;
     if((settings.method||(settings.body===undefined?"GET":"POST"))==="GET"&&!settings.coalesced){
-      const pending=api.pending||(api.pending=new Map()),key=requestToken+":"+path+":"+String(settings.keepSession);
+      const pending=api.pending||(api.pending=new Map()),key=requestToken+":"+path+":"+String(settings.keepSession)+":"+(window.FleetSharedReads?.generation()||"");
       if(pending.has(key))return pending.get(key);
       const promise=api(path,{...settings,coalesced:true});pending.set(key,promise);
       try{return await promise;}finally{if(pending.get(key)===promise)pending.delete(key);}
@@ -214,8 +215,8 @@
     const attempts = method === "GET" ? 3 : 1;
     for (let attempt=0; attempt<attempts; attempt++) {
       try {
-        response = await fetch(apiBase + path, { method: method, headers: headers,
-          body: settings.body === undefined ? undefined : JSON.stringify(settings.body), cache: "no-store" });
+        const requestOptions={method:method,headers:headers,body:settings.body===undefined?undefined:JSON.stringify(settings.body),cache:"no-store"};
+        response=window.FleetSharedReads?await window.FleetSharedReads.fetch(apiBase+path,requestOptions,state.user,{force:settings.forceRead,ttl:settings.cacheMs??15000}):await fetch(apiBase+path,requestOptions);
       } catch (error) {
         if (attempt+1 < attempts) { await new Promise(resolve => setTimeout(resolve, 500*(attempt+1))); continue; }
         throw new Error("Δεν ήταν δυνατή η σύνδεση με τον Server. Τα υπάρχοντα δεδομένα διατηρούνται· δοκίμασε ξανά.");
@@ -232,7 +233,7 @@
     }
     recordApiTiming(path, response, startedAt);
     if (!response.ok) {
-      if (response.status === 401 && settings.keepSession !== true) {
+      if (response.status === 401 && settings.keepSession !== true && requestToken===state.token) {
         clearSession();
         showAuth();
       }
@@ -259,7 +260,7 @@
       throw error;
     }
     if(requestToken===state.token&&methodRequested==="GET"&&window.FleetViewCache){const saved=window.FleetViewCache.save(state.user,path,payload);if(saved&&state.user){state.cacheAt=Date.now();renderCacheStatus();}}
-    if(methodRequested!=="GET"&&!path.startsWith("/api/auth/")&&window.FleetViewCache)window.FleetViewCache.clear();
+    if(methodRequested!=="GET"&&!path.startsWith("/api/auth/")){window.FleetViewCache?.invalidate?.();window.FleetSharedReads?.invalidate();state.viewLoadedAt={};}
     return payload;
   }
 
@@ -323,6 +324,7 @@
   }
 
   function showAuth() {
+    window.FleetLive?.stop();
     setFleetDetailMode(false);
     $("bootScreen").classList.add("is-hidden");
     $("portal").classList.add("is-hidden");
@@ -332,6 +334,7 @@
   }
 
   function showPortal() {
+    if(!state.previewSession)startLiveChanges();
     $("bootScreen").classList.add("is-hidden");
     $("authScreen").classList.add("is-hidden");
     $("portal").classList.remove("is-hidden");
@@ -439,7 +442,7 @@
       state.user = me.user;
       applyAuthMetadata(me);
       try { localStorage.setItem(USER_CACHE, JSON.stringify(state.user)); } catch (error) {}
-      state.previewSession=false;
+      state.previewSession=false;startLiveChanges();
       if(showedCache){renderNavigation();applyRoleChrome();state.viewLoadedAt={};goTo(availableNavigation().some(item=>item.id===state.view)?state.view:state.user.role==="employee"?"employee-home":"dashboard");}else showPortal();
       renderCacheStatus();
     } catch (error) {
@@ -673,13 +676,14 @@
   }
 
   async function loadStatus(renderFull) {
+    state.statusAttemptAt=Date.now();
     try {
-      const status = await api("/api/status", { keepSession: true });
+      const status = await api("/api/status", { keepSession: true, cacheMs:renderFull?30000:300000 });
       let device = null;
       if (renderFull) {
         try { device = await api("/api/admin/server-health", { keepSession: true }); } catch (error) {}
       }
-      state.lastStatus = status;
+      state.lastStatus = status;state.statusLoadedAt=Date.now();
       $("serverMini").classList.toggle("online", Boolean(status.serverOnline));
       $("serverMini").querySelector("small").textContent = status.serverOnline ? "Online • συγχρονισμένο" : "Εκτός σύνδεσης";
       if (renderFull && $("serverHealth")) {
@@ -3126,7 +3130,7 @@
 
   async function refreshInvoiceProgressLive() {
     if (invoiceLiveRefreshRunning || state.invoiceReprocessBusy || !state.user || state.view !== "invoices" || document.hidden) return;
-    const now=Date.now(),interval=hasLiveInvoiceJobs()?5000:60000;
+    const now=Date.now(),interval=window.FleetLive?.connected()?300000:hasLiveInvoiceJobs()?5000:60000;
     if(now-(state.invoiceLastLivePoll||0)<interval)return;
     state.invoiceLastLivePoll=now;
     invoiceLiveRefreshRunning = true;
@@ -4236,8 +4240,8 @@
     $("newTemplateButton").addEventListener("click", function () { editTemplate(null); });
     $("addTemplateSegment").addEventListener("click", addTemplateSegment);
     $("deleteTemplateButton").addEventListener("click", disableTemplate);
-    $("refreshShifts").addEventListener("click", loadShifts);
-    $("refreshInvoices").addEventListener("click", loadInvoices);
+    $("refreshShifts").addEventListener("click",function(){window.FleetSharedReads?.invalidate();loadShifts();});
+    $("refreshInvoices").addEventListener("click",function(){window.FleetSharedReads?.invalidate();loadInvoices();});
     $("invoiceFileSearch").addEventListener("input", renderInvoiceQueue);
     $("invoiceStatusFilter").addEventListener("change", renderInvoiceQueue);
     $("invoiceSequentialReview")?.addEventListener("click",()=>window.FleetSequentialReview.start(state.invoiceVisibleDocuments||[]));
@@ -4272,7 +4276,7 @@
     $("runReport").addEventListener("click", runReport);
     $("reportPdf").addEventListener("click", function () { if (state.report) window.print(); else toast("Δημιούργησε πρώτα την αναφορά."); });
     $("reportExcel").addEventListener("click", downloadReportCsv);
-    $("refreshAlerts").addEventListener("click", loadAlerts);
+    $("refreshAlerts").addEventListener("click",function(){window.FleetSharedReads?.invalidate();loadAlerts();});
     $("resolveAllAlerts").addEventListener("click", resolveAllAlerts);
     $("mobileNotificationsButton").addEventListener("click", enableMobileNotifications);
     $("alertRulesButton").addEventListener("click", manageAlertRules);
@@ -4477,14 +4481,36 @@
     if ($("installGuideDialog") && $("installGuideDialog").open) $("installGuideDialog").close();
     toast("Το Fleet Control εγκαταστάθηκε ως Web App.");
   });
-  setInterval(function () {
-    if (state.user && state.user.role !== "employee" && !document.hidden) loadStatus(state.view === "server");
-  }, 30000);
+  const pendingLiveScopes=new Set();let liveRefreshTimer=0;
+  async function refreshLiveView(scopes){
+    if(!state.user||document.hidden)return;
+    state.viewLoadedAt={};window.FleetViewCache?.invalidate?.();
+    if(document.querySelector('dialog[open]')||document.activeElement?.matches('input,textarea,select')){scopes.forEach(s=>pendingLiveScopes.add(s));return;}
+    const view=state.view;
+    try{
+      if(view==='invoices'&&scopes.some(s=>s==='invoices'||s==='fleet')){await loadInvoices();await refreshInvoiceReprocessBatch();}
+      else if(view==='fleet'&&scopes.includes('fleet'))await loadFleetSummary();
+      else if(view==='server'&&scopes.includes('status'))await loadStatus(true);
+      else if(view==='dashboard'&&scopes.some(s=>['fleet','workforce','status'].includes(s)))await loadDashboard();
+      else if(scopes.includes('workforce')){const loaders={'employee-home':loadEmployeeHome,shifts:loadShifts,schedules:loadSchedules,employees:loadEmployees,alerts:loadAlerts};if(loaders[view])await loaders[view]();}
+    }catch(error){toast(error.message);}
+  }
+  function resumeLiveRefresh(){clearTimeout(liveRefreshTimer);liveRefreshTimer=setTimeout(()=>{if(!pendingLiveScopes.size||document.querySelector('dialog[open]'))return;const scopes=[...pendingLiveScopes];pendingLiveScopes.clear();refreshLiveView(scopes);},500);}
+  document.addEventListener('close',resumeLiveRefresh,true);document.addEventListener('focusout',resumeLiveRefresh);
+  function startLiveChanges(){
+    if(!state.token||!state.user||state.previewSession)return;
+    window.FleetLive?.start({apiBase,token:state.token,user:state.user,onChange:refreshLiveView});
+  }
+  setInterval(function(){
+    if(!state.user||state.user.role==='employee'||document.hidden)return;
+    const delay=state.view==='server'?60000:300000;
+    if(Date.now()-Math.max(Number(state.statusLoadedAt||0),Number(state.statusAttemptAt||0))>=delay)loadStatus(state.view==='server');
+  },15000);
   setInterval(function () {
     if (!state.user || state.view !== "invoices" || document.hidden || !hasLiveInvoiceJobs()) return;
     renderInvoiceQueue();
   }, 1000);
-  setInterval(function(){if(state.invoiceReprocessBusy)refreshInvoiceReprocessBatch();}, 5000);
+  setInterval(function(){if(state.invoiceReprocessBusy&&!window.FleetLive?.connected())refreshInvoiceReprocessBatch();}, 5000);
   setInterval(refreshInvoiceProgressLive, 5000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("./service-worker.js").catch(function () {});
 })();

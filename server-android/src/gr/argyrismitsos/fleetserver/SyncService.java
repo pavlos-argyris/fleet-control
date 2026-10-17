@@ -115,7 +115,7 @@ public final class SyncService extends Service {
             if (SYNC_NOW.equals(intent.getAction())) {
                 getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE).edit().putLong("last_sync_attempt_ms",0).apply();
                 executor.execute(new Runnable(){public void run(){syncSafely();}});
-            } else if (MIRROR_NOW.equals(intent.getAction())) mirrorExecutor.execute(new Runnable(){public void run(){mirrorSafely();}});
+            } else if (MIRROR_NOW.equals(intent.getAction())) mirrorExecutor.execute(new Runnable(){public void run(){mirrorSafely(true);}});
             else if (RETRY_INVOICE.equals(intent.getAction())) {
                 final String job=intent.getStringExtra("jobId");
                 if (job == null || job.length()==0) {invoiceExecutor.execute(new Runnable(){public void run(){invoiceSafely();}});return START_STICKY;}
@@ -204,6 +204,8 @@ public final class SyncService extends Service {
         if(exchange.optBoolean("reportAccepted",false))preparedReport=null;
         workQueue.reconcile(exchange.optJSONArray("invoices"),exchange.optJSONArray("knownJobs"),exchange.optJSONArray("acknowledged"));
         queueValidated=true;
+        JSONObject mirrorHead=exchange.optJSONObject("mirrorHead");
+        if(mirrorHead!=null)preferences.edit().putBoolean("mirror_hint_ready",true).putString("mirror_remote_epoch",mirrorHead.optString("epoch")).putLong("mirror_remote_cursor",mirrorHead.optLong("cursor",-1)).putString("invoice_rules_revision_remote",mirrorHead.optString("rulesRevision")).apply();
         JSONArray known=exchange.optJSONArray("knownJobs");
         if(known!=null)for(int i=0;i<known.length();i++){JSONObject job=known.getJSONObject(i);if(activeJobId.equals(job.optString("id"))&&!"pending".equals(job.optString("status"))&&activeCancellation!=null)activeCancellation.set(true);}
         JSONObject batch=exchange.optJSONObject("batch");
@@ -319,13 +321,20 @@ public final class SyncService extends Service {
         store.setSystemExport(value);
         p.edit().putString("mirror_error","").putString("mirror_stage","Το αντίγραφο προσωπικού ενημερώθηκε").putLong("mirror_success_ms",System.currentTimeMillis()).apply();
     }
-    private void mirrorSafely() {
+    private void mirrorSafely(){mirrorSafely(false);}
+    private void mirrorSafely(boolean force) {
         if (!mirrorRunning.compareAndSet(false,true)) return;
         SharedPreferences p=getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE);
         String base=p.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
         try {
-            try {JSONObject rules=FleetHttp.getJson(base+"/api/server/invoice-reader-rules",serverHeaders());p.edit().putString("invoice_rules_error","").putString("invoice_reader_rules",rules.optJSONArray("rules")==null?"[]":rules.getJSONArray("rules").toString()).apply();}catch(Exception rulesError){p.edit().putString("invoice_rules_error",safeMessage(rulesError)).apply();}
-            refreshSystemMirror(base,serverHeaders(),p);
+            String remoteRules=p.getString("invoice_rules_revision_remote","");
+            if(MirrorPollPolicy.rules(force,p.getBoolean("mirror_hint_ready",false),p.getBoolean("invoice_rules_cached",false),p.getString("invoice_rules_cached_revision",""),remoteRules)){
+                try {JSONObject rules=FleetHttp.getJson(base+"/api/server/invoice-reader-rules",serverHeaders());p.edit().putString("invoice_rules_error","").putString("invoice_reader_rules",rules.optJSONArray("rules")==null?"[]":rules.getJSONArray("rules").toString()).putBoolean("invoice_rules_cached",true).putString("invoice_rules_cached_revision",remoteRules).apply();}
+                catch(Exception rulesError){p.edit().putString("invoice_rules_error",safeMessage(rulesError)).apply();}
+            }
+            JSONObject saved=store.getSystemExport().optJSONObject("mirror");
+            if(MirrorPollPolicy.mirror(force,p.getBoolean("mirror_hint_ready",false),saved==null?null:saved.optString("epoch"),saved==null?-1:saved.optLong("cursor",-1),p.getString("mirror_remote_epoch",""),p.getLong("mirror_remote_cursor",-2),System.currentTimeMillis(),p.getLong("mirror_success_ms",0)))refreshSystemMirror(base,serverHeaders(),p);
+            else p.edit().putString("mirror_stage","Το αντίγραφο είναι ενημερωμένο · χωρίς νέα λήψη").apply();
             ServiceDocumentStore.syncFromFleet(getApplicationContext(),store.getFleet(),base,serverHeaders());
             BackupManager.maybeAutomatic(getApplicationContext(),store);
         } catch (Exception error) { p.edit().putString("mirror_error",safeMessage(error)).apply(); }

@@ -14,8 +14,12 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": true,
-    "not_found_handling": "single-page-application"
+    "run_worker_first": [
+      "/*",
+      "!/assets/*",
+      "!/vendor/*"
+    ],
+    "not_found_handling": "none"
   },
   "ai": {
     "binding": "AI"

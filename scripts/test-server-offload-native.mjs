@@ -15,6 +15,8 @@ fs.writeFileSync(path.join(temp,'OffloadTest.java'),`import gr.argyrismitsos.fle
  queue.reconcile(null,null,new JSONArray().put("a"));check(queue.known().length()==0);
  queue.reconcile(new JSONArray().put(job),null,null);queue.reconcile(null,new JSONArray().put(new JSONObject().put("id","a").put("status","cancelled")),null);check(!queue.hasWork());
  check(SyncPollPolicy.seconds(30,false,2,0)==60);check(86400/SyncPollPolicy.seconds(10,false,10,0)==1440);check(SyncPollPolicy.seconds(60,true,100,0)==10);check(SyncPollPolicy.seconds(30,false,0,1)==15);check(SyncPollPolicy.seconds(30,true,0,8)==120);
+ check(!MirrorPollPolicy.mirror(false,true,"epoch",10,"epoch",10,100000,99000));check(MirrorPollPolicy.mirror(false,true,"epoch",10,"epoch",11,100000,99000));check(MirrorPollPolicy.mirror(false,true,"epoch",10,"new",10,100000,99000));check(MirrorPollPolicy.mirror(true,true,"epoch",10,"epoch",10,100000,99000));check(MirrorPollPolicy.mirror(false,false,"epoch",10,"epoch",10,100000,99000));check(MirrorPollPolicy.mirror(false,true,"epoch",10,"epoch",10,4000000,1));
+ check(!MirrorPollPolicy.rules(false,true,true,"same","same"));check(MirrorPollPolicy.rules(false,true,true,"old","new"));check(MirrorPollPolicy.rules(false,true,false,"",""));
  check(FleetAuditReport.cents("1.234,50")==123450L);check(FleetAuditReport.cents("1,234.50")==123450L);check(FleetAuditReport.cents("-9,00")==-900L);check(FleetAuditReport.cents("1.234")==123400L);check(FleetAuditReport.cents("1,23,50")==null);check(FleetAuditReport.cents("")==null);
  JSONArray files=new JSONArray().put(new JSONObject().put("key","a").put("ocr",new JSONObject().put("totalAmount","9"))).put(new JSONObject().put("key","b").put("ocr",new JSONObject().put("totalAmount","50").put("odometerKm","11000")));
  JSONObject first=new JSONObject().put("id","first").put("date","2026-10-01").put("km",10000).put("attachments",files);
@@ -27,7 +29,7 @@ fs.writeFileSync(path.join(temp,'OffloadTest.java'),`import gr.argyrismitsos.fle
  report=FleetAuditReport.build(snapshot);check(report.getLong("costCents")==4900);check(report.getLong("possibleDuplicates")==1);check(report.getLong("unknownCosts")==0);
  System.out.println("OK actual native durable queue: process restart, saved OCR, retries, cancellation, acknowledgements; adaptive polling; read-only versioned report, cents/credits, costs 9+50, unknown amounts, duplicate keys and bound chronology acknowledgements.");
  }} `);
-const native=['LocalWorkQueue','SyncPollPolicy','FleetAuditReport'].map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java'));
+const native=['LocalWorkQueue','SyncPollPolicy','MirrorPollPolicy','FleetAuditReport'].map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java'));
 execFileSync('java',['-jar',path.join(root,'.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-d',temp,path.join(temp,'JSONObject.java'),path.join(temp,'JSONArray.java'),...native,path.join(temp,'OffloadTest.java')],{stdio:'inherit'});
 execFileSync('java',['-cp',temp,'OffloadTest'],{stdio:'inherit'});
 }finally{fs.rmSync(temp,{recursive:true,force:true});}

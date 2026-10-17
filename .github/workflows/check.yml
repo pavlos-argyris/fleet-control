@@ -31,6 +31,7 @@ jobs:
       - run: npm ci
         working-directory: cloudflare-worker
       - run: bash scripts/check-all.sh
+      - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-local-invoice-reader.mjs
       - run: node scripts/test-invoice-reader-accuracy.mjs

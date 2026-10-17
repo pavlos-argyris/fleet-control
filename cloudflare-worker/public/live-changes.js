@@ -4,11 +4,11 @@
  function start(config){
   const identity=config.token+'|'+config.user?.id+'|'+JSON.stringify(config.user?.permissions||[]);
   if(current===identity)return controller;stop();current=identity;
-  let disposed=false,leader=false,connected=false,ws=null,bus=null,timer=null,ping=null,retry=null,release=null,locking=false,failures=0,realm='',retryAt=0,scopeTimer=null,scopes=new Set(),lastState=0;
+  let disposed=false,leader=false,connected=false,ws=null,bus=null,timer=null,ping=null,retry=null,release=null,locking=false,failures=0,realm='',retryAt=0,scopeTimer=null,scopes=new Set(),lastState=0,lastMessage=Date.now();
   const id=root.crypto?.randomUUID?.()||Math.random().toString(36).slice(2),active=()=>!disposed&&!document.hidden&&(!config.isActive||config.isActive());
   function deliver(values){for(const s of values||[])if(['fleet','invoices','workforce','status'].includes(s))scopes.add(s);if(!scopeTimer)scopeTimer=setTimeout(()=>{scopeTimer=null;const list=[...scopes];scopes.clear();root.FleetSharedReads?.invalidate(list);config.onChange?.(list);},450);}
   function state(value){connected=value;lastState=Date.now();if(leader)bus?.postMessage({type:'state',connected:value});}
-  function closeSocket(){clearInterval(ping);ping=null;if(ws){ws.onclose=null;ws.close();ws=null;}state(false);}
+  function closeSocket(){clearInterval(ping);ping=null;if(ws){ws.onclose=null;ws.onmessage=null;ws.onerror=null;ws.close();ws=null;}state(false);}
   async function connect(){
    if(!active()||!leader||ws||Date.now()<retryAt)return;
    try{
@@ -16,8 +16,8 @@
     if(!response.ok){if(response.status===401||response.status===403)retryAt=Date.now()+300000;throw new Error('ticket');}
     const data=await response.json();if(!active()||!leader)return;
     const url=new URL(data.path,config.apiBase||root.location.href);url.protocol=url.protocol==='https:'?'wss:':'ws:';url.searchParams.set('ticket',data.ticket);
-    ws=new WebSocket(url.href);
-    ws.onmessage=event=>{if(event.data==='pong')return;let data;try{data=JSON.parse(event.data);}catch{return;}
+    lastMessage=Date.now();ws=new WebSocket(url.href);
+    ws.onmessage=event=>{lastMessage=Date.now();if(event.data==='pong')return;let data;try{data=JSON.parse(event.data);}catch{return;}
      if(data.type==='ready'){failures=0;state(true);deliver(['fleet','invoices','workforce','status']);}
      if(data.type==='changed'){bus?.postMessage(data);deliver(data.scopes);}
     };
@@ -30,7 +30,7 @@
   function takeLease(){try{const key='fleet-live:'+realm,value=JSON.parse(localStorage.getItem(key)||'null');if(!value||value.until<Date.now()||value.id===id){localStorage.setItem(key,JSON.stringify({id,until:Date.now()+13000}));leader=true;connect();}else{leader=false;if(Date.now()-lastState>15000)connected=false;}}catch{leader=true;connect();}}
   async function tick(){
    if(!active()){yieldLeader();connected=false;return;}if(!realm)return;
-   if(leader){if(!root.navigator.locks?.request)takeLease();else connect();return;}
+   if(leader){if(ws&&Date.now()-lastMessage>100000)closeSocket();if(!root.navigator.locks?.request)takeLease();else connect();return;}
    if(root.navigator.locks?.request){if(locking)return;locking=true;root.navigator.locks.request('fleet-live:'+realm,{ifAvailable:true},async lock=>{locking=false;if(!lock||!active())return;leader=true;connect();await new Promise(resolve=>{release=resolve;});}).catch(()=>{locking=false;takeLease();});}
    else takeLease();
    if(!leader&&bus)bus.postMessage({type:'state-request'});

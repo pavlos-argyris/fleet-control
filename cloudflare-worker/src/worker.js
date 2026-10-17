@@ -1,6 +1,6 @@
 import { routeChangeEvents, publishChanges, changedScopes } from './change-events.js';
 export { FleetEvents } from './change-events.js';
-import { MIRROR_SCHEMA, mirrorDelta, trimMirrorJournal } from './mirror-delta.js';
+import { MIRROR_SCHEMA, mirrorDelta, mirrorHead, trimMirrorJournal } from './mirror-delta.js';
 import '../public/service-model.js';
 const ServiceModel = globalThis.FleetServiceModel;
 import '../public/fleet-operations-model.js';
@@ -64,7 +64,7 @@ export default {
       await ensureSchema(env);
       if (request.method === "OPTIONS") return withServerTiming(optionsResponse(), startedAt);
       const response=await route(request,env);
-      const scope=response.ok?changedScopes(request):[];
+      const scope=response.ok?[...new Set([...changedScopes(request),...(new URL(request.url).pathname==='/api/server/exchange'?(response.headers.get('X-Fleet-Changed')||'').split(',').filter(Boolean):[])])]:[];
       if(scope.length&&env.FLEET_EVENTS){const notify=publishChanges(env,scope).catch(()=>{});if(context?.waitUntil)context.waitUntil(notify);else await notify;}
       return withServerTiming(response,startedAt);
     } catch (error) {
@@ -76,10 +76,12 @@ export default {
     context.waitUntil((async () => {
       await ensureSchema(env);
       await trimMirrorJournal(env);
+      const before=(await mirrorHead(env)).cursor;
       await maintainWorkforce(env, {
         serverLastSeen: await getSetting(env, "server_last_seen"),
         backupResult: await getSetting(env, "server_backup_result")
       }, { readSnapshot, readFleetRegistry: fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike });
+      if((await mirrorHead(env)).cursor!==before)await publishChanges(env,['workforce','status']);
     })());
   }
 };
@@ -3128,8 +3130,8 @@ async function serverExchange(request,env){
  if(body.preparedReport?.schema===1&&Array.isArray(body.preparedReport.bikes)&&body.preparedReport.bikes.length<=40&&Array.isArray(body.preparedReport.issues)&&body.preparedReport.issues.length<=500){
   const raw=JSON.stringify(body.preparedReport);if(raw.length<=240000){const saved=await env.DB.prepare("INSERT INTO fleet_settings(key,value,updated_at) SELECT 'server_prepared_report',?,? WHERE EXISTS(SELECT 1 FROM fleet_snapshot WHERE id=1 AND version=?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(raw,new Date().toISOString(),Number(body.preparedReport.snapshotVersion)).run();reportAccepted=Boolean(saved.meta?.changes);}
  }
- const meta={ok:true,protocol:1,reportAccepted,operations:sync.operations,invoices:invoices.operations,knownJobs:known,acknowledged:ids,batch:batch?{...batch,items:undefined}:null,status};
- return new Response('{"snapshot":'+await snapshot.text()+','+JSON.stringify(meta).slice(1),{headers:baseHeaders({'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'})});
+ const meta={ok:true,protocol:1,mirrorHead:await mirrorHead(env),reportAccepted,operations:sync.operations,invoices:invoices.operations,knownJobs:known,acknowledged:ids,batch:batch?{...batch,items:undefined}:null,status};
+ return new Response('{"snapshot":'+await snapshot.text()+','+JSON.stringify(meta).slice(1),{headers:baseHeaders({'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store','X-Fleet-Changed':body.progress?.jobId?'invoices':''})});
 }
 
 async function serverPending(request, env) {
@@ -3629,7 +3631,7 @@ async function serveWeb(request, env) {
       const headers = new Headers(baseHeaders({
         "Content-Type": object.httpMetadata?.contentType || contentTypeFor(path),
         "Cache-Control": ["index.html", "portal.html", "service-worker.js"].includes(path) ? "no-cache" : "public, max-age=3600",
-        "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+        "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
       }));
       return new Response(object.body, { headers });
     }
@@ -3641,7 +3643,7 @@ async function serveWeb(request, env) {
   const headers = new Headers(response.headers);
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "same-origin");
-  headers.set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
+  headers.set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 

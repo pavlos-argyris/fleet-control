@@ -44,8 +44,7 @@
       return false;
     }
   }
-  function clear() {
-    if (window.FleetPdfCache) window.FleetPdfCache.clear();
+  function invalidate() {
     try {
       const names = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -55,7 +54,8 @@
       names.forEach((name) => localStorage.removeItem(name));
     } catch (e) {}
   }
-  window.FleetViewCache = { read, save, clear };
+  function clear(){invalidate();window.FleetPdfCache?.clear();window.FleetSharedReads?.clear();}
+  window.FleetViewCache = { read, save, clear, invalidate };
 })();
 (function () {
   "use strict";

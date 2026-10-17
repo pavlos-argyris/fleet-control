@@ -1,5 +1,6 @@
-const CACHE_NAME = "fleet-control-v5-47-0";
-const APP_SHELL = [
+const CACHE_NAME = "fleet-control-v5-48-0";
+const ASSET_BASE="./assets/v5.48.0/";
+const APP_SHELL = ["shared-requests.js","live-changes.js"].map(f=>ASSET_BASE+f).concat([
   "./service-model.js", "./fleet-operations-model.js", "./fleet-operations.js", "./service-tools.js", "./fleet-navigation.js", "./service-tools.css", "./service-storage.js", "./service-export.js",
   "./local-view-cache.js", "./invoice-import-ui.js",
   "./service-followup.js", "./service-followup.css", "./sequential-review.js",
@@ -21,7 +22,7 @@ const APP_SHELL = [
   "./templates/Fleet_Control_Schedule_Import_Template.xlsx",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
-];
+].map(p=>/^\.\/[^/]+\.(?:js|css)$/.test(p)&&!p.endsWith("fleet-config.js")&&!p.endsWith("service-worker.js")?ASSET_BASE+p.slice(2):p));
 
 self.addEventListener("install", function (event) {
   event.waitUntil(

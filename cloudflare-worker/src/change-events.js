@@ -3,7 +3,7 @@ const encoder=new TextEncoder();
 const scopes=['fleet','invoices','workforce','status'];
 function base64(bytes){let s='';for(const b of bytes)s+=String.fromCharCode(b);return btoa(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');}
 function unbase64(s){return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));}
-async function key(env){return crypto.subtle.importKey('raw',encoder.encode(env.SERVER_KEY||env.PIN_PEPPER),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);}
+async function key(env){const secret=env.SERVER_KEY||env.PIN_PEPPER;if(typeof secret!=='string'||secret.length<16)throw new Error('Event signing is not configured');return crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);}
 export async function makeTicket(env,actor){
  const permissions=actor.permissions||[],all=permissions.includes('*');
  const allowed=['workforce'];if(all||permissions.includes('fleet.view'))allowed.push('fleet','invoices');if(all||permissions.some(p=>['server.manage','backup.manage','dashboard.view'].includes(p)))allowed.push('status');
@@ -31,7 +31,7 @@ export async function routeChangeEvents(request,env,authenticate,json){
 export function changedScopes(request){
  const p=new URL(request.url).pathname;
  if(!['POST','PUT','PATCH','DELETE'].includes(request.method)||!p.startsWith('/api/')||/^\/api\/(auth|events|deploy)\//.test(p))return [];
- if(/^\/api\/server\/(exchange|heartbeat|pulse|operation-progress|ack)$/.test(p)||/\/preview$|\/service-impact$|\/transfer-options$|\/resolve-qr$/.test(p))return [];
+ if(/^\/api\/server\/(exchange|heartbeat|pulse|operation-progress|ack)$/.test(p)||/\/preview$|\/duplicates$|\/service-impact$|\/transfer-options$|\/resolve-qr$/.test(p))return [];
  if(/service-document|invoice-import|invoice-reader/.test(p))return ['fleet','invoices'];
  if(/\/sync|\/snapshot|\/fleet|service-followup|service-appointments|service-trash|\/vehicles/.test(p))return ['fleet','invoices','workforce'];
  if(p.startsWith('/api/server/'))return [];

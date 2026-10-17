@@ -10,7 +10,7 @@ export const MIRROR_SCHEMA=[
   return `CREATE TRIGGER IF NOT EXISTS fleet_mirror_${table}_${event.toLowerCase()} AFTER ${event} ON ${table} BEGIN ${old}${mark(event==='DELETE'?'OLD':'NEW')} END;`;
  }))
 ].join('\n');
-export async function mirrorHead(env){return env.DB.prepare("SELECT epoch,floor,COALESCE((SELECT seq FROM sqlite_sequence WHERE name='fleet_mirror_changes'),0) AS cursor FROM fleet_mirror_state WHERE id=1").first();}
+export async function mirrorHead(env){return env.DB.prepare("SELECT epoch,floor,COALESCE((SELECT seq FROM sqlite_sequence WHERE name='fleet_mirror_changes'),0) AS cursor,COALESCE((SELECT CAST(c.seq AS TEXT) FROM fleet_mirror_changes c JOIN system_settings s ON s.rowid=c.row_id WHERE c.table_name='system_settings' AND s.key='invoice_reader_rules'),(SELECT updated_at FROM system_settings WHERE key='invoice_reader_rules'),'') AS rulesRevision FROM fleet_mirror_state WHERE id=1").first();}
 const reply=(data,status=200)=>new Response(typeof data==='string'?data:JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'}});
 export async function mirrorDelta(request,env,authorized){
  if(!await authorized(request,env))return reply({error:'Μη έγκυρος Server.'},401);

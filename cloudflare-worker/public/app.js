@@ -1150,6 +1150,7 @@
       const payload = await response.json();
       if (!payload.user) return;
       currentUser = payload.user;
+      startFleetLiveChanges();
       try { localStorage.setItem(USER_CACHE, JSON.stringify(currentUser)); } catch (error) {}
       renderArchiveAccess();
       loadArchivedBikes();
@@ -1161,7 +1162,7 @@
     const attempts = (options.method || "GET") === "GET" ? 3 : 1;
     for (let attempt=0; attempt<attempts; attempt++) {
       let response;
-      try { response = await fetch(url, options); }
+      try { response = window.FleetSharedReads?await window.FleetSharedReads.fetch(url,options,currentUser):await fetch(url, options); }
       catch (error) {
         if (attempt+1 === attempts) throw error;
         await new Promise(resolve => setTimeout(resolve, 500*(attempt+1)));
@@ -1185,6 +1186,7 @@
     syncRunning = true;
     setSyncState("syncing", "Συγχρονισμός…");
     const wantsUpload = Boolean(webToken && pendingFleetChange);
+    if(wantsUpload)window.FleetSharedReads?.invalidate(["fleet","invoices"]);
     const canUpload = wantsUpload;
     try {
       if (canUpload) {
@@ -1209,6 +1211,7 @@
       catch (error) { throw new Error("Ο Server δεν επέστρεψε έγκυρα δεδομένα συγχρονισμού."); }
       if (!response.ok) {
         if (response.status === 401) {
+          window.FleetLive?.stop();window.FleetSharedReads?.clear();
           webToken = "";
           cloudSnapshotVersion = null;
           window.FleetFollowup?.reset();window.FleetOperations?.reset();
@@ -4241,6 +4244,11 @@
   window.addEventListener("offline", function () {
     setSyncState("offline", "Χωρίς σύνδεση");
   });
+  let fleetLastPoll=0;
+  function startFleetLiveChanges(){
+    if(!webToken||!currentUser)return;
+    window.FleetLive?.start({apiBase,token:webToken,user:currentUser,isActive:fleetScreenActive,onChange:function(scopes){if(fleetScreenActive()&&scopes.some(s=>s==='fleet'||s==='invoices')){fleetLastPoll=Date.now();syncNow();}}});
+  }
   function fleetScreenActive(){
     if(document.hidden)return false;
     try{return window.parent===window||!window.frameElement||!window.frameElement.closest('.is-hidden');}catch(_){return true;}
@@ -4257,7 +4265,7 @@
   }
   let qrProgressRefreshRunning = false;
   async function refreshVisibleQrProgress() {
-    if (qrProgressRefreshRunning || !fleetScreenActive() || !webToken || !activeBikeId || !hasVisibleQrProcessing()) return;
+    if (qrProgressRefreshRunning || window.FleetLive?.connected() || !fleetScreenActive() || !webToken || !activeBikeId || !hasVisibleQrProcessing()) return;
     const bike = getBike(activeBikeId);
     const bikeId = bike && bike.id;
     const jobs = (bike && Array.isArray(bike.history) ? bike.history : []).map(function (entry) {
@@ -4299,7 +4307,7 @@
     renderDetail();
   }, 1000);
   setInterval(refreshVisibleQrProgress, 5000);
-  setInterval(function(){if(fleetScreenActive())syncNow();}, 60000);
+  setInterval(function(){if(!fleetScreenActive())return;const delay=window.FleetLive?.connected()?300000:60000;if(Date.now()-fleetLastPoll>=delay){fleetLastPoll=Date.now();syncNow();}}, 15000);
 
   try {
     history.replaceState({ view: "home" }, "");

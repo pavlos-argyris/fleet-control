@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 python3 scripts/prepare-pdf-viewer.py
 python3 scripts/check-source-safety.py
+python3 scripts/prepare-static-assets.py --check
 node scripts/check-web-assets.mjs cloudflare-worker/public client-android/assets/www
 node --check server-android/assets/www/app.js
 node scripts/test-server-update-ui.mjs
@@ -36,3 +37,6 @@ node scripts/test-admin-simulations.mjs
 node scripts/test-backup-restore-local.mjs
 node scripts/test-offload-d1.mjs
 node scripts/test-offload-polling.mjs
+node scripts/test-shared-requests.mjs
+node scripts/test-live-changes.mjs
+node scripts/test-change-events.mjs

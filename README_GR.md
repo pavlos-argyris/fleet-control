@@ -1,3 +1,8 @@
+# Fleet Control 5.48.0
+
+Client/Web 5.48.0 · Server 2.2.4 · Worker 5.10.0.
+[Λιγότερα αιτήματα και ειδοποιήσεις αλλαγών](docs/REQUEST_REDUCTION_5.48.0_GR.md).
+
 # Fleet Control 5.47.0
 
 Client/Web 5.47.0 · Server 2.2.3 · Worker 5.9.0.

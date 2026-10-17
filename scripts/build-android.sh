@@ -15,6 +15,7 @@ PRIVATE_KEYS="${FLEET_PRIVATE_KEYS:-$PROJECT_ROOT/private/PRIVATE_SETUP_KEYS.txt
 DIST="$PROJECT_ROOT/dist"
 BUILD_TARGET="${1:-all}"
 python3 "$PROJECT_ROOT/scripts/prepare-pdf-viewer.py"
+python3 "$PROJECT_ROOT/scripts/prepare-static-assets.py"
 
 if [[ "$BUILD_TARGET" != "all" && "$BUILD_TARGET" != "client" && "$BUILD_TARGET" != "server" ]]; then
   echo "Χρήση: $0 [all|client|server]" >&2
