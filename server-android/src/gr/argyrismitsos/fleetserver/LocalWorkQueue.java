@@ -10,7 +10,7 @@ public final class LocalWorkQueue {
  private void save(JSONArray rows)throws Exception{storage.write(new JSONObject().put("jobs",rows));}
  public synchronized JSONArray known(){JSONArray result=new JSONArray(),rows=rows();for(int i=0;i<rows.length();i++)result.put(rows.optJSONObject(i).optString("id"));return result;}
  public synchronized JSONArray acknowledgements(){JSONArray result=new JSONArray(),rows=rows();for(int i=0;i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(row.optBoolean("localComplete",false))result.put(row.optString("id"));}return result;}
- public synchronized boolean hasWork(){JSONArray rows=rows();for(int i=0;i<rows.length();i++)if(!rows.optJSONObject(i).optBoolean("localComplete",false))return true;return false;}
+ public synchronized boolean hasWork(){JSONArray rows=rows();for(int i=0;i<rows.length();i++)if(!rows.optJSONObject(i).optBoolean("localComplete",false)&&rows.optJSONObject(i).optLong("retryAt",0)!=Long.MAX_VALUE)return true;return false;}
  public synchronized void reconcile(JSONArray incoming,JSONArray known,JSONArray acknowledged)throws Exception{
   LinkedHashMap<String,JSONObject> map=new LinkedHashMap<String,JSONObject>();JSONArray rows=rows();
   for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);map.put(row.getString("id"),row);}
