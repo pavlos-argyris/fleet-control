@@ -3,9 +3,13 @@
   "name": "fleet-control",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-05",
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true
+  },
   "triggers": {
-    "crons": ["*/5 * * * *"]
+    "crons": [
+      "*/5 * * * *"
+    ]
   },
   "assets": {
     "directory": "./public",
@@ -31,6 +35,22 @@
     {
       "binding": "SERVICE_DOCS",
       "bucket_name": "fleet-control-service-documents"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FLEET_EVENTS",
+        "class_name": "FleetEvents"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "fleet-events-v1",
+      "new_sqlite_classes": [
+        "FleetEvents"
+      ]
     }
   ]
 }

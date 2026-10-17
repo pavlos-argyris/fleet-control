@@ -1,3 +1,5 @@
+import { routeChangeEvents, publishChanges, changedScopes } from './change-events.js';
+export { FleetEvents } from './change-events.js';
 import { MIRROR_SCHEMA, mirrorDelta, trimMirrorJournal } from './mirror-delta.js';
 import '../public/service-model.js';
 const ServiceModel = globalThis.FleetServiceModel;
@@ -56,12 +58,15 @@ let activeWebReleaseCache = { value: null, expiresAt: 0, db: null };
 let statusResponseCache = { value: null, expiresAt: 0, db: null };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
     const startedAt = performanceNow();
     try {
       await ensureSchema(env);
       if (request.method === "OPTIONS") return withServerTiming(optionsResponse(), startedAt);
-      return withServerTiming(await route(request, env), startedAt);
+      const response=await route(request,env);
+      const scope=response.ok?changedScopes(request):[];
+      if(scope.length&&env.FLEET_EVENTS){const notify=publishChanges(env,scope).catch(()=>{});if(context?.waitUntil)context.waitUntil(notify);else await notify;}
+      return withServerTiming(response,startedAt);
     } catch (error) {
       console.error(error);
       return withServerTiming(json({ error: "Παρουσιάστηκε προσωρινό σφάλμα στον Fleet Control server." }, 500), startedAt);
@@ -84,7 +89,7 @@ function performanceNow() {
 }
 
 function withServerTiming(response, startedAt) {
-  if (!response || !response.headers) return response;
+  if (!response || !response.headers || response.status===101) return response;
   const headers = new Headers(response.headers);
   const duration = Math.max(0, Math.round(performanceNow() - startedAt));
   const previous = headers.get("Server-Timing");
@@ -123,6 +128,7 @@ async function ensureReleaseChecksumColumn(env) {
 async function route(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
+  const events=await routeChangeEvents(request,env,authenticateExternal,json);if(events)return events;
 
   const ota = await routeReleases(request, env, { json, secureEqual, serverAuthorized, digestHex, invalidateWeb: () => { activeWebReleaseCache = { value: null, expiresAt: 0, db: null }; } });
   if (ota) return ota;
