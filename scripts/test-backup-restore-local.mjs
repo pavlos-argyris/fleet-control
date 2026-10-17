@@ -843,7 +843,7 @@ console.log('OK read-only restore preview: 28 table counts, guard against later 
  const restore=ok(await call('/api/admin/service-trash?id='+deleted.recycleId,{token:ownerToken}));assert.equal(restore.impact.after.lastServiceKm,12500);
  const restored=ok(await call('/api/admin/service-trash',{method:'POST',token:ownerToken,body:{id:deleted.recycleId,expectedDeletedAt:restore.deletedAt,expectedBikeUpdatedAt:restore.expectedBikeUpdatedAt,reason:'Διαγραφή κατά λάθος'}}));assert.ok(restored.bikes[0].history.some(e=>e.id===completed.entryId));
  const staleDeleted=JSON.parse(JSON.stringify(deleted.bike));staleDeleted.updatedAt=iso(Date.now()+2000);delete staleDeleted.historyRestores;delete staleDeleted.historyDeletes;const survived=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:staleDeleted}})).bike;assert.ok(survived.history.some(e=>e.id===completed.entryId),'Old-client tombstone must never erase restored service');
- const diag=ok(await call('/api/admin/fleet-diagnostics',{token:ownerToken}));assert.equal(diag.databaseOk,true);assert.equal(diag.workerVersion,'5.8.0');assert.ok(!JSON.stringify(diag).includes(SERVER_KEY));assert.ok(!JSON.stringify(diag).includes('BTO 456'));
+ const diag=ok(await call('/api/admin/fleet-diagnostics',{token:ownerToken}));assert.equal(diag.databaseOk,true);assert.equal(diag.workerVersion,'5.9.0');assert.ok(!JSON.stringify(diag).includes(SERVER_KEY));assert.ok(!JSON.stringify(diag).includes('BTO 456'));
  const backup=ok(await call('/api/server/system-export',{server:true}));const savedBike=backup.fleet.bikes.find(b=>b.id===id);assert.equal(savedBike.serviceAppointments[0].status,'completed');assert.ok(savedBike.historyRestores.some(r=>r.id===completed.entryId));
  console.log('OK actual operations API: manager auth, read-only/stale impact, idempotent appointment creation/completion, unchanged metrics until completion, direct trash preview/restore, stale deletion fences, safe diagnostics and backup metadata.');
 }
@@ -867,4 +867,51 @@ console.log('OK read-only restore preview: 28 table counts, guard against later 
  try{ok(await call('/api/admin/fleet/'+id+'/history/'+target.id+'/delete',{method:'POST',token:ownerToken,body:{confirmDelete:true}}),500);}finally{console.error=originalConsoleError;}
  db.prepare=originalPrepare;assert.equal(injected,true);assert.ok(ok(await call('/api/snapshot',{token:ownerToken})).bikes.find(b=>b.id===id).history.some(e=>e.id===target.id));assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM deleted_records WHERE record_id=?").get(id+':'+target.id).n,archiveBefore);
  console.log('OK actual archive transaction failure: SQLite rolls back archive insertion and preserves the service unchanged.');
+}
+// 5.47 offload protocol: real Worker handlers and SQLite, no production requests.
+{
+ const stamp=iso(Date.now()),key='service-documents/offload-bike/saved/local.pdf';let aiCalls=0;
+ env.AI={toMarkdown:async()=>({format:'markdown',data:'Invoice BTO 756 total 59.00'}),run:async()=>{aiCalls++;return {response:JSON.stringify({plate:'BTO 756',invoiceNumber:'A-547',invoiceDate:'2026-10-01',totalAmount:'59',odometerKm:'9000',workPerformed:'Φίλτρο'})};}};
+ await releases.put(key,new TextEncoder().encode('%PDF-1.4\nsynthetic'),{httpMetadata:{contentType:'application/pdf'}});
+ const bike={id:'offload-bike',name:'BTO 756',intervalKm:3000,lastServiceKm:9000,currentKm:9000,createdAt:stamp,updatedAt:stamp,history:[{id:'saved',type:'service',date:'2026-10-01',km:9000,updatedAt:stamp,attachments:[{id:'local',key,name:'local.pdf',contentType:'application/pdf'}]}]};
+ ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike}}));
+ const version=ok(await call('/api/snapshot',{token:ownerToken})).version;
+ const exchange=(body={})=>call('/api/server/exchange',{method:'POST',server:true,body:{serverVersion:'2.2.3',sinceVersion:version,knownJobs:[],acknowledgements:[],...body}});
+ ok(await call('/api/server/exchange',{method:'POST',body:{}}),401);
+ let x=ok(await exchange({includeStatus:true}));assert.equal(x.protocol,1);assert.equal(x.snapshot.unchanged,true);assert.equal(x.status.databaseOk,true);
+ const start=ok(await call('/api/service-documents/ocr',{method:'POST',token:ownerToken,body:{key}}),202);assert.equal(start.queued,true);assert.equal(aiCalls,0);
+ const repeat=ok(await call('/api/service-documents/ocr',{method:'POST',token:ownerToken,body:{key}}),202);assert.equal(repeat.jobId,start.jobId,'Duplicate submission reuses pending job');
+ assert.ok(!ok(await call('/api/server/pending?queue=invoices',{server:true})).operations.some(j=>j.id===start.jobId),'Old Server never receives unsupported documentKey work');
+ x=ok(await exchange({knownJobs:[start.jobId],progress:{jobId:start.jobId,progress:40,stage:'Local read'}}));assert.ok(x.invoices.some(j=>j.id===start.jobId));assert.equal(x.knownJobs.find(j=>j.id===start.jobId).status,'pending');assert.equal(x.snapshot.unchanged,true,'Buffered progress never rewrites fleet snapshot');
+ const cards=ok(await call('/api/admin/service-documents',{token:ownerToken})).documents.filter(d=>d.key===key);assert.equal(cards.length,1);assert.equal(cards[0].jobId,start.jobId);assert.equal(cards[0].status,'processing');
+ assert.equal(ok(await call('/api/service-documents/jobs/'+start.jobId,{token:ownerToken})).status,'processing','Existing PDF does not mark a fresh analysis job completed');
+ const resultBody={jobId:start.jobId,localOcr:{localReadStatus:'confident',ocrConfidence:92,plate:'BTO 756',invoiceDate:'2026-10-01',invoiceNumber:'A-547',totalAmount:'59',odometerKm:'9000',workPerformed:'Φίλτρο'}};
+ ok(await call('/api/server/service-documents/analysis-result',{method:'POST',server:true,body:resultBody}));assert.equal(aiCalls,0);
+ const after=ok(await call('/api/snapshot',{token:ownerToken}));assert.equal(after.bikes.find(b=>b.id===bike.id).history[0].attachments[0].ocr.totalAmount,'59');
+ assert.equal(ok(await call('/api/server/service-documents/analysis-result',{method:'POST',server:true,body:resultBody})).reused,true);assert.equal(ok(await call('/api/snapshot',{token:ownerToken})).version,after.version,'Repeated result is idempotent');
+ assert.equal(ok(await call('/api/service-documents/jobs/'+start.jobId,{token:ownerToken})).status,'completed');
+ x=ok(await exchange({acknowledgements:[start.jobId],knownJobs:[start.jobId]}));assert.equal(x.knownJobs[0].status,'applied');assert.deepEqual(x.acknowledged,[start.jobId]);
+ const retry=ok(await call('/api/admin/service-documents/reprocess',{method:'POST',token:ownerToken,body:{key}}),202);
+ const restarted=ok(await call('/api/admin/service-documents/restart',{method:'POST',token:ownerToken,body:{jobId:retry.jobId}}),202);assert.notEqual(restarted.jobId,retry.jobId);
+ ok(await call('/api/server/service-documents/analysis-result',{method:'POST',server:true,body:{...resultBody,jobId:retry.jobId}}),410);
+ ok(await call('/api/server/service-documents/analysis-result',{method:'POST',server:true,body:{jobId:restarted.jobId,localOcr:{localReadStatus:'ambiguous',ocrConfidence:20}}}));assert.equal(aiCalls,1,'AI only on uncertain local result');
+ ok(await call('/api/admin/service-documents/reprocess',{method:'POST',token:ownerToken,body:{key,forceAi:true}}));assert.equal(aiCalls,2,'Explicit forced AI still works');
+ const latest=ok(await call('/api/snapshot',{token:ownerToken})).version,report={schema:1,snapshotVersion:latest,bikes:[],issues:[],costCents:5900};
+ assert.equal(ok(await exchange({preparedReport:report})).reportAccepted,true);ok(await call('/api/admin/server-report'),401);assert.equal(ok(await call('/api/admin/server-report',{token:ownerToken})).report.costCents,5900);
+ assert.equal(ok(await exchange({preparedReport:{...report,snapshotVersion:latest-1}})).reportAccepted,false,'Stale report cannot replace current report');
+ await db.prepare('UPDATE fleet_snapshot SET version=version+1 WHERE id=1').run();const stale=ok(await call('/api/admin/server-report',{token:ownerToken}));assert.equal(stale.ready,false);assert.equal(stale.report,null);
+ console.log('OK actual offload API: combined exchange, old Server compatibility, queue deduplication, lightweight progress, single invoice card, local result idempotence, cancellation, conditional AI and version-bound read-only reports.');
+}
+{
+ const head=ok(await call('/api/server/system-export/page',{server:true})).mirror;
+ ok(await call('/api/server/system-export/delta?epoch='+head.epoch+'&cursor='+head.cursor),401);
+ for(let i=0;i<45;i++)await db.prepare("INSERT INTO system_settings(key,value,updated_at) VALUES(?,?,'now') ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind('offload-delta-'+i,'one').run();
+ await db.prepare("UPDATE system_settings SET value='two' WHERE key='offload-delta-1'").run();await db.prepare("DELETE FROM system_settings WHERE key='offload-delta-2'").run();
+ let cursor=head.cursor,until,changes=[],pages=0;
+ do{const d=ok(await call('/api/server/system-export/delta?epoch='+head.epoch+'&cursor='+cursor+(until==null?'':'&until='+until),{server:true}));assert.ok(d.changes.length<=20);if(until!=null)assert.equal(d.until,until);until=d.until;cursor=d.nextCursor;changes.push(...d.changes);pages++;if(!d.hasMore)break;}while(pages<10);
+ assert.equal(pages,3);assert.equal(changes.length,45);assert.equal(changes.filter(c=>c.row?.key==='offload-delta-1').length,1);assert.equal(changes.find(c=>c.row?.key==='offload-delta-1').row.value,'two');assert.ok(changes.some(c=>c.table==='system_settings'&&c.row===null));
+ assert.equal(ok(await call('/api/server/system-export/delta?epoch='+head.epoch+'&cursor='+cursor,{server:true})).changes.length,0);
+ assert.equal(ok(await call('/api/server/system-export/delta?epoch=wrong&cursor='+cursor,{server:true})).resetRequired,true);
+ await db.prepare('UPDATE fleet_mirror_state SET floor=? WHERE id=1').bind(cursor).run();assert.equal(ok(await call('/api/server/system-export/delta?epoch='+head.epoch+'&cursor='+head.cursor,{server:true})).resetRequired,true);
+ console.log('OK actual SQLite differential export: coalesced updates/deletes, bounded 20-row pages, fixed watermark, unchanged mirror, authentication and expired cursor reset.');
 }

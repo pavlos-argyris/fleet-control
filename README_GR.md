@@ -1,3 +1,8 @@
+# Fleet Control 5.47.0
+
+Client/Web 5.47.0 · Server 2.2.3 · Worker 5.9.0.
+[Τοπική επεξεργασία και λιγότερα αιτήματα](docs/SERVER_OFFLOAD_5.47.0_GR.md).
+
 # Fleet Control 5.46.0
 
 Client/Web 5.46.0 · Server 2.2.2 · Worker 5.8.0.

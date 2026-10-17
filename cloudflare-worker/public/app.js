@@ -2545,6 +2545,7 @@
       try {
         const ocrResponse = await fetch(apiBase + "/api/service-documents/ocr", { method: "POST", headers: { "Content-Type": "application/json", ...(webToken ? { Authorization: "Bearer " + webToken } : {}) }, body: JSON.stringify({ key: attachment.key }), cache: "no-store" });
         const ocr = await ocrResponse.json().catch(function () { return {}; });
+        if(ocrResponse.ok&&ocr.queued)showToast("Η ανάγνωση μπήκε στην τοπική ουρά του Server.");
         if (ocrResponse.ok && ocr.extracted) attachment.ocr = ocr.extracted;
         if (ocr.error) attachment.ocrError = ocr.error;
       } catch (error) {
@@ -3941,7 +3942,7 @@
     edit:(bikeId,entryId,purpose)=>{openDetail(bikeId);openHistoryEntryDialog(entryId);if(purpose==='invoice'){elements.historyEntryReason.value='Προσθήκη τιμολογίου σε υπάρχον service';elements.historyEntryInvoiceQrValue.focus();elements.historyEntryInvoiceQrValue.scrollIntoView({block:'nearest'});}},
     review:(record)=>{openDetail(record.bikeId);return reviewStoredServiceDocument(record.entryId,record.key);},
     openDocument:record=>openServiceDocument(record),
-    retry:async record=>{const data=await window.FleetFollowupAdapter.api(record.key&&record.error?'/api/admin/service-documents/reprocess':'/api/admin/service-documents/restart',{method:'POST',body:record.key&&record.error?{key:record.key,forceAi:true}:{jobId:record.jobId||record.invoiceData?.qrJobId||'',bikeId:record.bikeId,entryId:record.entryId,qrUrl:record.qrUrl}});showToast('Η νέα προσπάθεια καταχωρήθηκε.');return data;}
+    retry:async record=>{const data=await window.FleetFollowupAdapter.api(record.key&&record.error?'/api/admin/service-documents/reprocess':'/api/admin/service-documents/restart',{method:'POST',body:record.key&&record.error?{key:record.key}:{jobId:record.jobId||record.invoiceData?.qrJobId||'',bikeId:record.bikeId,entryId:record.entryId,qrUrl:record.qrUrl}});showToast('Η νέα προσπάθεια καταχωρήθηκε.');return data;}
   };
   const maintenanceButton=document.createElement('button');maintenanceButton.type='button';maintenanceButton.className='secondary-button';maintenanceButton.textContent='Συντήρηση ανά εργασία';
   elements.detailExportButton.after(maintenanceButton);maintenanceButton.onclick=()=>{const bike=getBike(activeBikeId);if(bike)window.FleetServiceUI.maintenance(bike,async plans=>{if(!canManageHistory())throw new Error('Χρειάζεται πρόσβαση διαχείρισης.');bike.maintenancePlans=plans;bike.updatedAt=new Date().toISOString();saveBikes();await syncNow();showToast('Τα όρια συντήρησης αποθηκεύτηκαν.');});};
@@ -4240,8 +4241,12 @@
   window.addEventListener("offline", function () {
     setSyncState("offline", "Χωρίς σύνδεση");
   });
+  function fleetScreenActive(){
+    if(document.hidden)return false;
+    try{return window.parent===window||!window.frameElement||!window.frameElement.closest('.is-hidden');}catch(_){return true;}
+  }
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible") syncNow();
+    if (fleetScreenActive()) syncNow();
   });
   function hasVisibleQrProcessing() {
     const bike = getBike(activeBikeId);
@@ -4252,7 +4257,7 @@
   }
   let qrProgressRefreshRunning = false;
   async function refreshVisibleQrProgress() {
-    if (qrProgressRefreshRunning || document.hidden || !webToken || !activeBikeId || !hasVisibleQrProcessing()) return;
+    if (qrProgressRefreshRunning || !fleetScreenActive() || !webToken || !activeBikeId || !hasVisibleQrProcessing()) return;
     const bike = getBike(activeBikeId);
     const bikeId = bike && bike.id;
     const jobs = (bike && Array.isArray(bike.history) ? bike.history : []).map(function (entry) {
@@ -4293,8 +4298,8 @@
     if (document.hidden || !activeBikeId || !elements.detailView || elements.detailView.classList.contains("is-hidden") || !hasVisibleQrProcessing()) return;
     renderDetail();
   }, 1000);
-  setInterval(refreshVisibleQrProgress, 3000);
-  setInterval(syncNow, 30000);
+  setInterval(refreshVisibleQrProgress, 5000);
+  setInterval(function(){if(fleetScreenActive())syncNow();}, 60000);
 
   try {
     history.replaceState({ view: "home" }, "");

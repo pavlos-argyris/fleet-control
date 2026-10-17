@@ -40,7 +40,13 @@ public final class SyncService extends Service {
     private ScheduledExecutorService pulseExecutor;
     private ScheduledExecutorService invoiceExecutor;
     private ScheduledExecutorService mirrorExecutor;
-    private ScheduledExecutorService cancellationExecutor;
+    private LocalWorkQueue workQueue;
+    private volatile boolean queueValidated;
+    private volatile JSONObject pendingProgress;
+    private int idleCycles, syncFailures;
+    private long statusFetchedAt, reportVersion=-1;
+    private JSONObject preparedReport;
+
     private final java.util.concurrent.atomic.AtomicBoolean invoiceRunning = new java.util.concurrent.atomic.AtomicBoolean();
     private final java.util.concurrent.atomic.AtomicBoolean mirrorRunning = new java.util.concurrent.atomic.AtomicBoolean();
     private volatile java.util.concurrent.atomic.AtomicBoolean activeCancellation;
@@ -54,6 +60,10 @@ public final class SyncService extends Service {
     public void onCreate() {
         super.onCreate();
         store = new FleetDataStore(getApplicationContext());
+        workQueue=new LocalWorkQueue(new LocalWorkQueue.Storage(){
+            public JSONObject read(){return store.getLocalWorkState();}
+            public void write(JSONObject value){store.setLocalWorkState(value);}
+        });
         SharedPreferences preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
         boolean unexpectedRestart = preferences.getBoolean("service_running", false);
         if (unexpectedRestart) {
@@ -91,8 +101,6 @@ public final class SyncService extends Service {
         invoiceExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){invoiceSafely();}},0,3,TimeUnit.SECONDS);
         mirrorExecutor=Executors.newSingleThreadScheduledExecutor();
         mirrorExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){mirrorSafely();}},0,300,TimeUnit.SECONDS);
-        cancellationExecutor=Executors.newSingleThreadScheduledExecutor();
-        cancellationExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){checkJobCancellation();}},1,4,TimeUnit.SECONDS);
         // Connectivity must stay live even during ten parallel local reads,
         // lengthy AI results, Drive backup or a full mirror download.
         pulseExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -120,6 +128,7 @@ public final class SyncService extends Service {
 
     private void pulseSafely() {
         SharedPreferences p = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
+        if(System.currentTimeMillis()-p.getLong("last_connection_success_ms",0)<90000L)return;
         String base = p.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
         try {
             FleetHttp.sendJson(base + "/api/server/pulse", "POST", new JSONObject(), serverHeaders());
@@ -139,7 +148,9 @@ public final class SyncService extends Service {
         if (OtaManager.installationInProgress(getApplicationContext())) return;
         OtaManager.check(getApplicationContext(), false);
         long lastAttempt = preferences.getLong("last_sync_attempt_ms", 0);
-        int seconds = Math.max(10, preferences.getInt("sync_seconds", 30));
+        boolean busy=invoiceRunning.get();
+        try{busy=busy||workQueue.hasWork();}catch(RuntimeException error){preferences.edit().putString("invoice_queue_error",safeMessage(error)).apply();}
+        int seconds=SyncPollPolicy.seconds(preferences.getInt("sync_seconds",30),busy,idleCycles,syncFailures);
         if (System.currentTimeMillis() - lastAttempt < seconds * 1000L) {
             // Keep the Server screen live while the full mirror sync remains
             // throttled. The batch endpoint is lightweight and is polled at
@@ -150,8 +161,10 @@ public final class SyncService extends Service {
 
         try {
             syncOnce(preferences);
+            syncFailures=0;
             if (!invoiceRunning.get() && !mirrorRunning.get()) OtaManager.maybeApply(getApplicationContext(), store);
         } catch (Exception error) {
+            syncFailures++;
             String message = error.getMessage() == null ? "Αποτυχία σύνδεσης" : error.getMessage();
             preferences.edit()
                     .putBoolean("server_online", System.currentTimeMillis() - preferences.getLong("last_connection_success_ms", 0) < 90000L)
@@ -171,16 +184,38 @@ public final class SyncService extends Service {
         // Pull the online cache first. A fresh/reinstalled server must never
         // replace a valid Cloudflare snapshot with an empty local database.
         long started=System.currentTimeMillis();
-        syncStage(preferences,"Ανάγνωση αλλαγών στόλου","/api/snapshot");
+        syncStage(preferences,"Συγχρονισμός αλλαγών και τοπικής ουράς","/api/server/exchange");
         JSONObject canonical=store.getCanonicalSnapshot();
-        String suffix=canonical.has("version") ? "?sinceVersion=" + canonical.optLong("version") : "";
-        JSONObject response=FleetHttp.getJson(base + "/api/snapshot" + suffix,headers);
-        JSONObject remoteSnapshot=response.optBoolean("unchanged",false) ? canonical : response;
-        if (remoteSnapshot.optJSONArray("bikes")==null) throw new Exception("Δεν επιστράφηκε έγκυρος στόλος.");
-        if (!response.optBoolean("unchanged",false)) { store.setCanonicalSnapshot(remoteSnapshot); store.mergeFleet(remoteSnapshot); }
-        syncStage(preferences,"Εφαρμογή αλλαγών Web / APK","/api/server/pending");
-        JSONObject pending = FleetHttp.getJson(base + "/api/server/pending?limit=50&queue=sync", headers);
-        JSONArray operations = pending.optJSONArray("operations");
+        boolean includeStatus=System.currentTimeMillis()-statusFetchedAt>=300000L;
+        JSONObject request=new JSONObject().put("serverVersion",ServerConfig.SERVER_VERSION)
+            .put("sinceVersion",canonical.has("version")?canonical.optLong("version"):-1)
+            .put("includeStatus",includeStatus).put("knownJobs",workQueue.known()).put("acknowledgements",workQueue.acknowledgements())
+            .put("lastBackup",preferences.getString(BackupManager.KEY_LAST_TIME,""))
+            .put("backupResult",preferences.getString(BackupManager.KEY_LAST_RESULT,""))
+            .put("unexpectedRestart",preferences.getBoolean("unexpected_restart",false))
+            .put("restartAt",preferences.getString("unexpected_restart_at",""));
+        if(includeStatus)request.put("health",DeviceHealth.collect(getApplicationContext()));
+        JSONObject sentProgress=pendingProgress;
+        if(sentProgress!=null)request.put("progress",sentProgress);
+        if(preparedReport!=null)request.put("preparedReport",preparedReport);
+        JSONObject exchange=FleetHttp.sendJson(base+"/api/server/exchange","POST",request,headers);
+        if(exchange.optInt("protocol",0)!=1)throw new Exception("Απαιτείται ενημέρωση Worker για τον νέο συγχρονισμό.");
+        if(sentProgress==pendingProgress)pendingProgress=null;
+        if(exchange.optBoolean("reportAccepted",false))preparedReport=null;
+        workQueue.reconcile(exchange.optJSONArray("invoices"),exchange.optJSONArray("knownJobs"),exchange.optJSONArray("acknowledged"));
+        queueValidated=true;
+        JSONArray known=exchange.optJSONArray("knownJobs");
+        if(known!=null)for(int i=0;i<known.length();i++){JSONObject job=known.getJSONObject(i);if(activeJobId.equals(job.optString("id"))&&!"pending".equals(job.optString("status"))&&activeCancellation!=null)activeCancellation.set(true);}
+        JSONObject batch=exchange.optJSONObject("batch");
+        if(batch!=null){saveInvoiceReprocessState(preferences,batch,"");
+            JSONArray queued=workQueue.ready(Long.MAX_VALUE);for(int i=0;i<queued.length();i++){JSONObject job=queued.getJSONObject(i);if("service_document_reprocess_batch".equals(job.optString("type")))workQueue.update(job.optString("id"),"retryAt","paused".equals(batch.optString("status"))?Long.MAX_VALUE:0L);}}
+        JSONObject response=exchange.getJSONObject("snapshot");
+        JSONObject remoteSnapshot=response.optBoolean("unchanged",false)?canonical:response;
+        if(remoteSnapshot.optJSONArray("bikes")==null)throw new Exception("Δεν επιστράφηκε έγκυρος στόλος.");
+        if(!response.optBoolean("unchanged",false)){store.setCanonicalSnapshot(remoteSnapshot);store.mergeFleet(remoteSnapshot);}
+        if(reportVersion!=remoteSnapshot.optLong("version",0)){preparedReport=FleetAuditReport.build(remoteSnapshot);reportVersion=remoteSnapshot.optLong("version",0);}
+        JSONArray operations=exchange.optJSONArray("operations");
+        idleCycles=response.optBoolean("unchanged",false)&&(operations==null||operations.length()==0)&&!workQueue.hasWork()?idleCycles+1:0;
         List<String> applied = new ArrayList<String>();
         List<String> backupRequests = new ArrayList<String>();
         String serviceDocumentNotice = preferences.getString("last_service_document_error", "").length() > 0
@@ -248,17 +283,9 @@ public final class SyncService extends Service {
             JSONObject body = new JSONObject().put("bike", changedBikes.optJSONObject(bikeIndex));
             FleetHttp.sendJson(base + "/api/server/snapshot/bike", "PUT", body, headers);
         }
-        syncStage(preferences,"Επιβεβαίωση σύνδεσης","/api/server/heartbeat");
-        JSONObject heartbeat = new JSONObject();
-        heartbeat.put("serverVersion", ServerConfig.SERVER_VERSION);
-        heartbeat.put("lastBackup", preferences.getString(BackupManager.KEY_LAST_TIME, ""));
-        heartbeat.put("backupResult", preferences.getString(BackupManager.KEY_LAST_RESULT, ""));
-        heartbeat.put("unexpectedRestart", preferences.getBoolean("unexpected_restart", false));
-        heartbeat.put("restartAt", preferences.getString("unexpected_restart_at", ""));
-        heartbeat.put("health", DeviceHealth.collect(getApplicationContext()));
-        FleetHttp.sendJson(base + "/api/server/heartbeat", "POST", heartbeat, headers);
-        syncStage(preferences,"Έλεγχος κατάστασης συστήματος","/api/status");
-        JSONObject status = FleetHttp.getJson(base + "/api/status", headers);
+        JSONObject status=exchange.optJSONObject("status");
+        if(status!=null){statusFetchedAt=System.currentTimeMillis();preferences.edit().putString("cached_system_status",status.toString()).apply();}
+        else status=new JSONObject(preferences.getString("cached_system_status","{}"));
         String now = isoNow();
         preferences.edit()
                 .putBoolean("server_online", true)
@@ -288,7 +315,7 @@ public final class SyncService extends Service {
         p.edit().putString("sync_stage",stage).putString("sync_endpoint",endpoint).apply();
     }
     private void refreshSystemMirror(String base,Map<String,String> headers,final SharedPreferences p) throws Exception {
-        JSONObject value=SystemMirror.download(base,headers,store.getFleet(),new SystemMirror.Progress(){public void stage(String stage){p.edit().putString("mirror_stage",stage).apply();}});
+        JSONObject value=SystemMirror.update(base,headers,store.getFleet(),store.getSystemExport(),new SystemMirror.Progress(){public void stage(String stage){p.edit().putString("mirror_stage",stage).apply();}});
         store.setSystemExport(value);
         p.edit().putString("mirror_error","").putString("mirror_stage","Το αντίγραφο προσωπικού ενημερώθηκε").putLong("mirror_success_ms",System.currentTimeMillis()).apply();
     }
@@ -311,19 +338,6 @@ public final class SyncService extends Service {
             getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE).edit().putString("invoice_job_state",value.toString()).apply();
         } catch (Exception ignored) {}
     }
-    private void checkJobCancellation() {
-        final String job=activeJobId;final java.util.concurrent.atomic.AtomicBoolean signal=activeCancellation;
-        if (job.length()==0 || signal==null) return;
-        SharedPreferences p=getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE);
-        String base=p.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
-        try {
-            JSONObject status=FleetHttp.getJson(base+"/api/server/service-documents/job-active?jobId="+encodeQuery(job),serverHeaders());
-            if (!job.equals(activeJobId)) return;
-            if (status.optBoolean("cancelled",false)) signal.set(true);
-            else if (status.optInt("progress",0)>=85) invoiceState(job,status.optString("stage"),status.optInt("progress"),"");
-        } catch (Exception ignored) {}
-    }
-
     private void restartInvoice(String job) {
         SharedPreferences p=getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE);
         String base=p.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
@@ -340,7 +354,8 @@ public final class SyncService extends Service {
         Map<String,String> headers=serverHeaders();
         try {
             p.edit().putString("invoice_queue_error","").apply();
-            JSONArray ops=FleetHttp.getJson(base+"/api/server/pending?queue=invoices&limit=10",headers).optJSONArray("operations");
+            if(!queueValidated||System.currentTimeMillis()-p.getLong("last_connection_success_ms",0)>120000L)return;
+            JSONArray ops=workQueue.ready(System.currentTimeMillis());
             if (ops==null) return;
             for (int i=0;i<ops.length();i++) {
                 if (Thread.currentThread().isInterrupted()) return;
@@ -353,41 +368,28 @@ public final class SyncService extends Service {
                 }
                 activeJobId=id; activeCancellation=new java.util.concurrent.atomic.AtomicBoolean();
                 try {
-                    JSONObject result=renderAndUploadServiceDocument(base,id,op.optJSONObject("payload"),headers);
+                    JSONObject result=op.optJSONObject("payload")!=null&&op.getJSONObject("payload").has("documentKey")
+                        ?analyzeStoredDocument(base,op,headers):renderAndUploadServiceDocument(base,id,op.optJSONObject("payload"),headers);
                     if (activeCancellation.get()) continue;
                     JSONObject payload=op.optJSONObject("payload");
-                    if (result.optJSONObject("attachment")!=null && payload!=null && !payload.has("draftId")) store.attachServiceDocument(payload.optString("bikeId"),payload.optString("entryId"),result.optJSONObject("attachment"));
+                    if (result.optJSONObject("attachment")!=null && payload!=null && !payload.has("draftId") && !payload.has("documentKey")) store.attachServiceDocument(payload.optString("bikeId"),payload.optString("entryId"),result.optJSONObject("attachment"));
                     store.markApplied(id);
                     try {acknowledgeOne(base,id,headers);} catch(Exception acknowledgementError){p.edit().putString("invoice_queue_error",safeMessage(acknowledgementError)).apply();}
                     invoiceState(id,"Ολοκληρώθηκε · PDF και στοιχεία αποθηκεύτηκαν",100,result.optString("extractionError",""));
                     p.edit().putString("last_service_document_error",result.optString("extractionError","")).apply();
                 } catch (Exception error) {
-                    if (error instanceof java.util.concurrent.CancellationException || (activeCancellation!=null && activeCancellation.get()) || (error instanceof FleetHttp.HttpStatusException && ((FleetHttp.HttpStatusException)error).statusCode==410)) continue;
+                    if (error instanceof java.util.concurrent.CancellationException || (activeCancellation!=null && activeCancellation.get()) || (error instanceof FleetHttp.HttpStatusException && ((FleetHttp.HttpStatusException)error).statusCode==410)) {acknowledgeOne(base,id,headers);continue;}
+                    workQueue.update(id,"retryAt",System.currentTimeMillis()+60000L);
                     invoiceState(id,"Χρειάζεται έλεγχος",0,safeMessage(error));
                     p.edit().putString("last_service_document_error",safeMessage(error)).apply();
                     try {reportOperationError(base,id,safeMessage(error),error,headers);} catch(Exception ignored){}
                 } finally {activeJobId="";activeCancellation=null;}
             }
-            refreshInvoiceReprocessStatus(base,headers,p);
         } catch (Exception error) {markInvoiceReprocessError(p,safeMessage(error));p.edit().putString("invoice_queue_error",safeMessage(error)).apply();}
         finally {invoiceRunning.set(false);}
     }
     private void acknowledgeOne(String base,String id,Map<String,String> headers) throws Exception {
-        FleetHttp.sendJson(base+"/api/server/ack","POST",new JSONObject().put("ids",new JSONArray().put(id)),headers);
-    }
-
-    private JSONObject refreshInvoiceReprocessStatus(String base, Map<String, String> headers, SharedPreferences preferences) throws Exception {
-        JSONObject response = FleetHttp.getJson(base + "/api/server/service-documents/reprocess-batch", headers);
-        JSONObject batch = response.optJSONObject("batch");
-        if (batch == null) {
-            preferences.edit()
-                    .remove(PREF_INVOICE_REPROCESS_STATE)
-                    .remove(PREF_INVOICE_REPROCESS_UPDATED_AT)
-                    .apply();
-            return null;
-        }
-        saveInvoiceReprocessState(preferences, batch, "");
-        return batch;
+        workQueue.update(id,"localComplete",true);
     }
 
     private void saveInvoiceReprocessState(SharedPreferences preferences, JSONObject batch, String stage) {
@@ -554,13 +556,23 @@ public final class SyncService extends Service {
                 OtaManager.check(getApplicationContext(), false);
                 if (result.optBoolean("complete", false) || OtaManager.shouldYieldForUpdate(getApplicationContext())) break;
                 // Let a newly scanned QR run before the next window of historical invoices.
-                JSONObject pending=FleetHttp.getJson(base+"/api/server/pending?queue=invoices&limit=1",headers);
-                JSONArray ops=pending.optJSONArray("operations");if(ops!=null&&ops.length()>0&&"service_document_render".equals(ops.optJSONObject(0).optString("type")))break;
+                JSONArray ops=workQueue.ready(System.currentTimeMillis());boolean urgent=false;
+                for(int j=0;j<ops.length();j++)if("service_document_render".equals(ops.getJSONObject(j).optString("type")))urgent=true;
+                if(urgent)break;
             }
             return result.put("complete", result.optBoolean("complete", false));
         } finally {
             workers.shutdownNow();
         }
+    }
+
+    private JSONObject analyzeStoredDocument(String base,JSONObject job,Map<String,String> headers)throws Exception {
+        String id=job.getString("id");JSONObject payload=job.getJSONObject("payload"),local=job.optJSONObject("localResult");
+        reportOperationProgress(base,id,15,"Τοπική ανάγνωση αποθηκευμένου τιμολογίου",headers);
+        if(local==null){local=readInvoiceLocally(base,new JSONObject().put("key",payload.getString("documentKey")).put("name",payload.optString("name","invoice.pdf")).put("forceRead",payload.optBoolean("forceRead",false)),headers);workQueue.update(id,"localResult",local);}
+        if(activeCancellation!=null&&activeCancellation.get())throw new java.util.concurrent.CancellationException();
+        reportOperationProgress(base,id,75,"Αποθήκευση στοιχείων · AI μόνο αν χρειάζεται",headers);
+        return FleetHttp.sendJson(base+"/api/server/service-documents/analysis-result","POST",new JSONObject().put("jobId",id).put("localOcr",local),headers);
     }
 
     private JSONObject readInvoiceLocally(String base, JSONObject item, Map<String, String> headers) throws Exception {
@@ -630,7 +642,7 @@ public final class SyncService extends Service {
             body.put("jobId", jobId);
             body.put("progress", progress);
             body.put("stage", stage);
-            FleetHttp.sendJson(base + "/api/server/operation-progress", "POST", body, headers);
+            pendingProgress=body;
         } catch (Exception ignored) {
             // Progress is informative. A temporary failure must not prevent
             // the actual PDF upload from completing.
@@ -717,7 +729,6 @@ public final class SyncService extends Service {
         if (pulseExecutor != null) pulseExecutor.shutdownNow();
         if (invoiceExecutor != null) invoiceExecutor.shutdownNow();
         if (mirrorExecutor != null) mirrorExecutor.shutdownNow();
-        if (cancellationExecutor != null) cancellationExecutor.shutdownNow();
         if (activeCancellation != null) activeCancellation.set(true);
         getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE).edit().putBoolean("service_running", false).apply();
         if (store != null) store.close();

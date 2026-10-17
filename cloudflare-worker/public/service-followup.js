@@ -70,15 +70,33 @@
       const result=await A().api('/api/admin/service-followup',{method:'POST',body});if(context!==A().context?.())return;A().applyBike?.(result.bike);bikes=bikes.map(b=>b.id===result.bike.id?result.bike:b);render();A().toast('Η απόφαση αποθηκεύτηκε και καταγράφηκε.');
     }catch(error){if(dialog?.open)dialog.querySelector('[data-followup-message]').textContent=error.message;A().toast(error.message);}finally{target.disabled=false;}
   }
+  async function serverReport(){
+    const context=A().context?.();
+    const d=U.dialog('Συνολικός έλεγχος από Server','<p class="service-section-help">Ο Server συγκεντρώνει τα κόστη, τα service χωρίς τιμολόγιο, πιθανές διπλοεγγραφές και διαφορές χιλιομέτρων. Ο έλεγχος είναι μόνο ενημερωτικός· δεν αλλάζει τις καταχωρήσεις σου.</p><div data-server-report role="status"></div><div class="service-tools-toolbar"><button type="button" class="secondary-button" data-server-report-refresh>Ανανέωση</button><button type="button" class="ghost-button" data-server-report-back>Πίσω</button></div>');
+    const target=d.querySelector('[data-server-report]'),refresh=d.querySelector('[data-server-report-refresh]');
+    d.querySelector('[data-server-report-back]').onclick=()=>d.close();
+    async function read(){refresh.disabled=true;target.textContent='Φόρτωση συνολικού ελέγχου…';
+      try{const data=await A().api('/api/admin/server-report');if(!d.open)return;if(context!==A().context?.()||!A().canManage()){d.close();return;}
+        if(!data.ready||!data.report){target.textContent=data.message||'Ο Server ετοιμάζει τον τρέχοντα έλεγχο. Δοκίμασε Ανανέωση σε λίγο.';return;}
+        const r=data.report,labels={missing:'Χωρίς τιμολόγιο',mileage:'Έλεγχος ιστορικού χιλιομέτρων',duplicate:'Πιθανό διπλό τιμολόγιο','invoice-km':'Χιλιόμετρα service / τιμολογίου'};
+        target.innerHTML=card('Σύνολο καταγεγραμμένου κόστους',M.euro(r.costCents),r.services+' service · '+r.documents+' τιμολόγια · '+r.unknownCosts+' ποσά δεν έχουν διαβαστεί. Τα ποσά που λείπουν δεν υπολογίζονται ως μηδενικό κόστος.','','Τρέχον ιστορικό')+
+          (r.bikes||[]).map(b=>card(b.name,M.euro(b.costCents),b.services+' service · '+b.missingInvoices+' χωρίς τιμολόγιο · '+b.unknownCosts+' ποσά άγνωστα','','Σύνολο οχήματος')).join('')+
+          '<p>Οι διαφορές service / τιμολογίου εμφανίζονται και όταν έχεις επιλέξει να κρατήσεις τη δική σου ένδειξη, με σχετική επισήμανση.</p>'+
+          (r.issues||[]).map(i=>card(i.bike,date(i.date),i.detail,'',labels[i.kind]||'Έλεγχος')).join('')+
+          (r.truncated?'<p>Εμφανίζονται οι πρώτες 500 επισημάνσεις. Τα σύνολα περιλαμβάνουν όλο τον στόλο.</p>':'');
+      }catch(e){if(d.open)target.textContent=e.message;}finally{refresh.disabled=false;}}
+    refresh.onclick=read;await read();
+  }
   async function open(selected){
     if(!A()?.canManage())return A()?.toast('Χρειάζεται πρόσβαση διαχείρισης στόλου.');
     if(dialog?.open){tab=selected||tab;render();return;}
     tab=selected||'pending';bikes=A().getBikes?.()||[];documents=[];outbox=[];
-    dialog=U.dialog('Εκκρεμότητες στόλου','<p class="service-section-help" data-followup-explanation></p><div class="service-tools-toolbar" data-followup-tabs></div><div class="followup-filters"><label>Μηχανάκι<select data-bike><option value="">Όλα</option></select></label><label>Από<input type="date" data-from></label><label>Έως<input type="date" data-to></label><label class="followup-check"><input type="checkbox" data-exempt> Εμφάνιση εξαιρέσεων / ελεγμένων</label></div><p data-followup-caption></p><p data-followup-message role="alert"></p><div data-followup-list></div><div class="service-tools-toolbar"><button type="button" class="secondary-button" data-followup-refresh>Ανανέωση</button><button type="button" class="ghost-button" data-followup-close>Πίσω</button></div>');dialog.classList.add('followup-dialog');
+    dialog=U.dialog('Εκκρεμότητες στόλου','<p class="service-section-help" data-followup-explanation></p><div class="service-tools-toolbar" data-followup-tabs></div><div class="followup-filters"><label>Μηχανάκι<select data-bike><option value="">Όλα</option></select></label><label>Από<input type="date" data-from></label><label>Έως<input type="date" data-to></label><label class="followup-check"><input type="checkbox" data-exempt> Εμφάνιση εξαιρέσεων / ελεγμένων</label></div><p data-followup-caption></p><p data-followup-message role="alert"></p><div data-followup-list></div><div class="service-tools-toolbar"><button type="button" class="secondary-button" data-server-report-open>Συνολικός έλεγχος από Server</button><button type="button" class="secondary-button" data-followup-refresh>Ανανέωση</button><button type="button" class="ghost-button" data-followup-close>Πίσω</button></div>');dialog.classList.add('followup-dialog');
     const d=dialog;const select=d.querySelector('[data-bike]');
     function populate(){const val=filter.bikeId;select.innerHTML='<option value="">Όλα</option>'+bikes.map(b=>'<option value="'+esc(b.id)+'">'+esc(b.name)+'</option>').join('');select.value=val;}
     populate();d.querySelector('[data-from]').value=filter.from;d.querySelector('[data-to]').value=filter.to;d.querySelector('[data-exempt]').checked=filter.includeExempt;
     d.querySelector('.followup-filters').onchange=()=>{filter={bikeId:select.value,from:d.querySelector('[data-from]').value,to:d.querySelector('[data-to]').value,includeExempt:d.querySelector('[data-exempt]').checked};if(filter.from&&filter.to&&filter.from>filter.to){d.querySelector('[data-followup-message]').textContent='Η ημερομηνία «Από» πρέπει να προηγείται της «Έως».';return;}render();};
+    d.querySelector('[data-server-report-open]').onclick=serverReport;
     d.querySelector('[data-followup-refresh]').onclick=()=>load().then(populate).catch(e=>A().toast(e.message));d.querySelector('[data-followup-close]').onclick=()=>d.close();
     d.onclick=e=>{const t=e.target.closest('[data-followup-tab]');if(t){tab=t.dataset.followupTab;render();}const b=e.target.closest('[data-followup-action]');if(b)action(b);};
     d.addEventListener('close',()=>{request++;if(dialog===d)dialog=null;},{once:true});render();await load();if(dialog===d)populate();

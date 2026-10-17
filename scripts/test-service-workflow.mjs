@@ -17,7 +17,7 @@ const names = ["selectedInvoiceFiles", "invoiceSelectionError", "normalizeQrValu
   "attachInvoiceToEntry", "attachInvoicesToEntry", "invoiceBatchMessage", "mergeBackgroundBike",
   "backgroundHistorySaveMarkup", "enqueueHistoryEntrySave", "runBackgroundHistorySave",
   "handleHistoryEntrySubmit", "handleServiceSubmit", "updateServicePreview",
-  "hasVisibleQrProcessing", "refreshVisibleQrProgress"];
+  "fleetScreenActive", "hasVisibleQrProcessing", "refreshVisibleQrProgress"];
 const shipped = names.map((name) => extract(app, name)).join("\n");
 const noop = () => {};
 const plain = (value) => JSON.parse(JSON.stringify(value));

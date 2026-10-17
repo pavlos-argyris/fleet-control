@@ -157,6 +157,7 @@ async function route(request, env) {
   if (path === "/api/admin/service-documents/seen" && request.method === "POST") return markAdminServiceDocumentSeen(request, env);
   if (path === "/api/admin/service-documents/reprocess" && request.method === "POST") return reprocessAdminServiceDocument(request, env);
   if (path === "/api/admin/service-documents/undo-review" && request.method === "POST") return undoServiceReview(request, env);
+  if (path === "/api/admin/server-report" && request.method === "GET") return serverPreparedReport(request,env);
   if (path === "/api/admin/service-followup" && request.method === "POST") return updateServiceFollowup(request, env);
   if (path === "/api/admin/service-documents/review" && request.method === "POST") return reviewAdminServiceDocument(request, env);
   if (path.startsWith("/api/service-documents/") && request.method === "GET") return downloadServiceDocument(request, env);
@@ -166,6 +167,7 @@ async function route(request, env) {
   }
 
   if (path === "/api/server/connection-check" && request.method === "GET") return serverConnectionCheck(request, env);
+  if (path === "/api/server/exchange" && request.method === "POST") return serverExchange(request,env);
   if (path === "/api/server/pulse" && request.method === "POST") return serverPulse(request, env);
   if (path === "/api/server/service-documents/job-active" && request.method === "GET") {
     if (!await serverAuthorized(request,env)) return json({error:"Μη έγκυρος Server."},401);
@@ -183,6 +185,7 @@ async function route(request, env) {
   if (path === "/api/server/operation-progress" && request.method === "POST") return serverOperationProgress(request, env);
   if (path === "/api/server/operation-error" && request.method === "POST") return serverOperationError(request, env);
   if (path === "/api/server/snapshot" && request.method === "PUT") return serverSnapshot(request, env);
+  if (path === "/api/server/service-documents/analysis-result" && request.method === "POST") return storedAnalysisResult(request,env);
   if (path === "/api/server/service-documents/rendered" && request.method === "PUT") return uploadServerRenderedServiceDocument(request, env);
   if (path === "/api/server/service-documents/reprocess-batch" && (request.method === "GET" || request.method === "POST")) return serverInvoiceReprocessBatch(request, env);
   if (path === "/api/server/service-documents/restore" && request.method === "PUT") return restoreServerServiceDocument(request, env);
@@ -421,12 +424,40 @@ async function downloadServiceDocument(request, env) {
   return new Response(object.body, { headers });
 }
 
+function jobAttachmentMatches(item,payload,jobId){return payload.documentKey?item.key===payload.documentKey&&item.renderJobId===jobId:String(item.renderJobId)===jobId||Boolean(payload.qrUrl&&String(item.qrUrl||item.qrValue)===String(payload.qrUrl));}
+async function localAnalysisAvailable(env){return await getSetting(env,'server_offload_protocol')==='1';}
+async function queueStoredAnalysis(env,key,body={}){
+ const located=await readServiceDocument(env,key);if(!located||located.entry.type==='check')return json({error:'Το τιμολόγιο δεν βρέθηκε.'},404);
+ const attachment=located.entry.attachments.find(a=>a.key===key),now=new Date().toISOString(),id=crypto.randomUUID();
+ const payload={documentKey:key,bikeId:located.bike.id,entryId:located.entry.id,name:attachment.name,forceRead:body.forceRead===true,requestedAt:now,progress:5,progressStage:'Αναμονή τοπικής ανάγνωσης στον Server',attemptCount:0};
+ await env.DB.prepare("INSERT OR IGNORE INTO fleet_operations(id,source,type,payload,status,created_at) SELECT ?,'stored-document','service_document_render',?,'pending',? WHERE NOT EXISTS(SELECT 1 FROM fleet_operations WHERE status='pending' AND type='service_document_render' AND json_extract(payload,'$.documentKey')=?)").bind(id,JSON.stringify(payload),now,key).run();
+ const row=await env.DB.prepare("SELECT id,payload FROM fleet_operations WHERE status='pending' AND type='service_document_render' AND json_extract(payload,'$.documentKey')=? ORDER BY created_at LIMIT 1").bind(key).first();
+ if(!row)return json({error:'Η εργασία άλλαξε. Δοκίμασε ξανά.'},409);
+ return json({ok:true,queued:true,jobId:row.id,status:'processing',key,document:adminServiceDocumentRecord(located.bike,located.entry,attachment,{jobId:row.id,payload:JSON.parse(row.payload),operationStatus:'pending',createdAt:now})},202);
+}
+async function storedAnalysisResult(request,env){
+ if(!await serverAuthorized(request,env))return json({error:'Μη έγκυρος Server.'},401);
+ const body=await request.json(),id=cleanText(body.jobId,120),row=await env.DB.prepare('SELECT type,status,payload FROM fleet_operations WHERE id=?').bind(id).first();
+ if(!row||row.type!=='service_document_render')return json({error:'Η εργασία δεν βρέθηκε.'},404);
+ if(row.status==='cancelled')return json({error:'Η προσπάθεια διακόπηκε.',cancelled:true},410);
+ const payload=JSON.parse(row.payload),key=payload.documentKey;if(!key)return json({error:'Μη έγκυρη εργασία αρχείου.'},400);
+ const located=await readServiceDocument(env,key);if(!located||located.bike.id!==payload.bikeId||located.entry.id!==payload.entryId)return json({error:'Το τιμολόγιο αφαιρέθηκε ή μετακινήθηκε.',cancelled:true},410);
+ const attachment=located.entry.attachments.find(a=>a.key===key);if(attachment.renderJobId===id)return json({ok:true,reused:true,document:adminServiceDocumentRecord(located.bike,located.entry,attachment)});
+ const local=normalizeServiceDocumentOcr(body.localOcr)||{},confident=local.localReadStatus==='confident'&&Number(local.ocrConfidence)>=70;
+ let extracted={...local,source:'server-local',ocrSource:'server-local',ocrFallbackUsed:false},warning='';
+ if(!confident){try{const object=await (env.SERVICE_DOCS||env.RELEASES)?.get(key);if(!object)throw new Error('Το αρχείο δεν βρέθηκε.');const start=performanceNow();extracted=aiInvoiceAnalysis(await extractStoredInvoiceOcr(env,new Uint8Array(await object.arrayBuffer()),documentContentType(object.httpMetadata?.contentType||'',attachment.name||key),attachment.name||key),local,performanceNow()-start);Object.assign(extracted,{source:'cloudflare-ai',ocrSource:'cloudflare-ai',ocrFallbackUsed:true,ocrFallbackReason:local.ocrFallbackReason||'Αβέβαιη τοπική ανάγνωση.'});}catch(error){warning=cleanText(error.message,500);Object.assign(extracted,{ocrFallbackUsed:true,ocrFallbackError:warning});}}
+ if(await renderJobCancelled(env,id))return json({error:'Η προσπάθεια διακόπηκε.',cancelled:true},410);
+ const result=await applyServiceDocumentReprocess(env,request,{id:'android-server',username:'android-server',role:'owner'},null,null,located.bike,located.entry,attachment,invoiceDataForServiceDocument(located.entry,attachment),extracted,warning,{jobId:id,source:'server-local-stored-analysis',audit:false});
+ return json({ok:true,...result,extractionError:warning,fallbackUsed:!confident});
+}
+
 async function ocrServiceDocument(request, env) {
   if (!await authorizedFor(request, env, "fleet.manage")) return json({ error: "Χρειάζεται σύνδεση διαχείρισης." }, 401);
-  if (!env.AI) return json({ error: "Το OCR δεν έχει ενεργοποιηθεί στον Worker." }, 503);
   const body = await request.json().catch(() => ({}));
   const key = cleanText(body.key, 500);
   if (!key.startsWith("service-documents/") || key.includes("..")) return json({ error: "Μη έγκυρο τιμολόγιο." }, 400);
+  if(await localAnalysisAvailable(env)&&!body.forceAi)return queueStoredAnalysis(env,key,body);
+  if(!env.AI)return json({error:"Το OCR δεν έχει ενεργοποιηθεί."},503);
   const bucket = env.SERVICE_DOCS || env.RELEASES;
   const object = await bucket?.get(key);
   if (!object) return json({ error: "Το τιμολόγιο δεν βρέθηκε." }, 404);
@@ -704,7 +735,7 @@ async function serviceDocumentJobStatus(request, env) {
   if (row.status === "cancelled") return json({ ok: true, jobId, status: "cancelled", stage: "Διακόπηκε για νέα προσπάθεια" });
   const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
   const entry = located?.entry;
-  const attachment = (entry?.attachments || []).find((item) => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  const attachment = (entry?.attachments || []).find((item) => jobAttachmentMatches(item,payload,jobId));
   if (attachment) {
     return json({ ok: true, jobId, status: "completed", progress: 100, stage: "Ολοκληρώθηκε", attempts: Number(payload.attemptCount || 0), attachment, extracted: attachment.ocr || null, qrValue: payload.qrValue, qrUrl: payload.qrUrl });
   }
@@ -799,6 +830,7 @@ async function restartServiceDocument(request, env) {
   }
   const located = await readServiceEntry(env,payload.bikeId || cleanText(body.bikeId,80),payload.entryId || cleanText(body.entryId,120));
   if (!located || located.entry.type === "check") return json({error:"Το service δεν βρέθηκε."},404);
+  if(payload.documentKey){await env.DB.prepare("UPDATE fleet_operations SET status='cancelled',applied_at=? WHERE id=? AND status IN ('pending','error')").bind(new Date().toISOString(),jobId).run();return queueStoredAnalysis(env,payload.documentKey,{});}
   const qrUrl = qrUrlFromValue(payload.qrUrl || body.qrUrl || located.entry.invoiceData?.qrUrl);
   if (!qrUrl || !isPublicExternalQrUrl(qrUrl)) return json({error:"Δεν υπάρχει έγκυρο QR. Σκάναρε ξανά το τιμολόγιο."},400);
   const existing = located.entry.attachments?.find(x => String(x.qrUrl || x.qrValue) === qrUrl || (jobId && String(x.renderJobId) === jobId));
@@ -844,7 +876,8 @@ async function retryServiceDocumentJob(request, env) {
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
   const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
-  const existing = (located?.entry.attachments || []).find(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  if(payload.documentKey){await env.DB.prepare("UPDATE fleet_operations SET status='cancelled',applied_at=? WHERE id=? AND status IN ('pending','error')").bind(new Date().toISOString(),jobId).run();return queueStoredAnalysis(env,payload.documentKey,{});}
+  const existing = (located?.entry.attachments || []).find(item => jobAttachmentMatches(item,payload,jobId));
   if (existing) {
     if (existing.ocrError) {
       const headers = new Headers(request.headers);
@@ -917,7 +950,7 @@ function adminServiceDocumentRecord(bike, entry, attachment, pending = null, all
   return {
     id: attachment?.key || pending?.jobId || `${bike?.id || ""}:${entry?.id || ""}`,
     status,
-    jobId: cleanText(attachment?.renderJobId || pending?.jobId, 120),
+    jobId: cleanText(pending?.jobId || attachment?.renderJobId, 120),
     bikeId: String(bike?.id || pending?.bikeId || ""),
     bikeName: String(bike?.name || pending?.bikeName || "—"),
     entryId: String(entry?.id || pending?.entryId || ""),
@@ -1026,6 +1059,7 @@ async function listAdminServiceDocuments(request, env) {
     const bike = (snapshot.data.bikes || []).find((item) => String(item.id) === String(payload.bikeId));
     const entry = bike && (bike.history || []).find((item) => String(item.id) === String(payload.entryId));
     if (!bike || !entry) continue;
+    if(payload.documentKey){const attachment=entry.attachments?.find(file=>file.key===payload.documentKey);if(attachment&&attachment.renderJobId!==row.id){const index=documents.findIndex(item=>item.key===payload.documentKey);if(index>=0)documents[index]=adminServiceDocumentRecord(bike,entry,attachment,{jobId:row.id,payload,operationStatus:row.status,createdAt:row.created_at},snapshot.data.bikes);}continue;}
     const existing = (entry.attachments || []).find((item) => String(item.renderJobId) === String(row.id) || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
     if (existing) continue;
     documents.push(adminServiceDocumentRecord(bike, entry, null, {
@@ -1073,6 +1107,8 @@ async function applyServiceDocumentReprocess(env, request, actor, snapshot, flee
     const entry = located?.entry;
     const attachment = entry?.attachments?.find(item => String(item.key) === String(originalAttachment.key));
     if (!attachment) throw new Error("Το τιμολόγιο διαγράφηκε κατά την ανάγνωση.");
+    if(options.jobId&&attachment.renderJobId===options.jobId)return {document:adminServiceDocumentRecord(bike,entry,attachment),version:located.version,reused:true};
+    if(options.jobId&&await renderJobCancelled(env,options.jobId))throw new Error("Η προσπάθεια διακόπηκε.");
     const current = invoiceDataForServiceDocument(entry, attachment);
     const fresh = refineInvoicePlateForFleet(normalizeServiceDocumentOcr({
       ...(extracted || current),
@@ -1096,6 +1132,7 @@ async function applyServiceDocumentReprocess(env, request, actor, snapshot, flee
     if (current.reviewedBy) data.reviewedBy = current.reviewedBy;
     attachment.ocr = normalizeServiceDocumentOcr(data);
     attachment.ocrError = cleanText(ocrWarning, 500);
+    if(options.jobId){attachment.renderJobId=options.jobId;attachment.ocr.qrJobId=options.jobId;attachment.ocr.qrProcessingStatus="completed";attachment.ocr.qrProcessingProgress="100";attachment.ocr.qrProcessingStage="Ολοκληρώθηκε";delete attachment.ocr.qrProcessingError;}
     attachment.name = uniqueInvoiceDisplayName(
       buildInvoiceDisplayName(bike.name, data.invoiceDate, entry.date, attachment.name),
       entry.attachments,
@@ -1108,7 +1145,7 @@ async function applyServiceDocumentReprocess(env, request, actor, snapshot, flee
     entry.updatedAt = now;
     bike.updatedAt = now;
     const normalizedEntry = normalizeHistory([entry])[0];
-    const version = await writeServiceEntry(env, located, normalizedEntry, options.source || "admin-service-document-reprocess", now);
+    const version = await writeServiceEntry(env, located, normalizedEntry, options.source || "admin-service-document-reprocess", now, options.jobId || "");
     if (!version) continue;
     const operationId = crypto.randomUUID();
     const bikeRow = await env.DB.prepare("SELECT b.value AS bike_json FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? LIMIT 1")
@@ -1146,6 +1183,8 @@ async function reprocessAdminServiceDocument(request, env) {
     ? "Ζητήθηκε χειροκίνητα από τον διαχειριστή."
     : "Ζητήθηκε νέα ανάγνωση με Workers AI.";
   if (!isServiceDocumentKey(key)) return json({ error: "Λείπει η σύνδεση με το τιμολόγιο." }, 400);
+  if(!forceAi&&await localAnalysisAvailable(env))return queueStoredAnalysis(env,key,body);
+  if(forceAi)await env.DB.prepare("UPDATE fleet_operations SET status='cancelled',applied_at=? WHERE type='service_document_render' AND status='pending' AND json_extract(payload,'$.documentKey')=?").bind(new Date().toISOString(),key).run();
   const bucket = env.SERVICE_DOCS || env.RELEASES;
   if (!bucket) return json({ error: "Δεν έχει συνδεθεί χώρος αποθήκευσης τιμολογίων." }, 503);
 
@@ -3059,14 +3098,43 @@ async function serverPulse(request, env) {
   return json({ online: true, serverTime: new Date().toISOString() });
 }
 
+async function serverPreparedReport(request,env){
+ if(!await authorizedFor(request,env,'fleet.view'))return json({error:'Χρειάζεται πρόσβαση στον στόλο.'},401);
+ const summary=await snapshotSummary(env),raw=await getSetting(env,'server_prepared_report');let report=null;try{report=raw?JSON.parse(raw):null;}catch{}
+ const stale=!report||Number(report.snapshotVersion)!==Number(summary.version);
+ return json({ok:true,ready:Boolean(report)&&!stale,stale,snapshotVersion:summary.version,report:stale?null:report,message:stale?'Ο Server ετοιμάζει τον έλεγχο της τρέχουσας έκδοσης. Δοκίμασε Ανανέωση σε λίγο.':''});
+}
+// One network round trip, with raw snapshot JSON and bounded queues.
+async function serverExchange(request,env){
+ if(!await serverAuthorized(request,env))return json({error:'Μη έγκυρος Server.'},401);
+ const body=await request.json(),internal=(path,method='GET',data)=>new Request(new URL(path,request.url),{method,headers:request.headers,...(data?{body:JSON.stringify(data)}:{})});
+ await serverHeartbeat(internal('/api/server/heartbeat','POST',body),env);await setSetting(env,'server_offload_protocol','1');
+ const ids=Array.isArray(body.acknowledgements)?body.acknowledgements.map(id=>cleanText(id,100)).filter(Boolean).slice(0,100):[];
+ if(ids.length)await serverAck(internal('/api/server/ack','POST',{ids}),env);
+ if(body.progress?.jobId)await serverOperationProgress(internal('/api/server/operation-progress','POST',{...body.progress,lightweight:true}),env);
+ const knownIds=Array.isArray(body.knownJobs)?body.knownJobs.map(id=>cleanText(id,100)).filter(Boolean).slice(0,100):[];let known=[];
+ if(knownIds.length){const result=await env.DB.prepare(`SELECT id,status FROM fleet_operations WHERE id IN (${knownIds.map(()=>'?').join(',')})`).bind(...knownIds).all();const map=new Map((result.results||[]).map(r=>[r.id,r.status]));known=knownIds.map(id=>({id,status:map.get(id)||'missing'}));}
+ const snapshot=await snapshotResponse(internal('/api/snapshot?sinceVersion='+encodeURIComponent(String(body.sinceVersion??''))),env);
+ const sync=await (await serverPending(internal('/api/server/pending?limit=50&queue=sync&combined=1'),env)).json();
+ const invoices=await (await serverPending(internal('/api/server/pending?limit=10&queue=invoices&local=1&combined=1'),env)).json();
+ const batch=await readInvoiceReprocessBatch(env),status=body.includeStatus?await statusPayload(env):null;
+ let reportAccepted=false;
+ if(body.preparedReport?.schema===1&&Array.isArray(body.preparedReport.bikes)&&body.preparedReport.bikes.length<=40&&Array.isArray(body.preparedReport.issues)&&body.preparedReport.issues.length<=500){
+  const raw=JSON.stringify(body.preparedReport);if(raw.length<=240000){const saved=await env.DB.prepare("INSERT INTO fleet_settings(key,value,updated_at) SELECT 'server_prepared_report',?,? WHERE EXISTS(SELECT 1 FROM fleet_snapshot WHERE id=1 AND version=?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(raw,new Date().toISOString(),Number(body.preparedReport.snapshotVersion)).run();reportAccepted=Boolean(saved.meta?.changes);}
+ }
+ const meta={ok:true,protocol:1,reportAccepted,operations:sync.operations,invoices:invoices.operations,knownJobs:known,acknowledged:ids,batch:batch?{...batch,items:undefined}:null,status};
+ return new Response('{"snapshot":'+await snapshot.text()+','+JSON.stringify(meta).slice(1),{headers:baseHeaders({'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'})});
+}
+
 async function serverPending(request, env) {
   if (!await serverAuthorized(request, env)) return json({ error: "Μη έγκυρος server." }, 401);
-  await touchServer(env);
+  if(new URL(request.url).searchParams.get("combined")!=="1")await touchServer(env);
   const limit = cleanInteger(new URL(request.url).searchParams.get("limit"), 1, MAX_PENDING, 50);
   const queue = new URL(request.url).searchParams.get("queue");
+  const compatibility=new URL(request.url).searchParams.get("local")==="1"?"":" AND json_extract(payload,'$.documentKey') IS NULL";
   const filter = queue === "invoices" ? " AND type IN ('service_document_render','service_document_reprocess_batch') AND NOT (type='service_document_reprocess_batch' AND COALESCE((SELECT json_extract(value,'$.status') FROM fleet_settings WHERE key='service_invoice_reprocess_batch'),'')='paused')"
     : queue === "sync" ? " AND type NOT IN ('service_document_render','service_document_reprocess_batch')" : "";
-  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending'" + filter + " AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY CASE WHEN type='service_document_render' THEN 0 WHEN type='service_document_reprocess_batch' THEN 2 ELSE 1 END,created_at LIMIT ?")
+  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending'" + filter + compatibility + " AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY CASE WHEN type='service_document_render' THEN 0 WHEN type='service_document_reprocess_batch' THEN 2 ELSE 1 END,created_at LIMIT ?")
     .bind(new Date().toISOString(), limit).all();
   const operations = (result.results || []).map((row) => {
     let payload = {};
@@ -3099,7 +3167,7 @@ async function serverOperationProgress(request, env) {
   if (row.status === "cancelled") return json({ ok: true, jobId, status: "cancelled", ignored: true });
   const draft=payload.draftId?await readImportDraftForJob(env,jobId):null;
   const located = draft?null:await readServiceEntry(env, payload.bikeId, payload.entryId);
-  const completed = draft?.status==='ready' || (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  const completed = draft?.status==='ready' || (located?.entry.attachments || []).some(item => jobAttachmentMatches(item,payload,jobId));
   if (row.status === "applied" || completed) return json({ ok: true, jobId, status: "completed", progress: 100 });
   const progress = cleanInteger(body.progress, 0, 99, 0);
   payload.progress = progress;
@@ -3107,7 +3175,7 @@ async function serverOperationProgress(request, env) {
   payload.lastAttemptAt = new Date().toISOString();
   await env.DB.prepare("UPDATE fleet_operations SET payload = ? WHERE id = ? AND status = 'pending'")
     .bind(JSON.stringify(payload), jobId).run();
-  if(!draft)await updateServiceDocumentProcessingSnapshot(env, payload, {
+  if(!draft&&!body.lightweight)await updateServiceDocumentProcessingSnapshot(env, payload, {
     jobId,
     status: "processing",
     progress,
@@ -3132,7 +3200,7 @@ async function serverOperationError(request, env) {
   if (row.status === "cancelled") return json({ ok: true, jobId, status: "cancelled", ignored: true });
   const draft=payload.draftId?await readImportDraftForJob(env,jobId):null;
   const located = draft?null:await readServiceEntry(env, payload.bikeId, payload.entryId);
-  const completed = draft?.status==='ready' || (located?.entry.attachments || []).some(item => String(item.renderJobId) === jobId || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
+  const completed = draft?.status==='ready' || (located?.entry.attachments || []).some(item => jobAttachmentMatches(item,payload,jobId));
   if (row.status === "applied" || completed) return json({ ok: true, jobId, status: "completed", progress: 100 });
   const transient = body.retryable === true;
   const attempts = Math.max(0, Number(payload.attemptCount || 0)) + (transient ? 0 : 1);
@@ -3341,7 +3409,7 @@ async function serverHeartbeat(request, env) {
   try { body = await request.json(); } catch {}
   if (body.lastBackup) await setSetting(env, "server_last_backup", cleanText(body.lastBackup, 60));
   if (body.backupResult) await setSetting(env, "server_backup_result", cleanText(body.backupResult, 240));
-  if (body.serverVersion) await setSetting(env, "server_version", cleanText(body.serverVersion, 40));
+  if(body.serverVersion){await setSetting(env,"server_version",cleanText(body.serverVersion,40));const [major,minor,patch]=String(body.serverVersion).split('.').map(Number);if(!(major>2||major===2&&(minor>2||minor===2&&patch>=3)))await setSetting(env,"server_offload_protocol","0");}
   if (body.health && typeof body.health === "object" && !Array.isArray(body.health)) {
     const source = body.health;
     const finite = (value, min, max) => {

@@ -3126,8 +3126,12 @@
 
   async function refreshInvoiceProgressLive() {
     if (invoiceLiveRefreshRunning || state.invoiceReprocessBusy || !state.user || state.view !== "invoices" || document.hidden) return;
+    const now=Date.now(),interval=hasLiveInvoiceJobs()?5000:60000;
+    if(now-(state.invoiceLastLivePoll||0)<interval)return;
+    state.invoiceLastLivePoll=now;
     invoiceLiveRefreshRunning = true;
     try {
+      if(!hasLiveInvoiceJobs())await refreshInvoiceReprocessBatch();
       const data = await api("/api/admin/service-documents");
       state.invoiceDocuments = Array.isArray(data.documents) ? data.documents : state.invoiceDocuments;
       renderInvoiceQueue();
@@ -3231,10 +3235,10 @@
     if (!record) return;
     if (record.key && record.error) {
       try {
-        const result = await api("/api/admin/service-documents/reprocess", { method: "POST", body: { key: record.key, forceAi: true } });
+        const result = await api("/api/admin/service-documents/reprocess", { method: "POST", body: { key: record.key } });
         if (result.document) state.invoiceDocuments = state.invoiceDocuments.map(item => String(item.id) === String(record.id) ? result.document : item);
         renderInvoiceQueue();
-        toast(result.ocrWarning ? "Η νέα ανάγνωση δεν ολοκληρώθηκε. Το PDF παραμένει αποθηκευμένο· δες το σφάλμα στην κάρτα." : "Η ανάγνωση του αποθηκευμένου PDF ολοκληρώθηκε.");
+        toast(result.queued ? "Η ανάγνωση μπήκε στην τοπική ουρά του Server." : result.ocrWarning ? "Η νέα ανάγνωση δεν ολοκληρώθηκε. Το PDF παραμένει αποθηκευμένο· δες το σφάλμα στην κάρτα." : "Η ανάγνωση του αποθηκευμένου PDF ολοκληρώθηκε.");
       } catch (error) { toast(error.message); }
       return;
     }
@@ -3248,14 +3252,7 @@
       const activeJobId = result.jobId || jobId;
       toast("Η επεξεργασία του QR ξεκίνησε ξανά.");
       await loadInvoices();
-      for (let attempt = 0; attempt < 42; attempt += 1) {
-        await new Promise(function (resolve) { setTimeout(resolve, 3000); });
-        let status;
-        try { status = await api("/api/service-documents/jobs/" + encodeURIComponent(activeJobId)); await loadInvoices(); }
-        catch (error) { if (error.status === 401 || error.status === 403) throw error; continue; }
-        if (status.status === "completed") { toast("Το PDF του τιμολογίου είναι έτοιμο."); break; }
-        if (status.status === "error") { toast("Η επανάληψη απέτυχε. Δες το σφάλμα στην κάρτα."); break; }
-      }
+
     } catch (error) { toast(error.message); }
   }
 
@@ -4468,7 +4465,7 @@
     edit:async(bikeId,entryId,purpose)=>{await goTo("fleet");ensureFleetModule();const frame=$("fleetModuleFrame");for(let i=0;i<80;i++){try{const adapter=frame.contentWindow?.FleetFollowupAdapter;if(adapter&&adapter.canManage()){adapter.edit(bikeId,entryId,purpose);return;}}catch(e){}await new Promise(r=>setTimeout(r,100));}toast("Άνοιξε την καταχώρηση στην καρτέλα Fleet για να προσθέσεις QR ή να τη διορθώσεις.");},
     review:async r=>{if(!state.invoiceDocuments.some(d=>String(d.id)===String(r.id)))await loadInvoices();return openAdminInvoiceReview(r.id);},
     openDocument:r=>openInvoiceDocument(r,false),
-    retry:async r=>{const data=r.key&&r.error?await api("/api/admin/service-documents/reprocess",{method:"POST",body:{key:r.key,forceAi:true}}):await api("/api/admin/service-documents/restart",{method:"POST",body:{jobId:r.jobId||r.invoiceData?.qrJobId||"",bikeId:r.bikeId,entryId:r.entryId,qrUrl:r.qrUrl}});toast("Η νέα προσπάθεια καταχωρήθηκε.");await loadInvoices();return data;}
+    retry:async r=>{const data=r.key&&r.error?await api("/api/admin/service-documents/reprocess",{method:"POST",body:{key:r.key}}):await api("/api/admin/service-documents/restart",{method:"POST",body:{jobId:r.jobId||r.invoiceData?.qrJobId||"",bikeId:r.bikeId,entryId:r.entryId,qrUrl:r.qrUrl}});toast("Η νέα προσπάθεια καταχωρήθηκε.");await loadInvoices();return data;}
   };
   initialize();
   window.addEventListener("beforeinstallprompt", function (event) {
@@ -4487,7 +4484,7 @@
     if (!state.user || state.view !== "invoices" || document.hidden || !hasLiveInvoiceJobs()) return;
     renderInvoiceQueue();
   }, 1000);
-  setInterval(refreshInvoiceReprocessBatch, 1000);
-  setInterval(refreshInvoiceProgressLive, 2500);
+  setInterval(function(){if(state.invoiceReprocessBusy)refreshInvoiceReprocessBatch();}, 5000);
+  setInterval(refreshInvoiceProgressLive, 5000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("./service-worker.js").catch(function () {});
 })();

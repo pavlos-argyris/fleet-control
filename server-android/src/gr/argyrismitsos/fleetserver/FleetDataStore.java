@@ -117,6 +117,17 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         getWritableDatabase().insertWithOnConflict("system_state",null,data,SQLiteDatabase.CONFLICT_REPLACE);
     }
 
+    public synchronized JSONObject getLocalWorkState() {
+        Cursor cursor=getReadableDatabase().rawQuery("SELECT value FROM system_state WHERE key='local_invoice_queue'",null);
+        try { return cursor.moveToFirst()?new JSONObject(cursor.getString(0)):new JSONObject(); }
+        catch(Exception e){throw new IllegalStateException("Δεν διαβάστηκε η τοπική ουρά. Το αποθηκευμένο αντίγραφο διατηρήθηκε.",e);}
+        finally {cursor.close();}
+    }
+    public synchronized void setLocalWorkState(JSONObject value) {
+        ContentValues data=new ContentValues();data.put("key","local_invoice_queue");data.put("value",value.toString());data.put("updated_at",isoNow());
+        if(getWritableDatabase().insertWithOnConflict("system_state",null,data,SQLiteDatabase.CONFLICT_REPLACE)<0)throw new IllegalStateException("Δεν αποθηκεύτηκε η τοπική ουρά.");
+    }
+
     public synchronized void setSystemExport(JSONObject value) {
         if (value == null) return;
         ContentValues values = new ContentValues();
