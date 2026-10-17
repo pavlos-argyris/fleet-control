@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-64efdd4e-7311-4fdc-b9bc-9ca3b188d47c",
-  "sourceCommit": "1eaace4d1fb95ef671524dfe39bb42a4b177e583",
-  "releaseVersion": "5.47.0",
-  "requestedAt": "2026-10-17T17:22:52.921Z",
-  "reason": "Ο χρήστης ζήτησε και τις τέσσερις μεταφορές εργασιών στον Server και συνέχιση με αυτόματη δημοσίευση. Το πλήρες source commit πέρασε το Check saved source 39026948171."
+  "requestId": "fleet-8bc7886a-cd8f-4855-97c3-1f85c2097a73",
+  "sourceCommit": "ac41c257a6c2e72f3e9e7a2b71d9ff94dcb5a23c",
+  "releaseVersion": "5.48.0",
+  "requestedAt": "2026-10-17T18:29:13.895Z",
+  "reason": "Ο χρήστης ενέκρινε τις πέντε βελτιώσεις μείωσης αιτημάτων και ζήτησε να ξεκινήσουμε, με την υπάρχουσα αυτόματη δημοσίευση. Το source commit πέρασε το Check saved source 39058109871."
 }
