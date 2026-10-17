@@ -1,3 +1,4 @@
+import { MIRROR_SCHEMA, mirrorDelta, trimMirrorJournal } from './mirror-delta.js';
 import '../public/service-model.js';
 const ServiceModel = globalThis.FleetServiceModel;
 import '../public/fleet-operations-model.js';
@@ -36,7 +37,7 @@ const SERVICE_RENDER_MAX_ATTEMPTS = 3;
 const INVOICE_REPROCESS_BATCH_SETTING = "service_invoice_reprocess_batch";
 const INVOICE_REPROCESS_BATCH_STALE_MS = 20 * 60 * 1000;
 const INVOICE_REPROCESS_BATCH_RESULT_TTL_MS = 30 * 1000;
-const RUNTIME_SCHEMA_VERSION = "5.2.0";
+const RUNTIME_SCHEMA_VERSION = "5.3.0";
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fleet_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'canonical', updated_at TEXT NOT NULL);
@@ -69,6 +70,7 @@ export default {
   async scheduled(controller, env, context) {
     context.waitUntil((async () => {
       await ensureSchema(env);
+      await trimMirrorJournal(env);
       await maintainWorkforce(env, {
         serverLastSeen: await getSetting(env, "server_last_seen"),
         backupResult: await getSetting(env, "server_backup_result")
@@ -102,6 +104,7 @@ async function ensureSchema(env) {
     await env.DB.exec(d1ExecScript(SCHEMA));
     await ensureReleaseChecksumColumn(env);
     await ensureWorkforceSchema(env);
+    await env.DB.exec(MIRROR_SCHEMA);
     await setSetting(env, "runtime_schema_version", RUNTIME_SCHEMA_VERSION);
   })().catch((error) => {
       schemaPromise = undefined;
@@ -174,6 +177,7 @@ async function route(request, env) {
     return reprocessAdminServiceDocument(request,env);
   }
   if ((path === "/api/admin/service-documents/restart" || path === "/api/server/service-documents/restart") && request.method === "POST") return restartServiceDocument(request, env);
+  if (path === "/api/server/system-export/delta" && request.method === "GET") return mirrorDelta(request,env,serverAuthorized);
   if (path === "/api/server/pending" && request.method === "GET") return serverPending(request, env);
   if (path === "/api/server/ack" && request.method === "POST") return serverAck(request, env);
   if (path === "/api/server/operation-progress" && request.method === "POST") return serverOperationProgress(request, env);

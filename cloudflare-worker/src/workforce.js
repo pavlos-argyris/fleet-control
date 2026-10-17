@@ -1,3 +1,4 @@
+import { MIRROR_TABLES, mirrorHead } from './mirror-delta.js';
 import {
   ALL_PERMISSIONS,
   EMPLOYEE_ALLOWED_PERMISSIONS,
@@ -5109,31 +5110,25 @@ async function updateSystemSettings(request, env, deps) {
   return wfJson({ updated: true, settings: changes });
 }
 
-const EXPORT_TABLES = [
-  "app_users", "registered_devices", "vehicle_registry", "vehicle_archives", "shift_templates", "schedule_assignments", "schedule_week_drafts", "schedule_publications",
-  "schedule_acknowledgements", "schedule_vehicle_waivers", "schedules", "shifts", "vehicle_segments",
-  "correction_requests", "pay_rules", "pay_rule_versions", "special_rates", "special_rate_assignments", "payroll_segments",
-  "payroll_periods", "payroll_adjustments", "payroll_snapshots", "system_alerts", "alert_rules", "audit_log", "system_settings",
-  "deleted_records", "invoice_import_drafts"
-];
+const EXPORT_TABLES = MIRROR_TABLES;
 
 // One bounded table page per request: keep the full backup mirror outside
 // the foreground fleet sync and avoid serializing all history/audit in JS.
 async function systemExportPage(request, env, deps) {
   if (!await deps.serverAuthorized(request, env)) throw new ApiError(401, "Μη έγκυρος Server.");
   const url = new URL(request.url), table = url.searchParams.get("table");
-  if (!table) return wfJson({ schemaVersion: 5, tables: EXPORT_TABLES });
+  if (!table) return wfJson({ schemaVersion: 5, tables: EXPORT_TABLES, mirror: await mirrorHead(env) });
   if (!EXPORT_TABLES.includes(table)) throw new ApiError(400, "Μη έγκυρος πίνακας αντιγράφου.");
   const cursor = Math.max(0, Math.floor(Number(url.searchParams.get("cursor")) || 0));
   const limit = Math.max(1, Math.min(100, Math.floor(Number(url.searchParams.get("limit")) || 50)));
   const columns = (await env.DB.prepare(`PRAGMA table_info(${table})`).all()).results || [];
   const fields = columns.flatMap(c => ["'" + c.name.replace(/'/g,"''") + "'", '"' + c.name.replace(/"/g,'""') + '"']).join(',');
-  const row = await env.DB.prepare(`SELECT COALESCE(json_group_array(json(row_json)),'[]') AS rows_json, COALESCE(MAX(page_cursor),?) AS next_cursor
+  const row = await env.DB.prepare(`SELECT COALESCE(json_group_array(json(row_json)),'[]') AS rows_json, COALESCE(MAX(page_cursor),?) AS next_cursor, COALESCE(json_group_array(page_cursor),'[]') AS row_ids
     FROM (SELECT rowid AS page_cursor,json_object(${fields}) AS row_json FROM ${table} WHERE rowid>? ORDER BY rowid LIMIT ?)`)
     .bind(cursor,cursor,limit).first();
   const nextCursor = Number(row?.next_cursor || cursor);
   const more = await env.DB.prepare(`SELECT 1 AS present FROM ${table} WHERE rowid>? LIMIT 1`).bind(nextCursor).first();
-  return new Response('{"rows":' + (row?.rows_json || '[]') + ',' + JSON.stringify({table,nextCursor,hasMore:Boolean(more)}).slice(1),
+  return new Response('{"rowIds":'+(row?.row_ids||'[]')+',"rows":' + (row?.rows_json || '[]') + ',' + JSON.stringify({table,nextCursor,hasMore:Boolean(more)}).slice(1),
     { headers: { "Content-Type":"application/json; charset=utf-8", "Cache-Control":"private, no-store" } });
 }
 
