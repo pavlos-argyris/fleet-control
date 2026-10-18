@@ -68,7 +68,9 @@
         update();
         // Restore the list anchor and let the Portal/iframe finish resizing
         // before the new snapshot is captured, rather than during the reveal.
-        settled = new Promise(resolve => root.requestAnimationFrame(() => root.requestAnimationFrame(resolve))).then(() => {
+        // Rendering is paused inside a View Transition update callback, so
+        // waiting for requestAnimationFrame here can deadlock the transition.
+        settled = new Promise(resolve => root.setTimeout(() => root.setTimeout(resolve, 0), 0)).then(() => {
           if (pending !== state) return;
           if (!opening && !setShape(viewportRect(resolveCard()))) state.transition?.skipTransition();
         });

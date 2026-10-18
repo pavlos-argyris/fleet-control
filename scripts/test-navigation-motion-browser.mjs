@@ -15,9 +15,9 @@ try{
   page.on('pageerror',error=>errors.push(error.message));
   await context.addInitScript(({user,bikes})=>{
    localStorage.setItem('fleet-control-auth-token','fixture');localStorage.setItem('fleet-control-user-cache',JSON.stringify(user));localStorage.setItem('moto-service-tracker-v1',JSON.stringify(bikes));
-   window.__motionReady=0;window.__freezeNext=false;window.__motionFrozen=false;
+   window.__motionReady=0;window.__freezeNext=false;window.__motionFrozen=false;window.__motionFailure="";
    const start=document.startViewTransition?.bind(document);
-   if(start)document.startViewTransition=function(update){const t=start(update);t.ready.then(()=>requestAnimationFrame(()=>{window.__motionReady++;if(window.__freezeNext){window.__freezeNext=false;for(const a of document.getAnimations()){a.pause();a.currentTime=110;}window.__motionFrozen=true;}})).catch(()=>{});return t;};
+   if(start)document.startViewTransition=function(update){const t=start(update);t.ready.then(()=>requestAnimationFrame(()=>{window.__motionReady++;if(window.__freezeNext){window.__freezeNext=false;for(const a of document.getAnimations()){a.pause();a.currentTime=110;}window.__motionFrozen=true;}})).catch(error=>{window.__motionFailure=String(error);});return t;};
   },{user,bikes});
   await context.route('**/*',async route=>{
    const url=new URL(route.request().url());
@@ -43,7 +43,8 @@ try{
   if(mode!=='reduced')await page.evaluate(()=>{window.__freezeNext=true;window.__motionFrozen=false;});
   await card.click();
   if(mode!=='reduced'){
-   await page.waitForFunction(()=>window.__motionFrozen===true);
+   await page.waitForFunction(()=>window.__motionFrozen===true||window.__motionFailure);
+   assert.equal(await page.evaluate(()=>window.__motionFailure),'','Card transition must start without capture/update errors');
    assert.equal(await page.evaluate(()=>document.documentElement.dataset.fleetCardMotion),'open');
    const keyframes=await page.evaluate(()=>document.getAnimations().flatMap(a=>a.effect?.getKeyframes()||[]));assert.ok(keyframes.some(k=>String(k.clipPath||'').includes('inset(')),'Real browser uses the card-shaped reveal');
    assert.deepEqual(await page.evaluate(()=>['::view-transition-old(root)','::view-transition-new(root)'].map(p=>getComputedStyle(document.documentElement,p).opacity)),['1','1'],'No fading during the card transition');
@@ -59,7 +60,8 @@ try{
   await fleet.locator('#detailBackButton').click();
   await fleet.locator('#homeView:not(.is-hidden)').waitFor();
   if(mode!=='reduced'){
-   await page.waitForFunction(()=>window.__motionFrozen===true);
+   await page.waitForFunction(()=>window.__motionFrozen===true||window.__motionFailure);
+   assert.equal(await page.evaluate(()=>window.__motionFailure),'','Card transition must start without capture/update errors');
    await page.screenshot({path:path.join(output,mode+'-closing.png')});
    await page.evaluate(()=>document.getAnimations().forEach(a=>a.play()));
   }
@@ -110,7 +112,7 @@ try{
    const resized=await indicator.boundingBox(),resizedButton=await nav.locator('button.active').boundingBox();assert.ok(Math.abs(resized.x-resizedButton.x)<1&&Math.abs(resized.width-resizedButton.width)<1,'Resize keeps the indicator aligned');
    await page.emulateMedia({reducedMotion:'reduce'});await page.locator('#bottomNav [data-go="dashboard"]').click();assert.equal(await indicator.evaluate(node=>getComputedStyle(node).transitionDuration),'0s','Reduced motion skips indicator travel');
   }
-  assert.deepEqual(errors,[],mode+': no unhandled browser errors');report.push({mode,anchorRestored:true,realCardAnimation:mode!=='reduced',errors});await context.close();
+  assert.deepEqual(errors,[],mode+': no unhandled browser errors');report.push({mode,anchorRestored:true,realCardAnimation:mode!=='reduced',errors});console.log('OK navigation mode:',mode);await context.close();
  }
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify(report,null,2)+'\n');console.log('OK real Chromium: card expansion/reverse without fading, exact Back/Android-history scroll in standalone and embedded Portal, reduced motion, fixed bottom navigation and rapid tab changes.');
 }finally{await browser.close();}
