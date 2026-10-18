@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-e225ae4b-e516-4e81-be75-b1f3b31cd985",
-  "sourceCommit": "f113fd1a913c4bb4834394c1e6e2d89c5bc7191e",
-  "releaseVersion": "5.49.1",
-  "requestedAt": "2026-10-18T19:29:41.139Z",
-  "reason": "User requested a sliding green selection indicator on the fixed bottom navigation and removal of the blue tap highlight; standing authorization to publish automatically after successful exact-source CI."
+  "requestId": "fleet-5a8bcbfa-b384-432f-ba5e-dff05eb9cfdc",
+  "sourceCommit": "cd656c113c70be2b241860ae33e4dbfa0e3d58c2",
+  "releaseVersion": "5.49.2",
+  "requestedAt": "2026-10-18T19:56:35.037Z",
+  "reason": "User authorized automatic Fleet releases and requested fixing buggy bike open/back transitions; exact source CI 39160779779 passed including real browser and original project build checks."
 }
