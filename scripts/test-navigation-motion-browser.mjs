@@ -7,10 +7,10 @@ const publicRoot=path.resolve('cloudflare-worker/public'),output=path.resolve('v
 const user={id:'motion-owner',fullName:'Δοκιμαστικός Owner',username:'owner',role:'owner',permissions:['*']};
 const bikes=Array.from({length:35},(_,i)=>({id:'bike-'+i,name:'ΜΗΧ '+String(i).padStart(3,'0'),intervalKm:3000,lastServiceKm:1000,currentKm:1200,lastCheckedAt:'2026-10-18',createdAt:'2026-10-01',updatedAt:'2026-10-01',history:i===15?Array.from({length:15},(_,j)=>({id:'service-'+j,type:'service',date:'2026-09-01',km:1000-j,tasks:['Αλλαγή λαδιών'],notes:'Έλεγχος',oilChanged:true,createdAt:'2026-09-01'})):[]}));
 const empty={user,configured:true,bikes,version:1,snapshotVersion:1,serverOnline:true,databaseOk:true,storageOk:true,employees:[],vehicles:[],rules:[],shifts:[],alerts:[],documents:[],days:[],summary:{},today:{vehicles:{}},currentWeek:{payableHours:0,payrollCents:0,kilometers:0,startDate:'2026-10-12',endDate:'2026-10-18'},realtime:[],dailySchedule:[],actionCount:0};
-const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']});
 const report=[];
 try{
- for(const mode of ['standalone','embedded','reduced']){
+ for(const mode of ['standalone','embedded','client','reduced']){
   const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:mode==='reduced'?'reduce':'no-preference',serviceWorkers:'block'}),page=await context.newPage(),errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   await context.addInitScript(({user,bikes})=>{
@@ -21,14 +21,19 @@ try{
   },{user,bikes});
   await context.route('**/*',async route=>{
    const url=new URL(route.request().url());
-   if(url.pathname.startsWith('/api/'))return route.fulfill({status:url.pathname==='/api/events/ticket'?503:200,json:empty});
+   if(url.protocol==='file:')return route.continue();
+   if(url.pathname.startsWith('/api/')){
+    const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS'};
+    if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers});
+    return route.fulfill({status:url.pathname==='/api/events/ticket'?503:200,json:empty,headers});
+   }
    const relative=decodeURIComponent(url.pathname==='/'?'/portal.html':url.pathname),full=path.resolve(publicRoot,'.'+relative);
    if(!full.startsWith(publicRoot+path.sep)||!fs.existsSync(full)||!fs.statSync(full).isFile())return route.fulfill({status:404,body:'Not found'});
    const contentType=({'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'})[path.extname(full)]||'application/octet-stream';
    return route.fulfill({status:200,path:full,contentType});
   });
-  const embedded=mode==='embedded';
-  await page.goto('https://fixture.invalid/'+(embedded?'portal.html':'index.html'));
+  const embedded=mode==='embedded'||mode==='client';
+  await page.goto(mode==='client'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/'+(embedded?'portal.html':'index.html'));
   if(embedded)await page.locator('#bottomNav [data-go="fleet"]').click();
   const fleet=embedded?page.frameLocator('#fleetModuleFrame'):page;
   await fleet.locator('#bikeList [data-bike-id="bike-15"]').waitFor();
@@ -63,8 +68,9 @@ try{
    const nav=page.locator('#bottomNav'),box=await nav.boundingBox();
    await page.locator('#bottomNav [data-go="shifts"]').click();
    const motions=await page.locator('#viewShifts').evaluate(node=>node.getAnimations().map(a=>({frames:a.effect.getKeyframes(),duration:a.effect.getTiming().duration})));assert.ok(motions.some(a=>a.duration===190&&a.frames.some(k=>k.transform.includes('22px'))),'Bottom navigation animates the content');
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Tab animation does not create horizontal scrolling');
    assert.ok(Math.abs((await nav.boundingBox()).y-box.y)<1,'Bottom bar stays fixed');
-   await page.screenshot({path:path.join(output,'bottom-navigation.png')});
+   await page.screenshot({path:path.join(output,mode+'-bottom-navigation.png')});
    await page.evaluate(()=>{for(const target of ['employees','dashboard','shifts','employees'])document.querySelector('#bottomNav [data-go="'+target+'"]').click();});
    await page.locator('#viewEmployees:not(.is-hidden)').waitFor();assert.equal(await page.locator('#bottomNav .active').getAttribute('data-go'),'employees');
   }
