@@ -1,7 +1,7 @@
-# Fleet Control 5.49.0
+# Fleet Control 5.49.1
 
-Client/Web 5.49.0 · Server 2.2.5 · Worker 5.10.2.
-[Ανάπτυξη κάρτας και επιστροφή στη λίστα](docs/NAVIGATION_MOTION_5.49.0_GR.md).
+Client/Web 5.49.1 · Server 2.2.5 · Worker 5.10.3.
+[Πράσινη ένδειξη κάτω πλοήγησης](docs/BOTTOM_NAVIGATION_5.49.1_GR.md).
 
 # Fleet Control 5.47.0
 

@@ -387,6 +387,7 @@
     if (view !== "fleet") setFleetDetailMode(false);
     document.querySelectorAll("[data-view]").forEach(function (section) { section.classList.toggle("is-hidden", section.dataset.view !== view); });
     document.querySelectorAll("[data-go]").forEach(function (button) { button.classList.toggle("active", button.dataset.go === view); });
+    window.FleetMotion?.selectTab($("bottomNav"), animateNavigation);
     const title = viewTitles[view] || ["FLEET CONTROL", "Αρχική"];
     $("pageOverline").textContent = title[0];
     $("pageTitle").textContent = title[1];

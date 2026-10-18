@@ -26,7 +26,13 @@ w.document.startViewTransition = start;
 for (const name of ['service-model.js','fleet-operations-model.js','fleet-motion.js']) w.eval(fs.readFileSync('cloudflare-worker/public/'+name,'utf8'));
 let source = fs.readFileSync('cloudflare-worker/public/app.js','utf8'), marker = '}());'; source=source.slice(0,source.lastIndexOf(marker))+'window.__motionTest={openDetail,showHome,getBike,handleFleetNavigation,reorder(){bikes.reverse();},configure(){syncNow=async()=>{};}};'+marker; w.eval(source);
 await new Promise(r=>setTimeout(r,30)); w.__motionTest.configure();
-const wait = () => new Promise(r=>setTimeout(r,120)), card = () => w.document.querySelector('#bikeList [data-bike-id="bike-15"]');
+const wait = async () => {
+  for (let i=0;i<80;i++) {
+    await new Promise(r=>setTimeout(r,10));
+    if (!w.document.documentElement.hasAttribute('data-fleet-card-motion')) { await new Promise(r=>setTimeout(r,10)); return; }
+  }
+  assert.fail('Navigation transition did not settle');
+}, card = () => w.document.querySelector('#bikeList [data-bike-id="bike-15"]');
 y = 3200; const original = card().getBoundingClientRect().top;
 card().click(); await wait(); assert.equal(w.history.state.view,'detail'); assert.equal(y,0); assert.equal(w.document.querySelector('#detailView').classList.contains('is-hidden'),false);
 assert.equal(animations.at(-1).options.pseudoElement,'::view-transition-new(root)'); assert.ok(animations.at(-1).frames.clipPath[0].includes('round 20px'));

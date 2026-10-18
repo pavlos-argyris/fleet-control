@@ -1,0 +1,49 @@
+/* The page grows from the selected card. No opacity cross-fade. */
+#homeView, #detailView, #serviceOrderView, #quickCheckView, .app-view { animation: none; }
+.bike-card-title h3 { width: fit-content; }
+.portal .content { overflow-x: clip; }
+html[data-fleet-card-motion]::view-transition-old(fleet-bike-plate) { visibility: hidden; }
+html[data-fleet-card-motion]::view-transition-group(root) { animation: none; }
+html[data-fleet-card-motion]::view-transition-old(root),
+html[data-fleet-card-motion]::view-transition-new(root),
+html[data-fleet-card-motion]::view-transition-old(fleet-bike-plate),
+html[data-fleet-card-motion]::view-transition-new(fleet-bike-plate) {
+  animation: none;
+  mix-blend-mode: normal;
+  opacity: 1;
+}
+html[data-fleet-card-motion]::view-transition-image-pair(root) { isolation: auto; }
+html[data-fleet-card-motion="open"]::view-transition-new(root),
+html[data-fleet-card-motion="close"]::view-transition-old(root) { z-index: 2; }
+html[data-fleet-card-motion]::view-transition-group(fleet-bike-plate) {
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(.2,.7,.2,1);
+}
+#detailName { width: fit-content; }
+.bottom-nav { isolation: isolate; -webkit-tap-highlight-color: transparent; }
+.bottom-nav button {
+  position: relative;
+  z-index: 1;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.bottom-nav button:focus { outline: none; }
+.bottom-nav button:focus-visible { outline: 2px solid var(--teal-dark); outline-offset: -3px; }
+.bottom-nav button:active { color: var(--teal-dark); background: transparent; }
+.bottom-nav[data-sliding-indicator] button.active { background: transparent; }
+.bottom-nav-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  border: 1px solid rgba(7,145,127,.22);
+  border-radius: 11px;
+  background: #eaf7f4;
+  pointer-events: none;
+}
+.bottom-nav-indicator[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  html[data-fleet-card-motion]::view-transition-group(*) { animation-duration: 0s !important; }
+  .bottom-nav-indicator { transition: none !important; }
+}

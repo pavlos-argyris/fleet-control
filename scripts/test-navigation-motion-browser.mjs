@@ -11,7 +11,7 @@ const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow
 const report=[];
 try{
  for(const mode of ['standalone','embedded','client','reduced']){
-  const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:mode==='reduced'?'reduce':'no-preference',serviceWorkers:'block'}),page=await context.newPage(),errors=[];
+  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:mode==='reduced'?'reduce':'no-preference',serviceWorkers:'block'}),page=await context.newPage(),errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   await context.addInitScript(({user,bikes})=>{
    localStorage.setItem('fleet-control-auth-token','fixture');localStorage.setItem('fleet-control-user-cache',JSON.stringify(user));localStorage.setItem('moto-service-tracker-v1',JSON.stringify(bikes));
@@ -66,13 +66,27 @@ try{
   assert.ok(Math.abs(before.y-(await card.boundingBox()).y)<3,mode+': browser Back preserves the anchor');
   if(embedded){
    const nav=page.locator('#bottomNav'),box=await nav.boundingBox();
-   await page.locator('#bottomNav [data-go="shifts"]').click();
+   const shifts=page.locator('#bottomNav [data-go="shifts"]'),touch=await shifts.boundingBox();
+   await page.touchscreen.tap(touch.x+touch.width/2,touch.y+touch.height/2);
    const motions=await page.locator('#viewShifts').evaluate(node=>node.getAnimations().map(a=>({frames:a.effect.getKeyframes(),duration:a.effect.getTiming().duration})));assert.ok(motions.some(a=>a.duration===190&&a.frames.some(k=>k.transform.includes('22px'))),'Bottom navigation animates the content');
+   const indicator=nav.locator('.bottom-nav-indicator');
+   assert.ok(await indicator.evaluate(node=>node.getAnimations().some(a=>a.transitionProperty==='transform'&&a.effect.getTiming().duration===220)),'One green indicator slides between the actual buttons');
+   assert.equal(await nav.locator('button.active').getAttribute('aria-current'),'page');
+   assert.equal(await shifts.evaluate(node=>getComputedStyle(node).webkitTapHighlightColor),'rgba(0, 0, 0, 0)','Touch feedback never uses the browser blue highlight');
+   assert.equal(await shifts.evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)','Selected button does not paint a second stationary pill');
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Tab animation does not create horizontal scrolling');
    assert.ok(Math.abs((await nav.boundingBox()).y-box.y)<1,'Bottom bar stays fixed');
+   await indicator.evaluate(node=>node.getAnimations().forEach(a=>{a.pause();a.currentTime=90;}));
    await page.screenshot({path:path.join(output,mode+'-bottom-navigation.png')});
+   await indicator.evaluate(node=>node.getAnimations().forEach(a=>a.play()));
    await page.evaluate(()=>{for(const target of ['employees','dashboard','shifts','employees'])document.querySelector('#bottomNav [data-go="'+target+'"]').click();});
    await page.locator('#viewEmployees:not(.is-hidden)').waitFor();assert.equal(await page.locator('#bottomNav .active').getAttribute('data-go'),'employees');
+   await page.waitForTimeout(250);
+   const final=await indicator.boundingBox(),selected=await nav.locator('button.active').boundingBox();assert.ok(Math.abs(final.x-selected.x)<1&&Math.abs(final.width-selected.width)<1,'Rapid retargeting ends on the selected button');
+   assert.equal(await nav.locator('.bottom-nav-indicator').count(),1);
+   await page.setViewportSize({width:430,height:844});await page.waitForTimeout(80);
+   const resized=await indicator.boundingBox(),resizedButton=await nav.locator('button.active').boundingBox();assert.ok(Math.abs(resized.x-resizedButton.x)<1&&Math.abs(resized.width-resizedButton.width)<1,'Resize keeps the indicator aligned');
+   await page.emulateMedia({reducedMotion:'reduce'});await page.locator('#bottomNav [data-go="dashboard"]').click();assert.equal(await indicator.evaluate(node=>getComputedStyle(node).transitionDuration),'0s','Reduced motion skips indicator travel');
   }
   assert.deepEqual(errors,[],mode+': no unhandled browser errors');report.push({mode,anchorRestored:true,realCardAnimation:mode!=='reduced',errors});await context.close();
  }
