@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-5a8bcbfa-b384-432f-ba5e-dff05eb9cfdc",
-  "sourceCommit": "cd656c113c70be2b241860ae33e4dbfa0e3d58c2",
-  "releaseVersion": "5.49.2",
-  "requestedAt": "2026-10-18T19:56:35.037Z",
-  "reason": "User authorized automatic Fleet releases and requested fixing buggy bike open/back transitions; exact source CI 39160779779 passed including real browser and original project build checks."
+  "requestId": "fleet-0a4b6096-2bdf-47c8-83f0-396c4fa8d94b",
+  "sourceCommit": "afccb48aea8548ff955dcd7f7dc2fcd77be1edc2",
+  "releaseVersion": "5.49.3",
+  "requestedAt": "2026-10-18T21:07:12.905Z",
+  "reason": "User approved the unified green plate and motorcycle surface for bike closing, with automatic publication after verification; exact source CI 39166128741 passed including browser snapshots and APK builds."
 }
