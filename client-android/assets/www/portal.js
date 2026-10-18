@@ -324,6 +324,7 @@
   }
 
   function showAuth() {
+    window.FleetMotion?.finish();
     window.FleetLive?.stop();
     setFleetDetailMode(false);
     $("bootScreen").classList.add("is-hidden");
@@ -377,7 +378,10 @@
   async function goTo(view) {
     const allowed = availableNavigation().some(function (item) { return item.id === view; });
     if (!allowed) return;
+    window.FleetMotion?.finish();
     const navigationId = ++navigationSequence;
+    const previousView = state.view;
+    const animateNavigation = previousView !== view && !$("portal").classList.contains("is-hidden");
     state.view = view;
     $("portal").classList.toggle("fleet-focus-mode", view === "fleet");
     if (view !== "fleet") setFleetDetailMode(false);
@@ -389,6 +393,10 @@
     $("portal").classList.remove("sidebar-open");
     window.scrollTo(0, 0);
     if (view === "fleet") ensureFleetModule();
+    if (animateNavigation) {
+      const order = availableNavigation().map(item => item.id);
+      window.FleetMotion?.slide(document.querySelector('[data-view="' + view + '"]'), order.indexOf(view) < order.indexOf(previousView) ? -1 : 1);
+    }
     const ttl = Number(VIEW_CACHE_MS[view] || 0);
     if (ttl && Date.now() - Number(state.viewLoadedAt[view] || 0) < ttl) {
       if (view === "invoices") refreshInvoiceReprocessBatch();
@@ -3562,12 +3570,18 @@
     }
   }
 
+  let fleetHostScroll = null;
   function setFleetDetailMode(active) {
     const enabled = Boolean(active);
+    const wasEnabled = document.documentElement.classList.contains("fleet-detail-mode");
+    if (enabled && !wasEnabled) fleetHostScroll = { x: window.scrollX || 0, y: window.scrollY || 0 };
     const portal = $("portal");
     if (portal) portal.classList.toggle("fleet-detail-mode", enabled);
     document.documentElement.classList.toggle("fleet-detail-mode", enabled);
+    if (!enabled && wasEnabled && state.view === "fleet" && fleetHostScroll) window.scrollTo({left:fleetHostScroll.x,top:fleetHostScroll.y,behavior:"instant"});
   }
+
+  window.FleetPortalLayout = { setDetailMode(active) { if (state.view === "fleet") setFleetDetailMode(active); } };
 
   function ensureFleetModule() {
     const frame = $("fleetModuleFrame");
@@ -4272,6 +4286,7 @@
       if (!message || message.type !== "fleet-control:embedded-view") return;
       const immersiveFleetView = message.view === "detail" || message.view === "quick-check" || message.view === "service-order";
       setFleetDetailMode(state.view === "fleet" && immersiveFleetView);
+      if (!immersiveFleetView) requestAnimationFrame(function () { frame.contentWindow?.postMessage({type:"fleet-control:layout-ready"}, "*"); });
     });
     $("runReport").addEventListener("click", runReport);
     $("reportPdf").addEventListener("click", function () { if (state.report) window.print(); else toast("Δημιούργησε πρώτα την αναφορά."); });

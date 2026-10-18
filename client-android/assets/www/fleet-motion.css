@@ -1,0 +1,22 @@
+/* The page grows from the selected card. No opacity cross-fade. */
+#homeView, #detailView, #serviceOrderView, #quickCheckView, .app-view { animation: none; }
+html[data-fleet-card-motion]::view-transition-group(root) { animation: none; }
+html[data-fleet-card-motion]::view-transition-old(root),
+html[data-fleet-card-motion]::view-transition-new(root),
+html[data-fleet-card-motion]::view-transition-old(fleet-bike-plate),
+html[data-fleet-card-motion]::view-transition-new(fleet-bike-plate) {
+  animation: none;
+  mix-blend-mode: normal;
+  opacity: 1;
+}
+html[data-fleet-card-motion]::view-transition-image-pair(root) { isolation: auto; }
+html[data-fleet-card-motion="open"]::view-transition-new(root),
+html[data-fleet-card-motion="close"]::view-transition-old(root) { z-index: 2; }
+html[data-fleet-card-motion]::view-transition-group(fleet-bike-plate) {
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(.2,.7,.2,1);
+}
+#detailName { width: fit-content; }
+@media (prefers-reduced-motion: reduce) {
+  html[data-fleet-card-motion]::view-transition-group(*) { animation-duration: 0s !important; }
+}

@@ -1,6 +1,6 @@
 {
   "name": "fleet-control-cloudflare",
-  "version": "5.10.1",
+  "version": "5.10.2",
   "type": "module",
   "private": true,
   "scripts": {
@@ -14,6 +14,7 @@
   "devDependencies": {
     "jsdom": "26.1.0",
     "pdfjs-dist": "6.4.299",
+    "playwright": "1.62.1",
     "wrangler": "^4.148.0"
   }
 }

@@ -34,6 +34,8 @@
   let bikes = loadBikes();
   let activeBikeId = null;
   let serviceOrderHomeScroll = 0;
+  let homeListPosition = null;
+  let serviceOrderPosition = null;
   let activeHistoryFilter = "service";
   let deferredInstallPrompt = null;
   let toastTimer = null;
@@ -1586,10 +1588,16 @@
     );
   }
 
+  function fleetMotionController() {
+    try { if (isEmbedded && window.parent.FleetMotion && window.parent.FleetPortalLayout) return window.parent.FleetMotion; } catch (error) {}
+    return window.FleetMotion;
+  }
+
   function setDetailPresentation(active, view) {
     document.documentElement.classList.toggle("fleet-detail-view", Boolean(active));
     if (!isEmbedded || window.parent === window) return;
     try {
+      window.parent.FleetPortalLayout?.setDetailMode(Boolean(active));
       window.parent.postMessage({ type: "fleet-control:embedded-view", view: view || (active ? "detail" : "home") }, "*");
     } catch (error) {}
   }
@@ -1636,7 +1644,10 @@
   }
 
   function openServiceOrder(pushState) {
-    if (pushState !== false) serviceOrderHomeScroll = window.scrollY || 0;
+    if (pushState !== false) {
+      serviceOrderHomeScroll = window.scrollY || 0;
+      if (!elements.homeView.classList.contains("is-hidden")) homeListPosition = window.FleetMotion?.capture(elements.homeView);
+    }
     activeBikeId = null;
     elements.homeView.classList.add("is-hidden");
     elements.quickCheckView.classList.add("is-hidden");
@@ -1878,6 +1889,8 @@
   }
 
   function openQuickCheck(pushState, bikeId) {
+    fleetMotionController()?.finish();
+    if (pushState !== false && !elements.homeView.classList.contains("is-hidden")) homeListPosition = window.FleetMotion?.capture(elements.homeView);
     const requestedBike = bikeId ? getBike(bikeId) : getBike(elements.quickBikeSelect.value);
     elements.serviceOrderView.classList.add("is-hidden");
     if (requestedBike) {
@@ -1902,38 +1915,55 @@
   }
 
   function showHome() {
-    activeBikeId = null;
-    elements.serviceOrderView.classList.add("is-hidden");
-    elements.quickCheckView.classList.add("is-hidden");
-    elements.detailView.classList.add("is-hidden");
-    elements.homeView.classList.remove("is-hidden");
-    setDetailPresentation(false, "home");
-    renderArchiveAccess();
-    renderHome();
-    window.scrollTo(0, 0);
+    fleetMotionController()?.finish();
+    const closingBikeId = activeBikeId;
+    const update = function () {
+      activeBikeId = null;
+      elements.serviceOrderView.classList.add("is-hidden");
+      elements.quickCheckView.classList.add("is-hidden");
+      elements.detailView.classList.add("is-hidden");
+      elements.homeView.classList.remove("is-hidden");
+      setDetailPresentation(false, "home");
+      renderArchiveAccess();
+      renderHome();
+      if (homeListPosition && window.FleetMotion) window.FleetMotion.restore(elements.homeView, homeListPosition, true);
+      else window.scrollTo(0, 0);
+    };
+    const resolveCard = function () { return Array.from(elements.bikeList.querySelectorAll("[data-bike-id]")).find(node => node.dataset.bikeId === closingBikeId); };
+    if (closingBikeId && fleetMotionController()) fleetMotionController().card({ opening: false, resolveCard, detail: elements.detailView, update });
+    else update();
   }
 
   function openDetail(bikeId, pushState) {
+    fleetMotionController()?.finish();
     const bike = getBike(bikeId);
-    if (!bike) {
-      showHome();
-      return;
-    }
-    activeBikeId = bikeId;
-    activeHistoryFilter = "service";
-    renderDetail();
-    elements.serviceOrderView.classList.add("is-hidden");
-    elements.homeView.classList.add("is-hidden");
-    elements.quickCheckView.classList.add("is-hidden");
-    elements.detailView.classList.remove("is-hidden");
-    setDetailPresentation(true, "detail");
-    renderArchiveAccess();
-    window.scrollTo(0, 0);
+    if (!bike) { showHome(); return; }
+    const fromHome = !elements.homeView.classList.contains("is-hidden");
+    const resolveCard = function () { return Array.from(elements.bikeList.querySelectorAll("[data-bike-id]")).find(node => node.dataset.bikeId === bikeId); };
+    if (fromHome) homeListPosition = window.FleetMotion?.capture(elements.homeView, resolveCard());
+    if (!elements.serviceOrderView.classList.contains("is-hidden")) serviceOrderPosition = window.FleetMotion?.capture(elements.serviceOrderView);
+    const update = function () {
+      activeBikeId = bikeId;
+      activeHistoryFilter = "service";
+      renderDetail();
+      elements.serviceOrderView.classList.add("is-hidden");
+      elements.homeView.classList.add("is-hidden");
+      elements.quickCheckView.classList.add("is-hidden");
+      elements.detailView.classList.remove("is-hidden");
+      setDetailPresentation(true, "detail");
+      renderArchiveAccess();
+      window.scrollTo(0, 0);
+      elements.detailName.setAttribute("tabindex", "-1");
+      elements.detailName.focus({ preventScroll: true });
+    };
     if (pushState !== false) {
       try {
+        history.replaceState(Object.assign({}, history.state, { fleetListPosition: fromHome ? homeListPosition : serviceOrderPosition }), "");
         history.pushState({ view: "detail", bikeId: bikeId }, "", "#bike=" + encodeURIComponent(bikeId));
       } catch (error) {}
     }
+    if (fromHome && fleetMotionController()) fleetMotionController().card({ opening: true, resolveCard, detail: elements.detailView, update });
+    else update();
   }
 
   function stripInvoicePartCode(value) {
@@ -4187,6 +4217,7 @@
   });
 
   function handleFleetNavigation(event) {
+    fleetMotionController()?.finish();
     const leavingServiceOrder = !elements.serviceOrderView.classList.contains("is-hidden");
     if (historyReportOpen) {
       closeHistoryReport(true);
@@ -4198,12 +4229,18 @@
       openQuickCheck(false, event.state.bikeId);
     } else if (event.state && event.state.view === "service-order") {
       openServiceOrder(false);
+      if (window.FleetMotion && serviceOrderPosition) window.FleetMotion.restore(elements.serviceOrderView, event.state.fleetListPosition || serviceOrderPosition);
     } else {
+      if (event.state?.fleetListPosition) homeListPosition = event.state.fleetListPosition;
       showHome();
       if (leavingServiceOrder) window.scrollTo(0, serviceOrderHomeScroll);
     }
   }
   window.addEventListener("popstate", handleFleetNavigation);
+  window.addEventListener("message", function (event) {
+    if (event.source !== window.parent || event.data?.type !== "fleet-control:layout-ready") return;
+    if (!elements.homeView.classList.contains("is-hidden") && homeListPosition) window.FleetMotion?.restore(elements.homeView, homeListPosition);
+  });
 
   window.addEventListener("beforeinstallprompt", function (event) {
     event.preventDefault();
@@ -4310,6 +4347,7 @@
   setInterval(function(){if(!fleetScreenActive())return;const delay=window.FleetLive?.connected()?300000:60000;if(Date.now()-fleetLastPoll>=delay){fleetLastPoll=Date.now();syncNow();}}, 15000);
 
   try {
+    history.scrollRestoration = "manual";
     history.replaceState({ view: "home" }, "");
   } catch (error) {}
   saveBikes(false);

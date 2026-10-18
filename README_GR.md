@@ -1,7 +1,7 @@
-# Fleet Control 5.48.1
+# Fleet Control 5.49.0
 
-Client/Web 5.48.1 · Server 2.2.5 · Worker 5.10.1.
-[Λιγότερα αιτήματα και ειδοποιήσεις αλλαγών](docs/REQUEST_REDUCTION_5.48.0_GR.md).
+Client/Web 5.49.0 · Server 2.2.5 · Worker 5.10.2.
+[Ανάπτυξη κάρτας και επιστροφή στη λίστα](docs/NAVIGATION_MOTION_5.49.0_GR.md).
 
 # Fleet Control 5.47.0
 

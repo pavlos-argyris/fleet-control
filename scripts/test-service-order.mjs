@@ -17,24 +17,25 @@ const bikes = [
 ];
 const node = hidden => {
   const classes = new Set(hidden ? ['is-hidden'] : []);
-  return { innerHTML: '', textContent: '', classList: { add: x => classes.add(x), remove: x => classes.delete(x), contains: x => classes.has(x) } };
+  return { innerHTML: '', textContent: '', querySelectorAll: () => [], setAttribute() {}, focus() {}, classList: { add: x => classes.add(x), remove: x => classes.delete(x), contains: x => classes.has(x) } };
 };
-const elements = { homeView: node(false), detailView: node(true), quickCheckView: node(true), serviceOrderView: node(true), serviceOrderSummary: node(), serviceOrderList: node() };
+const elements = { homeView: node(false), detailView: node(true), quickCheckView: node(true), serviceOrderView: node(true), serviceOrderSummary: node(), serviceOrderList: node(), bikeList: node(), detailName: node() };
 const stack = [{ view: 'home' }]; let position = 0; const scrolls = []; const modes = [];
 const history = {
   get state() { return stack[position]; },
   pushState(state) { stack.splice(position + 1); stack.push(state); position++; },
+  replaceState(state) { stack[position] = state; },
   back() { if (position) { position--; context.handleFleetNavigation({ state: stack[position] }); } }
 };
 const context = vm.createContext({ bikes, elements, history, Set, Date, Number, String,
-  activeBikeId: null, activeHistoryFilter: '', serviceOrderHomeScroll: 0, historyReportOpen: false,
+  isEmbedded: false, homeListPosition: null, serviceOrderPosition: null, activeBikeId: null, activeHistoryFilter: '', serviceOrderHomeScroll: 0, historyReportOpen: false,
   window: { scrollY: 850, scrollTo: (x, y) => scrolls.push(y) },
   getBike: id => bikes.find(x => x.id === id), renderDetail() {}, renderArchiveAccess() {}, renderHome() {},
   setDetailPresentation: (active, view) => modes.push(view),
   formatDate: value => String(value), formatKm: value => value + ' km',
   escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
 });
-vm.runInContext(['serviceDateKey', 'latestServiceRows', 'renderServiceOrder', 'openServiceOrder', 'backFromServiceOrder', 'showHome', 'openDetail', 'handleFleetNavigation'].map(extract).join('\n'), context);
+vm.runInContext(['fleetMotionController', 'serviceDateKey', 'latestServiceRows', 'renderServiceOrder', 'openServiceOrder', 'backFromServiceOrder', 'showHome', 'openDetail', 'handleFleetNavigation'].map(extract).join('\n'), context);
 const original = JSON.stringify(bikes);
 const rows = context.latestServiceRows(bikes);
 assert.deepEqual(Array.from(rows.slice(0, 3), x => x.bike.id), ['new', 'old-upload', 'deleted']);
