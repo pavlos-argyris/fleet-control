@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-3ba4998a-bcee-4634-9374-373cdb1d2734",
-  "sourceCommit": "4c6e4a3d4850af19e2680e7afcba7d9698a39907",
-  "releaseVersion": "5.48.1",
-  "requestedAt": "2026-10-18T17:48:22.130Z",
-  "reason": "User authorized automatic publication of all five request-reduction improvements; retry delivery as 5.48.1 after correcting Web release capacity."
+  "requestId": "fleet-e9541a9d-11cc-4950-b261-8f24f1b5a195",
+  "sourceCommit": "5d891f1c4ea46352255baafa213b64ea8fdcbf2a",
+  "releaseVersion": "5.49.0",
+  "requestedAt": "2026-10-18T18:56:27.358Z",
+  "reason": "User approved card expansion with return to the original Fleet list position and added effects to bottom navigation; standing authorization to publish automatically after successful exact-source CI."
 }
