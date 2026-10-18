@@ -38,7 +38,11 @@ card().click(); await wait(); assert.equal(w.history.state.view,'detail'); asser
 assert.equal(animations.length,0,'Card transitions must not leave fill:both animations attached to documentElement');
 assert.equal(w.document.documentElement.style.getPropertyValue('--fleet-card-shape'),'');
 w.document.querySelector('#detailBackButton').click(); await wait(); assert.equal(w.document.querySelector('#homeView').classList.contains('is-hidden'),false); assert.equal(card().getBoundingClientRect().top,original); assert.equal(w.document.activeElement,card());
-assert.equal(animations.length,0,'Reverse transition also uses lifecycle-bound CSS');
+assert.equal(animations.length,1,'Back animates one disposable surface');
+assert.ok(animations[0].node.classList.contains('fleet-bike-return-surface'));
+assert.equal(animations[0].node.querySelector('strong').textContent,'ΜΗΧ 015');
+assert.equal(animations[0].node.querySelectorAll('svg').length,1);
+assert.equal(w.document.querySelector('.fleet-bike-return-surface'),null);
 // Forward, rapid Back before capture, repeated actions and old cleanup cannot undo the latest navigation.
 w.history.forward(); await wait(); assert.equal(w.history.state.view,'detail'); w.history.back(); await wait();
 card().click(); w.__motionTest.showHome(); await wait(); assert.equal(w.document.querySelector('#homeView').classList.contains('is-hidden'),false); assert.equal(card().getBoundingClientRect().top,original);
@@ -61,4 +65,11 @@ await wait();assert.equal(childDetail.querySelector('h2').style.visibility,'');
 w.FleetMotion.card({opening:true,resolveCard:()=>childCard,detail:childDetail,update(){}});
 w.FleetMotion.finish();assert.equal(w.document.documentElement.dataset.fleetCardMotion,'open');
 await wait();assert.equal(w.document.documentElement.style.getPropertyValue('--fleet-card-shape'),'');
+// Interrupted Back removes the surface and cannot commit the navigation twice.
+let closeUpdates=0;
+w.FleetMotion.card({opening:false,resolveCard:()=>childCard,detail:childDetail,update(){closeUpdates++;}});
+assert.equal(w.document.querySelector('.fleet-bike-return-surface strong').textContent,'ΜΗΧ 015');
+assert.equal(w.document.querySelector('.fleet-bike-return-surface').children.length,2);
+w.FleetMotion.finish();assert.equal(w.document.querySelector('.fleet-bike-return-surface'),null);
+await wait();assert.equal(closeUpdates,1);
 dom.window.close(); console.log('OK actual Fleet navigation: card reveal/reverse, anchored Back/Forward, rapid interruption, cleanup, focus, reduced motion, unsupported API and slide without opacity.');

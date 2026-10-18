@@ -16,6 +16,16 @@ try{
   await context.addInitScript(({user,bikes})=>{
    localStorage.setItem('fleet-control-auth-token','fixture');localStorage.setItem('fleet-control-user-cache',JSON.stringify(user));localStorage.setItem('moto-service-tracker-v1',JSON.stringify(bikes));
    window.__motionReady=0;window.__freezeNext=false;window.__motionFrozen=false;window.__motionFailure="";
+   window.__freezeReturnNext=false;window.__returnFrozen=false;
+   const animate=Element.prototype.animate;
+   Element.prototype.animate=function(...args){
+    const animation=animate.apply(this,args);
+    if(this.classList.contains('fleet-bike-return-surface')&&window.__freezeReturnNext){
+     window.__freezeReturnNext=false;
+     animation.ready.then(()=>{animation.pause();animation.currentTime=110;window.__returnFrozen=true;});
+    }
+    return animation;
+   };
    const start=document.startViewTransition?.bind(document);
    if(start)document.startViewTransition=function(update){const t=start(update);t.ready.then(()=>requestAnimationFrame(()=>{window.__motionReady++;if(window.__freezeNext){window.__freezeNext=false;for(const a of document.getAnimations()){a.pause();a.currentTime=110;}window.__motionFrozen=true;}})).catch(error=>{window.__motionFailure=String(error);});return t;};
   },{user,bikes});
@@ -55,18 +65,30 @@ try{
   await fleet.locator('#detailName').waitFor();assert.equal(await fleet.locator('#detailName').textContent(),'ΜΗΧ 015');
   if(embedded)assert.equal(await page.locator('#portal').evaluate(node=>node.classList.contains('fleet-detail-mode')),true);
   await page.screenshot({path:path.join(output,mode+'-detail.png')});
-  // Explicit Back and browser/Android history share the actual popstate handler.
-  if(mode!=='reduced')await page.evaluate(()=>{window.__freezeNext=true;window.__motionFrozen=false;});
+  // Explicit Back uses one live green surface, never a detail snapshot.
+  const openingCaptures=await page.evaluate(()=>window.__motionReady);
+  if(mode!=='reduced')await page.evaluate(()=>{window.__freezeReturnNext=true;window.__returnFrozen=false;});
   await fleet.locator('#detailBackButton').click();
   await fleet.locator('#homeView:not(.is-hidden)').waitFor();
   if(mode!=='reduced'){
-   await page.waitForFunction(()=>window.__motionFrozen===true||window.__motionFailure);
-   assert.equal(await page.evaluate(()=>window.__motionFailure),'','Card transition must start without capture/update errors');
+   await page.waitForFunction(()=>window.__returnFrozen===true);
+   const surface=page.locator('.fleet-bike-return-surface');
+   assert.equal(await surface.count(),1);
+   assert.equal(await surface.locator('strong').textContent(),'ΜΗΧ 015');
+   assert.equal(await surface.locator('svg').count(),1);
+   assert.equal(await surface.locator('img,canvas,iframe,#detailView').count(),0,'No thumbnail or copied detail content');
+   assert.equal(await surface.evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(234, 247, 244)');
+   assert.equal(await surface.locator('strong').evaluate(node=>node.getAnimations().length),0,'Plate does not move independently');
+   const panel=await surface.boundingBox(),plate=await surface.locator('strong').boundingBox(),icon=await surface.locator('svg').boundingBox();
+   assert.ok(Math.abs(plate.x+plate.width/2-panel.x-panel.width/2)<1,'Plate stays centred inside its moving surface');
+   assert.ok(Math.abs(icon.x+icon.width/2-panel.x-panel.width/2)<1,'Icon stays centred inside its moving surface');
+   assert.equal(await page.evaluate(()=>window.__motionReady),openingCaptures,'Back does not capture a View Transition screenshot');
    await page.screenshot({path:path.join(output,mode+'-closing.png')});
-   await page.evaluate(()=>document.getAnimations().forEach(a=>a.play()));
+   await surface.evaluate(node=>node.getAnimations().forEach(a=>a.play()));
   }
   await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
   await page.waitForTimeout(80);
+  assert.equal(await page.locator('.fleet-bike-return-surface').count(),0,'Temporary return surface is fully removed');
   const after=await card.boundingBox();assert.ok(Math.abs(before.y-after.y)<3,`${mode}: restore ${before.y} -> ${after.y}`);
   await page.screenshot({path:path.join(output,mode+'-restored.png')});
   // Repeated real transitions used to retain fill:both WAAPI effects on html.
@@ -81,7 +103,7 @@ try{
    await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
    await page.waitForTimeout(40);
    assert.ok(Math.abs(before.y-(await card.boundingBox()).y)<3,mode+': repeated/deep Back preserves the anchor');
-   assert.equal(await page.locator('[data-fleet-plate-proxy]').count(),0,'No independent flying or duplicate plate');
+   assert.equal(await page.locator('[data-fleet-plate-proxy],.fleet-bike-return-surface').count(),0,'No plate proxy or surface remains after returning');
    assert.equal(await page.evaluate(()=>document.getAnimations().filter(a=>a.effect?.target===document.documentElement).length),0,'No retained root animations after a complete cycle');
   }
 
@@ -112,7 +134,7 @@ try{
    const resized=await indicator.boundingBox(),resizedButton=await nav.locator('button.active').boundingBox();assert.ok(Math.abs(resized.x-resizedButton.x)<1&&Math.abs(resized.width-resizedButton.width)<1,'Resize keeps the indicator aligned');
    await page.emulateMedia({reducedMotion:'reduce'});await page.locator('#bottomNav [data-go="dashboard"]').click();assert.equal(await indicator.evaluate(node=>getComputedStyle(node).transitionDuration),'0s','Reduced motion skips indicator travel');
   }
-  assert.deepEqual(errors,[],mode+': no unhandled browser errors');report.push({mode,anchorRestored:true,realCardAnimation:mode!=='reduced',errors});console.log('OK navigation mode:',mode);await context.close();
+  assert.deepEqual(errors,[],mode+': no unhandled browser errors');report.push({mode,anchorRestored:true,realCardAnimation:mode!=='reduced',returnSurfaceOnly:mode!=='reduced',errors});console.log('OK navigation mode:',mode);await context.close();
  }
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify(report,null,2)+'\n');console.log('OK real Chromium: card expansion/reverse without fading, exact Back/Android-history scroll in standalone and embedded Portal, reduced motion, fixed bottom navigation and rapid tab changes.');
 }finally{await browser.close();}
