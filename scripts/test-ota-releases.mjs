@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, webcrypto } from 'node:crypto';
 import worker from '../cloudflare-worker/src/worker.js';
+import { MAX_WEB_RELEASE_FILES, MAX_RELEASE_MANIFEST_BYTES, releaseCapacityError } from '../cloudflare-worker/src/release-limits.js';
 globalThis.crypto ||= webcrypto;
 const sqlite = new DatabaseSync(':memory:');
 let failBatch = false;
@@ -74,5 +75,28 @@ assert.equal((await call('/api/deploy/releases/activate', 'POST', two.manifest, 
 const wrong = structuredClone(two.manifest); wrong.server.packageName = 'other.app';
 assert.equal((await call('/api/deploy/releases/activate', 'POST', wrong, 'publisher')).status, 400);
 const traversal = await call('/api/deploy/releases/test-x/web/%2e%2e%2fkey', 'PUT', apk('data'), 'publisher'); assert.equal(traversal.status, 400);
+const large = release('test-versioned-assets', 50, 18, 'c'.repeat(40));
+for (let i = 0; large.manifest.web.files.length < 300; i++) {
+  const path = `assets/v5.48.1/script-${i}.js`, bytes = new Uint8Array(Buffer.from('// immutable ' + i));
+  large.bytes['web/' + path] = bytes;
+  large.manifest.web.files.push({ path, sizeBytes: bytes.length, sha256: digest(bytes) });
+}
+assert.equal(releaseCapacityError(large.manifest), '');
+await upload(large);
+const missingKey = 'ota/test-versioned-assets/web/assets/v5.48.1/script-296.js', saved = objects.get(missingKey);
+assert.ok(saved); objects.delete(missingKey);
+assert.equal((await call('/api/deploy/releases/activate', 'POST', large.manifest, 'publisher')).status, 409, 'Every file beyond the old 250-file limit is still verified');
+assert.equal((await (await call('/api/client-update')).json()).versionCode, 49, 'Incomplete large release preserves active pointers');
+objects.set(missingKey, saved);
+assert.equal((await call('/api/deploy/releases/activate', 'POST', large.manifest, 'publisher')).status, 200, 'Versioned static bundles with more than 250 files activate');
+assert.equal((await (await call('/api/client-update')).json()).versionCode, 50);
+const tooMany = structuredClone(large.manifest);
+while (tooMany.web.files.length <= MAX_WEB_RELEASE_FILES) tooMany.web.files.push({ ...tooMany.web.files[0], path: `extra-${tooMany.web.files.length}.js` });
+assert.match(releaseCapacityError(tooMany), /512/);
+assert.equal((await call('/api/deploy/releases/activate', 'POST', tooMany, 'publisher')).status, 400);
+const tooBig = { ...large.manifest, notes: 'α'.repeat(MAX_RELEASE_MANIFEST_BYTES / 2) };
+assert.match(releaseCapacityError(tooBig), /128 KiB/);
+assert.equal((await call('/api/deploy/releases/activate', 'POST', tooBig, 'publisher')).status, 413, 'Manifest byte limit also applies to multibyte text');
+assert.equal((await (await call('/api/client-update')).json()).versionCode, 50);
 sqlite.close();
 console.log('PASS: authenticated publication, complete uploads, hashes, immutable APKs, atomic rollback, exact downloads, protected Server, automatic downgrade rejection, Web activation and SW freshness.');

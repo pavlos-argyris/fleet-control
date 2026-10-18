@@ -1,5 +1,6 @@
 // The publishing credential is separate from the Android Server credential.
 // Uploads are immutable; one D1 transaction switches all three active releases.
+import { MAX_RELEASE_MANIFEST_BYTES, releaseCapacityError } from './release-limits.js';
 const PACKAGES = { client: "gr.argyrismitsos.fleetcontrol", server: "gr.argyrismitsos.fleetserver" };
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const SHA = /^[a-f0-9]{64}$/;
@@ -20,10 +21,12 @@ export async function routeReleases(request, env, helpers) {
     if (!env.RELEASE_TOKEN || !token || !await secureEqual(token, env.RELEASE_TOKEN)) return json({ error: "Δεν επιτρέπεται η δημοσίευση." }, 401);
     if (!env.RELEASES) return json({ error: "Λείπει ο χώρος εκδόσεων." }, 503);
     if (path === "/api/deploy/releases/activate" && request.method === "POST") {
-      if (Number(request.headers.get("content-length") || 0) > 128 * 1024) return json({ error: "Μεγάλο manifest." }, 413);
+      if (Number(request.headers.get("content-length") || 0) > MAX_RELEASE_MANIFEST_BYTES) return json({ error: "Μεγάλο manifest." }, 413);
       const text = await request.text();
-      if (text.length > 128 * 1024) return json({ error: "Μεγάλο manifest." }, 413);
+      if (new TextEncoder().encode(text).length > MAX_RELEASE_MANIFEST_BYTES) return json({ error: "Μεγάλο manifest." }, 413);
       let body; try { body = JSON.parse(text); } catch { return json({ error: "Μη έγκυρο JSON." }, 400); }
+      const capacityError = releaseCapacityError(body);
+      if (capacityError) return json({ error: capacityError }, 400);
       const releaseId = String(body.releaseId || ""), sourceCommit = String(body.sourceCommit || "");
       if (!ID.test(releaseId) || !/^[a-f0-9]{40}$/.test(sourceCommit)) return json({ error: "Λείπει έγκυρη ταυτότητα έκδοσης/κώδικα." }, 400);
       const records = [], now = new Date().toISOString(), notes = String(body.notes || "").slice(0, 3000);
@@ -38,7 +41,7 @@ export async function routeReleases(request, env, helpers) {
         records.push({ id: `${kind}-${releaseId}`, kind, version: value.version, key, size: value.sizeBytes, sha: value.sha256, manifest: JSON.stringify({ ...value, releaseId, sourceCommit }) });
       }
       const web = body.web;
-      if (!web || typeof web.version !== "string" || !web.version || web.version.length > 40 || !Array.isArray(web.files) || web.files.length < 1 || web.files.length > 250) return json({ error: "Μη έγκυρο web manifest." }, 400);
+      if (!web || typeof web.version !== "string" || !web.version || web.version.length > 40) return json({ error: "Μη έγκυρο web manifest." }, 400);
       const paths = new Set(); let total = 0;
       for (const file of web.files) {
         const filePath = assetPath(file.path);

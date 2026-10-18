@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { releaseCapacityError } from '../cloudflare-worker/src/release-limits.js';
 const config = JSON.parse(fs.readFileSync('release-config.json', 'utf8'));
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('A saved Git commit is required');
@@ -28,6 +29,8 @@ function walk(folder, prefix = '') {
 }
 manifest.web = { version: config.web.version, files: walk('cloudflare-worker/public') };
 manifest.worker = config.worker;
+const capacityError = releaseCapacityError(manifest);
+if (capacityError) throw new Error(capacityError);
 fs.writeFileSync('dist/release-manifest.json', JSON.stringify(manifest, null, 2) + '\n');
 execFileSync('git', ['archive', '--format=zip', '-o', `dist/Fleet_Control_Source_v${config.releaseVersion}.zip`, commit]);
 execFileSync('git', ['archive', '--format=zip', '-o', `dist/Fleet_Control_Worker_v${config.worker.version}.zip`, commit, 'cloudflare-worker', 'scripts/prepare-pdf-viewer.py', 'vendor/pdf-viewer-6.4.299.zip', 'third-party/PDFJS_LICENSE.txt', 'release-config.json', 'docs/SERVICE_UPDATE_5.43.0_GR.md', 'docs/FOLLOWUP_UPDATE_5.44.0_GR.md', 'docs/UI_NAVIGATION_UPDATE_5.45.0_GR.md', 'docs/OPERATIONS_UPDATE_5.46.0_GR.md', 'docs/SERVER_OFFLOAD_5.47.0_GR.md', 'docs/REQUEST_REDUCTION_5.48.0_GR.md']);

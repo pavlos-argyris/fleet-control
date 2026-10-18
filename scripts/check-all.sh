@@ -4,6 +4,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 python3 scripts/prepare-pdf-viewer.py
 python3 scripts/check-source-safety.py
 python3 scripts/prepare-static-assets.py --check
+node scripts/check-release-capacity.mjs
 node scripts/check-web-assets.mjs cloudflare-worker/public client-android/assets/www
 node --check server-android/assets/www/app.js
 node scripts/test-server-update-ui.mjs

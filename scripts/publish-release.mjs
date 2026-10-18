@@ -1,8 +1,11 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { releaseCapacityError } from '../cloudflare-worker/src/release-limits.js';
 const dryRun = process.argv.includes('--dry-run');
 const manifest = JSON.parse(fs.readFileSync('dist/release-manifest.json', 'utf8'));
+const capacityError = releaseCapacityError(manifest);
+if (capacityError) throw new Error(capacityError);
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 if (manifest.sourceCommit !== commit || execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim()) throw new Error('Publish only the saved, verified source commit.');
 const files = [
