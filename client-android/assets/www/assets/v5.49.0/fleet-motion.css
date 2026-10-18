@@ -1,5 +1,7 @@
 /* The page grows from the selected card. No opacity cross-fade. */
 #homeView, #detailView, #serviceOrderView, #quickCheckView, .app-view { animation: none; }
+.bike-card-title h3 { width: fit-content; }
+html[data-fleet-card-motion]::view-transition-old(fleet-bike-plate) { visibility: hidden; }
 html[data-fleet-card-motion]::view-transition-group(root) { animation: none; }
 html[data-fleet-card-motion]::view-transition-old(root),
 html[data-fleet-card-motion]::view-transition-new(root),

@@ -57,7 +57,7 @@ try{
   const after=await card.boundingBox();assert.ok(Math.abs(before.y-after.y)<3,`${mode}: restore ${before.y} -> ${after.y}`);
   await page.screenshot({path:path.join(output,mode+'-restored.png')});
   await card.click();await fleet.locator('#detailView:not(.is-hidden)').waitFor();await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
-  await page.goBack();await fleet.locator('#homeView:not(.is-hidden)').waitFor();await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));await page.waitForTimeout(80);
+  await page.evaluate(()=>history.back());await fleet.locator('#homeView:not(.is-hidden)').waitFor();await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));await page.waitForTimeout(80);
   assert.ok(Math.abs(before.y-(await card.boundingBox()).y)<3,mode+': browser Back preserves the anchor');
   if(embedded){
    const nav=page.locator('#bottomNav'),box=await nav.boundingBox();

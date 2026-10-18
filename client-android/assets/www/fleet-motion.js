@@ -48,16 +48,36 @@
     const sourceRect = viewportRect(source);
     const canAnimate = !reduced() && !doc.hidden && typeof doc.startViewTransition === 'function' && sourceRect?.width > 0 && sourceRect.bottom > 0 && sourceRect.top < root.innerHeight;
     if (!canAnimate) { update(); return; }
-    const labels = [], direction = opening ? 'open' : 'close', id = ++motionId;
+    const labels = [], hiddenLabels = [], direction = opening ? 'open' : 'close', id = ++motionId;
+    const external = source.ownerDocument !== doc;
+    let proxy = null;
     const label = element => element?.querySelector(opening && element === source ? 'h3, strong' : '#detailName, h3, strong');
-    const nameLabel = element => { const node = label(element); if (node) { labels.push([node, node.style.viewTransitionName]); labelOwners.set(node,id); node.style.viewTransitionName = 'fleet-bike-plate'; } };
+    const nameLabel = element => {
+      const node = label(element); if (!node) return;
+      labelOwners.set(node,id);
+      if (external) {
+        // Shared elements inside an iframe cannot join its parent's transition.
+        // Move an inert copy of the plate instead; the real text stays in layout.
+        const rect = viewportRect(node), style = node.ownerDocument.defaultView.getComputedStyle(node);
+        if (!rect) return;
+        hiddenLabels.push([node,node.style.visibility]); node.style.visibility = 'hidden';
+        if (!proxy) { proxy = doc.createElement('span'); proxy.setAttribute('aria-hidden','true'); proxy.dataset.fleetPlateProxy = ''; doc.body.append(proxy); }
+        proxy.textContent = node.textContent;
+        Object.assign(proxy.style,{ position:'fixed',left:rect.left+'px',top:rect.top+'px',width:rect.width+'px',height:rect.height+'px',font:style.font,letterSpacing:style.letterSpacing,color:style.color,whiteSpace:'nowrap',margin:'0',padding:'0',pointerEvents:'none',zIndex:'2147483647',viewTransitionName:'fleet-bike-plate' });
+      } else { labels.push([node, node.style.viewTransitionName]); node.style.viewTransitionName = 'fleet-bike-plate'; }
+    };
     nameLabel(source);
     html.dataset.fleetCardMotion = direction;
     htmlOwner = id;
     let committed = false;
     const state = {
       commit() { if (committed) return; committed = true; update(); labels.forEach(([node, value]) => { node.style.viewTransitionName = value; }); nameLabel(opening ? detail : resolveCard()); },
-      clean() { labels.forEach(([node, value]) => { if (labelOwners.get(node) === id) { node.style.viewTransitionName = value; labelOwners.delete(node); } }); if (htmlOwner === id) delete html.dataset.fleetCardMotion; }
+      clean() {
+        labels.forEach(([node, value]) => { if (labelOwners.get(node) === id) { node.style.viewTransitionName = value; labelOwners.delete(node); } });
+        hiddenLabels.forEach(([node,value]) => { if (labelOwners.get(node) === id) { node.style.visibility = value; labelOwners.delete(node); } });
+        proxy?.remove();
+        if (htmlOwner === id) delete html.dataset.fleetCardMotion;
+      }
     };
     pending = state;
     try { state.transition = doc.startViewTransition(state.commit); }

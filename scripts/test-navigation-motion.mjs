@@ -42,4 +42,12 @@ reduced=false; delete w.document.startViewTransition; w.__motionTest.openDetail(
 // A changed layout is anchored by identity rather than a stale absolute offset.
 y=3200; const position=w.FleetMotion.capture(w.document.querySelector('#homeView'),card()); card().parentElement.prepend(card()); w.FleetMotion.restore(w.document.querySelector('#homeView'),position); await wait(); assert.equal(card().getBoundingClientRect().top,original);
 const section=w.document.querySelector('#homeView'); const n=animations.length; w.FleetMotion.slide(section,-1); assert.equal(animations.length,n+1); assert.match(animations.at(-1).frames[0].transform,/-22/); assert.ok(!('opacity' in animations.at(-1).frames[0])); reduced=true; w.FleetMotion.slide(section,1); assert.equal(animations.length,n+1);
+// Embedded Fleet shares the parent's transition without duplicating its plate.
+reduced=false;w.document.startViewTransition=start;
+const frame=w.document.createElement('iframe');w.document.body.append(frame);frame.contentDocument.body.innerHTML='<button id="card"><h3>ΜΗΧ 015</h3></button><section id="detail"><h2 id="detailName">ΜΗΧ 015</h2></section>';
+const childCard=frame.contentDocument.querySelector('#card'),childDetail=frame.contentDocument.querySelector('#detail');
+for(const node of [childCard,childDetail,...frame.contentDocument.querySelectorAll('h3,h2')])node.getBoundingClientRect=()=>({top:100,bottom:200,left:20,right:150,width:130,height:100});
+w.FleetMotion.card({opening:true,resolveCard:()=>childCard,detail:childDetail,update(){}});
+assert.equal(w.document.querySelector('[data-fleet-plate-proxy]').textContent,'ΜΗΧ 015');assert.equal(childCard.querySelector('h3').style.visibility,'hidden');
+await wait();assert.equal(w.document.querySelector('[data-fleet-plate-proxy]'),null);assert.equal(childDetail.querySelector('h2').style.visibility,'');
 dom.window.close(); console.log('OK actual Fleet navigation: card reveal/reverse, anchored Back/Forward, rapid interruption, cleanup, focus, reduced motion, unsupported API and slide without opacity.');
