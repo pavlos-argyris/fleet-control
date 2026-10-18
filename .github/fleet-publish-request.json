@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-8bc7886a-cd8f-4855-97c3-1f85c2097a73",
-  "sourceCommit": "ac41c257a6c2e72f3e9e7a2b71d9ff94dcb5a23c",
-  "releaseVersion": "5.48.0",
-  "requestedAt": "2026-10-17T18:29:13.895Z",
-  "reason": "Ο χρήστης ενέκρινε τις πέντε βελτιώσεις μείωσης αιτημάτων και ζήτησε να ξεκινήσουμε, με την υπάρχουσα αυτόματη δημοσίευση. Το source commit πέρασε το Check saved source 39058109871."
+  "requestId": "fleet-3ba4998a-bcee-4634-9374-373cdb1d2734",
+  "sourceCommit": "4c6e4a3d4850af19e2680e7afcba7d9698a39907",
+  "releaseVersion": "5.48.1",
+  "requestedAt": "2026-10-18T17:48:22.130Z",
+  "reason": "User authorized automatic publication of all five request-reduction improvements; retry delivery as 5.48.1 after correcting Web release capacity."
 }
