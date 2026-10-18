@@ -1,3 +1,8 @@
+# Fleet Control 5.49.2
+
+Client/Web 5.49.2 · Server 2.2.5 · Worker 5.10.4.
+[Σταθεροποίηση εφέ καρτέλας μηχανής](docs/CARD_MOTION_FIX_5.49.2_GR.md).
+
 # Fleet Control 5.49.1
 
 Client/Web 5.49.1 · Server 2.2.5 · Worker 5.10.3.

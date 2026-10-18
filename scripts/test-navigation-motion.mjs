@@ -35,9 +35,10 @@ const wait = async () => {
 }, card = () => w.document.querySelector('#bikeList [data-bike-id="bike-15"]');
 y = 3200; const original = card().getBoundingClientRect().top;
 card().click(); await wait(); assert.equal(w.history.state.view,'detail'); assert.equal(y,0); assert.equal(w.document.querySelector('#detailView').classList.contains('is-hidden'),false);
-assert.equal(animations.at(-1).options.pseudoElement,'::view-transition-new(root)'); assert.ok(animations.at(-1).frames.clipPath[0].includes('round 20px'));
+assert.equal(animations.length,0,'Card transitions must not leave fill:both animations attached to documentElement');
+assert.equal(w.document.documentElement.style.getPropertyValue('--fleet-card-shape'),'');
 w.document.querySelector('#detailBackButton').click(); await wait(); assert.equal(w.document.querySelector('#homeView').classList.contains('is-hidden'),false); assert.equal(card().getBoundingClientRect().top,original); assert.equal(w.document.activeElement,card());
-assert.equal(animations.at(-1).options.pseudoElement,'::view-transition-old(root)');
+assert.equal(animations.length,0,'Reverse transition also uses lifecycle-bound CSS');
 // Forward, rapid Back before capture, repeated actions and old cleanup cannot undo the latest navigation.
 w.history.forward(); await wait(); assert.equal(w.history.state.view,'detail'); w.history.back(); await wait();
 card().click(); w.__motionTest.showHome(); await wait(); assert.equal(w.document.querySelector('#homeView').classList.contains('is-hidden'),false); assert.equal(card().getBoundingClientRect().top,original);
@@ -48,12 +49,16 @@ reduced=false; delete w.document.startViewTransition; w.__motionTest.openDetail(
 // A changed layout is anchored by identity rather than a stale absolute offset.
 y=3200; const position=w.FleetMotion.capture(w.document.querySelector('#homeView'),card()); card().parentElement.prepend(card()); w.FleetMotion.restore(w.document.querySelector('#homeView'),position); await wait(); assert.equal(card().getBoundingClientRect().top,original);
 const section=w.document.querySelector('#homeView'); const n=animations.length; w.FleetMotion.slide(section,-1); assert.equal(animations.length,n+1); assert.match(animations.at(-1).frames[0].transform,/-22/); assert.ok(!('opacity' in animations.at(-1).frames[0])); reduced=true; w.FleetMotion.slide(section,1); assert.equal(animations.length,n+1);
-// Embedded Fleet shares the parent's transition without duplicating its plate.
+// Embedded Fleet uses a single snapshot, never a second flying plate/proxy.
 reduced=false;w.document.startViewTransition=start;
 const frame=w.document.createElement('iframe');w.document.body.append(frame);frame.contentDocument.body.innerHTML='<button id="card"><h3>ΜΗΧ 015</h3></button><section id="detail"><h2 id="detailName">ΜΗΧ 015</h2></section>';
 const childCard=frame.contentDocument.querySelector('#card'),childDetail=frame.contentDocument.querySelector('#detail');
 for(const node of [childCard,childDetail,...frame.contentDocument.querySelectorAll('h3,h2')])node.getBoundingClientRect=()=>({top:100,bottom:200,left:20,right:150,width:130,height:100});
 w.FleetMotion.card({opening:true,resolveCard:()=>childCard,detail:childDetail,update(){}});
-assert.equal(w.document.querySelector('[data-fleet-plate-proxy]').textContent,'ΜΗΧ 015');assert.equal(childCard.querySelector('h3').style.visibility,'hidden');
-await wait();assert.equal(w.document.querySelector('[data-fleet-plate-proxy]'),null);assert.equal(childDetail.querySelector('h2').style.visibility,'');
+assert.equal(w.document.querySelector('[data-fleet-plate-proxy]'),null);assert.equal(childCard.querySelector('h3').style.visibility,'');
+await wait();assert.equal(childDetail.querySelector('h2').style.visibility,'');
+// Skip keeps no-fade styles until the snapshot lifecycle completes.
+w.FleetMotion.card({opening:true,resolveCard:()=>childCard,detail:childDetail,update(){}});
+w.FleetMotion.finish();assert.equal(w.document.documentElement.dataset.fleetCardMotion,'open');
+await wait();assert.equal(w.document.documentElement.style.getPropertyValue('--fleet-card-shape'),'');
 dom.window.close(); console.log('OK actual Fleet navigation: card reveal/reverse, anchored Back/Forward, rapid interruption, cleanup, focus, reduced motion, unsupported API and slide without opacity.');

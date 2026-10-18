@@ -55,12 +55,34 @@ try{
   if(embedded)assert.equal(await page.locator('#portal').evaluate(node=>node.classList.contains('fleet-detail-mode')),true);
   await page.screenshot({path:path.join(output,mode+'-detail.png')});
   // Explicit Back and browser/Android history share the actual popstate handler.
+  if(mode!=='reduced')await page.evaluate(()=>{window.__freezeNext=true;window.__motionFrozen=false;});
   await fleet.locator('#detailBackButton').click();
   await fleet.locator('#homeView:not(.is-hidden)').waitFor();
+  if(mode!=='reduced'){
+   await page.waitForFunction(()=>window.__motionFrozen===true);
+   await page.screenshot({path:path.join(output,mode+'-closing.png')});
+   await page.evaluate(()=>document.getAnimations().forEach(a=>a.play()));
+  }
   await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
   await page.waitForTimeout(80);
   const after=await card.boundingBox();assert.ok(Math.abs(before.y-after.y)<3,`${mode}: restore ${before.y} -> ${after.y}`);
   await page.screenshot({path:path.join(output,mode+'-restored.png')});
+  // Repeated real transitions used to retain fill:both WAAPI effects on html.
+  // Assert that each cycle fully removes effects and plate proxies, including
+  // Back from deep inside the detail's own scrollable iframe.
+  for(let cycle=0;cycle<4;cycle++){
+   await card.click();await fleet.locator('#detailView:not(.is-hidden)').waitFor();
+   await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
+   await fleet.locator('#detailView').evaluate(node=>window.scrollTo(0,node.scrollHeight));
+   await fleet.locator('#detailBackButton').click();
+   await fleet.locator('#homeView:not(.is-hidden)').waitFor();
+   await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
+   await page.waitForTimeout(40);
+   assert.ok(Math.abs(before.y-(await card.boundingBox()).y)<3,mode+': repeated/deep Back preserves the anchor');
+   assert.equal(await page.locator('[data-fleet-plate-proxy]').count(),0,'No independent flying or duplicate plate');
+   assert.equal(await page.evaluate(()=>document.getAnimations().filter(a=>a.effect?.target===document.documentElement).length),0,'No retained root animations after a complete cycle');
+  }
+
   await card.click();await fleet.locator('#detailView:not(.is-hidden)').waitFor();await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
   await page.evaluate(()=>history.back());await fleet.locator('#homeView:not(.is-hidden)').waitFor();await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));await page.waitForTimeout(80);
   assert.ok(Math.abs(before.y-(await card.boundingBox()).y)<3,mode+': browser Back preserves the anchor');

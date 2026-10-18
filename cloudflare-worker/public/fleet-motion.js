@@ -3,7 +3,6 @@
   const doc = root.document, html = doc.documentElement;
   const reduced = () => root.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   let pending = null, restoreGeneration = 0, motionId = 0, htmlOwner = 0;
-  const labelOwners = new WeakMap();
   const slides = new WeakMap();
   const runningSlides = new Set();
   const watchedNavigation = new WeakSet();
@@ -40,59 +39,51 @@
   function finish() {
     if (!pending) return;
     const current = pending; pending = null;
-    current.commit(); current.transition?.skipTransition(); current.clean();
+    current.commit(); current.transition?.skipTransition();
+    // Keep transition CSS until the browser removes its snapshots. Removing it
+    // synchronously can briefly restore the browser's default cross-fade.
   }
   function card({ opening, resolveCard, detail, update }) {
     finish(); cancelRestore();
     runningSlides.forEach(animation => animation.cancel()); runningSlides.clear();
-    const source = opening ? resolveCard() : detail;
-    const sourceRect = viewportRect(source);
+    const sourceRect = viewportRect(opening ? resolveCard() : detail);
     const canAnimate = !reduced() && !doc.hidden && typeof doc.startViewTransition === 'function' && sourceRect?.width > 0 && sourceRect.bottom > 0 && sourceRect.top < root.innerHeight;
     if (!canAnimate) { update(); return; }
-    const labels = [], hiddenLabels = [], direction = opening ? 'open' : 'close', id = ++motionId;
-    const external = source.ownerDocument !== doc;
-    let proxy = null;
-    const label = element => element?.querySelector(opening && element === source ? 'h3, strong' : '#detailName, h3, strong');
-    const nameLabel = element => {
-      const node = label(element); if (!node) return;
-      labelOwners.set(node,id);
-      if (external) {
-        // Shared elements inside an iframe cannot join its parent's transition.
-        // Move an inert copy of the plate instead; the real text stays in layout.
-        const rect = viewportRect(node), style = node.ownerDocument.defaultView.getComputedStyle(node);
-        if (!rect) return;
-        hiddenLabels.push([node,node.style.visibility]); node.style.visibility = 'hidden';
-        if (!proxy) { proxy = doc.createElement('span'); proxy.setAttribute('aria-hidden','true'); proxy.dataset.fleetPlateProxy = ''; doc.body.append(proxy); }
-        proxy.textContent = node.textContent;
-        Object.assign(proxy.style,{ position:'fixed',left:rect.left+'px',top:rect.top+'px',width:rect.width+'px',height:rect.height+'px',font:style.font,letterSpacing:style.letterSpacing,color:style.color,whiteSpace:'nowrap',margin:'0',padding:'0',pointerEvents:'none',zIndex:'2147483647',viewTransitionName:'fleet-bike-plate' });
-      } else { labels.push([node, node.style.viewTransitionName]); node.style.viewTransitionName = 'fleet-bike-plate'; }
+    const id = ++motionId;
+    const setShape = rect => {
+      if (!rect || rect.width <= 0) return false;
+      const clamp = (n, max) => Math.max(0, Math.min(max, n));
+      const width = root.innerWidth, height = root.innerHeight;
+      html.style.setProperty('--fleet-card-shape', `inset(${clamp(rect.top,height)}px ${clamp(width-rect.right,width)}px ${clamp(height-rect.bottom,height)}px ${clamp(rect.left,width)}px round 20px)`);
+      return true;
     };
-    nameLabel(source);
-    html.dataset.fleetCardMotion = direction;
+    if (opening) setShape(sourceRect);
+    html.dataset.fleetCardMotion = opening ? 'open' : 'close';
     htmlOwner = id;
-    let committed = false;
+    let committed = false, settled;
     const state = {
-      commit() { if (committed) return; committed = true; update(); labels.forEach(([node, value]) => { node.style.viewTransitionName = value; }); nameLabel(opening ? detail : resolveCard()); },
+      commit() {
+        if (committed) return settled;
+        committed = true;
+        update();
+        // Restore the list anchor and let the Portal/iframe finish resizing
+        // before the new snapshot is captured, rather than during the reveal.
+        settled = new Promise(resolve => root.requestAnimationFrame(() => root.requestAnimationFrame(resolve))).then(() => {
+          if (pending !== state) return;
+          if (!opening && !setShape(viewportRect(resolveCard()))) state.transition?.skipTransition();
+        });
+        return settled;
+      },
       clean() {
-        labels.forEach(([node, value]) => { if (labelOwners.get(node) === id) { node.style.viewTransitionName = value; labelOwners.delete(node); } });
-        hiddenLabels.forEach(([node,value]) => { if (labelOwners.get(node) === id) { node.style.visibility = value; labelOwners.delete(node); } });
-        proxy?.remove();
-        if (htmlOwner === id) delete html.dataset.fleetCardMotion;
+        if (htmlOwner !== id) return;
+        delete html.dataset.fleetCardMotion;
+        html.style.removeProperty('--fleet-card-shape');
       }
     };
     pending = state;
     try { state.transition = doc.startViewTransition(state.commit); }
     catch (error) { state.commit(); state.clean(); if (pending === state) pending = null; return; }
-    state.transition.ready.then(() => {
-      if (pending !== state) return;
-      const rect = opening ? sourceRect : viewportRect(resolveCard());
-      if (!rect || rect.width <= 0) { state.transition.skipTransition(); return; }
-      const clamp = (n, max) => Math.max(0, Math.min(max, n));
-      const width = root.innerWidth, height = root.innerHeight;
-      const shape = `inset(${clamp(rect.top,height)}px ${clamp(width-rect.right,width)}px ${clamp(height-rect.bottom,height)}px ${clamp(rect.left,width)}px round 20px)`;
-      const full = 'inset(0px 0px 0px 0px round 0px)';
-      html.animate({ clipPath: opening ? [shape, full] : [full, shape] }, { duration: 220, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'both', pseudoElement: opening ? '::view-transition-new(root)' : '::view-transition-old(root)' });
-    }).catch(() => {});
+    state.transition.ready.catch(() => {});
     state.transition.finished.catch(() => {}).finally(() => { state.clean(); if (pending === state) pending = null; });
   }
   function slide(node, direction) {
