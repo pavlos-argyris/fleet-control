@@ -30,7 +30,7 @@ try{for(const mode of ['web','client']){
  assert.match(await fleet.locator('#nextServiceList').textContent(),/Έλεγχος ιμάντα/);assert.equal(await fleet.locator('#nextServiceList .next-service-row').count(),2);
  await fleet.locator('#nextServiceCard').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(output,mode+'-bike-notes.png')});
  await fleet.locator('#detailServiceButton').click();assert.equal(await fleet.locator('[data-next-note-done]').count(),2);
- await fleet.locator('[data-next-note-done]').first().check();await fleet.locator('#serviceNextNotes').fill('Έλεγχος μπαταρίας');await fleet.locator('#serviceNextTitle').scrollIntoViewIfNeeded();
+ await fleet.locator('.next-service-check').filter({hasText:'Έλεγχος ιμάντα'}).locator('input').check();await fleet.locator('#serviceNextNotes').fill('Έλεγχος μπαταρίας');await fleet.locator('#serviceNextTitle').scrollIntoViewIfNeeded();
  await page.screenshot({path:path.join(output,mode+'-new-service.png')});
  await fleet.locator('#serviceForm button.primary-button[type=submit]').click();await fleet.locator('#serviceDialog').waitFor({state:'hidden'});
  assert.equal(await fleet.locator('#nextServiceList .next-service-row').count(),2);assert.ok(!(await fleet.locator('#nextServiceList').textContent()).includes('Έλεγχος ιμάντα'));
