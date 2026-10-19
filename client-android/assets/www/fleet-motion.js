@@ -49,19 +49,23 @@
     surface.setAttribute('aria-hidden', 'true');
     // Static app icon and text only: never copy the detail DOM or its screenshot.
     surface.innerHTML = '<span class="fleet-bike-return-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg></span>';
+    const content = doc.createElement('div'); content.className = 'fleet-bike-return-content';
+    const panel = doc.createElement('div'); panel.className = 'fleet-bike-return-panel';
+    content.append(...Array.from(surface.children)); surface.append(panel, content);
     const plate = doc.createElement('strong');
     plate.textContent = detail.querySelector('#detailName')?.textContent || 'Μηχανή';
-    surface.append(plate);
-    const from = { left: '0px', top: '0px', width: root.innerWidth+'px', height: root.innerHeight+'px', borderRadius: '0px' };
+    content.append(plate);
+    const from = { left: '0px', top: '0px', width: root.innerWidth+'px', height: root.innerHeight+'px' };
     Object.assign(surface.style, from);
     let committed = false, cleaned = false;
     const state = {
+      animations: [],
       commit() { if (!committed) { committed = true; update(); } },
       cancel() { state.clean(); },
       clean() {
         if (cleaned) return;
         cleaned = true;
-        state.animation?.cancel(); surface.remove();
+        state.animations.forEach(animation => animation.cancel()); surface.remove();
         root.removeEventListener('resize', state.cancel);
         if (htmlOwner === id) { delete html.dataset.fleetCardMotion; html.style.removeProperty('--fleet-card-shape'); }
         if (pending === state) pending = null;
@@ -77,10 +81,21 @@
       if (pending !== state || cleaned) return;
       const rect = viewportRect(resolveCard());
       if (!rect || rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= root.innerHeight) { state.clean(); return; }
-      const to = { left: rect.left+'px', top: rect.top+'px', width: rect.width+'px', height: rect.height+'px', borderRadius: '20px' };
+      // Fix geometry once. Only compositor transforms change during playback;
+      // the label layer translates on the same clock without ever being scaled.
+      panel.style.width = rect.width+'px'; panel.style.height = rect.height+'px';
+      panel.style.borderRadius = '20px';
+      plate.style.maxWidth = Math.max(0, rect.width-32)+'px';
+      const panelFrom = `translate3d(0px,0px,0) scale(${root.innerWidth/rect.width},${root.innerHeight/rect.height})`;
+      const panelTo = `translate3d(${rect.left}px,${rect.top}px,0) scale(1,1)`;
+      const contentTo = `translate3d(${rect.left+rect.width/2-root.innerWidth/2}px,${rect.top+rect.height/2-root.innerHeight/2}px,0)`;
+      const timing = { duration: 300, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'both' };
       try {
-        state.animation = surface.animate([from, to], { duration: 220, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'both' });
-        state.animation.finished.catch(() => {}).finally(state.clean);
+        state.animations.push(panel.animate([{ transform: panelFrom }, { transform: panelTo }], timing));
+        state.animations.push(content.animate([{ transform: 'translate3d(0px,0px,0)' }, { transform: contentTo }], timing));
+        const start = doc.timeline?.currentTime;
+        if (typeof start === 'number') state.animations.forEach(animation => { animation.startTime = start; });
+        Promise.all(state.animations.map(animation => animation.finished.catch(() => {}))).finally(state.clean);
       } catch (error) { state.clean(); }
     }));
   }

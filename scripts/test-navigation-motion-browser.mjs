@@ -20,9 +20,9 @@ try{
    const animate=Element.prototype.animate;
    Element.prototype.animate=function(...args){
     const animation=animate.apply(this,args);
-    if(this.classList.contains('fleet-bike-return-surface')&&window.__freezeReturnNext){
+    if(this.classList.contains('fleet-bike-return-panel')&&window.__freezeReturnNext){
      window.__freezeReturnNext=false;
-     animation.ready.then(()=>{animation.pause();animation.currentTime=110;window.__returnFrozen=true;});
+     animation.ready.then(()=>{for(const layer of this.parentElement.getAnimations({subtree:true})){layer.pause();layer.currentTime=150;}window.__returnFrozen=true;});
     }
     return animation;
    };
@@ -50,6 +50,9 @@ try{
   const card=fleet.locator('#bikeList [data-bike-id="bike-15"]');await card.scrollIntoViewIfNeeded();
   await card.evaluate(node=>node.scrollIntoView({block:'center'}));
   const before=await card.boundingBox();assert.ok(before&&before.y>0);
+  await card.evaluate(node=>{window.__priorCard=node;window.__listMutations=0;new MutationObserver(records=>{window.__listMutations+=records.length;}).observe(node.parentElement,{childList:true});});
+  const cdp=await context.newCDPSession(page);await cdp.send('Performance.enable');
+  let closingLayouts=null;
   if(mode!=='reduced')await page.evaluate(()=>{window.__freezeNext=true;window.__motionFrozen=false;});
   await card.click();
   if(mode!=='reduced'){
@@ -77,18 +80,28 @@ try{
    assert.equal(await surface.locator('strong').textContent(),'ΜΗΧ 015');
    assert.equal(await surface.locator('svg').count(),1);
    assert.equal(await surface.locator('img,canvas,iframe,#detailView').count(),0,'No thumbnail or copied detail content');
-   assert.equal(await surface.evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(234, 247, 244)');
+   assert.equal(await surface.locator('.fleet-bike-return-panel').evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(234, 247, 244)');
    assert.equal(await surface.locator('strong').evaluate(node=>node.getAnimations().length),0,'Plate does not move independently');
-   const panel=await surface.boundingBox(),plate=await surface.locator('strong').boundingBox(),icon=await surface.locator('svg').boundingBox();
+   const panel=await surface.locator('.fleet-bike-return-panel').boundingBox(),plate=await surface.locator('strong').boundingBox(),icon=await surface.locator('svg').boundingBox();
    assert.ok(Math.abs(plate.x+plate.width/2-panel.x-panel.width/2)<1,'Plate stays centred inside its moving surface');
    assert.ok(Math.abs(icon.x+icon.width/2-panel.x-panel.width/2)<1,'Icon stays centred inside its moving surface');
    assert.equal(await page.evaluate(()=>window.__motionReady),openingCaptures,'Back does not capture a View Transition screenshot');
    await page.screenshot({path:path.join(output,mode+'-closing.png')});
-   await surface.evaluate(node=>node.getAnimations().forEach(a=>a.play()));
+   const layers=await surface.evaluate(node=>node.getAnimations({subtree:true}).map(a=>({duration:a.effect.getTiming().duration,frames:a.effect.getKeyframes()})));
+   assert.equal(layers.length,2);for(const layer of layers){assert.equal(layer.duration,300);assert.ok(layer.frames.every(f=>!['width','height','left','top','borderRadius'].some(k=>k in f)),'Playback must not animate layout geometry');}
+   assert.ok(Math.abs(icon.width-32)<1&&Math.abs(icon.height-32)<1,'Icon is never stretched');
+   const baseline=(await cdp.send('Performance.getMetrics')).metrics.find(m=>m.name==='LayoutCount').value;
+   await surface.evaluate(node=>node.getAnimations({subtree:true}).forEach(a=>a.play()));
+   await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
+   closingLayouts=(await cdp.send('Performance.getMetrics')).metrics.find(m=>m.name==='LayoutCount').value-baseline;
+   assert.ok(closingLayouts<=4,mode+': transform playback avoids per-frame layout, got '+closingLayouts);
+
   }
   await page.waitForFunction(()=>!document.documentElement.hasAttribute('data-fleet-card-motion'));
   await page.waitForTimeout(80);
   assert.equal(await page.locator('.fleet-bike-return-surface').count(),0,'Temporary return surface is fully removed');
+  assert.equal(await card.evaluate(node=>node===window.__priorCard),true,'Back reuses the same list card');
+  assert.equal(await card.evaluate(()=>window.__listMutations),0,'Unchanged list is not rebuilt during navigation');
   const after=await card.boundingBox();assert.ok(Math.abs(before.y-after.y)<3,`${mode}: restore ${before.y} -> ${after.y}`);
   await page.screenshot({path:path.join(output,mode+'-restored.png')});
   // Repeated real transitions used to retain fill:both WAAPI effects on html.
@@ -134,7 +147,7 @@ try{
    const resized=await indicator.boundingBox(),resizedButton=await nav.locator('button.active').boundingBox();assert.ok(Math.abs(resized.x-resizedButton.x)<1&&Math.abs(resized.width-resizedButton.width)<1,'Resize keeps the indicator aligned');
    await page.emulateMedia({reducedMotion:'reduce'});await page.locator('#bottomNav [data-go="dashboard"]').click();assert.equal(await indicator.evaluate(node=>getComputedStyle(node).transitionDuration),'0s','Reduced motion skips indicator travel');
   }
-  assert.deepEqual(errors,[],mode+': no unhandled browser errors');report.push({mode,anchorRestored:true,realCardAnimation:mode!=='reduced',returnSurfaceOnly:mode!=='reduced',errors});console.log('OK navigation mode:',mode);await context.close();
+  assert.deepEqual(errors,[],mode+': no unhandled browser errors');report.push({mode,anchorRestored:true,realCardAnimation:mode!=='reduced',returnSurfaceOnly:mode!=='reduced',closingLayouts,errors});console.log('OK navigation mode:',mode);await context.close();
  }
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify(report,null,2)+'\n');console.log('OK real Chromium: card expansion/reverse without fading, exact Back/Android-history scroll in standalone and embedded Portal, reduced motion, fixed bottom navigation and rapid tab changes.');
 }finally{await browser.close();}

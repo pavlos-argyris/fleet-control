@@ -32,6 +32,7 @@
   }
 
   let bikes = loadBikes();
+  let renderedBikeCards = null;
   let activeBikeId = null;
   let serviceOrderHomeScroll = 0;
   let homeListPosition = null;
@@ -1697,7 +1698,7 @@
     renderMileageCheckAlert(staleChecks);
     renderQuickBikeSelect();
 
-    elements.bikeList.innerHTML = ordered.map(function (bike) {
+    const bikeCardsMarkup = ordered.map(function (bike) {
       const status = getStatus(bike);
       const major = getMajorServicePlan(bike);
       const checkText = bike.lastCheckedAt
@@ -1738,6 +1739,12 @@
         </button>
       `;
     }).join("");
+    // Keep the existing card nodes/paint layers when Back or an unchanged sync
+    // yields identical content. Changed data still rebuilds the list normally.
+    if (bikeCardsMarkup !== renderedBikeCards) {
+      elements.bikeList.innerHTML = bikeCardsMarkup;
+      renderedBikeCards = bikeCardsMarkup;
+    }
   }
 
   function attentionIds(records) {

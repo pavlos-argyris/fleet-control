@@ -1,3 +1,8 @@
+# Fleet Control 5.49.4
+
+Client/Web 5.49.4 · Server 2.2.5 · Worker 5.10.6.
+[Ομαλότερη κίνηση και διατήρηση λίστας](docs/SMOOTH_RETURN_5.49.4_GR.md).
+
 # Fleet Control 5.49.3
 
 Client/Web 5.49.3 · Server 2.2.5 · Worker 5.10.5.

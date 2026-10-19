@@ -33,16 +33,24 @@ const wait = async () => {
   }
   assert.fail('Navigation transition did not settle');
 }, card = () => w.document.querySelector('#bikeList [data-bike-id="bike-15"]');
-y = 3200; const original = card().getBoundingClientRect().top;
+y = 3200; const original = card().getBoundingClientRect().top, originalNode = card();
 card().click(); await wait(); assert.equal(w.history.state.view,'detail'); assert.equal(y,0); assert.equal(w.document.querySelector('#detailView').classList.contains('is-hidden'),false);
 assert.equal(animations.length,0,'Card transitions must not leave fill:both animations attached to documentElement');
 assert.equal(w.document.documentElement.style.getPropertyValue('--fleet-card-shape'),'');
 w.document.querySelector('#detailBackButton').click(); await wait(); assert.equal(w.document.querySelector('#homeView').classList.contains('is-hidden'),false); assert.equal(card().getBoundingClientRect().top,original); assert.equal(w.document.activeElement,card());
-assert.equal(animations.length,1,'Back animates one disposable surface');
-assert.ok(animations[0].node.classList.contains('fleet-bike-return-surface'));
-assert.equal(animations[0].node.querySelector('strong').textContent,'ΜΗΧ 015');
-assert.equal(animations[0].node.querySelectorAll('svg').length,1);
+assert.equal(animations.length,2,'Back uses two synchronized compositor layers');
+const returnNode=animations[0].node.parentElement;
+assert.ok(animations[0].node.classList.contains('fleet-bike-return-panel'));
+assert.equal(returnNode.querySelector('strong').textContent,'ΜΗΧ 015');
+assert.equal(returnNode.querySelectorAll('svg').length,1);
+for(const animation of animations){assert.equal(animation.options.duration,300);assert.ok(animation.frames.every(frame=>Object.keys(frame).every(key=>key==='transform')));}
 assert.equal(w.document.querySelector('.fleet-bike-return-surface'),null);
+assert.equal(card(),originalNode,'Unchanged Back keeps the actual card DOM');
+// Actual changed content must invalidate the markup cache, not show stale data.
+w.__motionTest.getBike('bike-15').currentKm=1999;
+w.__motionTest.openDetail('bike-15',false);await wait();w.__motionTest.showHome();await wait();
+assert.notEqual(card(),originalNode);assert.match(card().textContent,/1[.,]999/);
+w.__motionTest.getBike('bike-15').currentKm=1200;w.__motionTest.showHome();await wait();
 // Forward, rapid Back before capture, repeated actions and old cleanup cannot undo the latest navigation.
 w.history.forward(); await wait(); assert.equal(w.history.state.view,'detail'); w.history.back(); await wait();
 card().click(); w.__motionTest.showHome(); await wait(); assert.equal(w.document.querySelector('#homeView').classList.contains('is-hidden'),false); assert.equal(card().getBoundingClientRect().top,original);
