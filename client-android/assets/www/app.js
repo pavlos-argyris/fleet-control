@@ -3530,7 +3530,15 @@
     elements.serviceDialog.showModal();
     if (typeof installServiceDraftTools === "function") installServiceDraftTools(bike);
     updateServicePreview();
+    const focusRequest=Symbol(),initialFocus=document.activeElement;
+    elements.serviceForm.fleetFocusRequest=focusRequest;
+    let interacted=false;
+    const markInteraction=()=>{interacted=true;};
+    const focusEvents=['pointerdown','keydown','input','focusin'];
+    focusEvents.forEach(type=>elements.serviceForm.addEventListener(type,markInteraction,true));
     setTimeout(function () {
+      focusEvents.forEach(type=>elements.serviceForm.removeEventListener(type,markInteraction,true));
+      if(interacted||!elements.serviceDialog.open||elements.serviceForm.fleetFocusRequest!==focusRequest||elements.serviceBikeId.value!==bike.id||document.activeElement!==initialFocus)return;
       elements.serviceKm.focus();
       elements.serviceKm.select();
     }, 60);
