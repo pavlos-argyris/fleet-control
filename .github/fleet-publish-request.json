@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-318c2633-60f0-4a45-bfa2-d9b9922e2357",
-  "sourceCommit": "8d74233c8a032431835314237fdbb634ae7c325c",
-  "releaseVersion": "5.50.0",
-  "requestedAt": "2026-10-19T17:04:03.709Z",
-  "reason": "User approved next-service notes implementation and standing automatic publication; source CI 39290499891 passed on 8d74233c8a032431835314237fdbb634ae7c325c, including Web/Client browser checks, backup restore and both APK builds."
+  "requestId": "fleet-6a7fe7da-2ff9-4ea5-bdba-9f1eb89e5e35",
+  "sourceCommit": "205175efc8cd2599bc90c41039cd7a879f6d6077",
+  "releaseVersion": "5.50.1",
+  "requestedAt": "2026-10-19T17:40:12.024Z",
+  "reason": "User approved next-service reminders with automatic publication; source CI 39295511283 passed on 205175efc8cd2599bc90c41039cd7a879f6d6077 including three Client browser runs, Web, backup restore, original workflow safeguards and both APK builds."
 }
