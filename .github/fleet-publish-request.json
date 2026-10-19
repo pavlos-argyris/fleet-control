@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-68bf8655-0ec7-4a88-9fc1-c47b760987c3",
-  "sourceCommit": "f2e6a8646eb893c88147c28670530b3699b5ae49",
-  "releaseVersion": "5.49.4",
-  "requestedAt": "2026-10-19T13:49:49.491Z",
-  "reason": "User approved optimizing the stuttering bike transition: synchronized transform layers, 300ms timing and retained list DOM. Exact source CI 39262989115 passed including measured browser layout checks and APK builds; standing automatic publication authorization applies."
+  "requestId": "fleet-5ecdff15-f923-44e2-b26a-c738ff390ec7",
+  "sourceCommit": "04fe992d59d0303254c64353c16572674aadc711",
+  "releaseVersion": "5.49.5",
+  "requestedAt": "2026-10-19T14:15:24.802Z",
+  "reason": "User approved trying the identical bottom-tab slide for bike opening and Back, replacing shrink effects. Exact source CI 39266813668 passed including real browser verification; standing automatic publication authorization applies."
 }
