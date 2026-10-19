@@ -1,21 +1,11 @@
 (function (root) {
   'use strict';
-  const doc = root.document, html = doc.documentElement;
+  const doc = root.document;
   const reduced = () => root.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  let pending = null, restoreGeneration = 0, motionId = 0, htmlOwner = 0;
+  let restoreGeneration = 0;
   const slides = new WeakMap();
   const runningSlides = new Set();
   const watchedNavigation = new WeakSet();
-  function viewportRect(node) {
-    if (!node) return null;
-    const rect = node.getBoundingClientRect();
-    if (node.ownerDocument === doc) return rect;
-    try {
-      const frame = node.ownerDocument.defaultView.frameElement, outer = frame?.getBoundingClientRect();
-      if (frame?.ownerDocument !== doc || !outer) return null;
-      return { top: rect.top + outer.top, bottom: rect.bottom + outer.top, left: rect.left + outer.left, right: rect.right + outer.left, width: rect.width, height: rect.height };
-    } catch (error) { return null; }
-  }
   function cancelRestore() { restoreGeneration++; }
   ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(type => root.addEventListener(type, cancelRestore, { passive: true, capture: true }));
   function capture(container, anchor) {
@@ -37,118 +27,32 @@
     root.requestAnimationFrame(() => { apply(); root.requestAnimationFrame(apply); });
   }
   function finish() {
-    if (!pending) return;
-    const current = pending; pending = null;
-    current.commit(); current.transition?.skipTransition(); current.cancel?.();
-    // Keep transition CSS until the browser removes its snapshots. Removing it
-    // synchronously can briefly restore the browser's default cross-fade.
+    runningSlides.forEach(animation => animation.cancel());
+    runningSlides.clear();
   }
-  function returnSurface({ resolveCard, detail, update }) {
-    const id = ++motionId, surface = doc.createElement('div');
-    surface.className = 'fleet-bike-return-surface';
-    surface.setAttribute('aria-hidden', 'true');
-    // Static app icon and text only: never copy the detail DOM or its screenshot.
-    surface.innerHTML = '<span class="fleet-bike-return-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h2l2-7h8l2 7h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M9 10l2-4h3l2 4"/></svg></span>';
-    const content = doc.createElement('div'); content.className = 'fleet-bike-return-content';
-    const panel = doc.createElement('div'); panel.className = 'fleet-bike-return-panel';
-    content.append(...Array.from(surface.children)); surface.append(panel, content);
-    const plate = doc.createElement('strong');
-    plate.textContent = detail.querySelector('#detailName')?.textContent || 'Μηχανή';
-    content.append(plate);
-    const from = { left: '0px', top: '0px', width: root.innerWidth+'px', height: root.innerHeight+'px' };
-    Object.assign(surface.style, from);
-    let committed = false, cleaned = false;
-    const state = {
-      animations: [],
-      commit() { if (!committed) { committed = true; update(); } },
-      cancel() { state.clean(); },
-      clean() {
-        if (cleaned) return;
-        cleaned = true;
-        state.animations.forEach(animation => animation.cancel()); surface.remove();
-        root.removeEventListener('resize', state.cancel);
-        if (htmlOwner === id) { delete html.dataset.fleetCardMotion; html.style.removeProperty('--fleet-card-shape'); }
-        if (pending === state) pending = null;
-      }
-    };
-    pending = state; htmlOwner = id; html.dataset.fleetCardMotion = 'close';
-    doc.body.append(surface);
-    root.addEventListener('resize', state.cancel, { once: true });
-    try { state.commit(); } catch (error) { state.clean(); throw error; }
-    // No View Transition during Back: the real list is revealed underneath one
-    // live, isolated surface. Its plate/icon remain centred as a single unit.
-    root.requestAnimationFrame(() => root.requestAnimationFrame(() => {
-      if (pending !== state || cleaned) return;
-      const rect = viewportRect(resolveCard());
-      if (!rect || rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= root.innerHeight) { state.clean(); return; }
-      // Fix geometry once. Only compositor transforms change during playback;
-      // the label layer translates on the same clock without ever being scaled.
-      panel.style.width = rect.width+'px'; panel.style.height = rect.height+'px';
-      panel.style.borderRadius = '20px';
-      plate.style.maxWidth = Math.max(0, rect.width-32)+'px';
-      const panelFrom = `translate3d(0px,0px,0) scale(${root.innerWidth/rect.width},${root.innerHeight/rect.height})`;
-      const panelTo = `translate3d(${rect.left}px,${rect.top}px,0) scale(1,1)`;
-      const contentTo = `translate3d(${rect.left+rect.width/2-root.innerWidth/2}px,${rect.top+rect.height/2-root.innerHeight/2}px,0)`;
-      const timing = { duration: 300, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'both' };
-      try {
-        state.animations.push(panel.animate([{ transform: panelFrom }, { transform: panelTo }], timing));
-        state.animations.push(content.animate([{ transform: 'translate3d(0px,0px,0)' }, { transform: contentTo }], timing));
-        const start = doc.timeline?.currentTime;
-        if (typeof start === 'number') state.animations.forEach(animation => { animation.startTime = start; });
-        Promise.all(state.animations.map(animation => animation.finished.catch(() => {}))).finally(state.clean);
-      } catch (error) { state.clean(); }
-    }));
-  }
-  function card({ opening, resolveCard, detail, update }) {
+  function card({ opening, detail, update }) {
     finish(); cancelRestore();
-    runningSlides.forEach(animation => animation.cancel()); runningSlides.clear();
-    const sourceRect = viewportRect(opening ? resolveCard() : detail);
-    const canAnimate = !reduced() && !doc.hidden && (opening ? typeof doc.startViewTransition === 'function' : typeof html.animate === 'function') && sourceRect?.width > 0 && sourceRect.bottom > 0 && sourceRect.top < root.innerHeight;
-    if (!canAnimate) { update(); return; }
-    if (!opening) { returnSurface({ resolveCard, detail, update }); return; }
-    const id = ++motionId;
-    const setShape = rect => {
-      if (!rect || rect.width <= 0) return false;
-      const clamp = (n, max) => Math.max(0, Math.min(max, n));
-      const width = root.innerWidth, height = root.innerHeight;
-      html.style.setProperty('--fleet-card-shape', `inset(${clamp(rect.top,height)}px ${clamp(width-rect.right,width)}px ${clamp(height-rect.bottom,height)}px ${clamp(rect.left,width)}px round 20px)`);
-      return true;
-    };
-    setShape(sourceRect);
-    html.dataset.fleetCardMotion = 'open';
-    htmlOwner = id;
-    let committed = false, settled;
-    const state = {
-      commit() {
-        if (committed) return settled;
-        committed = true;
-        update();
-        // Restore the list anchor and let the Portal/iframe finish resizing
-        // before the new snapshot is captured, rather than during the reveal.
-        // Rendering is paused inside a View Transition update callback, so
-        // waiting for requestAnimationFrame here can deadlock the transition.
-        settled = new Promise(resolve => root.setTimeout(() => root.setTimeout(resolve, 0), 0));
-        return settled;
-      },
-      clean() {
-        if (htmlOwner !== id) return;
-        delete html.dataset.fleetCardMotion;
-        html.style.removeProperty('--fleet-card-shape');
-      }
-    };
-    pending = state;
-    try { state.transition = doc.startViewTransition(state.commit); }
-    catch (error) { state.commit(); state.clean(); if (pending === state) pending = null; return; }
-    state.transition.ready.catch(() => {});
-    state.transition.finished.catch(() => {}).finally(() => { state.clean(); if (pending === state) pending = null; });
+    update();
+    let view = opening ? detail : detail.ownerDocument.getElementById('homeView');
+    if (!view) return;
+    // Animate the iframe's viewport in Portal/Client, keeping its parent chrome
+    // fixed. Standalone Fleet animates the newly visible view directly.
+    try {
+      const frame = view.ownerDocument.defaultView.frameElement;
+      if (frame?.ownerDocument === doc) view = frame;
+    } catch (error) {}
+    const animation = slide(view, opening ? 1 : -1);
+    if (animation) view.dataset.fleetBikeSlide = opening ? 'open' : 'close';
   }
   function slide(node, direction) {
+    if (!node) return;
     slides.get(node)?.cancel();
-    if (reduced() || doc.hidden || !node?.animate) return;
+    if (reduced() || doc.hidden || !node.animate) return;
     const animation = node.animate([{ transform: `translateX(${direction < 0 ? -22 : 22}px)` }, { transform: 'translateX(0)' }], { duration: 190, easing: 'cubic-bezier(.2,.7,.2,1)' });
     slides.set(node, animation);
     runningSlides.add(animation);
-    animation.finished.catch(() => {}).finally(() => { runningSlides.delete(animation); if (slides.get(node) === animation) slides.delete(node); });
+    animation.finished.catch(() => {}).finally(() => { runningSlides.delete(animation); if (slides.get(node) === animation) { slides.delete(node); delete node.dataset.fleetBikeSlide; } });
+    return animation;
   }
   function selectTab(nav, animate = true) {
     if (!nav) return;

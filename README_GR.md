@@ -1,3 +1,8 @@
+# Fleet Control 5.49.5
+
+Client/Web 5.49.5 · Server 2.2.5 · Worker 5.10.7.
+[Κοινή ολίσθηση καρτελών και μηχανής](docs/SHARED_SLIDE_5.49.5_GR.md).
+
 # Fleet Control 5.49.4
 
 Client/Web 5.49.4 · Server 2.2.5 · Worker 5.10.6.

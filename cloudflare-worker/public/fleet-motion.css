@@ -1,77 +1,6 @@
-/* The page grows from the selected card. No opacity cross-fade. */
+/* Bike navigation shares the same 22px / 190ms slide as Portal tabs. */
 #homeView, #detailView, #serviceOrderView, #quickCheckView, .app-view { animation: none; }
-/* One viewport reveal; the plate stays inside the same snapshot as its card.
-   CSS animations belong to the temporary pseudo-elements and cannot accumulate
-   fill:both WAAPI effects on documentElement across repeated navigation. */
-.portal .content { overflow-x: clip; }
-html[data-fleet-card-motion]::view-transition-group(root) { animation: none; }
-html[data-fleet-card-motion]::view-transition-old(root),
-html[data-fleet-card-motion]::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
-  opacity: 1;
-}
-html[data-fleet-card-motion]::view-transition-image-pair(root) { isolation: isolate; }
-html[data-fleet-card-motion="open"]::view-transition-new(root) {
-  z-index: 2;
-  animation: fleet-card-open 300ms cubic-bezier(.2,.7,.2,1) both;
-}
-@keyframes fleet-card-open {
-  from { clip-path: var(--fleet-card-shape); }
-  to { clip-path: inset(0px 0px 0px 0px round 0px); }
-}
-.fleet-bike-return-surface {
-  position: fixed;
-  z-index: 2147483000;
-  box-sizing: border-box;
-  contain: layout paint style;
-  overflow: hidden;
-  color: #087e73;
-  pointer-events: none;
-}
-.fleet-bike-return-panel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  box-sizing: border-box;
-  transform-origin: 0 0;
-  will-change: transform;
-  background: #eaf7f4;
-  border: 1px solid rgba(7,145,127,.22);
-  box-shadow: 0 12px 36px rgba(15,70,63,.12);
-}
-.fleet-bike-return-content {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  will-change: transform;
-}
-.fleet-bike-return-icon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 52px;
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: #d5f4eb;
-}
-.fleet-bike-return-icon svg { width: 32px; height: 32px; }
-.fleet-bike-return-surface strong {
-  max-width: calc(100% - 32px);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: inherit;
-  font-size: 20px;
-  font-weight: 750;
-  line-height: 1.2;
-}
+#app, .portal .content { overflow-x: clip; }
 #detailName { width: fit-content; }
 .bottom-nav { isolation: isolate; -webkit-tap-highlight-color: transparent; }
 .bottom-nav button {
@@ -97,6 +26,5 @@ html[data-fleet-card-motion="open"]::view-transition-new(root) {
 }
 .bottom-nav-indicator[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  html[data-fleet-card-motion]::view-transition-group(*) { animation-duration: 0s !important; }
   .bottom-nav-indicator { transition: none !important; }
 }

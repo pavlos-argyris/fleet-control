@@ -29,21 +29,18 @@ await new Promise(r=>setTimeout(r,30)); w.__motionTest.configure();
 const wait = async () => {
   for (let i=0;i<80;i++) {
     await new Promise(r=>setTimeout(r,10));
-    if (!w.document.documentElement.hasAttribute('data-fleet-card-motion')) { await new Promise(r=>setTimeout(r,10)); return; }
+    if (!w.document.querySelector('[data-fleet-bike-slide]')) { await new Promise(r=>setTimeout(r,10)); return; }
   }
   assert.fail('Navigation transition did not settle');
 }, card = () => w.document.querySelector('#bikeList [data-bike-id="bike-15"]');
 y = 3200; const original = card().getBoundingClientRect().top, originalNode = card();
 card().click(); await wait(); assert.equal(w.history.state.view,'detail'); assert.equal(y,0); assert.equal(w.document.querySelector('#detailView').classList.contains('is-hidden'),false);
-assert.equal(animations.length,0,'Card transitions must not leave fill:both animations attached to documentElement');
-assert.equal(w.document.documentElement.style.getPropertyValue('--fleet-card-shape'),'');
+assert.equal(transitions.length,0,'No screenshot API is used');
+assert.equal(animations.length,1);assert.equal(animations[0].node,w.document.querySelector('#detailView'));
+assert.equal(animations[0].options.duration,190);assert.match(animations[0].frames[0].transform,/22px/);
 w.document.querySelector('#detailBackButton').click(); await wait(); assert.equal(w.document.querySelector('#homeView').classList.contains('is-hidden'),false); assert.equal(card().getBoundingClientRect().top,original); assert.equal(w.document.activeElement,card());
-assert.equal(animations.length,2,'Back uses two synchronized compositor layers');
-const returnNode=animations[0].node.parentElement;
-assert.ok(animations[0].node.classList.contains('fleet-bike-return-panel'));
-assert.equal(returnNode.querySelector('strong').textContent,'ΜΗΧ 015');
-assert.equal(returnNode.querySelectorAll('svg').length,1);
-for(const animation of animations){assert.equal(animation.options.duration,300);assert.ok(animation.frames.every(frame=>Object.keys(frame).every(key=>key==='transform')));}
+assert.equal(animations.length,2);assert.equal(animations[1].node,w.document.querySelector('#homeView'));assert.match(animations[1].frames[0].transform,/-22px/);
+for(const animation of animations){assert.equal(animation.options.duration,190);assert.ok(animation.frames.every(frame=>Object.keys(frame).every(key=>key==='transform')));}
 assert.equal(w.document.querySelector('.fleet-bike-return-surface'),null);
 assert.equal(card(),originalNode,'Unchanged Back keeps the actual card DOM');
 // Actual changed content must invalidate the markup cache, not show stale data.
@@ -54,30 +51,22 @@ w.__motionTest.getBike('bike-15').currentKm=1200;w.__motionTest.showHome();await
 // Forward, rapid Back before capture, repeated actions and old cleanup cannot undo the latest navigation.
 w.history.forward(); await wait(); assert.equal(w.history.state.view,'detail'); w.history.back(); await wait();
 card().click(); w.__motionTest.showHome(); await wait(); assert.equal(w.document.querySelector('#homeView').classList.contains('is-hidden'),false); assert.equal(card().getBoundingClientRect().top,original);
-assert.equal(w.document.documentElement.hasAttribute('data-fleet-card-motion'),false); assert.equal(w.document.querySelectorAll('[style*="fleet-bike-plate"]').length,0);
+assert.equal(w.document.querySelector('[data-fleet-bike-slide]'),null); assert.equal(w.document.querySelectorAll('[style*="fleet-bike-plate"]').length,0);
 // Reduced motion and browsers without the API still restore position.
-reduced=true; const count=transitions.length; w.__motionTest.openDetail('bike-15',false); w.__motionTest.showHome(); await wait(); assert.equal(transitions.length,count); assert.equal(card().getBoundingClientRect().top,original);
-reduced=false; delete w.document.startViewTransition; w.__motionTest.openDetail('bike-15',false); w.__motionTest.showHome(); await wait(); assert.equal(card().getBoundingClientRect().top,original);
+reduced=true; const count=animations.length; w.__motionTest.openDetail('bike-15',false); w.__motionTest.showHome(); await wait(); assert.equal(animations.length,count); assert.equal(card().getBoundingClientRect().top,original);
+reduced=false; const animate=w.HTMLElement.prototype.animate;delete w.HTMLElement.prototype.animate; w.__motionTest.openDetail('bike-15',false); w.__motionTest.showHome(); await wait(); assert.equal(card().getBoundingClientRect().top,original);w.HTMLElement.prototype.animate=animate;
 // A changed layout is anchored by identity rather than a stale absolute offset.
 y=3200; const position=w.FleetMotion.capture(w.document.querySelector('#homeView'),card()); card().parentElement.prepend(card()); w.FleetMotion.restore(w.document.querySelector('#homeView'),position); await wait(); assert.equal(card().getBoundingClientRect().top,original);
 const section=w.document.querySelector('#homeView'); const n=animations.length; w.FleetMotion.slide(section,-1); assert.equal(animations.length,n+1); assert.match(animations.at(-1).frames[0].transform,/-22/); assert.ok(!('opacity' in animations.at(-1).frames[0])); reduced=true; w.FleetMotion.slide(section,1); assert.equal(animations.length,n+1);
-// Embedded Fleet uses a single snapshot, never a second flying plate/proxy.
-reduced=false;w.document.startViewTransition=start;
-const frame=w.document.createElement('iframe');w.document.body.append(frame);frame.contentDocument.body.innerHTML='<button id="card"><h3>ΜΗΧ 015</h3></button><section id="detail"><h2 id="detailName">ΜΗΧ 015</h2></section>';
+// Embedded Fleet animates the iframe viewport, not a huge document snapshot.
+reduced=false;
+const frame=w.document.createElement('iframe');w.document.body.append(frame);frame.contentDocument.body.innerHTML='<section id="homeView"><button id="card"><h3>ΜΗΧ 015</h3></button></section><section id="detail"><h2 id="detailName">ΜΗΧ 015</h2></section>';
 const childCard=frame.contentDocument.querySelector('#card'),childDetail=frame.contentDocument.querySelector('#detail');
-for(const node of [childCard,childDetail,...frame.contentDocument.querySelectorAll('h3,h2')])node.getBoundingClientRect=()=>({top:100,bottom:200,left:20,right:150,width:130,height:100});
-w.FleetMotion.card({opening:true,resolveCard:()=>childCard,detail:childDetail,update(){}});
-assert.equal(w.document.querySelector('[data-fleet-plate-proxy]'),null);assert.equal(childCard.querySelector('h3').style.visibility,'');
-await wait();assert.equal(childDetail.querySelector('h2').style.visibility,'');
-// Skip keeps no-fade styles until the snapshot lifecycle completes.
-w.FleetMotion.card({opening:true,resolveCard:()=>childCard,detail:childDetail,update(){}});
-w.FleetMotion.finish();assert.equal(w.document.documentElement.dataset.fleetCardMotion,'open');
-await wait();assert.equal(w.document.documentElement.style.getPropertyValue('--fleet-card-shape'),'');
-// Interrupted Back removes the surface and cannot commit the navigation twice.
 let closeUpdates=0;
+w.FleetMotion.card({opening:true,resolveCard:()=>childCard,detail:childDetail,update(){}});
+assert.equal(animations.at(-1).node,frame);assert.equal(frame.dataset.fleetBikeSlide,'open');
 w.FleetMotion.card({opening:false,resolveCard:()=>childCard,detail:childDetail,update(){closeUpdates++;}});
-assert.equal(w.document.querySelector('.fleet-bike-return-surface strong').textContent,'ΜΗΧ 015');
-assert.equal(w.document.querySelector('.fleet-bike-return-surface').children.length,2);
-w.FleetMotion.finish();assert.equal(w.document.querySelector('.fleet-bike-return-surface'),null);
-await wait();assert.equal(closeUpdates,1);
-dom.window.close(); console.log('OK actual Fleet navigation: card reveal/reverse, anchored Back/Forward, rapid interruption, cleanup, focus, reduced motion, unsupported API and slide without opacity.');
+assert.equal(frame.dataset.fleetBikeSlide,'close');
+w.FleetMotion.finish();await wait();assert.equal(closeUpdates,1);assert.equal(frame.dataset.fleetBikeSlide,undefined);
+assert.equal(w.document.querySelector('.fleet-bike-return-surface'),null);assert.equal(transitions.length,0);
+dom.window.close(); console.log('OK actual Fleet navigation: shared 22px/190ms slide, anchored Back/Forward, rapid interruption, cleanup, focus, reduced motion, unsupported API and slide without opacity.');
