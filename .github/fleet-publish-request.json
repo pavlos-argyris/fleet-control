@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-5ecdff15-f923-44e2-b26a-c738ff390ec7",
-  "sourceCommit": "04fe992d59d0303254c64353c16572674aadc711",
-  "releaseVersion": "5.49.5",
-  "requestedAt": "2026-10-19T14:15:24.802Z",
-  "reason": "User approved trying the identical bottom-tab slide for bike opening and Back, replacing shrink effects. Exact source CI 39266813668 passed including real browser verification; standing automatic publication authorization applies."
+  "requestId": "fleet-318c2633-60f0-4a45-bfa2-d9b9922e2357",
+  "sourceCommit": "8d74233c8a032431835314237fdbb634ae7c325c",
+  "releaseVersion": "5.50.0",
+  "requestedAt": "2026-10-19T17:04:03.709Z",
+  "reason": "User approved next-service notes implementation and standing automatic publication; source CI 39290499891 passed on 8d74233c8a032431835314237fdbb634ae7c325c, including Web/Client browser checks, backup restore and both APK builds."
 }
