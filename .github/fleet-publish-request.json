@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-0a4b6096-2bdf-47c8-83f0-396c4fa8d94b",
-  "sourceCommit": "afccb48aea8548ff955dcd7f7dc2fcd77be1edc2",
-  "releaseVersion": "5.49.3",
-  "requestedAt": "2026-10-18T21:07:12.905Z",
-  "reason": "User approved the unified green plate and motorcycle surface for bike closing, with automatic publication after verification; exact source CI 39166128741 passed including browser snapshots and APK builds."
+  "requestId": "fleet-68bf8655-0ec7-4a88-9fc1-c47b760987c3",
+  "sourceCommit": "f2e6a8646eb893c88147c28670530b3699b5ae49",
+  "releaseVersion": "5.49.4",
+  "requestedAt": "2026-10-19T13:49:49.491Z",
+  "reason": "User approved optimizing the stuttering bike transition: synchronized transform layers, 300ms timing and retained list DOM. Exact source CI 39262989115 passed including measured browser layout checks and APK builds; standing automatic publication authorization applies."
 }
