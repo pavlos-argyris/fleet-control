@@ -11,13 +11,13 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.49.5/styles.css">
-  <link rel="stylesheet" href="./assets/v5.49.5/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.49.5/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.49.5/client-ota.css">
-  <script src="./assets/v5.49.5/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.49.5/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.49.5/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/styles.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/client-ota.css">
+  <script src="./assets/v5.50.0/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.50.0/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/service-followup.css">
 </head>
 <body>
   <div class="app-shell">
@@ -334,6 +334,19 @@
           </button>
         </div>
 
+        <section id="nextServiceCard" class="next-service-card" aria-labelledby="nextServiceTitle">
+          <header><div><span class="eyebrow">ΣΗΜΕΙΩΣΕΙΣ ΣΥΝΤΗΡΗΣΗΣ</span><h2 id="nextServiceTitle">Για το επόμενο service</h2></div><span id="nextServiceCount" class="service-review-badge"></span></header>
+          <p class="service-action-help">Εργασίες που θέλεις να θυμηθείς, χωρίς να κλείσεις ραντεβού. Θα εμφανιστούν όταν καταχωρήσεις νέο service.</p>
+          <div id="nextServiceList"></div>
+          <div id="nextServiceEditor">
+            <label class="field"><span>Πρόσθεσε πιθανές επόμενες εργασίες</span><textarea id="nextServiceAdd" rows="2" maxlength="4000" aria-describedby="nextServiceAddHelp" placeholder="π.χ. Έλεγχος ιμάντα&#10;Αλλαγή πίσω ελαστικού"></textarea></label>
+            <p id="nextServiceAddHelp" class="service-action-help">Μία εργασία ανά γραμμή. Η προσθήκη δεν καταχωρεί service και δεν αλλάζει χιλιόμετρα.</p>
+            <button id="nextServiceSave" type="button" class="secondary-button">Προσθήκη στη λίστα</button>
+            <p id="nextServiceError" class="form-error" role="alert"></p>
+          </div>
+          <details id="nextServicePast" class="service-advanced"><summary>Ολοκληρωμένες / αφαιρεμένες σημειώσεις</summary><div id="nextServicePastList"></div></details>
+        </section>
+
         <section class="history-section">
           <div class="list-heading detail-heading">
             <div>
@@ -565,6 +578,12 @@
         <span>Άλλες εργασίες <small>(μία σε κάθε γραμμή)</small></span>
         <textarea id="serviceNotes" rows="3" maxlength="500" placeholder="π.χ. Ρύθμιση αλυσίδας&#10;Αλλαγή λάμπας"></textarea>
       </label>
+      <section class="next-service-card next-service-form" aria-labelledby="serviceNextTitle">
+        <h3 id="serviceNextTitle">Για το επόμενο service</h3>
+        <div id="serviceReminders"></div>
+        <label class="field"><span>Νέες σημειώσεις για την επόμενη φορά <small>(προαιρετικά)</small></span><textarea id="serviceNextNotes" rows="3" maxlength="4000" aria-describedby="serviceNextNotesHelp" placeholder="π.χ. Στο επόμενο service να ελεγχθεί ο ιμάντας"></textarea></label>
+        <p id="serviceNextNotesHelp" class="service-action-help">Μία εργασία ανά γραμμή. Αποθηκεύονται στη λίστα αυτής της μηχανής μαζί με το service. Όσες εκκρεμείς δεν σημειώσεις ότι έγιναν θα παραμείνουν για την επόμενη φορά.</p>
+      </section>
       <div id="serviceNextPreview" class="next-preview" aria-live="polite">
         <span>Επόμενο σέρβις λαδιών</span>
         <strong>—</strong>
@@ -794,22 +813,22 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./assets/v5.49.5/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.49.5" defer></script>
-  <script src="./vendor/jsQR.js?v=5.49.5" defer></script>
-  <script src="./vendor/qrcode-generator.js?v=5.49.5" defer></script>
-  <script src="./assets/v5.49.5/service-model.js" defer></script>
-  <script src="./assets/v5.49.5/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.49.5/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.49.5/fleet-motion.js" defer></script>
-  <script src="./assets/v5.49.5/service-tools.js" defer></script>
-  <script src="./assets/v5.49.5/service-storage.js" defer></script>
-  <script src="./assets/v5.49.5/service-export.js" defer></script>
-  <script src="./assets/v5.49.5/shared-requests.js" defer></script>
-  <script src="./assets/v5.49.5/live-changes.js" defer></script>
-  <script src="./assets/v5.49.5/local-view-cache.js" defer></script>
-  <script src="./assets/v5.49.5/app.js" defer></script>
-  <script src="./assets/v5.49.5/service-followup.js" defer></script>
-  <script src="./assets/v5.49.5/fleet-operations.js" defer></script>
+  <script src="./assets/v5.50.0/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.50.0" defer></script>
+  <script src="./vendor/jsQR.js?v=5.50.0" defer></script>
+  <script src="./vendor/qrcode-generator.js?v=5.50.0" defer></script>
+  <script src="./assets/v5.50.0/service-model.js" defer></script>
+  <script src="./assets/v5.50.0/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.50.0/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.50.0/fleet-motion.js" defer></script>
+  <script src="./assets/v5.50.0/service-tools.js" defer></script>
+  <script src="./assets/v5.50.0/service-storage.js" defer></script>
+  <script src="./assets/v5.50.0/service-export.js" defer></script>
+  <script src="./assets/v5.50.0/shared-requests.js" defer></script>
+  <script src="./assets/v5.50.0/live-changes.js" defer></script>
+  <script src="./assets/v5.50.0/local-view-cache.js" defer></script>
+  <script src="./assets/v5.50.0/app.js" defer></script>
+  <script src="./assets/v5.50.0/service-followup.js" defer></script>
+  <script src="./assets/v5.50.0/fleet-operations.js" defer></script>
 </body>
 </html>

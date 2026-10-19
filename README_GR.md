@@ -1,3 +1,8 @@
+# Fleet Control 5.50.0
+
+Client/Web 5.50.0 · Server 2.2.6 · Worker 5.11.0.
+[Σημειώσεις για το επόμενο service](docs/NEXT_SERVICE_NOTES_5.50.0_GR.md).
+
 # Fleet Control 5.49.5
 
 Client/Web 5.49.5 · Server 2.2.5 · Worker 5.10.7.

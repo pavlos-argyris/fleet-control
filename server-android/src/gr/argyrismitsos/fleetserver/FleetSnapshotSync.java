@@ -31,6 +31,7 @@ public final class FleetSnapshotSync {
         if (local.optString("updatedAt", "").compareTo(remote.optString("updatedAt", "")) > 0) return true;
         if (local.optString("historyCorrectedAt", "").compareTo(remote.optString("historyCorrectedAt", "")) > 0) return true;
         if (local.optLong("currentKm", 0) > remote.optLong("currentKm", 0)) return true;
+        if (NextServiceNotes.needsPublish(local.optJSONArray("nextServiceNotes"), remote.optJSONArray("nextServiceNotes"))) return true;
         Set<String> deleted = strings(remote.optJSONArray("historyDeletedIds"));
         if (!deleted.containsAll(strings(local.optJSONArray("historyDeletedIds")))) return true;
         Map<String, JSONObject> history = byId(remote.optJSONArray("history"));

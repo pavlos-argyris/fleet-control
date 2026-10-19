@@ -469,6 +469,7 @@
       name: String(bike.name),
       maintenancePlans: maintenancePlans,
       serviceAppointments:window.FleetOperationsModel?.appointments(bike.serviceAppointments)||[],
+      nextServiceNotes:window.FleetOperationsModel?.nextServiceNotes(bike.nextServiceNotes)||[],
       historyRestores,historyDeletes,
       intervalKm: intervalKm,
       lastServiceKm: lastServiceKm,
@@ -546,6 +547,7 @@
       : Math.max(Number(first.lastServiceKm) || 0, Number(second.lastServiceKm) || 0, serviceHistoryKm);
     return normalizeBike(Object.assign({}, latest, {
       historyRestores,historyDeletes,serviceAppointments:window.FleetOperationsModel?.appointments((first.serviceAppointments||[]).concat(second.serviceAppointments||[]))||[],
+      nextServiceNotes:window.FleetOperationsModel?.nextServiceNotes((first.nextServiceNotes||[]).concat(second.nextServiceNotes||[]))||[],
       lastServiceKm: lastServiceKm,
       currentKm: historyCorrectedAt ? corrected.currentKm : Math.max(Number(first.currentKm) || 0, Number(second.currentKm) || 0, lastServiceKm),
       nextServiceKm: lastServiceKm + Number(latest.intervalKm),
@@ -2179,9 +2181,49 @@
     return '<div class="history-documents"><div class="history-document-row qr-processing-card' + statusClass + '"><div class="qr-processing-main"><div class="qr-progress-ring" style="--progress:' + progress + '" aria-label="' + progress + '%"><canvas class="qr-progress-canvas" data-wiggly-progress data-progress="' + progress + '" data-status="' + escapeHtml(status) + '" width="96" height="96" aria-hidden="true"></canvas><strong>' + progress + '%</strong></div><div><strong>' + statusLabel + '</strong><span>' + escapeHtml(String(data.qrProcessingStage || "Αναμονή από τον Server")) + '</span><small>' + qrElapsedLabel(data) + (progressModel.estimated ? " · εκτίμηση" : "") + '</small>' + error + '</div></div>' + retry + '</div></div>';
   }
 
+  function renderServiceReminders(bike,checkedIds) {
+    const target=document.getElementById('serviceReminders'),pending=(bike?.nextServiceNotes||[]).filter(n=>n.status==='pending'),selected=new Set(checkedIds||[]);
+    target.innerHTML=pending.length?'<p class="next-service-notice"><strong>'+pending.length+' εργασίες περιμένουν από προηγούμενη σημείωση</strong><span>Επίλεξε μόνο όσες έγιναν σε αυτό το service. Θα προστεθούν στις εργασίες του και θα ολοκληρωθούν στη λίστα.</span></p>'+pending.map(n=>'<label class="next-service-check"><input type="checkbox" data-next-note-done value="'+escapeHtml(n.id)+'" '+(selected.has(n.id)?'checked':'')+'><span>'+escapeHtml(n.text)+'<small>Έγινε σε αυτό το service</small></span></label>').join(''):'<p class="service-action-help">Δεν υπάρχουν εκκρεμείς σημειώσεις για αυτή τη μηχανή.</p>';
+  }
+  function renderNextServiceCard(bike) {
+    const card=document.getElementById('nextServiceCard');if(!card)return;
+    const notes=window.FleetOperationsModel.nextServiceNotes(bike.nextServiceNotes),pending=notes.filter(n=>n.status==='pending'),past=notes.filter(n=>n.status!=='pending').sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,20),manage=canManageHistory();
+    if(card.dataset.bikeId!==bike.id){document.getElementById('nextServiceAdd').value='';document.getElementById('nextServiceError').textContent='';card.dataset.bikeId=bike.id;document.getElementById('nextServicePast').open=false;}
+    document.getElementById('nextServiceCount').textContent=pending.length+' εκκρεμείς';
+    document.getElementById('nextServiceEditor').hidden=!manage;
+    const buttons=(n,restore)=>manage?'<button type="button" class="ghost-button" data-next-note-action="'+(restore?'restore':'remove')+'" data-next-note-id="'+escapeHtml(n.id)+'" aria-label="'+(restore?'Επαναφορά: ':'Αφαίρεση: ')+escapeHtml(n.text)+'">'+(restore?'Επαναφορά':'Αφαίρεση')+'</button>':'';
+    const list=pending.map(n=>'<div class="next-service-row"><span>'+escapeHtml(n.text)+'</span>'+buttons(n,false)+'</div>').join('')||'<p class="service-action-help">Δεν έχεις σημειώσει επόμενες εργασίες.</p>';
+    if(document.getElementById('nextServiceList').innerHTML!==list)document.getElementById('nextServiceList').innerHTML=list;
+    document.getElementById('nextServicePast').hidden=!past.length;
+    document.getElementById('nextServicePastList').innerHTML=past.map(n=>'<div class="next-service-row"><span>'+escapeHtml(n.text)+'<small>'+(n.status==='completed'?'Ολοκληρώθηκε':'Αφαιρέθηκε')+' · '+escapeHtml(formatDate(n.updatedAt.slice(0,10)))+'</small></span>'+buttons(n,true)+'</div>').join('');
+  }
+  function saveNextServiceNotes(action,id) {
+    if(!canManageHistory())return showToast('Χρειάζεται πρόσβαση διαχείρισης.');
+    const bike=getBike(activeBikeId),card=document.getElementById('nextServiceCard'),error=document.getElementById('nextServiceError');
+    if(!bike||card.dataset.bikeId!==bike.id)return;
+    const oldNotes=bike.nextServiceNotes,oldTime=bike.updatedAt;
+    try {
+      const O=window.FleetOperationsModel,notes=O.nextServiceNotes(bike.nextServiceNotes);let next;
+      const now=new Date(Math.max(Date.now(),Date.parse(bike.updatedAt)||0,...notes.map(n=>Date.parse(n.updatedAt)+1))).toISOString();
+      if(action==='add'){
+        const text=document.getElementById('nextServiceAdd').value;if(!text.trim())throw new Error('Γράψε τουλάχιστον μία επόμενη εργασία.');
+        next=O.changeNextServiceNotes(notes,{text,now,uid});
+        if(next.length===notes.length)throw new Error('Οι εργασίες αυτές υπάρχουν ήδη στη λίστα.');
+      }else{
+        const note=notes.find(n=>n.id===id);if(!note)throw new Error('Η σημείωση άλλαξε. Άνοιξε ξανά την καρτέλα.');
+        if(action==='restore'&&notes.filter(n=>n.status==='pending').length>=50)throw new Error('Μπορείς να έχεις έως 50 εκκρεμείς εργασίες.');
+        next=O.nextServiceNotes(notes.map(n=>n.id===id?{...n,status:action==='restore'?'pending':'removed',updatedAt:now,completedEntryId:''}:n));
+      }
+      bike.nextServiceNotes=next;bike.updatedAt=now;saveBikes();
+      if(action==='add')document.getElementById('nextServiceAdd').value='';error.textContent='';renderNextServiceCard(bike);
+      showToast(action==='add'?'Οι επόμενες εργασίες αποθηκεύτηκαν. Θα εμφανιστούν στο νέο service.':action==='restore'?'Η εργασία επέστρεψε στις εκκρεμείς.':'Η σημείωση αφαιρέθηκε. Μπορείς να την επαναφέρεις από τις παλιές σημειώσεις.');
+    }catch(e){bike.nextServiceNotes=oldNotes;bike.updatedAt=oldTime;error.textContent=e.message||'Δεν αποθηκεύτηκε η αλλαγή. Δοκίμασε ξανά.';}
+  }
+
   function renderDetail() {
     const bike = getBike(activeBikeId);
     if (!bike) return;
+    renderNextServiceCard(bike);
     const status = getStatus(bike);
     const major = getMajorServicePlan(bike);
     renderArchiveAccess();
@@ -3483,6 +3525,7 @@
     elements.serviceKm.value = Math.max(bike.currentKm, bike.lastServiceKm);
     elements.serviceKm.min = 0;
     elements.serviceDate.value = today();
+    renderServiceReminders(bike);
     elements.serviceNextPreview.textContent = "Δεν αλλάζει — " + formatKm(bike.nextServiceKm);
     elements.serviceDialog.showModal();
     if (typeof installServiceDraftTools === "function") installServiceDraftTools(bike);
@@ -3533,8 +3576,14 @@
     const customTasks = elements.serviceNotes.value.split(/\r?\n/).map(function (task) {
       return task.trim();
     }).filter(Boolean);
-    const tasks = Array.from(new Set(selectedTasks.concat(customTasks))).slice(0, 30);
+    const completedNotes = Array.from(elements.serviceForm.querySelectorAll('[data-next-note-done]:checked')).map(input=>input.value);
+    const nextNotesText = document.getElementById('serviceNextNotes').value;
+    const reminderTasks = (bike.nextServiceNotes||[]).filter(n=>n.status==='pending'&&completedNotes.includes(n.id)).map(n=>n.text);
+    const tasks = Array.from(new Set(selectedTasks.concat(customTasks,reminderTasks)));
     elements.serviceFormError.textContent = "";
+    if(tasks.length>30){elements.serviceFormError.textContent='Διάλεξε έως 30 εργασίες για το service, μαζί με όσες σημείωσες ότι έγιναν από τις υπενθυμίσεις.';return;}
+    try { window.FleetOperationsModel.changeNextServiceNotes(bike.nextServiceNotes,{text:nextNotesText,completedIds:completedNotes,uid}); }
+    catch(error){elements.serviceFormError.textContent=error.message;return;}
 
     if (!Number.isFinite(serviceKm) || serviceKm < 0 || elements.serviceKm.value === "") {
       elements.serviceFormError.textContent = "Γράψε σωστά τα χιλιόμετρα του σέρβις.";
@@ -3605,6 +3654,7 @@
       try { await queueServiceDocuments(bike.id,entryId,invoiceFiles,invoiceQrValue); }
       catch(error) { Object.assign(bike,previousBikeState); elements.serviceFormError.textContent = "Δεν αποθηκεύτηκαν τα τιμολόγια: " + error.message; return; }
     }
+    bike.nextServiceNotes=window.FleetOperationsModel.changeNextServiceNotes(bike.nextServiceNotes,{text:nextNotesText,completedIds:completedNotes,sourceEntryId:entryId,completedEntryId:entryId,now,uid});
     bike.history.unshift(newEntry);
     refreshMajorTracking(bike);
     saveBikes();
@@ -3890,7 +3940,7 @@
   function serviceStorageScope() {return apiBase+'|'+String(currentUser?.id||currentUser?.userId||currentUser?.username||'');}
   let draftTimer=null,draftWrites=Promise.resolve(),outboxRunning=false;
   function captureServiceDraft() {
-    return {km:elements.serviceKm.value,date:elements.serviceDate.value,tasks:Array.from(elements.serviceTaskInputs).filter(i=>i.checked).map(i=>i.value),notes:elements.serviceNotes.value,qr:elements.serviceInvoiceQrValue.value,files:selectedInvoiceFiles(elements.serviceInvoiceFile)};
+    return {km:elements.serviceKm.value,date:elements.serviceDate.value,tasks:Array.from(elements.serviceTaskInputs).filter(i=>i.checked).map(i=>i.value),notes:elements.serviceNotes.value,nextServiceNotes:document.getElementById('serviceNextNotes').value,completedNextNoteIds:Array.from(elements.serviceForm.querySelectorAll('[data-next-note-done]:checked')).map(i=>i.value),qr:elements.serviceInvoiceQrValue.value,files:selectedInvoiceFiles(elements.serviceInvoiceFile)};
   }
   function saveServiceDraft() {
     if(!window.FleetServiceStorage||!elements.serviceDialog.open||!currentUser)return;
@@ -3916,6 +3966,8 @@
         if(!window.confirm('Να ανακτήσω το αποθηκευμένο προσχέδιο; Τα στοιχεία, οι εργασίες, το QR και τα αρχεία που εμφανίζονται τώρα στη φόρμα θα αντικατασταθούν. Δεν καταχωρείται service μέχρι να πατήσεις αποθήκευση.'))return;
         clearTimeout(draftTimer);const d=row.data;
         elements.serviceKm.value=d.km||'';elements.serviceDate.value=d.date||'';elements.serviceNotes.value=d.notes||'';elements.serviceInvoiceQrValue.value=d.qr||'';
+        document.getElementById('serviceNextNotes').value=d.nextServiceNotes||'';
+        renderServiceReminders(getBike(bike.id),d.completedNextNoteIds||[]);
         elements.serviceTaskInputs.forEach(i=>i.checked=(d.tasks||[]).includes(i.value));elements.serviceInvoiceFile.value='';elements.serviceInvoiceFile.fleetDraftFiles=d.files||[];
         updateInvoiceFileName(elements.serviceInvoiceFile,elements.serviceInvoiceFileName);updateServicePreview();
         elements.serviceInvoiceQrStatus.textContent=d.qr?'QR ανακτημένου προσχεδίου · θα σταλεί με την καταχώρηση.':'';
@@ -3926,7 +3978,7 @@
     toolbar.querySelector('[data-service-templates]').onclick=async()=>{
       try{
         const records=await window.FleetServiceStorage.list(scope,'template');if(!active())return;
-        const d=window.FleetServiceUI.dialog('Πρότυπα εργασιών','<p class="service-section-help">Ένα πρότυπο θυμάται τις επιλεγμένες εργασίες και τις «Άλλες εργασίες». Με την εφαρμογή του αντικαθιστά μόνο αυτά τα δύο πεδία. Χιλιόμετρα, ημερομηνία, QR και αρχεία παραμένουν όπως είναι. Αποθηκεύεται μόνο σε αυτή τη συσκευή και στον λογαριασμό σου.</p>'+(records.length?records.map(r=>'<button type="button" class="service-choice" data-template="'+escapeHtml(r.key)+'"><strong>'+escapeHtml(r.data.name)+'</strong><small>'+escapeHtml((r.data.tasks||[]).concat(r.data.notes?[r.data.notes]:[]).join(' · '))+'</small></button>').join(''):'<p class="service-template-empty">Δεν έχεις αποθηκευμένα πρότυπα. Διάλεξε εργασίες στη φόρμα service, δώσε ένα όνομα παρακάτω και αποθήκευσέ τες ως πρότυπο.</p>')+'<label class="field"><span>Όνομα νέου προτύπου</span><input data-template-name maxlength="80" placeholder="π.χ. Λάδια και φίλτρο"></label><p data-template-error class="form-error" role="alert"></p><div class="service-tools-toolbar"><button type="button" class="primary-button" data-template-save>Αποθήκευση τρεχουσών εργασιών</button><button type="button" class="ghost-button" data-template-close>Πίσω στο service</button></div>');
+        const d=window.FleetServiceUI.dialog('Πρότυπα εργασιών','<p class="service-section-help">Ένα πρότυπο θυμάται τις επιλεγμένες εργασίες και τις «Άλλες εργασίες». Με την εφαρμογή του αντικαθιστά μόνο αυτά τα δύο πεδία. Χιλιόμετρα, ημερομηνία, QR, αρχεία και σημειώσεις για το επόμενο service παραμένουν όπως είναι. Αποθηκεύεται μόνο σε αυτή τη συσκευή και στον λογαριασμό σου.</p>'+(records.length?records.map(r=>'<button type="button" class="service-choice" data-template="'+escapeHtml(r.key)+'"><strong>'+escapeHtml(r.data.name)+'</strong><small>'+escapeHtml((r.data.tasks||[]).concat(r.data.notes?[r.data.notes]:[]).join(' · '))+'</small></button>').join(''):'<p class="service-template-empty">Δεν έχεις αποθηκευμένα πρότυπα. Διάλεξε εργασίες στη φόρμα service, δώσε ένα όνομα παρακάτω και αποθήκευσέ τες ως πρότυπο.</p>')+'<label class="field"><span>Όνομα νέου προτύπου</span><input data-template-name maxlength="80" placeholder="π.χ. Λάδια και φίλτρο"></label><p data-template-error class="form-error" role="alert"></p><div class="service-tools-toolbar"><button type="button" class="primary-button" data-template-save>Αποθήκευση τρεχουσών εργασιών</button><button type="button" class="ghost-button" data-template-close>Πίσω στο service</button></div>');
         d.querySelectorAll('[data-template]').forEach(button=>button.onclick=()=>{
           if(!active())return d.close();
           if(!window.confirm('Να εφαρμοστεί το πρότυπο; Θα αντικαταστήσει τις επιλεγμένες εργασίες και τις «Άλλες εργασίες». Τα υπόλοιπα στοιχεία παραμένουν.'))return;
@@ -3984,6 +4036,8 @@
     openDocument:record=>openServiceDocument(record),
     retry:async record=>{const data=await window.FleetFollowupAdapter.api(record.key&&record.error?'/api/admin/service-documents/reprocess':'/api/admin/service-documents/restart',{method:'POST',body:record.key&&record.error?{key:record.key}:{jobId:record.jobId||record.invoiceData?.qrJobId||'',bikeId:record.bikeId,entryId:record.entryId,qrUrl:record.qrUrl}});showToast('Η νέα προσπάθεια καταχωρήθηκε.');return data;}
   };
+  document.getElementById('nextServiceSave').onclick=()=>saveNextServiceNotes('add');
+  document.getElementById('nextServiceCard').addEventListener('click',event=>{const button=event.target.closest('[data-next-note-action]');if(button)saveNextServiceNotes(button.dataset.nextNoteAction,button.dataset.nextNoteId);});
   const maintenanceButton=document.createElement('button');maintenanceButton.type='button';maintenanceButton.className='secondary-button';maintenanceButton.textContent='Συντήρηση ανά εργασία';
   elements.detailExportButton.after(maintenanceButton);maintenanceButton.onclick=()=>{const bike=getBike(activeBikeId);if(bike)window.FleetServiceUI.maintenance(bike,async plans=>{if(!canManageHistory())throw new Error('Χρειάζεται πρόσβαση διαχείρισης.');bike.maintenancePlans=plans;bike.updatedAt=new Date().toISOString();saveBikes();await syncNow();showToast('Τα όρια συντήρησης αποθηκεύτηκαν.');});};
 

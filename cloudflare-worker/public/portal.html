@@ -11,13 +11,13 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.49.5/portal.css">
-  <link rel="stylesheet" href="./assets/v5.49.5/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.49.5/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.49.5/client-ota.css">
-  <script src="./assets/v5.49.5/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.49.5/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.49.5/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/portal.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/client-ota.css">
+  <script src="./assets/v5.50.0/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.50.0/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.50.0/service-followup.css">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -164,7 +164,7 @@
         <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
           <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
             <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
-              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.49.5" title="Fleet Control — διαχείριση στόλου"></iframe>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.50.0" title="Fleet Control — διαχείριση στόλου"></iframe>
           </div>
           <details class="fleet-availability-panel fleet-availability-bottom">
             <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
@@ -337,23 +337,23 @@
   <dialog id="installGuideDialog" class="app-dialog install-guide-dialog"><div class="dialog-body"><div class="dialog-head"><div><span class="overline">iPHONE / iPAD</span><h2>Εγκατάσταση Web App</h2></div><button id="installGuideClose" type="button" aria-label="Κλείσιμο">×</button></div><p id="iosInstallIntro" class="helper-copy">Δεν χρειάζεται αρχείο IPA. Το Fleet Control εγκαθίσταται ως Web App από το Safari.</p><ol class="install-steps"><li><b>1</b><span>Άνοιξε αυτή τη σελίδα στο <strong>Safari</strong>.</span></li><li><b>2</b><span>Πάτησε <strong>Κοινοποίηση</strong> και μετά <strong>Προσθήκη στην οθόνη Αφετηρίας</strong>.</span></li><li><b>3</b><span>Ενεργοποίησε <strong>Άνοιγμα ως εφαρμογή Web</strong> και πάτησε <strong>Προσθήκη</strong>.</span></li></ol><div class="install-guide-actions"><button id="iosShareButton" class="primary-button" type="button">Άνοιγμα κοινοποίησης</button><button id="iosCopyLink" class="secondary-button" type="button">Αντιγραφή συνδέσμου</button></div><p id="iosInstallStatus" class="security-note">Μετά την προσθήκη θα εμφανιστεί κανονικό εικονίδιο Fleet Control στην Αφετηρία.</p></div></dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./assets/v5.49.5/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.49.5"></script>
-  <script src="./assets/v5.49.5/service-model.js" defer></script>
-  <script src="./assets/v5.49.5/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.49.5/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.49.5/fleet-motion.js" defer></script>
-  <script src="./assets/v5.49.5/service-tools.js" defer></script>
-  <script src="./assets/v5.49.5/service-storage.js" defer></script>
-  <script src="./assets/v5.49.5/service-export.js" defer></script>
-  <script src="./assets/v5.49.5/shared-requests.js"></script>
-  <script src="./assets/v5.49.5/live-changes.js"></script>
-  <script src="./assets/v5.49.5/local-view-cache.js"></script>
-  <script src="./assets/v5.49.5/portal.js"></script>
+  <script src="./assets/v5.50.0/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.50.0"></script>
+  <script src="./assets/v5.50.0/service-model.js" defer></script>
+  <script src="./assets/v5.50.0/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.50.0/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.50.0/fleet-motion.js" defer></script>
+  <script src="./assets/v5.50.0/service-tools.js" defer></script>
+  <script src="./assets/v5.50.0/service-storage.js" defer></script>
+  <script src="./assets/v5.50.0/service-export.js" defer></script>
+  <script src="./assets/v5.50.0/shared-requests.js"></script>
+  <script src="./assets/v5.50.0/live-changes.js"></script>
+  <script src="./assets/v5.50.0/local-view-cache.js"></script>
+  <script src="./assets/v5.50.0/portal.js"></script>
   <script src="./vendor/jsQR.js"></script>
-  <script src="./assets/v5.49.5/invoice-import-ui.js"></script>
-  <script src="./assets/v5.49.5/service-followup.js" defer></script>
-  <script src="./assets/v5.49.5/fleet-operations.js" defer></script>
-  <script src="./assets/v5.49.5/sequential-review.js" defer></script>
+  <script src="./assets/v5.50.0/invoice-import-ui.js"></script>
+  <script src="./assets/v5.50.0/service-followup.js" defer></script>
+  <script src="./assets/v5.50.0/fleet-operations.js" defer></script>
+  <script src="./assets/v5.50.0/sequential-review.js" defer></script>
 </body>
 </html>

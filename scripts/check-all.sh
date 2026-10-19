@@ -19,6 +19,7 @@ node scripts/test-service-workflow.mjs
 node scripts/test-invoice-imports.mjs
 node scripts/test-service-model.mjs
 node scripts/test-fleet-operations-model.mjs
+node scripts/test-next-service-model.mjs
 node scripts/test-fleet-operations-ui.mjs
 node scripts/test-service-followup.mjs
 node scripts/test-sequential-review.mjs

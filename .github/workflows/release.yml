@@ -67,12 +67,15 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: cloudflare-worker
       - run: node scripts/test-navigation-motion-browser.mjs
+      - run: node scripts/test-next-service-browser.mjs
       - name: Save navigation verification images
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: navigation-motion-verification
-          path: verification/navigation-motion/
+          path: |
+            verification/navigation-motion/
+            verification/next-service/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh

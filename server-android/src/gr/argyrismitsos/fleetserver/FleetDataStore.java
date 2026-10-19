@@ -282,6 +282,7 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         latest.put("historyRestores", lifecycleArray(restores));
         latest.put("historyDeletes", lifecycleArray(deletes));
         latest.put("serviceAppointments", mergeAppointments(first.optJSONArray("serviceAppointments"), second.optJSONArray("serviceAppointments")));
+        latest.put("nextServiceNotes", NextServiceNotes.merge(first.optJSONArray("nextServiceNotes"), second.optJSONArray("nextServiceNotes")));
         Map<String, JSONObject> historyMap = new LinkedHashMap<String, JSONObject>();
         addHistory(historyMap, first.optJSONArray("history"));
         addHistory(historyMap, second.optJSONArray("history"));

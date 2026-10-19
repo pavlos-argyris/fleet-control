@@ -35,7 +35,7 @@ function fixture() {
   const trace = [];
   const field = (value = "") => ({ value, checked: false, focus: () => trace.push("focus"), textContent: "",
     classList: { toggle(name, hidden) { this[name] = hidden; } } });
-  const elements = { serviceForm: { dataset: {} } };
+  const elements = { serviceForm: { dataset: {}, querySelectorAll:()=>[] } };
   for (const key of ["serviceBikeId", "serviceKm", "serviceDate", "serviceOilChanged", "serviceMajorService",
     "serviceNotes", "serviceWorkshop", "serviceCost", "serviceFormError", "serviceMileageWarning", "serviceNextPreview",
     "historyEntryBikeId", "historyEntryId", "historyEntryKm", "historyEntryDate", "historyEntryNotes", "historyEntryWorkshop",
@@ -54,7 +54,7 @@ function fixture() {
   elements.historyEntryId.value = "entry-1";
   let counter = 0;
   const ctx = vm.createContext({ URL, console, navigator: { onLine: true }, elements, bikes: [bike()],
-    window: { confirm: () => true }, MAX_SERVICE_ATTACHMENTS: 10, activeBikeId: "bike",
+    window: { confirm: () => true, FleetOperationsModel:globalThis.FleetOperationsModel }, MAX_SERVICE_ATTACHMENTS: 10, activeBikeId: "bike",
     backgroundHistorySaves: new Map(), historyEntrySaveQueue: Promise.resolve(), qrProgressRefreshRunning: false,
     uid: () => "job-" + (++counter), formatKm: String, formatDate: String, parseInvoiceKm: Number,
     escapeHtml: String, invoiceLineText: String, refreshMajorTracking: noop,
@@ -64,7 +64,7 @@ function fixture() {
     showToast: (value) => trace.push(value), canManageHistory: () => true,
     normalizeBike, mergeBikeRecords: mergeBike,
     updateQrProcessingLocal: noop, localHistoryEdit: () => trace.push("offline-edit"),
-    syncNow: async () => {}, requestHeaders: () => ({}), document: { hidden: false }, webToken: "test", apiBase: "https://test.invalid"
+    syncNow: async () => {}, requestHeaders: () => ({}), document: { hidden: false, getElementById:()=>field() }, webToken: "test", apiBase: "https://test.invalid"
   });
   ctx.getBike = (id) => ctx.bikes.find((item) => item.id === id);
   vm.runInContext(shipped, ctx);

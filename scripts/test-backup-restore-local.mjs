@@ -764,7 +764,21 @@ console.log("OK admin simulations: auth, fleet, permanent assignment, schedule c
 // Recovery check added for the handoff, using the simulation's in-memory DB.
 const recoveryPin = "246810";
 ok(await call("/api/admin/pin", { method: "POST", server: true, body: { pin: recoveryPin } }), 200, "set simulated restore PIN");
+const noteAt='2026-10-19T00:00:00.000Z',noteLater='2026-10-19T01:00:00.000Z';
+const reminderBike={id:'next-notes-backup',name:'BTO 555',intervalKm:3000,lastServiceKm:10000,currentKm:12000,createdAt:noteAt,updatedAt:noteAt,history:[],nextServiceNotes:[
+ {id:'next-belt',text:'Έλεγχος ιμάντα',status:'pending',createdAt:noteAt,updatedAt:noteAt,sourceEntryId:'',completedEntryId:''},
+ {id:'next-tyre',text:'Πίσω ελαστικό',status:'pending',createdAt:noteAt,updatedAt:noteAt,sourceEntryId:'',completedEntryId:''}]};
+ok(await call('/api/sync/bike',{method:'POST',body:{bike:reminderBike}}),401);
+let reminderSaved=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:reminderBike}})).bike;
+reminderSaved.nextServiceNotes[0]={...reminderSaved.nextServiceNotes[0],status:'completed',updatedAt:noteLater,completedEntryId:'real-service'};reminderSaved.updatedAt=noteLater;
+reminderSaved=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:reminderSaved}})).bike;
+const staleNotes={...reminderBike,updatedAt:iso(Date.now()+2000)};
+reminderSaved=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:staleNotes}})).bike;
+assert.equal(reminderSaved.nextServiceNotes.find(n=>n.id==='next-belt').status,'completed');
+const oldNotesClient={...reminderSaved,updatedAt:iso(Date.now()+3000)};delete oldNotesClient.nextServiceNotes;
+reminderSaved=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:oldNotesClient}})).bike;assert.equal(reminderSaved.nextServiceNotes.length,2);assert.equal(reminderSaved.currentKm,12000);assert.equal(reminderSaved.history.length,0);
 const savedExport = ok(await call("/api/server/system-export", { server: true }), 200, "export simulated system");
+assert.equal(savedExport.fleet.bikes.find(b=>b.id===reminderBike.id).nextServiceNotes.find(n=>n.id==='next-belt').completedEntryId,'real-service');
 const savedEmployee = savedExport.workforce.app_users.find(row => row.id === employeeA.id);
 assert.ok(savedEmployee);
 await db.prepare("UPDATE app_users SET full_name=? WHERE id=?").bind("Changed after backup", employeeA.id).run();
@@ -781,6 +795,7 @@ assert.equal((await db.prepare('SELECT full_name FROM app_users WHERE id=?').bin
 const currentFleet=ok(await call('/api/sync',{token:ownerToken}));currentFleet.bikes.push({id:'post-backup-bike',name:'BTO 999',intervalKm:3000,lastServiceKm:0,currentKm:0,createdAt:iso(Date.now()),updatedAt:iso(Date.now()),history:[]});ok(await call('/api/sync',{method:'POST',token:ownerToken,body:currentFleet}));
 const refreshed=ok(await call('/api/server/system-import/preview',{method:'POST',server:true,headers:{'X-Admin-Pin':recoveryPin},body:serverBackupShape}));serverBackupShape.restoreGuard=refreshed.restoreGuard;
 const imported = ok(await call("/api/server/system-import", { method: "PUT", server: true, headers: { "X-Admin-Pin": recoveryPin }, body: serverBackupShape }), 200, "restore simulated system backup");
+const restoredNotes=ok(await call('/api/snapshot',{token:ownerToken})).bikes.find(b=>b.id===reminderBike.id).nextServiceNotes;assert.equal(restoredNotes.length,2);assert.equal(restoredNotes.find(n=>n.id==='next-belt').status,'completed');assert.equal(restoredNotes.find(n=>n.id==='next-tyre').status,'pending');
 const restoredName = await db.prepare("SELECT full_name FROM app_users WHERE id=?").bind(employeeA.id).first();
 const laterRecord = await db.prepare("SELECT id FROM app_users WHERE id=?").bind(createdAfterBackup.id).first();
 assert.equal(restoredName.full_name, savedEmployee.full_name);
@@ -843,7 +858,7 @@ console.log('OK read-only restore preview: 28 table counts, guard against later 
  const restore=ok(await call('/api/admin/service-trash?id='+deleted.recycleId,{token:ownerToken}));assert.equal(restore.impact.after.lastServiceKm,12500);
  const restored=ok(await call('/api/admin/service-trash',{method:'POST',token:ownerToken,body:{id:deleted.recycleId,expectedDeletedAt:restore.deletedAt,expectedBikeUpdatedAt:restore.expectedBikeUpdatedAt,reason:'Διαγραφή κατά λάθος'}}));assert.ok(restored.bikes[0].history.some(e=>e.id===completed.entryId));
  const staleDeleted=JSON.parse(JSON.stringify(deleted.bike));staleDeleted.updatedAt=iso(Date.now()+2000);delete staleDeleted.historyRestores;delete staleDeleted.historyDeletes;const survived=ok(await call('/api/sync/bike',{method:'POST',token:ownerToken,body:{bike:staleDeleted}})).bike;assert.ok(survived.history.some(e=>e.id===completed.entryId),'Old-client tombstone must never erase restored service');
- const diag=ok(await call('/api/admin/fleet-diagnostics',{token:ownerToken}));assert.equal(diag.databaseOk,true);assert.equal(diag.workerVersion,'5.10.7');assert.ok(!JSON.stringify(diag).includes(SERVER_KEY));assert.ok(!JSON.stringify(diag).includes('BTO 456'));
+ const diag=ok(await call('/api/admin/fleet-diagnostics',{token:ownerToken}));assert.equal(diag.databaseOk,true);assert.equal(diag.workerVersion,'5.11.0');assert.ok(!JSON.stringify(diag).includes(SERVER_KEY));assert.ok(!JSON.stringify(diag).includes('BTO 456'));
  const backup=ok(await call('/api/server/system-export',{server:true}));const savedBike=backup.fleet.bikes.find(b=>b.id===id);assert.equal(savedBike.serviceAppointments[0].status,'completed');assert.ok(savedBike.historyRestores.some(r=>r.id===completed.entryId));
  console.log('OK actual operations API: manager auth, read-only/stale impact, idempotent appointment creation/completion, unchanged metrics until completion, direct trash preview/restore, stale deletion fences, safe diagnostics and backup metadata.');
 }
