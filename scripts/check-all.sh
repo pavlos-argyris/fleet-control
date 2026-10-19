@@ -12,6 +12,7 @@ node scripts/test-client-ota-ui.mjs
 node scripts/test-ota-setup.mjs
 node --test scripts/test-publish-request.mjs
 node scripts/test-ota-releases.mjs
+node scripts/test-release-transport.mjs
 node scripts/test-api-recovery.mjs
 node scripts/test-worker-snapshot-load.mjs
 node scripts/test-worker-model.mjs

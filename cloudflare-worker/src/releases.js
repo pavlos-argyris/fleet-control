@@ -42,15 +42,23 @@ export async function routeReleases(request, env, helpers) {
       }
       const web = body.web;
       if (!web || typeof web.version !== "string" || !web.version || web.version.length > 40) return json({ error: "Μη έγκυρο web manifest." }, 400);
-      const paths = new Set(); let total = 0;
+      const paths = new Set(), verifiedFiles = []; let total = 0;
       for (const file of web.files) {
         const filePath = assetPath(file.path);
         if (!filePath || paths.has(filePath) || !SHA.test(file.sha256 || "") || !Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 1 || file.sizeBytes > 10 * 1024 * 1024) return json({ error: "Μη έγκυρο αρχείο web." }, 400);
         paths.add(filePath); total += file.sizeBytes;
-        const object = await env.RELEASES.head(`ota/${releaseId}/web/${filePath}`);
-        if (!object || object.size !== file.sizeBytes || object.customMetadata?.sha256 !== file.sha256) return json({ error: `Δεν επαληθεύτηκε το ${filePath}.` }, 409);
+        verifiedFiles.push({ ...file, path: filePath });
       }
       if (!paths.has("index.html") || !paths.has("portal.html") || total > 60 * 1024 * 1024) return json({ error: "Το web πακέτο δεν είναι πλήρες." }, 400);
+      // Bound internal I/O while checking every object before the D1 switch.
+      // Serial HEADs for hundreds of immutable assets can exceed the caller's
+      // deadline even when each stored object is healthy.
+      for (let start = 0; start < verifiedFiles.length; start += 4) {
+        const group = verifiedFiles.slice(start, start + 4);
+        const objects = await Promise.all(group.map(file => env.RELEASES.head(`ota/${releaseId}/web/${file.path}`)));
+        const missing = group.find((file, i) => !objects[i] || objects[i].size !== file.sizeBytes || objects[i].customMetadata?.sha256 !== file.sha256);
+        if (missing) return json({ error: `Δεν επαληθεύτηκε το ${missing.path}.` }, 409);
+      }
       records.push({ id: `web-${releaseId}`, kind: "web", version: web.version, key: `ota/${releaseId}/web/`, size: total, sha: "", manifest: JSON.stringify({ release: releaseId, releaseId, sourceCommit, files: [...paths], checksums: web.files }) });
       for (const record of records) {
         const old = await env.DB.prepare("SELECT manifest FROM fleet_releases WHERE id = ?").bind(record.id).first();

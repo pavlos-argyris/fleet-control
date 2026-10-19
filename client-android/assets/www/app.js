@@ -2183,13 +2183,13 @@
 
   function renderServiceReminders(bike,checkedIds) {
     const target=document.getElementById('serviceReminders'),pending=(bike?.nextServiceNotes||[]).filter(n=>n.status==='pending'),selected=new Set(checkedIds||[]);
-    target.innerHTML=pending.length?'<p class="next-service-notice"><strong>'+pending.length+' εργασίες περιμένουν από προηγούμενη σημείωση</strong><span>Επίλεξε μόνο όσες έγιναν σε αυτό το service. Θα προστεθούν στις εργασίες του και θα ολοκληρωθούν στη λίστα.</span></p>'+pending.map(n=>'<label class="next-service-check"><input type="checkbox" data-next-note-done value="'+escapeHtml(n.id)+'" '+(selected.has(n.id)?'checked':'')+'><span>'+escapeHtml(n.text)+'<small>Έγινε σε αυτό το service</small></span></label>').join(''):'<p class="service-action-help">Δεν υπάρχουν εκκρεμείς σημειώσεις για αυτή τη μηχανή.</p>';
+    target.innerHTML=pending.length?'<p class="next-service-notice"><strong>'+pending.length+(pending.length===1?' εργασία περιμένει από προηγούμενη σημείωση':' εργασίες περιμένουν από προηγούμενη σημείωση')+'</strong><span>Επίλεξε μόνο όσες έγιναν σε αυτό το service. Θα προστεθούν στις εργασίες του και θα ολοκληρωθούν στη λίστα.</span></p>'+pending.map(n=>'<label class="next-service-check"><input type="checkbox" data-next-note-done value="'+escapeHtml(n.id)+'" '+(selected.has(n.id)?'checked':'')+'><span>'+escapeHtml(n.text)+'<small>Έγινε σε αυτό το service</small></span></label>').join(''):'<p class="service-action-help">Δεν υπάρχουν εκκρεμείς σημειώσεις για αυτή τη μηχανή.</p>';
   }
   function renderNextServiceCard(bike) {
     const card=document.getElementById('nextServiceCard');if(!card)return;
     const notes=window.FleetOperationsModel.nextServiceNotes(bike.nextServiceNotes),pending=notes.filter(n=>n.status==='pending'),past=notes.filter(n=>n.status!=='pending').sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,20),manage=canManageHistory();
     if(card.dataset.bikeId!==bike.id){document.getElementById('nextServiceAdd').value='';document.getElementById('nextServiceError').textContent='';card.dataset.bikeId=bike.id;document.getElementById('nextServicePast').open=false;}
-    document.getElementById('nextServiceCount').textContent=pending.length+' εκκρεμείς';
+    document.getElementById('nextServiceCount').textContent=pending.length+(pending.length===1?' εκκρεμής':' εκκρεμείς');
     document.getElementById('nextServiceEditor').hidden=!manage;
     const buttons=(n,restore)=>manage?'<button type="button" class="ghost-button" data-next-note-action="'+(restore?'restore':'remove')+'" data-next-note-id="'+escapeHtml(n.id)+'" aria-label="'+(restore?'Επαναφορά: ':'Αφαίρεση: ')+escapeHtml(n.text)+'">'+(restore?'Επαναφορά':'Αφαίρεση')+'</button>':'';
     const list=pending.map(n=>'<div class="next-service-row"><span>'+escapeHtml(n.text)+'</span>'+buttons(n,false)+'</div>').join('')||'<p class="service-action-help">Δεν έχεις σημειώσει επόμενες εργασίες.</p>';

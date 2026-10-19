@@ -19,8 +19,9 @@ const DB = {
   async batch(statements) { sqlite.exec('BEGIN'); try { const result = []; for (let i = 0; i < statements.length; i++) { result.push(await statements[i].run()); if (failBatch && i === 1) throw new Error('Simulated transaction failure'); } sqlite.exec('COMMIT'); return result; } catch (error) { sqlite.exec('ROLLBACK'); throw error; } }
 };
 const objects = new Map();
+let inflightHeads=0,peakHeads=0;
 const RELEASES = {
-  async head(key) { return objects.get(key) || null; },
+  async head(key) {inflightHeads++;peakHeads=Math.max(peakHeads,inflightHeads);try{await new Promise(r=>setImmediate(r));return objects.get(key) || null;}finally{inflightHeads--;}},
   async get(key) { return objects.get(key) || null; },
   async put(key, data, options = {}) { const bytes = new Uint8Array(data); const object = { body: bytes, size: bytes.length, ...options }; objects.set(key, object); return object; }
 };
@@ -89,6 +90,7 @@ assert.equal((await call('/api/deploy/releases/activate', 'POST', large.manifest
 assert.equal((await (await call('/api/client-update')).json()).versionCode, 49, 'Incomplete large release preserves active pointers');
 objects.set(missingKey, saved);
 assert.equal((await call('/api/deploy/releases/activate', 'POST', large.manifest, 'publisher')).status, 200, 'Versioned static bundles with more than 250 files activate');
+assert.ok(peakHeads>1&&peakHeads<=4,'Every object is verified with bounded parallel I/O');
 assert.equal((await (await call('/api/client-update')).json()).versionCode, 50);
 const tooMany = structuredClone(large.manifest);
 while (tooMany.web.files.length <= MAX_WEB_RELEASE_FILES) tooMany.web.files.push({ ...tooMany.web.files[0], path: `extra-${tooMany.web.files.length}.js` });

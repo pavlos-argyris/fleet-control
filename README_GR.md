@@ -1,3 +1,8 @@
+# Fleet Control 5.50.1
+
+Client/Web 5.50.1 · Server 2.2.7 · Worker 5.11.1.
+[Σημειώσεις επόμενου service και αξιόπιστη διανομή](docs/NEXT_SERVICE_NOTES_5.50.1_GR.md).
+
 # Fleet Control 5.50.0
 
 Client/Web 5.50.0 · Server 2.2.6 · Worker 5.11.0.
