@@ -387,3 +387,7 @@ html.embedded-mode main{padding:20px 28px 24px}
  .ui-fleet-heading{align-items:center}
  .ui-fleet-search{margin:12px 0 16px}
 }
+
+/* The compact grid must not override the search visibility rule. */
+.bike-list.ui-compact .bike-card[data-ui-filtered="true"]{display:none}
+.fleet-overview .overview-stat{padding-bottom:32px}
