@@ -107,6 +107,7 @@ jobs:
         run: bash scripts/build-android.sh all
       - run: node scripts/verify-apks.mjs
       - run: node scripts/prepare-release.mjs
+      - run: python3 scripts/write-release-notes.py .build/release-notes.md
       - run: node scripts/publish-release.mjs --dry-run
       - name: Save full source and signed files as a GitHub release
         env:
@@ -120,7 +121,7 @@ jobs:
             echo 'The saved release matches. Continuing the deployment retry.'
           else
             FLEET_SOURCE_COMMIT="$(git rev-parse HEAD)"
-            gh release create "$FLEET_TAG" --target "$FLEET_SOURCE_COMMIT" --title "Fleet Control $FLEET_TAG" --notes-file docs/RELEASE_NOTES_CURRENT.md dist/*.apk dist/*.apk.idsig dist/*.zip dist/release-manifest.json dist/SHA256SUMS.txt
+            gh release create "$FLEET_TAG" --target "$FLEET_SOURCE_COMMIT" --title "Fleet Control $FLEET_TAG" --notes-file .build/release-notes.md dist/*.apk dist/*.apk.idsig dist/*.zip dist/release-manifest.json dist/SHA256SUMS.txt
           fi
       - run: node scripts/configure-worker.mjs
       - name: Set publishing credential and deploy compatible Worker

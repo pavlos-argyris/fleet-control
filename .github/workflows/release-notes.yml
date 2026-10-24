@@ -1,0 +1,66 @@
+name: Refresh published release documentation
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - docs/RELEASE_NOTES_CURRENT.md
+      - scripts/write-release-notes.py
+      - .github/workflows/release-notes.yml
+permissions:
+  contents: write
+jobs:
+  documentation:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify existing release and documentation-only changes
+        id: release
+        shell: bash
+        run: |
+          FLEET_TAG="fleet-v$(python3 -c 'import json;print(json.load(open("release-config.json"))["releaseVersion"])')"
+          if ! gh release view "$FLEET_TAG" >/dev/null 2>&1; then
+            echo 'No existing release to refresh. Normal publication will generate its notes.'
+            exit 0
+          fi
+          mkdir -p .build/release-documentation
+          gh release download "$FLEET_TAG" --pattern release-manifest.json --dir .build/release-documentation
+          python3 - <<'PY'
+          import json,subprocess,os
+          from pathlib import Path
+          config=json.loads(Path('release-config.json').read_text())
+          manifest=json.loads(Path('.build/release-documentation/release-manifest.json').read_text())
+          for kind in ['client','server','web','worker']:
+              assert config[kind]['version']==manifest[kind]['version'],kind+' must match the published release'
+          source=manifest['sourceCommit']
+          allowed={'.github/fleet-publish-request.json','.github/workflows/release-notes.yml','.github/workflows/release.yml','docs/RELEASE_NOTES_CURRENT.md','scripts/write-release-notes.py'}
+          changed=set(subprocess.check_output(['git','diff','--name-only',source,'HEAD'],text=True).splitlines())
+          if changed-allowed:
+              print('Application source has changed; leave the published release untouched.')
+          else:
+              subprocess.run(['python3','scripts/write-release-notes.py','.build/release-documentation/notes.md',source],check=True)
+              with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('ready=true\n')
+          PY
+          echo "tag=$FLEET_TAG" >> "$GITHUB_OUTPUT"
+      - name: Update notes without replacing signed APKs or OTA metadata
+        if: steps.release.outputs.ready == 'true'
+        run: gh release edit '${{ steps.release.outputs.tag }}' --notes-file .build/release-documentation/notes.md
+      - name: Save complete current repository and its provenance
+        if: steps.release.outputs.ready == 'true'
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          config=json.loads(Path('release-config.json').read_text())
+          manifest=json.loads(Path('.build/release-documentation/release-manifest.json').read_text())
+          folder=Path('.build/release-documentation');name='Fleet_Control_Repository_v'+config['releaseVersion']+'.zip'
+          subprocess.run(['git','archive','--format=zip','-o',str(folder/name),'HEAD'],check=True)
+          digest=hashlib.sha256((folder/name).read_bytes()).hexdigest()
+          (folder/'REPOSITORY_SHA256SUMS.txt').write_text(digest+'  '+name+'\n')
+          (folder/'repository-source.json').write_text(json.dumps({'kind':'complete-repository-with-publication-documentation','releaseVersion':config['releaseVersion'],'repositoryCommit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'apkSourceCommit':manifest['sourceCommit'],'file':name,'sha256':digest},indent=2)+'\n')
+          PY
+          gh release upload '${{ steps.release.outputs.tag }}' .build/release-documentation/Fleet_Control_Repository_*.zip .build/release-documentation/REPOSITORY_SHA256SUMS.txt .build/release-documentation/repository-source.json --clobber
