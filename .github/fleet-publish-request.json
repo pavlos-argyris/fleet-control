@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-a49bde75-e64d-4da2-a04d-2d6df11faad7",
-  "sourceCommit": "6a44c85e122ad5c4b6c4a3de6756149f3749832c",
-  "releaseVersion": "5.51.1",
-  "requestedAt": "2026-10-24T15:19:23.198Z",
-  "reason": "User authorized the single full-width Fleet list, integrated workspace and Server clipping correction with automatic publication. Source CI 40105579008 succeeded, including actual responsive layout/search tests, 24 Server bottom-of-tab cases, unchanged historical static URLs and both APK builds."
+  "requestId": "fleet-1856061b-8a26-443a-9126-8ed3abc0848f",
+  "sourceCommit": "bd02482a603d585b6ab13293b18467e7a0e954c7",
+  "releaseVersion": "5.51.2",
+  "requestedAt": "2026-10-24T16:14:10.825Z",
+  "reason": "User-authorized automatic release of the invoice UI fixes and labeled help; exact source passed Check saved source run 40110316236 including browser checks and both APK builds."
 }
