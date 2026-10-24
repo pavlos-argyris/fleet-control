@@ -1,3 +1,8 @@
+# Fleet Control 5.51.2
+
+Client/Web 5.51.2 · Server 2.2.10 · Worker 5.12.2.
+[Ενιαία φίλτρα τιμολογίων και εφέ swipe](docs/INVOICE_FILTER_UI_5.51.2_GR.md).
+
 # Fleet Control 5.51.1
 
 Client/Web 5.51.1 · Server 2.2.9 · Worker 5.12.1.

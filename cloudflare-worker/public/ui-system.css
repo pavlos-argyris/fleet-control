@@ -104,6 +104,27 @@ input[type=checkbox],input[type=radio]{accent-color:var(--teal-dark)}
 .invoice-section-toolbar{align-items:flex-start}
 .ui-invoice-filterbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0;flex-wrap:wrap}
 .ui-invoice-filterbar select{max-width:100%}
+.ui-select-source{display:none!important}
+.ui-select-trigger{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:48px;max-width:100%;padding:12px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:650;text-align:left}
+.ui-select-trigger [data-ui-select-label]{min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.4}
+.ui-select-trigger>svg{width:18px;height:18px;flex:none;fill:none;stroke:var(--teal-dark);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#invoicePlatePicker{min-width:min(220px,100%);flex:1 0 220px}
+.ui-invoice-filterbar>.ui-segments{position:relative;isolation:isolate;flex-wrap:nowrap;overflow:hidden;-webkit-tap-highlight-color:transparent}
+.ui-invoice-filterbar>.ui-segments button{position:relative;z-index:1;flex:1;min-width:0;-webkit-tap-highlight-color:transparent}
+.ui-invoice-filterbar>.ui-segments[data-sliding-indicator] button.active{background:transparent;border-color:transparent;box-shadow:none}
+.ui-invoice-filterbar .bottom-nav-indicator{border-radius:10px;border-color:#96c8ba;background:var(--mint)}
+.ui-select-dialog .dialog-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 12px}
+.ui-select-dialog .dialog-head h2{margin:0;font-size:21px}
+.ui-select-dialog .dialog-head button{flex:none}
+.ui-select-description{font-size:13px;line-height:1.65;color:var(--muted);margin:0 0 18px}
+.ui-select-search{display:grid;gap:8px;margin-bottom:14px;font-size:12px;font-weight:650;color:var(--muted)}
+.ui-select-search input{width:100%;padding:12px 14px}
+.ui-select-options{display:grid;gap:8px}
+.ui-select-option{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;min-height:52px;padding:14px 16px;text-align:left;color:var(--ink);background:#f8fbfa;border:1px solid var(--line);border-radius:13px;font-weight:650}
+.ui-select-option span{min-width:0;overflow-wrap:anywhere}
+.ui-select-option i{flex:none;width:22px;font-style:normal;color:var(--teal-dark)}
+.ui-select-option[aria-pressed=true]{background:var(--mint);border-color:#96c8ba;color:var(--teal-dark)}
+.ui-select-option:hover:not(:disabled){border-color:var(--teal);background:#edf7f3}
 .invoice-queue-summary{display:none!important}
 .invoice-section-toolbar{margin-bottom:12px}
 .invoice-view-tabs{margin:16px 0}
@@ -258,6 +279,8 @@ input[type=checkbox],input[type=radio]{accent-color:var(--teal-dark)}
 .ui-invoice-filterbar>.ui-segments button b{display:block;margin:4px 0 0}
 .invoice-section-toolbar>.toolbar-filters{display:flex;width:100%;justify-content:flex-start}
 .invoice-section-toolbar>.toolbar-filters select{flex:1;min-width:120px}
+.invoice-section-toolbar>.toolbar-filters #invoicePlatePicker{flex:1 0 100%;width:100%;min-width:0;order:2}
+.ui-invoice-filterbar>#uiInvoiceExtraPicker{width:100%}
 .ui-toolbar-details{width:100%}
 .ui-tools-body>button{flex:1 1 140px;min-width:0}
 .invoice-view-tabs button{flex:1;padding:10px 8px;font-size:12px}
@@ -329,6 +352,10 @@ button:not(:disabled):active{transform:none}
 
 @media(max-width:600px){dialog.app-dialog:not(.pin-dialog):not(.ui-help-dialog):not(.ui-nav-dialog){height:min(100dvh,var(--ui-visible-height,100dvh));max-height:min(100dvh,var(--ui-visible-height,100dvh))}
 }
+
+/* A short choice stays a compact dialog, rather than a full-screen form. The
+   whole surface scrolls above the soft keyboard, including on small phones. */
+dialog.app-dialog.ui-select-dialog{box-sizing:border-box;width:min(480px,calc(100vw - 28px));max-width:480px;height:auto;max-height:calc(min(100dvh,var(--ui-visible-height,100dvh)) - 28px);margin:auto;padding:22px;border:1px solid var(--line);border-radius:22px;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 24px 80px rgba(16,43,51,.2)}
 
 
 .sidebar-brand,.sidebar-foot{flex-shrink:0}

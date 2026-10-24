@@ -11,14 +11,14 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.51.1/portal.css">
-  <link rel="stylesheet" href="./assets/v5.51.1/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.51.1/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.51.1/client-ota.css">
-  <script src="./assets/v5.51.1/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.51.1/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.51.1/service-followup.css">
-  <link rel="stylesheet" href="./assets/v5.51.1/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.51.2/portal.css">
+  <link rel="stylesheet" href="./assets/v5.51.2/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.51.2/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.51.2/client-ota.css">
+  <script src="./assets/v5.51.2/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.51.2/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.51.2/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.51.2/ui-system.css">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -165,7 +165,7 @@
         <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
           <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
             <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
-              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.51.1" title="Fleet Control — διαχείριση στόλου"></iframe>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.51.2" title="Fleet Control — διαχείριση στόλου"></iframe>
           </div>
           <details class="fleet-availability-panel fleet-availability-bottom">
             <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
@@ -177,9 +177,9 @@
         <section id="viewInvoices" class="app-view is-hidden" data-view="invoices">
           <div class="section-toolbar invoice-section-toolbar">
             <div><span class="overline">ΕΛΕΓΧΟΣ ΤΙΜΟΛΟΓΙΩΝ</span><h2>Τιμολόγια service</h2><p>Τα QR που ολοκληρώθηκαν στον Server και τα αρχεία που χρειάζονται επιβεβαίωση.</p></div>
-            <div class="toolbar-filters"><button id="openInvoiceImports" class="primary-button" type="button">▦ Μαζική σάρωση QR</button><select id="invoicePlateFilter" aria-label="Ομαδοποίηση ανά πινακίδα"><option value="">Όλες οι πινακίδες</option></select><button id="refreshInvoices" class="secondary-button" type="button">Ανανέωση</button></div>
+            <div class="toolbar-filters"><button id="openInvoiceImports" class="primary-button" type="button">▦ Μαζική σάρωση QR</button><select id="invoicePlateFilter" class="ui-select-source" aria-label="Ομαδοποίηση ανά πινακίδα" tabindex="-1" aria-hidden="true"><option value="">Όλες οι πινακίδες</option></select><button id="invoicePlatePicker" class="ui-select-trigger" type="button" aria-label="Φίλτρο πινακίδας" aria-haspopup="dialog" aria-controls="uiInvoiceFilterDialog" aria-expanded="false"><span data-ui-select-label>Όλες οι πινακίδες</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="refreshInvoices" class="secondary-button" type="button">Ανανέωση</button></div>
           </div><details class="ui-toolbar-details"><summary><span>Εργαλεία τιμολογίων<small>Νέα ανάγνωση, μαζικές ενέργειες και έλεγχοι</small></span></summary><div class="ui-tools-body"><p>Εδώ βρίσκονται οι εργασίες που χρειάζεσαι περιστασιακά. Η νέα ανάλυση από την αρχή αγνοεί το αποθηκευμένο αποτέλεσμα ανάγνωσης και χρησιμοποιείται όταν υπάρχουν επίμονα λάθη.</p><button id="reprocessInvoices" class="secondary-button invoice-reprocess-all-button" type="button">↻ Νέα ανάγνωση όλων</button><button id="invoiceReaderRules" class="secondary-button" type="button">Κανόνες ανάγνωσης</button><button id="invoiceRetryFailed" class="secondary-button" type="button">Επανάληψη αποτυχημένων</button><button id="invoiceBatchPause" class="secondary-button" type="button">Παύση / συνέχεια</button><label class="invoice-force-read"><input id="invoiceForceRead" type="checkbox"> Νέα ανάλυση από την αρχή</label><button type="button" class="ui-help-button" aria-label="Τι κάνει η νέα ανάλυση από την αρχή;" data-ui-help="Αγνοεί το ήδη αποθηκευμένο αποτέλεσμα ανάγνωσης του PDF και ζητά νέα ανάλυση. Χρησιμοποίησέ το αν βλέπεις επίμονα λάθη μετά από επανάληψη. Μπορεί να χρειαστεί περισσότερος χρόνος ή χρήση AI.">?</button><button type="button" class="secondary-button" data-open-followup="pending">Εκκρεμότητες στόλου</button><button type="button" class="secondary-button" data-open-operations="zip">Λήψη PDF σε ZIP</button><button type="button" class="secondary-button" data-open-operations="plans">Προγραμματισμένα service</button><button type="button" class="secondary-button" data-open-operations="diagnostics">Διάγνωση προβλήματος</button><button id="invoiceSequentialReview" type="button" class="secondary-button">Διαδοχικός έλεγχος</button></div></details>
-          <div class="ui-invoice-filterbar"><div class="ui-segments" role="group" aria-label="Ουρά τιμολογίων"><button type="button" data-ui-invoice-queue="processing" aria-pressed="false">Σε επεξεργασία <b data-ui-count="processing">0</b></button><button type="button" data-ui-invoice-queue="attention" class="active" aria-pressed="true">Χρειάζονται έλεγχο <b data-ui-count="attention">0</b></button><button type="button" data-ui-invoice-queue="confirmed" aria-pressed="false">Ολοκληρωμένα <b data-ui-count="confirmed">0</b></button></div><select id="uiInvoiceExtra" aria-label="Πρόσθετο φίλτρο τιμολογίων"><option value="main">Βασικές ουρές</option><option value="">Όλα τα τιμολόγια</option><option value="new">Νέα</option><option value="needs_review">Μόνο προς έλεγχο</option><option value="warning">Μόνο προειδοποιήσεις</option><option value="error">Μόνο σφάλματα</option></select><select id="invoiceStatusFilter" hidden aria-label="Φίλτρο τιμολογίων"><option value="">Όλα τα τιμολόγια</option><option value="attention" selected>Χρειάζονται έλεγχο</option><option value="new">Νέα</option><option value="processing">Σε επεξεργασία</option><option value="needs_review">Προς έλεγχο</option><option value="warning">Με προειδοποίηση</option><option value="confirmed">Ολοκληρωμένα</option><option value="error">Με σφάλμα</option></select></div>
+          <div class="ui-invoice-filterbar"><div class="ui-segments" role="group" aria-label="Ουρά τιμολογίων"><button type="button" data-ui-invoice-queue="processing" aria-pressed="false">Σε επεξεργασία <b data-ui-count="processing">0</b></button><button type="button" data-ui-invoice-queue="attention" class="active" aria-pressed="true">Χρειάζονται έλεγχο <b data-ui-count="attention">0</b></button><button type="button" data-ui-invoice-queue="confirmed" aria-pressed="false">Ολοκληρωμένα <b data-ui-count="confirmed">0</b></button></div><select id="uiInvoiceExtra" class="ui-select-source" aria-label="Πρόσθετο φίλτρο τιμολογίων" tabindex="-1" aria-hidden="true"><option value="main">Βασικές ουρές</option><option value="">Όλα τα τιμολόγια</option><option value="new">Νέα</option><option value="needs_review">Μόνο προς έλεγχο</option><option value="warning">Μόνο προειδοποιήσεις</option><option value="error">Μόνο σφάλματα</option></select><button id="uiInvoiceExtraPicker" class="ui-select-trigger" type="button" aria-label="Πρόσθετα φίλτρα τιμολογίων" aria-haspopup="dialog" aria-controls="uiInvoiceFilterDialog" aria-expanded="false"><span data-ui-select-label>Βασικές ουρές</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><select id="invoiceStatusFilter" hidden aria-label="Φίλτρο τιμολογίων"><option value="">Όλα τα τιμολόγια</option><option value="attention" selected>Χρειάζονται έλεγχο</option><option value="new">Νέα</option><option value="processing">Σε επεξεργασία</option><option value="needs_review">Προς έλεγχο</option><option value="warning">Με προειδοποίηση</option><option value="confirmed">Ολοκληρωμένα</option><option value="error">Με σφάλμα</option></select></div>
           <div class="report-types invoice-view-tabs" role="group" aria-label="Προβολή τιμολογίων"><button type="button" class="active" data-invoice-view="review" aria-pressed="true">Έλεγχος τιμολογίων</button><button type="button" data-invoice-view="files" aria-pressed="false">▤ Λίστα τιμολογίων</button></div>
           <input id="invoiceFileSearch" class="invoice-file-search" type="search" placeholder="Αναζήτηση πινακίδας ή αρχείου" aria-label="Αναζήτηση στη λίστα τιμολογίων" hidden>
           <div id="invoiceBulkProgress" class="invoice-bulk-progress is-hidden" aria-live="polite" aria-busy="false">
@@ -341,23 +341,30 @@
 
   <dialog id="uiMoreDialog" class="app-dialog ui-nav-dialog" aria-labelledby="uiMoreTitle"><div class="dialog-head"><h2 id="uiMoreTitle">Περισσότερα</h2><button type="button" data-close="uiMoreDialog" aria-label="Πίσω">←</button></div><p class="ui-dialog-intro">Όλες οι λειτουργίες της εφαρμογής, οργανωμένες σε ένα σημείο.</p><div id="uiMoreItems" class="ui-nav-grid"></div></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./assets/v5.51.1/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.51.1"></script>
-  <script src="./assets/v5.51.1/service-model.js" defer></script>
-  <script src="./assets/v5.51.1/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.51.1/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.51.1/service-tools.js" defer></script>
-  <script src="./assets/v5.51.1/service-storage.js" defer></script>
-  <script src="./assets/v5.51.1/service-export.js" defer></script>
-  <script src="./assets/v5.51.1/shared-requests.js"></script>
-  <script src="./assets/v5.51.1/live-changes.js"></script>
-  <script src="./assets/v5.51.1/local-view-cache.js"></script>
-  <script src="./assets/v5.51.1/fleet-motion.js"></script>
-  <script src="./assets/v5.51.1/portal.js"></script>
+  <dialog id="uiInvoiceFilterDialog" class="app-dialog ui-select-dialog" aria-labelledby="uiInvoiceFilterTitle" aria-describedby="uiInvoiceFilterDescription">
+    <div class="dialog-head"><h2 id="uiInvoiceFilterTitle">Φίλτρα τιμολογίων</h2><button type="button" class="secondary-button" data-close="uiInvoiceFilterDialog" aria-label="Πίσω">← Πίσω</button></div>
+    <p id="uiInvoiceFilterDescription" class="ui-select-description"></p>
+    <label id="uiInvoiceFilterSearchField" class="ui-select-search">Αναζήτηση πινακίδας<input id="uiInvoiceFilterSearch" type="search" placeholder="π.χ. ΒΤΟ 756" autocomplete="off"></label>
+    <div id="uiInvoiceFilterOptions" class="ui-select-options" role="group" aria-label="Διαθέσιμες επιλογές"></div>
+    <p id="uiInvoiceFilterEmpty" class="ui-empty" role="status" hidden>Δεν βρέθηκε πινακίδα. Δοκίμασε άλλη αναζήτηση.</p>
+  </dialog>
+  <script src="./assets/v5.51.2/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.51.2"></script>
+  <script src="./assets/v5.51.2/service-model.js" defer></script>
+  <script src="./assets/v5.51.2/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.51.2/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.51.2/service-tools.js" defer></script>
+  <script src="./assets/v5.51.2/service-storage.js" defer></script>
+  <script src="./assets/v5.51.2/service-export.js" defer></script>
+  <script src="./assets/v5.51.2/shared-requests.js"></script>
+  <script src="./assets/v5.51.2/live-changes.js"></script>
+  <script src="./assets/v5.51.2/local-view-cache.js"></script>
+  <script src="./assets/v5.51.2/fleet-motion.js"></script>
+  <script src="./assets/v5.51.2/portal.js"></script>
   <script src="./vendor/jsQR.js"></script>
-  <script src="./assets/v5.51.1/invoice-import-ui.js"></script>
-  <script src="./assets/v5.51.1/service-followup.js" defer></script>
-  <script src="./assets/v5.51.1/fleet-operations.js" defer></script>
-  <script src="./assets/v5.51.1/sequential-review.js" defer></script>
+  <script src="./assets/v5.51.2/invoice-import-ui.js"></script>
+  <script src="./assets/v5.51.2/service-followup.js" defer></script>
+  <script src="./assets/v5.51.2/fleet-operations.js" defer></script>
+  <script src="./assets/v5.51.2/sequential-review.js" defer></script>
 </body>
 </html>

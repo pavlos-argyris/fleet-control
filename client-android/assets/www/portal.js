@@ -367,14 +367,78 @@
   const navigationHelp = {dashboard:"Η σημερινή εικόνα",shifts:"Καταγραφή παρουσιών και χιλιομέτρων",schedules:"Εβδομαδιαίος προγραμματισμός",employees:"Στοιχεία και δικαιώματα ομάδας",fleet:"Συντήρηση και ιστορικό μηχανών",invoices:"Ανάγνωση, έλεγχος και PDF",payroll:"Ώρες και υπολογισμός αμοιβών",reports:"Συγκεντρωτικές αναφορές",alerts:"Εκκρεμότητες που χρειάζονται ενέργεια",audit:"Ποιος άλλαξε τι και πότε",recycle:"Ανάκτηση διαγραμμένων εγγραφών",server:"Σύνδεση και αντίγραφα ασφαλείας",settings:"Λογαριασμοί και κανόνες συστήματος"};
   function navigationIcon(item){return window.FleetUI?.icon(item.id) || '<span>'+item.icon+'</span>';}
   function quickNavigation(items){return state.user.role === "employee" ? items.slice(0,4) : ["dashboard","shifts","fleet","invoices"].map(id=>items.find(item=>item.id===id)).filter(Boolean);}
+
+  // Keep the existing select values/events as the single filtering source. The
+  // visible controls use our dialog instead of the platform's unstyled picker.
+  const invoiceFilterControls = [
+    { source: "invoicePlateFilter", button: "invoicePlatePicker", title: "Επιλογή πινακίδας", searchable: true, description: "Επίλεξε μία πινακίδα ή δες τα τιμολόγια όλων των μηχανών." },
+    { source: "uiInvoiceExtra", button: "uiInvoiceExtraPicker", title: "Φίλτρα τιμολογίων", description: "Οι βασικές ουρές χρησιμοποιούν τα τρία κουμπιά. Τα υπόλοιπα φίλτρα περιορίζουν περισσότερο τα αποτελέσματα." }
+  ];
+  let activeInvoiceFilter = null;
+  function syncInvoiceFilterControls() {
+    for (const control of invoiceFilterControls) {
+      const source = $(control.source), button = $(control.button);
+      if (!source || !button) continue;
+      button.querySelector('[data-ui-select-label]').textContent = source.selectedOptions[0]?.textContent || source.options[0]?.textContent || control.title;
+      button.hidden = source.hidden;
+      button.disabled = source.disabled;
+    }
+    if (activeInvoiceFilter && $("uiInvoiceFilterDialog").open) renderInvoiceFilterOptions();
+  }
+  function renderInvoiceFilterOptions() {
+    const source = activeInvoiceFilter && $(activeInvoiceFilter.source);
+    if (!source) return;
+    const key = value => String(value).normalize('NFD').replace(/[\u0300-\u036f\s-]/g, '').toLocaleUpperCase('el-GR').replace(/[ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ]/g, c => ({Α:'A',Β:'B',Ε:'E',Ζ:'Z',Η:'H',Ι:'I',Κ:'K',Μ:'M',Ν:'N',Ο:'O',Ρ:'P',Τ:'T',Υ:'Y',Χ:'X'}[c]));
+    const query = activeInvoiceFilter.searchable ? key($("uiInvoiceFilterSearch").value) : '';
+    const options = Array.from(source.options).filter(option => !option.hidden && (!query || key(option.textContent).includes(query)));
+    const markup = options.map(option => '<button type="button" class="ui-select-option" data-ui-select-value="' + escapeHtml(option.value) + '" aria-pressed="' + (option.value === source.value) + '"' + (option.disabled ? ' disabled' : '') + '><span>' + escapeHtml(option.textContent) + '</span><i aria-hidden="true">' + (option.value === source.value ? '✓' : '') + '</i></button>').join('');
+    const list = $("uiInvoiceFilterOptions");
+    // A background refresh with identical options must not steal keyboard focus.
+    if (list.innerHTML !== markup) list.innerHTML = markup;
+    $("uiInvoiceFilterEmpty").hidden = options.length > 0;
+  }
+  function openInvoiceFilter(control) {
+    const dialog = $("uiInvoiceFilterDialog");
+    activeInvoiceFilter = control;
+    $("uiInvoiceFilterTitle").textContent = control.title;
+    $("uiInvoiceFilterDescription").textContent = control.description;
+    $("uiInvoiceFilterSearchField").hidden = !control.searchable;
+    $("uiInvoiceFilterSearch").value = '';
+    renderInvoiceFilterOptions();
+    $(control.button).setAttribute('aria-expanded', 'true');
+    dialog.showModal();
+    // Focus the current choice; mobile users can open search without forcing
+    // the soft keyboard over the list as soon as the dialog appears.
+    (dialog.querySelector('[aria-pressed="true"]') || dialog.querySelector('.ui-select-option') || dialog.querySelector('[data-close]')).focus({preventScroll:true});
+  }
+  function changeInvoiceQueue(filter) {
+    const source = $("invoiceStatusFilter"), previous = source.value;
+    if (filter === previous) return;
+    source.value = filter;
+    // A deliberate queue switch supersedes an accordion transition. A pending
+    // refresh must not replace the selected results midway through the swipe.
+    state.invoiceGroupAnimationUntil = 0;
+    window.clearTimeout(state.invoiceGroupRenderTimer);
+    state.invoiceGroupRenderTimer = 0;
+    renderInvoiceQueue();
+    const order = ['processing', 'attention', 'confirmed'];
+    window.FleetMotion?.slide($("invoiceQueueList"), order.indexOf(filter) < order.indexOf(previous) ? -1 : 1);
+  }
   document.addEventListener('click',function(event){
     const more=event.target.closest('[data-ui-more]');if(more){$("uiMoreDialog").showModal();return;}
     if(event.target.closest('[data-ui-retry]')){state.viewLoadedAt[state.view]=0;goTo(state.view);return;}
-    const queue=event.target.closest('[data-ui-invoice-queue]');if(queue){$("invoiceStatusFilter").value=queue.dataset.uiInvoiceQueue;renderInvoiceQueue();return;}
+    const picker=invoiceFilterControls.find(control=>event.target.closest('#'+control.button));if(picker){openInvoiceFilter(picker);return;}
+    const option=event.target.closest('[data-ui-select-value]');if(option&&activeInvoiceFilter){const source=$(activeInvoiceFilter.source);source.value=option.dataset.uiSelectValue;$("uiInvoiceFilterDialog").close();source.dispatchEvent(new Event('change',{bubbles:true}));return;}
+    const queue=event.target.closest('[data-ui-invoice-queue]');if(queue){changeInvoiceQueue(queue.dataset.uiInvoiceQueue);return;}
     const dashboardQueue=event.target.closest('[data-ui-dashboard-queue]');if(dashboardQueue)$("invoiceStatusFilter").value=dashboardQueue.dataset.uiDashboardQueue;
     if(event.target.closest('#uiInvoicePreviewToggle')){const box=$("uiInvoicePreview");if(box.classList.contains('ui-preview-open')){box.classList.remove('ui-preview-open');$("uiInvoicePreviewToggle").setAttribute('aria-expanded','false');}else showInlineInvoicePreview();}
   });
   $("uiInvoiceExtra").addEventListener('change',function(){if(this.value==='main')$("invoiceStatusFilter").value='attention';else $("invoiceStatusFilter").value=this.value;renderInvoiceQueue();});
+  $("uiInvoiceFilterSearch").addEventListener('input',renderInvoiceFilterOptions);
+  $("uiInvoiceFilterDialog").addEventListener('close',function(){if(activeInvoiceFilter){const button=$(activeInvoiceFilter.button);button.setAttribute('aria-expanded','false');button.focus({preventScroll:true});}activeInvoiceFilter=null;});
+  $("uiInvoiceFilterOptions").addEventListener('keydown',function(event){if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;const items=Array.from(this.querySelectorAll('button:not(:disabled)')),i=items.indexOf(document.activeElement);if(i<0||!items.length)return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?items.length-1:(i+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next].focus();});
+  for(const control of invoiceFilterControls)new MutationObserver(syncInvoiceFilterControls).observe($(control.source),{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','disabled','selected']});
+  syncInvoiceFilterControls();
   $("invoiceReviewDialog").addEventListener('close',function(){if(stopInlineInvoicePreview)stopInlineInvoicePreview();stopInlineInvoicePreview=null;inlinePreviewRecord=null;$("uiInvoicePreview").replaceChildren();});
   function renderNavigation() {
     const items=availableNavigation(),quick=quickNavigation(items),extra=items.filter(item=>!quick.includes(item));
@@ -2949,6 +3013,7 @@
       plateSelect.innerHTML = '<option value="">Όλες οι πινακίδες</option>' + Array.from(plateMap.entries()).sort(function (a, b) { return a[1].localeCompare(b[1], "el"); }).map(function (pair) { return '<option value="' + escapeHtml(pair[0]) + '">' + escapeHtml(pair[1]) + '</option>'; }).join("");
       plateSelect.value = plateMap.has(selectedPlate) ? selectedPlate : "";
     }
+    syncInvoiceFilterControls();
     if (filesView) return void renderInvoiceFileList(records, plateSelect?.value || "");
     const statusMatch = function (item) {
       if (!filter) return true;
@@ -2975,6 +3040,8 @@
     const attentionCount=records.filter(item=>["needs_review","uploaded","warning","error"].includes(String(item.status)) || (String(item.status)!=="confirmed" && Array.isArray(item.warnings)&&item.warnings.length>0)).length;
     document.querySelectorAll('[data-ui-count]').forEach(node=>node.textContent=String(node.dataset.uiCount==='attention'?attentionCount:counts[node.dataset.uiCount]||0));
     if($("uiInvoiceExtra")){const main=['processing','attention','confirmed'].includes(filter);$("uiInvoiceExtra").value=main?'main':filter;$("uiInvoiceExtra").hidden=filesView;}
+    syncInvoiceFilterControls();
+    window.FleetMotion?.selectTab(document.querySelector('.ui-invoice-filterbar>.ui-segments'));
     if ($("invoiceQueueSummary")) {
       $("invoiceQueueSummary").innerHTML = [
         ["Σύνολο", counts.total, "Όλα τα τιμολόγια", "▤", ""],
