@@ -105,9 +105,9 @@ input[type=checkbox],input[type=radio]{accent-color:var(--teal-dark)}
 .ui-invoice-filterbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0;flex-wrap:wrap}
 .ui-invoice-filterbar select{max-width:100%}
 .ui-select-source{display:none!important}
-.ui-force-read-option{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;flex-basis:100%;min-width:0;padding:14px;border:1px solid var(--line);border-radius:14px;background:#f5faf8}
-.ui-force-read-option .invoice-force-read{font-size:13px;line-height:1.5}
 .ui-explain-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px}
+.ui-explain-button strong,.ui-explain-button small{display:block;font:inherit}
+.ui-explain-button small{margin-top:4px;color:var(--muted);font-size:11px;font-weight:400}
 .ui-select-trigger{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:48px;max-width:100%;padding:12px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:650;text-align:left}
 .ui-select-trigger [data-ui-select-label]{min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.4}
 .ui-select-trigger>svg{width:18px;height:18px;flex:none;fill:none;stroke:var(--teal-dark);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
