@@ -118,10 +118,10 @@ input[type=checkbox],input[type=radio]{accent-color:var(--teal-dark)}
 .ui-invoice-filterbar .bottom-nav-indicator{border-radius:10px;border-color:#96c8ba;background:var(--mint)}
 .ui-select-dialog .dialog-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 12px}
 .ui-select-dialog .dialog-head h2{margin:0;font-size:21px}
-.ui-select-dialog .dialog-head button{flex:none}
+.ui-select-dialog .dialog-head button{flex:none;width:auto;height:auto;padding:10px 12px;font-size:13px;white-space:nowrap}
 .ui-select-description{font-size:13px;line-height:1.65;color:var(--muted);margin:0 0 18px}
 .ui-select-search{display:grid;gap:8px;margin-bottom:14px;font-size:12px;font-weight:650;color:var(--muted)}
-.ui-select-search input{width:100%;padding:12px 14px}
+.ui-select-search input{box-sizing:border-box;width:100%;padding:12px 14px;border:1px solid var(--line);outline:none}
 .ui-select-options{display:grid;gap:8px}
 .ui-select-option{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;min-height:52px;padding:14px 16px;text-align:left;color:var(--ink);background:#f8fbfa;border:1px solid var(--line);border-radius:13px;font-weight:650}
 .ui-select-option span{min-width:0;overflow-wrap:anywhere}
@@ -358,7 +358,7 @@ button:not(:disabled):active{transform:none}
 
 /* A short choice stays a compact dialog, rather than a full-screen form. The
    whole surface scrolls above the soft keyboard, including on small phones. */
-dialog.app-dialog.ui-select-dialog{box-sizing:border-box;width:min(480px,calc(100vw - 28px));max-width:480px;height:auto;max-height:calc(min(100dvh,var(--ui-visible-height,100dvh)) - 28px);margin:auto;padding:22px;border:1px solid var(--line);border-radius:22px;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 24px 80px rgba(16,43,51,.2)}
+dialog.app-dialog.ui-select-dialog{box-sizing:border-box;width:min(480px,calc(100vw - 28px));max-width:480px;height:fit-content;min-height:0;max-height:calc(min(100dvh,var(--ui-visible-height,100dvh)) - 28px);margin:auto;padding:22px;border:1px solid var(--line);border-radius:22px;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 24px 80px rgba(16,43,51,.2)}
 
 
 .sidebar-brand,.sidebar-foot{flex-shrink:0}
