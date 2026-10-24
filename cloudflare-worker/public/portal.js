@@ -435,6 +435,7 @@
   });
   $("uiInvoiceExtra").addEventListener('change',function(){if(this.value==='main')$("invoiceStatusFilter").value='attention';else $("invoiceStatusFilter").value=this.value;renderInvoiceQueue();});
   $("uiInvoiceFilterSearch").addEventListener('input',renderInvoiceFilterOptions);
+  $("uiInvoiceFilterDialog").addEventListener('keydown',function(event){if(event.key==='Escape'){event.preventDefault();this.close();}});
   $("uiInvoiceFilterDialog").addEventListener('close',function(){if(activeInvoiceFilter){const button=$(activeInvoiceFilter.button);button.setAttribute('aria-expanded','false');button.focus({preventScroll:true});}activeInvoiceFilter=null;});
   $("uiInvoiceFilterOptions").addEventListener('keydown',function(event){if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;const items=Array.from(this.querySelectorAll('button:not(:disabled)')),i=items.indexOf(document.activeElement);if(i<0||!items.length)return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?items.length-1:(i+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next].focus();});
   for(const control of invoiceFilterControls)new MutationObserver(syncInvoiceFilterControls).observe($(control.source),{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','disabled','selected']});
