@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-6a7fe7da-2ff9-4ea5-bdba-9f1eb89e5e35",
-  "sourceCommit": "205175efc8cd2599bc90c41039cd7a879f6d6077",
-  "releaseVersion": "5.50.1",
-  "requestedAt": "2026-10-19T17:40:12.024Z",
-  "reason": "User approved next-service reminders with automatic publication; source CI 39295511283 passed on 205175efc8cd2599bc90c41039cd7a879f6d6077 including three Client browser runs, Web, backup restore, original workflow safeguards and both APK builds."
+  "requestId": "fleet-c4c403d8-6e90-4c1f-8ff5-c45876f7cd7e",
+  "sourceCommit": "242255c9c2d73b730b8b50044deb2cc6abb57f3c",
+  "releaseVersion": "5.51.0",
+  "requestedAt": "2026-10-24T14:24:07.024Z",
+  "reason": "User authorized the complete UI redesign and automatic publication; source CI 40101953793 succeeded with responsive Web/Client/Server browser verification and both APK builds."
 }
