@@ -3442,6 +3442,7 @@
       const entrySelect = $("invoiceReviewTargetEntry");
       const moveButton = $("invoiceReviewMove");
       const hasOptions = transferOptions.length > 0;
+      $("uiInvoiceTransferDetails").open=plateMismatch&&hasOptions;
       if (!hasOptions) {
         bikeSelect.innerHTML = '<option value="">Δεν βρέθηκε διαθέσιμο service προορισμού</option>';
         entrySelect.innerHTML = '<option value="">Χωρίς διαθέσιμο service</option>';

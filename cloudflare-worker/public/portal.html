@@ -312,10 +312,10 @@
     <div id="invoiceFieldEvidence" class="invoice-field-evidence"></div>
     <div id="invoiceReviewWarnings" class="invoice-review-warnings"></div>
     <div id="invoiceReviewTransfer" class="invoice-review-transfer is-hidden">
-      <strong>Μεταφορά τιμολογίου σε άλλο service</strong>
+      <details id="uiInvoiceTransferDetails" class="ui-form-section"><summary>Μεταφορά σε άλλο μηχανάκι ή service</summary>
       <p>Η επιλογή είναι διαθέσιμη για κάθε τιμολόγιο. Διάλεξε προαιρετικά άλλο μηχανάκι και service· μαζί μεταφέρεται και το αποθηκευμένο QR.</p>
       <div class="form-grid"><label class="field"><span>Σωστό μηχανάκι</span><select id="invoiceReviewTargetBike"></select></label><label class="field"><span>Service προορισμού</span><select id="invoiceReviewTargetEntry"></select></label></div>
-      <div class="invoice-review-transfer-actions"><button id="invoiceReviewMove" type="button" class="primary-button">Μεταφορά στο σωστό μηχανάκι</button><button id="invoiceReviewKeep" type="button" class="secondary-button">Κράτηση στο τρέχον</button></div>
+      <div class="invoice-review-transfer-actions"><button id="invoiceReviewMove" type="button" class="primary-button">Μεταφορά στο σωστό μηχανάκι</button><button id="invoiceReviewKeep" type="button" class="secondary-button">Κράτηση στο τρέχον</button></div></details>
     </div>
     <div class="form-grid">
       <label class="field"><span>Προμηθευτής</span><input id="invoiceReviewSupplier" type="text"></label>
