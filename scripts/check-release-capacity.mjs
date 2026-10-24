@@ -1,13 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {execFileSync} from 'node:child_process';
 import { releaseCapacityError } from '../cloudflare-worker/src/release-limits.js';
-function walk(folder, prefix = '') {
-  return fs.readdirSync(folder).sort().flatMap(name => {
-    const full = path.join(folder, name), relative = prefix + name;
-    return fs.statSync(full).isDirectory() ? walk(full, relative + '/') : [{ path: relative, sha256: '0'.repeat(64), sizeBytes: fs.statSync(full).size }];
-  });
-}
-const files = walk('cloudflare-worker/public');
+const files=JSON.parse(execFileSync('python3',['scripts/web_release_files.py'],{encoding:'utf8'})).map(name=>({path:name,sha256:'0'.repeat(64),sizeBytes:fs.statSync(path.join('cloudflare-worker/public',name)).size}));
 // Reserve more than the APK, notes and release metadata currently require.
 const error = releaseCapacityError({ metadataReserve: 'x'.repeat(8192), web: { files } });
 if (error) throw new Error(error);

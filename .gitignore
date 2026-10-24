@@ -21,3 +21,5 @@ cloudflare-worker/.wrangler/
 
 /cloudflare-worker/public/vendor/pdfjs/
 /client-android/assets/www/vendor/pdfjs/
+
+__pycache__/

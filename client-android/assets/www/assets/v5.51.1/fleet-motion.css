@@ -1,0 +1,30 @@
+/* Bike navigation shares the same 22px / 190ms slide as Portal tabs. */
+#homeView, #detailView, #serviceOrderView, #quickCheckView, .app-view { animation: none; }
+#app, .portal .content { overflow-x: clip; }
+#detailName { width: fit-content; }
+.bottom-nav { isolation: isolate; -webkit-tap-highlight-color: transparent; }
+.bottom-nav button {
+  position: relative;
+  z-index: 1;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.bottom-nav button:focus { outline: none; }
+.bottom-nav button:focus-visible { outline: 2px solid var(--teal-dark); outline-offset: -3px; }
+.bottom-nav button:active { color: var(--teal-dark); background: transparent; }
+.bottom-nav[data-sliding-indicator] button.active { background: transparent; }
+.bottom-nav-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  border: 1px solid rgba(7,145,127,.22);
+  border-radius: 11px;
+  background: #eaf7f4;
+  pointer-events: none;
+}
+.bottom-nav-indicator[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bottom-nav-indicator { transition: none !important; }
+}

@@ -346,3 +346,44 @@ button:not(:disabled):active{transform:none}
 html.embedded-mode .fleet-page-intro{display:none}
 .invoice-queue-facts small,.invoice-queue-work>small{font-size:10px}
 .invoice-queue-facts strong,.invoice-queue-tasks{font-size:12px}
+
+/* Fleet is the workspace itself: one viewport and one scroll area below the
+   same Portal header/bottom bar used by every other module. */
+.portal.fleet-focus-mode{display:flex;flex-direction:column;height:100dvh;min-height:0;overflow:hidden}
+.portal.fleet-focus-mode>#localCacheStatus{flex:none}
+.portal.fleet-focus-mode:not(.fleet-detail-mode) .main-shell{display:flex;flex:1;flex-direction:column;min-height:0;padding-bottom:var(--fleet-portal-nav-height,0px)}
+.portal.fleet-focus-mode:not(.fleet-detail-mode) .app-header{flex:none}
+.portal.fleet-focus-mode:not(.fleet-detail-mode) .content{flex:1;min-height:0;height:auto;width:100%;max-width:none;padding:0;margin:0}
+.portal.fleet-focus-mode:not(.fleet-detail-mode) .fleet-host-view,.portal.fleet-focus-mode:not(.fleet-detail-mode) .fleet-module-shell,.portal.fleet-focus-mode:not(.fleet-detail-mode) .fleet-module-frame{height:100%;min-height:0;width:100%;border:0;border-radius:0;box-shadow:none}
+.portal.fleet-focus-mode .fleet-availability-panel{display:none}
+html.embedded-mode .app-shell{padding:0;width:100%;max-width:none}
+html.embedded-mode main{padding:20px 28px 24px}
+.fleet-list-panel{border:0;border-radius:0;box-shadow:none;background:transparent;padding:0;margin-top:24px}
+.fleet-list-panel .list-heading{padding:0 0 12px;background:transparent;border:0}
+.bike-list.ui-compact{padding:0;gap:12px;width:100%;min-width:0}
+.bike-list.ui-compact .bike-card{width:100%;min-width:0;text-align:left}
+.bike-list.ui-compact .bike-card-main,.bike-list.ui-compact .bike-card-metrics,.bike-list.ui-compact .bike-card-footer{grid-column:auto;grid-row:auto;min-width:0;width:100%}
+.bike-list.ui-compact .bike-card-main{padding:0}
+.bike-list.ui-compact .bike-card-title{min-width:0;flex:1}
+.bike-list.ui-compact .bike-card-title-row{min-width:0}
+.bike-list.ui-compact .bike-card-title h3{overflow-wrap:anywhere;max-width:100%;font-size:21px}
+.bike-list.ui-compact .bike-card-footer small{overflow-wrap:anywhere;min-width:0}
+/* Reserve the measured bar plus breathing room on every Server tab. The
+   shared visual stylesheet must never erase the old footer clearance. */
+.server-shell .bottom-nav{display:grid}
+.server-shell .server-content{padding-bottom:calc(max(72px,var(--fleet-server-nav-height,88px)) + 24px)}
+.server-shell .tab-panel{scroll-margin-bottom:calc(var(--fleet-server-nav-height,88px) + 24px)}
+@media(max-width:860px){.portal.fleet-focus-mode:not(.fleet-detail-mode) .main-shell{padding-bottom:var(--fleet-portal-nav-height,74px)}}
+@media(max-width:760px){
+ html.embedded-mode main{padding:16px 14px 24px}
+ .fleet-overview{gap:10px}
+ .fleet-overview .overview-stat{padding:14px 12px}
+ .fleet-list-panel{padding:0;margin-top:22px}
+ .bike-list.ui-compact .bike-card{grid-template-columns:minmax(0,1fr);padding:16px;gap:12px}
+ .bike-list.ui-compact .bike-card-main{padding:0;gap:12px}
+ .bike-list.ui-compact .bike-card-metrics{grid-template-columns:repeat(2,minmax(0,1fr));padding:0}
+ .bike-list.ui-compact .bike-card-footer{padding:0;justify-content:space-between;align-items:center;flex-wrap:wrap}
+ .bike-list.ui-compact .bike-card-footer small{text-align:left;font-size:11px}
+ .ui-fleet-heading{align-items:center}
+ .ui-fleet-search{margin:12px 0 16px}
+}
