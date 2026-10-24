@@ -337,3 +337,12 @@ button:not(:disabled):active{transform:none}
 .ui-tools-body>.followup-entry-section{flex-basis:100%;min-width:0}
 .ui-review-fields .invoice-review-transfer{background:#f6faf9;border-color:var(--line)}
 .ui-review-fields .invoice-review-transfer .ui-form-section{border:0;margin:0;padding:0}
+
+.server-content{overflow-x:clip}
+#detailView{max-width:1000px;margin-inline:auto}
+.detail-nav>div{min-width:0}
+#detailName{overflow-wrap:anywhere;max-width:100%}
+.detail-archive-button{grid-column:1/-1;justify-self:end;width:auto;min-width:180px}
+html.embedded-mode .fleet-page-intro{display:none}
+.invoice-queue-facts small,.invoice-queue-work>small{font-size:10px}
+.invoice-queue-facts strong,.invoice-queue-tasks{font-size:12px}
