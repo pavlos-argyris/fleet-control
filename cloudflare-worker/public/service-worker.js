@@ -1,7 +1,7 @@
-const CACHE_NAME = "fleet-control-v5-50-1";
-const ASSET_BASE="./assets/v5.50.1/";
+const CACHE_NAME = "fleet-control-v5-51-0";
+const ASSET_BASE="./assets/v5.51.0/";
 const APP_SHELL = ["shared-requests.js","live-changes.js","fleet-motion.js","fleet-motion.css"].map(f=>ASSET_BASE+f).concat([
-  "./service-model.js", "./fleet-operations-model.js", "./fleet-operations.js", "./service-tools.js", "./fleet-navigation.js", "./service-tools.css", "./service-storage.js", "./service-export.js",
+  "./ui-system.css", "./service-model.js", "./fleet-operations-model.js", "./fleet-operations.js", "./service-tools.js", "./fleet-navigation.js", "./service-tools.css", "./service-storage.js", "./service-export.js",
   "./local-view-cache.js", "./invoice-import-ui.js",
   "./service-followup.js", "./service-followup.css", "./sequential-review.js",
   "./",

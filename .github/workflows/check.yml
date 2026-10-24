@@ -36,6 +36,7 @@ jobs:
         working-directory: cloudflare-worker
       - run: node scripts/test-navigation-motion-browser.mjs
       - run: node scripts/test-next-service-browser.mjs
+      - run: node scripts/test-ui-system-browser.mjs
       - name: Save navigation verification images
         if: always()
         uses: actions/upload-artifact@v4
@@ -44,6 +45,7 @@ jobs:
           path: |
             verification/navigation-motion/
             verification/next-service/
+            verification/ui-system/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh

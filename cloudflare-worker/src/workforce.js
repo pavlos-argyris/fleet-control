@@ -1973,7 +1973,7 @@ async function dashboard(request, env) {
     env.DB.prepare("SELECT COUNT(*) AS count FROM app_users WHERE active=1 AND role='employee'").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM shifts WHERE status='active'").first(),
     env.DB.prepare("SELECT status, COUNT(*) AS count FROM vehicle_registry GROUP BY status").all(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM system_alerts WHERE resolved=0").first(),
+    env.DB.prepare("SELECT type,COUNT(*) AS count FROM system_alerts WHERE resolved=0 GROUP BY type").all(),
     env.DB.prepare(`SELECT COALESCE(SUM(payable_minutes),0) AS minutes, COALESCE(SUM(final_pay_cents),0) AS pay,
       COALESCE(SUM(shift_km),0) AS km FROM shifts WHERE actual_clock_in>=? AND actual_clock_in<? AND status IN ('completed','pending_overtime','pending_km')`)
       .bind(periodBounds.start, periodBounds.end).first(),
@@ -2010,7 +2010,8 @@ async function dashboard(request, env) {
       vehicles: vehicleCounts
     },
     currentWeek: { ...period, payableHours: Math.round(Number(week?.minutes || 0) / 60 * 100) / 100, payrollCents: Number(week?.pay || 0), kilometers: Number(week?.km || 0) },
-    actionCount: Number(alerts?.count || 0), realtime: realtime.results || [], dailySchedule: daily.results || [],
+    actionCount: (alerts.results||[]).reduce((sum,row)=>sum+Number(row.count||0),0),
+    actionGroups: {service:(alerts.results||[]).filter(row=>["service_due","major_service_due","service_conflict"].includes(row.type)).reduce((sum,row)=>sum+Number(row.count||0),0)}, realtime: realtime.results || [], dailySchedule: daily.results || [],
     missedClockIns: missedRows, lastBackup: backup?.value || null
   });
 }

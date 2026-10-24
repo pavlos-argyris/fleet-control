@@ -32,4 +32,9 @@ if not check:
  for p in public.iterdir():
   if p.is_file() and p.name not in ('fleet-config.js','_headers'):shutil.copy2(p,client/p.name)
  shutil.copytree(public/'assets',client/'assets',dirs_exist_ok=True)
+# Server shares the same visual language and motion, without a network dependency.
+for name in ['ui-system.css','fleet-motion.js']:
+ out=root/'server-android/assets/www'/name
+ if check:assert out.exists() and out.read_bytes()==(public/name).read_bytes(),'Server shared UI differs: '+name
+ else:shutil.copy2(public/name,out)
 print(('Verified' if check else 'Prepared')+' immutable JS/CSS snapshots for '+version)

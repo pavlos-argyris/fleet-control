@@ -11,13 +11,14 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.50.1/styles.css">
-  <link rel="stylesheet" href="./assets/v5.50.1/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.50.1/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.50.1/client-ota.css">
-  <script src="./assets/v5.50.1/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.50.1/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.50.1/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/styles.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/client-ota.css">
+  <script src="./assets/v5.51.0/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.51.0/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/ui-system.css">
 </head>
 <body>
   <div class="app-shell">
@@ -117,14 +118,15 @@
         </section>
 
         <section class="fleet-list-panel">
-          <div class="list-heading">
+          <div class="list-heading ui-fleet-heading">
             <div>
               <span class="eyebrow">ΚΑΤΑΣΤΑΣΗ ΣΤΟΛΟΥ</span>
               <h2>Τα μηχανάκια μου</h2>
             </div>
-            <div class="list-heading-actions"><span id="listStatus" class="list-status">0 οχήματα</span></div>
+            <div class="list-heading-actions"><span id="listStatus" class="list-status">0 οχήματα</span><div class="ui-segments" role="group" aria-label="Εμφάνιση στόλου"><button type="button" data-ui-density="cards" aria-pressed="true" class="active">Κάρτες</button><button type="button" data-ui-density="compact" aria-pressed="false">Λίστα</button></div></div>
           </div>
 
+          <label class="ui-fleet-search"><input id="uiFleetSearch" type="search" placeholder="Αναζήτηση πινακίδας / κωδικού" aria-label="Αναζήτηση στον στόλο"></label><p id="uiFleetSearchEmpty" class="ui-empty" hidden>Δεν βρέθηκε μηχανάκι. Δοκίμασε άλλη πινακίδα ή καθάρισε την αναζήτηση.</p>
           <section id="emptyState" class="empty-state">
             <div class="empty-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M5 17h2l2-5h6l2 5h2M7 17a2 2 0 1 0 0 .01M17 17a2 2 0 1 0 0 .01M8.5 12 10 8h4l1.5 4M4 12h3m10 0h3"/></svg>
@@ -140,11 +142,12 @@
           </div>
         </section>
 
-        <section class="followup-entry-section" aria-label="Έλεγχοι στόλου"><div class="followup-section-heading"><span class="eyebrow">ΟΡΓΑΝΩΣΗ ΣΤΟΛΟΥ</span><h2>Τι χρειάζεται έλεγχο;</h2><p>Διάλεξε μια λίστα για να δεις τις καταχωρήσεις και τις διαθέσιμες ενέργειες.</p></div><div class="followup-entry-buttons">
+        <details class="ui-toolbar-details ui-fleet-tools"><summary><span>Οργάνωση και εργαλεία στόλου<small>Εκκρεμότητες, ιστορικό, εξαγωγές και έλεγχοι</small></span></summary><div class="ui-tools-body">        <section class="followup-entry-section" aria-label="Έλεγχοι στόλου"><div class="followup-section-heading"><span class="eyebrow">ΟΡΓΑΝΩΣΗ ΣΤΟΛΟΥ</span><h2>Τι χρειάζεται έλεγχο;</h2><p>Διάλεξε μια λίστα για να δεις τις καταχωρήσεις και τις διαθέσιμες ενέργειες.</p></div><div class="followup-entry-buttons">
           <button type="button" class="secondary-button followup-launcher" data-open-followup="missing"><span><strong>Service χωρίς τιμολόγιο</strong><small>Βρες service χωρίς PDF. Πρόσθεσε QR/αρχείο ή δήλωσε γιατί δεν αναμένεται τιμολόγιο.</small></span><b aria-hidden="true">→</b></button>
           <button type="button" class="secondary-button followup-launcher" data-open-followup="pending"><span><strong>Εκκρεμότητες</strong><small>Δες τι περιμένει έλεγχο, ανάλυση ή αποστολή και κάνε νέα προσπάθεια όπου χρειάζεται.</small></span><b aria-hidden="true">→</b></button>
           <button type="button" class="secondary-button followup-launcher" data-open-followup="mileage"><span><strong>Έλεγχος ιστορικού χιλιομέτρων</strong><small>Βρες μικρότερες ενδείξεις σε μεταγενέστερες ημερομηνίες. Έλεγξε ή επιβεβαίωσέ τες με εξήγηση.</small></span><b aria-hidden="true">→</b></button>
         </div></section><section class="followup-entry-section"><div class="followup-section-heading"><span class="eyebrow">ΕΡΓΑΛΕΙΑ ΣΤΟΛΟΥ</span><h2>Οργάνωση και έλεγχος</h2></div><div class="followup-entry-buttons operations-entry-grid"><button type="button" class="secondary-button followup-launcher" data-open-operations="trash"><span><strong>Κάδος service</strong><small>Έλεγχος και ανάκτηση καταχωρήσεων με τα τιμολόγιά τους.</small></span><b aria-hidden="true">→</b></button><button type="button" class="secondary-button followup-launcher" data-open-operations="plans"><span><strong>Προγραμματισμένα service</strong><small>Ραντεβού συνεργείου και επιβεβαίωση όταν ολοκληρωθούν.</small></span><b aria-hidden="true">→</b></button><button type="button" class="secondary-button followup-launcher" data-open-operations="zip"><span><strong>Λήψη τιμολογίων ZIP</strong><small>Όλα τα επιλεγμένα PDF σε φακέλους ανά πινακίδα.</small></span><b aria-hidden="true">→</b></button><button type="button" class="secondary-button followup-launcher" data-open-operations="cost"><span><strong>Κόστος ανά 1.000 χλμ.</strong><small>Σύγκριση συντήρησης με έλεγχο πληρότητας δεδομένων.</small></span><b aria-hidden="true">→</b></button><button type="button" class="secondary-button followup-launcher" data-open-operations="diagnostics"><span><strong>Διάγνωση προβλήματος</strong><small>Έλεγχος σύνδεσης και εκκρεμοτήτων με ασφαλή αναφορά.</small></span><b aria-hidden="true">→</b></button></div></section>
+</div></details>
         <div class="fleet-settings-grid">
           <button id="pinSettingsButton" class="pin-settings-button is-hidden" type="button">
             <span class="pin-settings-icon">
@@ -283,6 +286,7 @@
           </button>
         </div>
 
+        <nav class="ui-segments ui-bike-tabs" aria-label="Καρτέλα μηχανής"><button type="button" class="active" data-ui-bike-tab="summary" aria-pressed="true">Σύνοψη</button><button type="button" data-ui-bike-tab="history" aria-pressed="false">Ιστορικό</button><button type="button" data-ui-bike-tab="files" aria-pressed="false">Τιμολόγια</button></nav><div id="uiBikeSummary" class="ui-bike-panel" data-ui-bike-panel="summary">
         <section id="detailStatusCard" class="detail-status-card">
           <div class="detail-status-top">
             <span id="detailStatusBadge" class="status-badge">—</span>
@@ -347,7 +351,8 @@
           <details id="nextServicePast" class="service-advanced"><summary>Ολοκληρωμένες / αφαιρεμένες σημειώσεις</summary><div id="nextServicePastList"></div></details>
         </section>
 
-        <section class="history-section">
+        <button type="button" class="secondary-button ui-bike-history-shortcut" data-ui-bike-tab="history">Πλήρες ιστορικό service →</button></div>
+        <section class="history-section ui-bike-panel" data-ui-bike-panel="history" hidden>
           <div class="list-heading detail-heading">
             <div>
               <span class="eyebrow">ΟΛΕΣ ΟΙ ΚΙΝΗΣΕΙΣ</span>
@@ -361,7 +366,7 @@
             <button type="button" role="tab" aria-selected="false" data-history-filter="all">Όλα</button>
           </div>
           <div id="detailHistory" class="history-list"></div>
-        </section>
+        </section><section class="ui-bike-panel" data-ui-bike-panel="files" hidden><h2>Τιμολόγια μηχανής</h2><p class="ui-form-help">Όλα τα αποθηκευμένα PDF, από το πιο πρόσφατο τιμολόγιο.</p><div id="uiBikeFiles" class="ui-bike-files"></div></section>
       </section>
     </main>
   </div>
@@ -813,22 +818,22 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./assets/v5.50.1/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.50.1" defer></script>
-  <script src="./vendor/jsQR.js?v=5.50.1" defer></script>
-  <script src="./vendor/qrcode-generator.js?v=5.50.1" defer></script>
-  <script src="./assets/v5.50.1/service-model.js" defer></script>
-  <script src="./assets/v5.50.1/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.50.1/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.50.1/fleet-motion.js" defer></script>
-  <script src="./assets/v5.50.1/service-tools.js" defer></script>
-  <script src="./assets/v5.50.1/service-storage.js" defer></script>
-  <script src="./assets/v5.50.1/service-export.js" defer></script>
-  <script src="./assets/v5.50.1/shared-requests.js" defer></script>
-  <script src="./assets/v5.50.1/live-changes.js" defer></script>
-  <script src="./assets/v5.50.1/local-view-cache.js" defer></script>
-  <script src="./assets/v5.50.1/app.js" defer></script>
-  <script src="./assets/v5.50.1/service-followup.js" defer></script>
-  <script src="./assets/v5.50.1/fleet-operations.js" defer></script>
+  <script src="./assets/v5.51.0/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.51.0" defer></script>
+  <script src="./vendor/jsQR.js?v=5.51.0" defer></script>
+  <script src="./vendor/qrcode-generator.js?v=5.51.0" defer></script>
+  <script src="./assets/v5.51.0/service-model.js" defer></script>
+  <script src="./assets/v5.51.0/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.51.0/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.51.0/fleet-motion.js" defer></script>
+  <script src="./assets/v5.51.0/service-tools.js" defer></script>
+  <script src="./assets/v5.51.0/service-storage.js" defer></script>
+  <script src="./assets/v5.51.0/service-export.js" defer></script>
+  <script src="./assets/v5.51.0/shared-requests.js" defer></script>
+  <script src="./assets/v5.51.0/live-changes.js" defer></script>
+  <script src="./assets/v5.51.0/local-view-cache.js" defer></script>
+  <script src="./assets/v5.51.0/app.js" defer></script>
+  <script src="./assets/v5.51.0/service-followup.js" defer></script>
+  <script src="./assets/v5.51.0/fleet-operations.js" defer></script>
 </body>
 </html>

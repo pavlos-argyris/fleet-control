@@ -39,10 +39,10 @@
     "fleet.view": "Προβολή Fleet", "fleet.manage": "Διαχείριση Fleet", "service.manage": "Διαχείριση service",
     "payroll.view": "Προβολή μισθοδοσίας", "payroll.manage": "Διαχείριση μισθοδοσίας", "payroll.lock": "Κλείδωμα μισθοδοσίας",
     "reports.view": "Αναφορές", "alerts.view": "Προβολή ειδοποιήσεων", "alerts.manage": "Διαχείριση ειδοποιήσεων",
-    "audit.view": "Audit Log", "backup.manage": "Backup", "server.manage": "Server", "settings.manage": "Ρυθμίσεις", "security.manage": "Ασφάλεια"
+    "audit.view": "Αρχείο ενεργειών", "backup.manage": "Backup", "server.manage": "Server", "settings.manage": "Ρυθμίσεις", "security.manage": "Ασφάλεια"
   };
   const navDefinitions = [
-    { id: "dashboard", label: "Dashboard", icon: "⌂", permission: "dashboard.view" },
+    { id: "dashboard", label: "Αρχική", icon: "⌂", permission: "dashboard.view" },
     { id: "employee-home", label: "Η βάρδιά μου", icon: "◉", permission: "clock_in_out", employeeOnly: true },
     { id: "shifts", label: "Βάρδιες", icon: "◷", permission: "shifts.view" },
     { id: "schedules", label: "Πρόγραμμα", icon: "▦", permission: "schedules.view" },
@@ -52,17 +52,17 @@
     { id: "payroll", label: "Μισθοδοσία", icon: "€", permission: "payroll.view" },
     { id: "reports", label: "Αναφορές", icon: "▥", permission: "reports.view" },
     { id: "alerts", label: "Ειδοποιήσεις", icon: "!", permission: "alerts.view" },
-    { id: "audit", label: "Audit Log", icon: "≡", permission: "audit.view" },
+    { id: "audit", label: "Αρχείο ενεργειών", icon: "≡", permission: "audit.view" },
     { id: "recycle", label: "Κάδος & Ιστορικό", icon: "↶", permission: "audit.view" },
     { id: "server", label: "Backup & Server", icon: "↥", permission: "backup.manage" },
     { id: "settings", label: "Ρυθμίσεις & Ασφάλεια", icon: "⚙", permission: "settings.manage" }
   ];
   const viewTitles = {
-    dashboard: ["ADMIN PANEL", "Dashboard"], "employee-home": ["EMPLOYEE", "Η βάρδιά μου"],
+    dashboard: ["Η ΣΗΜΕΡΙΝΗ ΕΙΚΟΝΑ", "Αρχική"], "employee-home": ["EMPLOYEE", "Η βάρδιά μου"],
     shifts: ["OPERATIONS", "Βάρδιες"], schedules: ["TEAM PLANNING", "Πρόγραμμα"],
     employees: ["TEAM", "Εργαζόμενοι"], fleet: ["ΔΙΑΧΕΙΡΙΣΗ ΣΤΟΛΟΥ", "Fleet Control"],
     invoices: ["FLEET DOCUMENTS", "Τιμολόγια service"], payroll: ["PAYROLL", "Μισθοδοσία"], reports: ["REPORTING", "Αναφορές"],
-    alerts: ["ACTION CENTER", "Ειδοποιήσεις"], audit: ["SECURITY", "Audit Log"],
+    alerts: ["ACTION CENTER", "Ειδοποιήσεις"], audit: ["SECURITY", "Αρχείο ενεργειών"],
     recycle: ["RECOVERY", "Κάδος & Ιστορικό"],
     server: ["SYSTEM", "Backup & Server"], settings: ["CONFIGURATION", "Ρυθμίσεις & Ασφάλεια"]
   };
@@ -364,15 +364,24 @@
     });
   }
 
+  const navigationHelp = {dashboard:"Η σημερινή εικόνα",shifts:"Καταγραφή παρουσιών και χιλιομέτρων",schedules:"Εβδομαδιαίος προγραμματισμός",employees:"Στοιχεία και δικαιώματα ομάδας",fleet:"Συντήρηση και ιστορικό μηχανών",invoices:"Ανάγνωση, έλεγχος και PDF",payroll:"Ώρες και υπολογισμός αμοιβών",reports:"Συγκεντρωτικές αναφορές",alerts:"Εκκρεμότητες που χρειάζονται ενέργεια",audit:"Ποιος άλλαξε τι και πότε",recycle:"Ανάκτηση διαγραμμένων εγγραφών",server:"Σύνδεση και αντίγραφα ασφαλείας",settings:"Λογαριασμοί και κανόνες συστήματος"};
+  function navigationIcon(item){return window.FleetUI?.icon(item.id) || '<span>'+item.icon+'</span>';}
+  function quickNavigation(items){return state.user.role === "employee" ? items.slice(0,4) : ["dashboard","shifts","fleet","invoices"].map(id=>items.find(item=>item.id===id)).filter(Boolean);}
+  document.addEventListener('click',function(event){
+    const more=event.target.closest('[data-ui-more]');if(more){$("uiMoreDialog").showModal();return;}
+    if(event.target.closest('[data-ui-retry]')){state.viewLoadedAt[state.view]=0;goTo(state.view);return;}
+    const queue=event.target.closest('[data-ui-invoice-queue]');if(queue){$("invoiceStatusFilter").value=queue.dataset.uiInvoiceQueue;renderInvoiceQueue();return;}
+    const dashboardQueue=event.target.closest('[data-ui-dashboard-queue]');if(dashboardQueue)$("invoiceStatusFilter").value=dashboardQueue.dataset.uiDashboardQueue;
+    if(event.target.closest('#uiInvoicePreviewToggle')){const box=$("uiInvoicePreview");if(box.classList.contains('ui-preview-open')){box.classList.remove('ui-preview-open');$("uiInvoicePreviewToggle").setAttribute('aria-expanded','false');}else showInlineInvoicePreview();}
+  });
+  $("uiInvoiceExtra").addEventListener('change',function(){if(this.value==='main')$("invoiceStatusFilter").value='attention';else $("invoiceStatusFilter").value=this.value;renderInvoiceQueue();});
+  $("invoiceReviewDialog").addEventListener('close',function(){if(stopInlineInvoicePreview)stopInlineInvoicePreview();stopInlineInvoicePreview=null;inlinePreviewRecord=null;$("uiInvoicePreview").replaceChildren();});
   function renderNavigation() {
-    const items = availableNavigation();
-    $("sideNav").innerHTML = items.map(function (item) {
-      return '<button class="nav-button" type="button" data-go="' + item.id + '"><span>' + item.icon + '</span><span>' + escapeHtml(item.label) + '</span></button>';
-    }).join("");
-    const quick = state.user.role === "employee" ? items.slice(0, 2) : items.filter(function (item) { return ["dashboard", "shifts", "employees", "fleet", "invoices", "alerts"].includes(item.id); }).slice(0, 5);
-    $("bottomNav").innerHTML = quick.map(function (item) {
-      return '<button type="button" data-go="' + item.id + '"><span>' + item.icon + '</span><span>' + escapeHtml(item.label.replace("Μηχανάκια / ", "")) + '</span></button>';
-    }).join("");
+    const items=availableNavigation(),quick=quickNavigation(items),extra=items.filter(item=>!quick.includes(item));
+    $("sideNav").innerHTML = items.map(function(item,index){const group=index===0?'ΚΑΘΗΜΕΡΙΝΑ':item.id==='payroll'?'ΟΜΑΔΑ ΚΑΙ ΑΝΑΦΟΡΕΣ':item.id==='audit'?'ΣΥΣΤΗΜΑ':'';return (group?'<div class="ui-nav-section">'+group+'</div>':'')+'<button class="nav-button" type="button" data-go="'+item.id+'">'+navigationIcon(item)+'<span>'+escapeHtml(item.label)+'</span></button>';}).join('');
+    $("bottomNav").innerHTML=quick.map(item=>'<button type="button" data-go="'+item.id+'"><span>'+navigationIcon(item)+'</span><span>'+escapeHtml(item.label.replace('Μηχανάκια / ',''))+'</span></button>').join('')+(extra.length?'<button type="button" data-ui-more aria-haspopup="dialog" aria-controls="uiMoreDialog"><span>'+window.FleetUI?.icon('more')+'</span><span>Περισσότερα</span></button>':'');
+    $("bottomNav").style.gridTemplateColumns="repeat("+(quick.length+(extra.length?1:0))+",minmax(0,1fr))";
+    $("uiMoreItems").innerHTML=extra.map(item=>'<button type="button" data-go="'+item.id+'">'+navigationIcon(item)+'<span><strong>'+escapeHtml(item.label)+'</strong><small>'+escapeHtml(navigationHelp[item.id]||'Προσωπικές ενέργειες')+'</small></span></button>').join('');
   }
 
   async function goTo(view) {
@@ -383,10 +392,14 @@
     const previousView = state.view;
     const animateNavigation = previousView !== view && !$("portal").classList.contains("is-hidden");
     state.view = view;
+    if($("uiMoreDialog")?.open)$("uiMoreDialog").close();
+    if($("uiViewError"))$("uiViewError").hidden=true;
     $("portal").classList.toggle("fleet-focus-mode", view === "fleet");
     if (view !== "fleet") setFleetDetailMode(false);
     document.querySelectorAll("[data-view]").forEach(function (section) { section.classList.toggle("is-hidden", section.dataset.view !== view); });
     document.querySelectorAll("[data-go]").forEach(function (button) { button.classList.toggle("active", button.dataset.go === view); });
+    const more=$("bottomNav").querySelector('[data-ui-more]');
+    if(more){const selected=!quickNavigation(availableNavigation()).some(item=>item.id===view);more.classList.toggle('active',selected);if(selected)more.setAttribute('aria-current','page');else more.removeAttribute('aria-current');}
     window.FleetMotion?.selectTab($("bottomNav"), animateNavigation);
     const title = viewTitles[view] || ["FLEET CONTROL", "Αρχική"];
     $("pageOverline").textContent = title[0];
@@ -424,7 +437,7 @@
       if (view === "server") await loadStatus(true);
       if (view === "settings") await loadSettings();
       state.viewLoadedAt[view] = Date.now();
-    } catch (error) { toast(error.message); }
+    } catch (error) { toast(error.message);if(navigationId===navigationSequence){$("uiViewErrorText").textContent=error.message+". Έλεγξε τη σύνδεση και δοκίμασε ξανά.";$("uiViewError").hidden=false;} }
     finally { if (navigationId === navigationSequence) $("portal").classList.remove("view-loading"); }
   }
 
@@ -740,16 +753,20 @@
     const data = await api("/api/workforce/dashboard");
     state.dashboard = data;
     const missedClockIns = missedClockInGroups(data);
-    $("dashboardHero").innerHTML = '<span>ΚΑΛΩΣ ΗΡΘΕΣ</span><h2>' + escapeHtml(state.user.fullName) + '</h2><p>Η σημερινή εικόνα του Fleet Control είναι συγκεντρωμένη εδώ.</p>';
-    $("actionSection").innerHTML = data.actionCount
-      ? '<div class="action-card"><i>!</i><span><strong>Χρειάζεται ενέργεια</strong><small>' + data.actionCount + ' εκκρεμότητες χρειάζονται έλεγχο.</small></span><button class="secondary-button" type="button" data-go="alerts">Προβολή</button></div>'
-      : '<div class="action-card ok"><i>✓</i><span><strong>Όλα λειτουργούν κανονικά</strong><small>Δεν υπάρχει εκκρεμότητα αυτή τη στιγμή.</small></span></div>';
+    $("dashboardHero").innerHTML = '<span>ΤΙ ΧΡΕΙΑΖΕΤΑΙ ΣΗΜΕΡΑ;</span><h2>'+escapeHtml(state.user.fullName||'Καλώς ήρθες')+'</h2><p>Πρώτα οι εκκρεμότητες. Μετά η συνολική εικόνα της ομάδας και του στόλου.</p>';
+    const groups=data.actionGroups||{};
+    const priorities=[
+      {id:'fleet',icon:'fleet',title:'Συντήρηση στόλου',text:Number(groups.service||0)+' ειδοποιήσεις service',action:'Δες τα μηχανάκια',permission:'fleet.view',warn:Number(groups.service||0)>0},
+      {id:'invoices',icon:'invoices',title:'Έλεγχος τιμολογίων',text:'Επιβεβαίωση στοιχείων και άμεση πρόσβαση στα PDF.',action:'Άνοιγμα ουράς ελέγχου',permission:'fleet.view',queue:'attention'},
+      {id:'alerts',icon:'alerts',title:'Εκκρεμότητες ομάδας',text:Number(data.actionCount||0)+' ανοικτές ειδοποιήσεις · '+missedClockIns.length+' χωρίς έναρξη βάρδιας',action:'Δες τι χρειάζεται ενέργεια',permission:'alerts.view',warn:Number(data.actionCount||0)>0}
+    ];
+    $("actionSection").innerHTML='<div class="ui-priorities">'+priorities.filter(item=>can(item.permission)).map(item=>'<button type="button" class="ui-priority '+(item.warn?'warn':'')+'" data-go="'+item.id+'"'+(item.queue?' data-ui-dashboard-queue="'+item.queue+'"':'')+'><span>'+window.FleetUI?.icon(item.icon)+'</span><span><strong>'+item.title+'</strong><small>'+escapeHtml(item.text)+'</small><b>'+item.action+' →</b></span></button>').join('')+'</div>';
     const vehicle = data.today.vehicles || {};
     $("dashboardMetrics").innerHTML = [
       metric("Εργαζόμενοι", String(data.today.workingNow || 0), "Σε βάρδια τώρα", "♙", "employees"),
       metric("Δεν έκαναν Clock In", String(missedClockIns.length), missedClockIns.length ? "Χρειάζεται έλεγχος" : "Όλοι στην ώρα τους", "!", "missed-clock-ins", missedClockIns.length ? "warning" : ""),
       metric("Μηχανάκια σε χρήση", String(vehicle.in_use || 0), (vehicle.available || 0) + " διαθέσιμα", "◇", "vehicles"),
-      metric("Payable ώρες εβδομάδας", String(data.currentWeek.payableHours || 0), data.currentWeek.startDate + " – " + data.currentWeek.endDate, "◷", "hours"),
+      metric("Πληρωτέες ώρες εβδομάδας", String(data.currentWeek.payableHours || 0), data.currentWeek.startDate + " – " + data.currentWeek.endDate, "◷", "hours"),
       metric("Μισθοδοσία εβδομάδας", money(data.currentWeek.payrollCents), km(data.currentWeek.kilometers), "€", "payroll")
     ].join("");
     $("notificationCount").textContent = data.actionCount || 0;
@@ -919,7 +936,7 @@
         const shifts = response.shifts || [];
         $("dashboardDetailContent").innerHTML = dashboardFacts([
           ["Περίοδος", data.currentWeek.startDate + " – " + data.currentWeek.endDate],
-          ["Payable ώρες", hours(data.currentWeek.payableHours || 0)], ["Χιλιόμετρα", km(data.currentWeek.kilometers || 0)]
+          ["Πληρωτέες ώρες", hours(data.currentWeek.payableHours || 0)], ["Χιλιόμετρα", km(data.currentWeek.kilometers || 0)]
         ]) + dashboardRows(shifts, function (item) {
           return '<div class="dashboard-detail-row"><span><strong>' + escapeHtml(item.employeeName || "—") + '</strong><small>' + escapeHtml(item.vehicleName || "Χωρίς μηχανάκι") + '</small></span><span><strong>' + escapeHtml(hours(item.payableHours || 0)) + '</strong><small>' + escapeHtml(item.actualClockIn ? formatDateTime(item.actualClockIn) : "—") + '</small></span></div>';
         });
@@ -929,7 +946,7 @@
       const payroll = response.employees || [];
       $("dashboardDetailContent").innerHTML = dashboardFacts([
         ["Περίοδος", data.currentWeek.startDate + " – " + data.currentWeek.endDate],
-        ["Σύνολο", money(data.currentWeek.payrollCents || 0)], ["Payable ώρες", hours(data.currentWeek.payableHours || 0)],
+        ["Σύνολο", money(data.currentWeek.payrollCents || 0)], ["Πληρωτέες ώρες", hours(data.currentWeek.payableHours || 0)],
         ["Χιλιόμετρα", km(data.currentWeek.kilometers || 0)]
       ]) + dashboardRows(payroll, function (item) {
         return '<div class="dashboard-detail-row"><span><strong>' + escapeHtml(item.employeeName || "—") + '</strong><small>' + escapeHtml(hours(item.payableHours || 0)) + '</small></span><span><strong>' + escapeHtml(money(item.finalCents || 0)) + '</strong><small>' + escapeHtml(km(item.kilometers || 0)) + '</small></span></div>';
@@ -1180,7 +1197,7 @@
         const pay = (data.employees || []).find(function (entry) { return String(entry.employeeId) === String(item.id); });
         $("employeeDetailContent").innerHTML = pay ? employeeFacts([
           ["Περίοδος", start + " – " + datePlus(start, 6)], ["Βάρδιες", String(pay.shifts || 0)],
-          ["Κανονικές ώρες", hours(pay.normalHours)], ["Ειδικές ώρες", hours(pay.specialHours)], ["Payable ώρες", hours(pay.payableHours)],
+          ["Κανονικές ώρες", hours(pay.normalHours)], ["Ειδικές ώρες", hours(pay.specialHours)], ["Πληρωτέες ώρες", hours(pay.payableHours)],
           ["Χιλιόμετρα", km(pay.kilometers)], ["Βασική αμοιβή", money(pay.basePayCents)], ["Ειδική αμοιβή", money(pay.specialPayCents)],
           ["Bonus", money(pay.bonusCents)], ["Κρατήσεις", money(pay.deductionCents)], ["Προκαταβολές", money(pay.advanceCents)], ["Τελικό", money(pay.finalCents)]
         ]) : '<p class="empty-copy">Δεν υπάρχουν στοιχεία μισθοδοσίας για αυτή την εβδομάδα.</p>';
@@ -1450,8 +1467,8 @@
     const rows = employees.map(function (employee) {
       const cells = dates.map(function (day) {
         const entries = groups.filter(function (group) { return String(group.employeeId) === String(employee.id) && group.workDate === day.date; });
-        return '<td><div class="roster-cell">' + entries.map(function (group) {
-          const hoursText = group.segments.map(function (segment) { return segment.start + "-" + segment.end; }).join(" / ");
+        return '<td data-ui-weekday="' + escapeHtml(day.date) + '"><div class="roster-cell">' + entries.map(function (group) {
+          const hoursText = group.segments.map(function (segment) { return segment.start + "-" + segment.end + (segment.end <= segment.start ? " (επόμενη ημέρα)" : ""); }).join(" / ");
           const editable = can("schedules.manage") && group.canEdit && data.scheduleState !== "draft";
           const tag = editable ? "button" : "article";
           const attributes = editable
@@ -1464,6 +1481,7 @@
       return '<tr><td><span class="roster-person"><strong>' + escapeHtml(employee.full_name) + '</strong><small>' + escapeHtml(employee.employee_group || "Διανομέας") + '</small></span></td>' + cells + '</tr>';
     }).join("");
     $("scheduleList").innerHTML = '<table class="week-roster-table"><thead><tr><th>Διανομέας</th>' + header + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    window.FleetUI?.scheduleDays(dates);
   }
 
   async function loadSchedules(force) {
@@ -2270,7 +2288,7 @@
     if ($("shiftStatus").value) query.set("status", $("shiftStatus").value);
     const data = await api("/api/admin/shifts?" + query.toString());
     state.shifts = data.shifts || [];
-    $("shiftsTable").innerHTML = state.shifts.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Μηχανάκι</th><th>Clock In</th><th>Clock Out</th><th>Payable</th><th>Χλμ.</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead><tbody>' + state.shifts.map(function (item) {
+    $("shiftsTable").innerHTML = state.shifts.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Μηχανάκι</th><th>Clock In</th><th>Clock Out</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead><tbody>' + state.shifts.map(function (item) {
       return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong></td><td>' + escapeHtml(item.vehicleName || "—") + '</td><td>' + escapeHtml(formatDateTime(item.actualClockIn)) + (item.outOfSchedule ? '<br><small>Εκτός προγράμματος</small>' : '') + '</td><td>' + escapeHtml(item.actualClockOut ? formatDateTime(item.actualClockOut) : "—") + '</td><td>' + escapeHtml(item.payableHours == null ? "—" : hours(item.payableHours)) + '</td><td>' + escapeHtml(item.shiftKm == null ? "—" : km(item.shiftKm)) + '</td><td>' + statusPill(item.status) + '</td><td>' + shiftActions(item) + '</td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν βρέθηκαν βάρδιες.</p>';
   }
@@ -2345,7 +2363,7 @@
       const data = await editor;
       const confirmation = await requestPin(true);
       await api("/api/admin/shifts/manual-clock-in", { method: "POST", pin: confirmation.pin, body: data });
-      toast("Το χειροκίνητο Clock In καταχωρήθηκε και καταγράφηκε στο Audit Log.");
+      toast("Το χειροκίνητο Clock In καταχωρήθηκε και καταγράφηκε στο Αρχείο ενεργειών.");
       state.viewLoadedAt.shifts = 0;
       await loadShifts();
     } catch (error) { if (!/ακυρώθηκε/.test(error.message)) toast(error.message); }
@@ -2445,7 +2463,7 @@
       const confirmation = await requestPin(true);
       body.reason = confirmation.reason;
       await api("/api/admin/shifts/" + encodeURIComponent(shiftId) + "/" + action, { method: "POST", pin: confirmation.pin, body: body });
-      toast(action === "delete" ? "Η βάρδια διαγράφηκε και η ενέργεια καταγράφηκε." : "Η αλλαγή αποθηκεύτηκε και καταγράφηκε στο Audit Log.");
+      toast(action === "delete" ? "Η βάρδια διαγράφηκε και η ενέργεια καταγράφηκε." : "Η αλλαγή αποθηκεύτηκε και καταγράφηκε στο Αρχείο ενεργειών.");
       state.vehicles = [];
       await loadShifts();
     } catch (error) { if (!/ακυρώθηκε/.test(error.message)) toast(error.message); }
@@ -2907,7 +2925,8 @@
     const filesView = state.invoiceView === "files";
     if($("invoiceSequentialReview"))$("invoiceSequentialReview").hidden=filesView||!can("fleet.manage");
     if(filesView)state.invoiceVisibleDocuments=[];
-    if ($("invoiceStatusFilter")) $("invoiceStatusFilter").hidden = filesView;
+    if ($("invoiceStatusFilter")) $("invoiceStatusFilter").hidden = true;
+    document.querySelector(".ui-invoice-filterbar").hidden=filesView;
     if ($("invoiceQueueSummary")) $("invoiceQueueSummary").hidden = filesView;
     if ($("invoiceFileSearch")) $("invoiceFileSearch").hidden = !filesView;
     const records = Array.isArray(state.invoiceDocuments) ? state.invoiceDocuments : [];
@@ -2933,6 +2952,7 @@
     if (filesView) return void renderInvoiceFileList(records, plateSelect?.value || "");
     const statusMatch = function (item) {
       if (!filter) return true;
+      if (filter === "attention") return ["needs_review","uploaded","warning","error"].includes(String(item.status)) || (String(item.status)!=="confirmed" && Array.isArray(item.warnings) && item.warnings.length>0);
       if (filter === "new") return Boolean(item.isNew);
       if (filter === "needs_review") return ["needs_review", "uploaded"].includes(String(item.status));
       if (filter === "processing") return ["processing", "delayed"].includes(String(item.status));
@@ -2951,6 +2971,10 @@
       if (item.isNew) result.new += 1;
       return result;
     }, { total: 0, processing: 0, error: 0, warning: 0, review: 0, confirmed: 0, new: 0 });
+    document.querySelectorAll('[data-ui-invoice-queue]').forEach(button=>{const selected=button.dataset.uiInvoiceQueue===filter;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));button.hidden=filesView;});
+    const attentionCount=records.filter(item=>["needs_review","uploaded","warning","error"].includes(String(item.status)) || (String(item.status)!=="confirmed" && Array.isArray(item.warnings)&&item.warnings.length>0)).length;
+    document.querySelectorAll('[data-ui-count]').forEach(node=>node.textContent=String(node.dataset.uiCount==='attention'?attentionCount:counts[node.dataset.uiCount]||0));
+    if($("uiInvoiceExtra")){const main=['processing','attention','confirmed'].includes(filter);$("uiInvoiceExtra").value=main?'main':filter;$("uiInvoiceExtra").hidden=filesView;}
     if ($("invoiceQueueSummary")) {
       $("invoiceQueueSummary").innerHTML = [
         ["Σύνολο", counts.total, "Όλα τα τιμολόγια", "▤", ""],
@@ -3432,14 +3456,26 @@
     $("invoiceReviewDownload").disabled = !available;
     $("invoiceReviewSave").disabled = !available;
     $("invoiceReviewError").textContent = available ? "" : "Το PDF δεν έχει ολοκληρωθεί ακόμη από τον Server.";
-    if(window.FleetServiceUI)window.FleetServiceUI.reviewExtras($("invoiceReviewForm"),data,function(field){
+    if(window.FleetServiceUI)window.FleetServiceUI.reviewExtras($("invoiceReviewForm").querySelector(".ui-review-fields"),data,function(field){
       const values={plate:$("invoiceReviewPlate").value,odometerKm:$("invoiceReviewOdometer").value,totalAmount:$("invoiceReviewTotal").value,invoiceDate:$("invoiceReviewDate").value};
       window.FleetServiceUI.pdfEvidence(async function(){const headers={Authorization:'Bearer '+state.token};const response=await fetch(apiBase+'/api/service-documents/'+record.key.split('/').map(encodeURIComponent).join('/'),{headers,cache:'no-store'});if(!response.ok)throw new Error('Το PDF δεν είναι διαθέσιμο.');return response.blob();},field,values[field],record.name);
     },function(){window.FleetServiceUI.journal({id:record.entryId,km:record.serviceKm,updatedAt:record.serviceUpdatedAt,reviewJournal:record.reviewJournal},async function(id){await api('/api/admin/service-documents/undo-review',{method:'POST',body:{bikeId:record.bikeId,entryId:record.entryId,revisionId:id}});$("invoiceReviewDialog").close();await loadInvoices();});});
     $("invoiceReviewDialog").showModal();
+    prepareInlineInvoicePreview(record);
     window.FleetSequentialReview?.decorate();
   }
 
+  let stopInlineInvoicePreview=null,inlinePreviewRecord=null;
+  function prepareInlineInvoicePreview(record){
+    if(stopInlineInvoicePreview)stopInlineInvoicePreview();stopInlineInvoicePreview=null;inlinePreviewRecord=record;
+    const box=$("uiInvoicePreview");box.classList.remove('ui-preview-open');box.innerHTML='<p>Το PDF εμφανίζεται δίπλα στα πεδία σε μεγάλη οθόνη. Στο κινητό πάτησε «Προεπισκόπηση PDF».</p>';
+    $("uiInvoicePreviewToggle").setAttribute('aria-expanded','false');
+    if(window.matchMedia('(min-width:1101px)').matches)showInlineInvoicePreview();
+  }
+  function showInlineInvoicePreview(){
+    const box=$("uiInvoicePreview");box.classList.add('ui-preview-open');$("uiInvoicePreviewToggle").setAttribute('aria-expanded','true');
+    if(!stopInlineInvoicePreview&&inlinePreviewRecord)stopInlineInvoicePreview=window.FleetServiceUI?.inlinePdf(box,()=>fetchInvoiceDocument(inlinePreviewRecord).then(result=>result.blob));
+  }
   async function saveAdminInvoiceReview(event) {
     if(event?.preventDefault)event.preventDefault();
     if(state.invoiceReviewSubmitting)return;
@@ -3643,12 +3679,12 @@
     $("payrollLockButton").textContent = data.period.status === "locked" ? "Ξεκλείδωμα" : "Κλείδωμα";
     $("payrollSummaryCards").innerHTML = [
       metric("Εργαζόμενοι", String(data.totals.employees || 0), start + " – " + end, "♙"),
-      metric("Payable ώρες", String(data.totals.payableHours || 0), "Κανονικές + ειδικές", "◷"),
+      metric("Πληρωτέες ώρες", String(data.totals.payableHours || 0), "Κανονικές + ειδικές", "◷"),
       metric("Χιλιόμετρα", km(data.totals.kilometers), "Ολοκληρωμένες βάρδιες", "◇"),
       metric("Υπερωρίες", String(data.totals.pendingOvertime || 0), (data.totals.approvedOvertime || 0) + " εγκεκριμένες", "!", null, data.totals.pendingOvertime ? "warning" : ""),
       metric("Τελικό ποσό", money(data.totals.finalCents), data.period.status === "locked" ? "Κλειδωμένο snapshot" : "Ανοιχτή περίοδος", "€")
     ].join("");
-    $("payrollTable").innerHTML = data.employees.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Βάρδιες</th><th>Κανονικές ώρες</th><th>Ειδικές ώρες</th><th>Payable</th><th>Χλμ.</th><th>Βάση</th><th>Ειδική αμοιβή</th><th>Υπερωρίες / έγκριση</th><th>Bonus</th><th>Κρατήσεις</th><th>Προκαταβολές</th><th>Τελικό</th></tr></thead><tbody>' + data.employees.map(function (item) {
+    $("payrollTable").innerHTML = data.employees.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Βάρδιες</th><th>Κανονικές ώρες</th><th>Ειδικές ώρες</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Βάση</th><th>Ειδική αμοιβή</th><th>Υπερωρίες / έγκριση</th><th>Bonus</th><th>Κρατήσεις</th><th>Προκαταβολές</th><th>Τελικό</th></tr></thead><tbody>' + data.employees.map(function (item) {
       return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong></td><td>' + Number(item.shifts || 0) + '</td><td>' + escapeHtml(hours(item.normalHours)) + '</td><td>' + escapeHtml(hours(item.specialHours)) + '</td><td>' + escapeHtml(hours(item.payableHours)) + '</td><td>' + escapeHtml(km(item.kilometers)) + '</td><td>' + escapeHtml(money(item.basePayCents)) + '</td><td>' + escapeHtml(money(item.specialPayCents)) + '</td><td>' + payrollOvertimeCell(item) + '</td><td>' + escapeHtml(money(item.bonusCents)) + '</td><td>' + escapeHtml(money(item.deductionCents)) + '</td><td>' + escapeHtml(money(item.advanceCents)) + '</td><td><strong>' + escapeHtml(money(item.finalCents)) + '</strong></td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν υπάρχουν ολοκληρωμένες βάρδιες σε αυτή την περίοδο.</p>';
   }
@@ -3705,7 +3741,7 @@
       const result = await api("/api/admin/payroll/simulate", { method: "POST", body: data });
       await simpleEditor({
         overline: "ΑΠΟΤΕΛΕΣΜΑ", title: result.rule.name + " • v" + result.rule.version, submit: "Κλείσιμο",
-        html: '<div class="completion-metrics"><span><small>Payable</small><strong>' + escapeHtml(hours(result.result.payableHours)) + '</strong></span><span><small>Βάση</small><strong>' + escapeHtml(money(result.result.basePayCents)) + '</strong></span><span><small>Ειδικό</small><strong>' + escapeHtml(money(result.result.specialPayCents)) + '</strong></span><span><small>Σύνολο</small><strong>' + escapeHtml(money(result.result.totalPayCents)) + '</strong></span></div>',
+        html: '<div class="completion-metrics"><span><small>Πληρωτέες ώρες</small><strong>' + escapeHtml(hours(result.result.payableHours)) + '</strong></span><span><small>Βάση</small><strong>' + escapeHtml(money(result.result.basePayCents)) + '</strong></span><span><small>Ειδικό</small><strong>' + escapeHtml(money(result.result.specialPayCents)) + '</strong></span><span><small>Σύνολο</small><strong>' + escapeHtml(money(result.result.totalPayCents)) + '</strong></span></div>',
         collect: function () { return {}; }
       });
     } catch (error) { if (!/ακυρώθηκε/.test(error.message)) toast(error.message); }
@@ -3884,12 +3920,12 @@
 
   const reportLabels = {
     employee: "Εργαζόμενος", employeeName: "Εργαζόμενος", actual_clock_in: "Actual Clock In",
-    actual_clock_out: "Actual Clock Out", payable_hours: "Payable ώρες", vehicle: "Μηχανάκι",
+    actual_clock_out: "Actual Clock Out", payable_hours: "Πληρωτέες ώρες", vehicle: "Μηχανάκι",
     initial_km: "Αρχικά χλμ.", final_km: "Τελικά χλμ.", shift_km: "Χλμ. βάρδιας",
     status: "Κατάσταση", final_pay_cents: "Τελική αμοιβή", started_at: "Έναρξη",
     ended_at: "Λήξη", distance: "Απόσταση", reason: "Αιτιολογία", date: "Ημερομηνία",
     record_id: "Κωδικός εγγραφής", km: "Χιλιόμετρα", tasks: "Εργασίες", workshop: "Συνεργείο", oil_changed: "Αλλαγή λαδιών", notes: "Σημειώσεις",
-    payableHours: "Payable ώρες", normalHours: "Κανονικές ώρες", specialHours: "Ειδικές ώρες",
+    payableHours: "Πληρωτέες ώρες", normalHours: "Κανονικές ώρες", specialHours: "Ειδικές ώρες",
     kilometers: "Χιλιόμετρα", basePayCents: "Βασική αμοιβή", specialPayCents: "Ειδική αμοιβή",
     bonusCents: "Bonus", deductionCents: "Κρατήσεις", advanceCents: "Προκαταβολές", finalCents: "Τελικό"
   };
@@ -4116,7 +4152,7 @@
     const entries = data.entries || [];
     $("auditTable").innerHTML = entries.length ? '<table class="data-table"><thead><tr><th>Χρόνος</th><th>Χρήστης</th><th>Ρόλος</th><th>Ενέργεια</th><th>Αντικείμενο</th><th>Αιτιολογία</th><th>IP / Device</th><th>PIN</th></tr></thead><tbody>' + entries.map(function (item) {
       return '<tr><td>' + escapeHtml(formatDateTime(item.timestamp)) + '</td><td><strong>' + escapeHtml(item.user_name || "System") + '</strong></td><td>' + escapeHtml(roleLabel(item.role)) + '</td><td>' + escapeHtml(item.action) + '</td><td>' + escapeHtml(item.object_type + (item.object_id ? " • " + item.object_id : "")) + '</td><td class="wrap">' + escapeHtml(item.reason || "—") + '</td><td>' + escapeHtml((item.ip_address || "—") + (item.device_id ? " • " + item.device_id : "")) + '</td><td>' + (Number(item.admin_pin_used) ? "Ναι" : "Όχι") + '</td></tr>';
-    }).join("") + '</tbody></table>' : '<p class="empty-copy">Το Audit Log είναι κενό.</p>';
+    }).join("") + '</tbody></table>' : '<p class="empty-copy">Το Αρχείο ενεργειών είναι κενό.</p>';
   }
 
   function recycleTypeLabel(type) {
@@ -4129,7 +4165,7 @@
     if ($("recycleShowRestored").checked) query.set("restored", "1");
     const data = await api("/api/admin/recycle-bin?" + query.toString());
     state.recycle = data.records || [];
-    $("recycleSummary").innerHTML = '<span><strong>' + Number(data.counts?.active || 0) + '</strong><small>διαθέσιμα για ανάκτηση</small></span><span><strong>' + Number(data.counts?.restored || 0) + '</strong><small>ήδη ανακτημένα</small></span><p>Οι εγγραφές διατηρούνται μέχρι να αποφασίσεις εσύ. Κάθε ανάκτηση γράφεται και στο Audit Log.</p>';
+    $("recycleSummary").innerHTML = '<span><strong>' + Number(data.counts?.active || 0) + '</strong><small>διαθέσιμα για ανάκτηση</small></span><span><strong>' + Number(data.counts?.restored || 0) + '</strong><small>ήδη ανακτημένα</small></span><p>Οι εγγραφές διατηρούνται μέχρι να αποφασίσεις εσύ. Κάθε ανάκτηση γράφεται και στο Αρχείο ενεργειών.</p>';
     $("recycleList").innerHTML = state.recycle.length ? state.recycle.map(function (item) {
       return '<article class="recycle-card ' + (item.restoredAt ? "restored" : "") + '"><span class="recycle-icon">↶</span><div class="recycle-copy"><span><b>' + escapeHtml(recycleTypeLabel(item.recordType)) + '</b>' + (item.restoredAt ? '<em>Ανακτήθηκε</em>' : '<em>Στον κάδο</em>') + '</span><h3>' + escapeHtml(item.label) + '</h3><p>' + escapeHtml(item.details || "—") + '</p><small>Διαγραφή: ' + escapeHtml(formatDateTime(item.deletedAt)) + ' • ' + escapeHtml(item.deletedBy || "System") + (item.reason ? '<br>Αιτία: ' + escapeHtml(item.reason) : '') + (item.restoredAt ? '<br>Ανάκτηση: ' + escapeHtml(formatDateTime(item.restoredAt)) : '') + '</small></div>' + (item.canRestore ? '<button class="secondary-button" type="button" data-recycle-restore="' + escapeHtml(item.id) + '">Ανάκτηση</button>' : '') + '</article>';
     }).join("") : '<div class="recycle-empty"><span>✓</span><strong>Ο κάδος είναι άδειος</strong><p>Δεν υπάρχουν διαγραμμένες εγγραφές για τα επιλεγμένα φίλτρα.</p></div>';

@@ -258,9 +258,13 @@
     }
   }
 
+  let activeTab="status";
   function showTab(name) {
+    const previous=activeTab;activeTab=name;
     panels.forEach(function (panel) { panel.classList.toggle("is-hidden", panel.dataset.panel !== name); });
     navItems.forEach(function (item) { item.classList.toggle("active", item.dataset.tab === name); });
+    navItems.forEach(item=>{if(item.dataset.tab===name)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current');});
+    if(previous!==name)window.FleetMotion?.slide(panels.find(panel=>panel.dataset.panel===name),['status','backup','updates','settings'].indexOf(name)<['status','backup','updates','settings'].indexOf(previous)?-1:1);
     if (name === "updates" && bridge) { bridge.loadReleases(); bridge.checkServerUpdate(); }
     window.scrollTo(0, 0);
   }
@@ -345,6 +349,7 @@
     }
   };
 
+  document.querySelectorAll('[data-server-jump]').forEach(jump=>jump.addEventListener('click',()=>showTab(jump.dataset.serverJump)));
   navItems.forEach(function (item) { item.addEventListener("click", function () { showTab(item.dataset.tab); }); });
   document.getElementById("headerSettings").addEventListener("click", function () { showTab("settings"); });
   el.serverToggle.addEventListener("click", function () {

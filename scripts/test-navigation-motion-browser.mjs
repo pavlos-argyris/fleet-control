@@ -128,8 +128,8 @@ try{
    await indicator.evaluate(node=>node.getAnimations().forEach(a=>{a.pause();a.currentTime=90;}));
    await page.screenshot({path:path.join(output,mode+'-bottom-navigation.png')});
    await indicator.evaluate(node=>node.getAnimations().forEach(a=>a.play()));
-   await page.evaluate(()=>{for(const target of ['employees','dashboard','shifts','employees'])document.querySelector('#bottomNav [data-go="'+target+'"]').click();});
-   await page.locator('#viewEmployees:not(.is-hidden)').waitFor();assert.equal(await page.locator('#bottomNav .active').getAttribute('data-go'),'employees');
+   await page.evaluate(()=>{for(const target of ['invoices','dashboard','shifts','invoices'])document.querySelector('#bottomNav [data-go="'+target+'"]').click();});
+   await page.locator('#viewInvoices:not(.is-hidden)').waitFor();assert.equal(await page.locator('#bottomNav .active').getAttribute('data-go'),'invoices');
    await page.waitForTimeout(250);
    const final=await indicator.boundingBox(),selected=await nav.locator('button.active').boundingBox();assert.ok(Math.abs(final.x-selected.x)<1&&Math.abs(final.width-selected.width)<1,'Rapid retargeting ends on the selected button');
    assert.equal(await nav.locator('.bottom-nav-indicator').count(),1);

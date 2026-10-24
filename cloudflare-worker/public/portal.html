@@ -11,13 +11,14 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.50.1/portal.css">
-  <link rel="stylesheet" href="./assets/v5.50.1/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.50.1/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.50.1/client-ota.css">
-  <script src="./assets/v5.50.1/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.50.1/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.50.1/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/portal.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/client-ota.css">
+  <script src="./assets/v5.51.0/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.51.0/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.51.0/ui-system.css">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -34,7 +35,7 @@
         <svg viewBox="0 0 180 105"><path d="M28 77h22l15-38h43l19 38h22M42 77a20 20 0 1 0 0 .1M136 77a20 20 0 1 0 0 .1M65 39l13-19h25l13 19M115 24h26M81 39l-9 38m36-38 13 38"/></svg>
       </div>
       <div class="auth-message"><span>ΕΝΑ ΣΥΣΤΗΜΑ</span><h1>Στόλος και ομάδα<br>σε απόλυτο έλεγχο.</h1><p>Βάρδιες, μηχανάκια, χιλιόμετρα και μισθοδοσία με κοινή ασφαλή βάση.</p></div>
-      <div class="auth-pills"><span>● Server online</span><span>● Αυτόματο backup</span><span>● Audit Log</span></div>
+      <div class="auth-pills"><span>● Server online</span><span>● Αυτόματο backup</span><span>● Αρχείο ενεργειών</span></div>
     </section>
 
     <section class="auth-panel">
@@ -102,7 +103,7 @@
         </div>
       </header>
 
-      <main id="content" class="content">
+      <main id="content" class="content"><div id="uiViewError" class="ui-view-feedback" role="alert" hidden><span><strong>Δεν φορτώθηκαν τα δεδομένα</strong><small id="uiViewErrorText"></small></span><button type="button" class="secondary-button" data-ui-retry>Νέα προσπάθεια</button></div>
         <section id="viewDashboard" class="app-view" data-view="dashboard">
           <div id="dashboardHero" class="dashboard-hero"></div>
           <div id="actionSection" class="action-section"></div>
@@ -112,7 +113,7 @@
             <section class="panel"><div class="panel-heading"><span><small>ΣΗΜΕΡΑ</small><h2>Ημερήσιο πρόγραμμα</h2></span><button class="link-button" data-go="schedules" type="button">Πρόγραμμα →</button></div><div id="dailySchedule" class="data-list"></div></section>
           </div>
           <section class="panel coverage-panel">
-            <div class="panel-heading coverage-heading"><span><small>PLANNED VS ACTUAL</small><h2>Κάλυψη προσωπικού ανά μισάωρο</h2></span><div class="coverage-controls"><input id="coverageWeek" type="date" aria-label="Εβδομάδα κάλυψης"><button id="refreshCoverage" class="secondary-button" type="button">Ανανέωση</button></div></div>
+            <div class="panel-heading coverage-heading"><span><small>ΠΡΟΓΡΑΜΜΑ ΚΑΙ ΠΑΡΟΥΣΙΕΣ</small><h2>Κάλυψη προσωπικού ανά μισάωρο</h2></span><div class="coverage-controls"><input id="coverageWeek" type="date" aria-label="Εβδομάδα κάλυψης"><button id="refreshCoverage" class="secondary-button" type="button">Ανανέωση</button></div></div>
             <div id="coverageSummary" class="coverage-summary"></div>
             <div id="coverageDays" class="coverage-days" role="tablist" aria-label="Ημέρες εβδομάδας"></div>
             <div id="coverageTimeline" class="coverage-timeline"></div>
@@ -151,7 +152,7 @@
             <div id="scheduleSummary" class="roster-summary"></div>
             <div id="schedulePublicationStatus" class="schedule-publication-status is-hidden"></div>
             <div id="scheduleConflictNotice" class="schedule-conflict-notice is-hidden"></div>
-            <div id="scheduleList" class="week-roster"></div>
+            <div id="uiScheduleDays" class="ui-schedule-days" role="group" aria-label="Ημέρα προγράμματος"></div><div id="scheduleList" class="week-roster"></div>
           </section>
         </section>
 
@@ -164,7 +165,7 @@
         <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
           <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
             <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
-              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.50.1" title="Fleet Control — διαχείριση στόλου"></iframe>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.51.0" title="Fleet Control — διαχείριση στόλου"></iframe>
           </div>
           <details class="fleet-availability-panel fleet-availability-bottom">
             <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
@@ -176,8 +177,9 @@
         <section id="viewInvoices" class="app-view is-hidden" data-view="invoices">
           <div class="section-toolbar invoice-section-toolbar">
             <div><span class="overline">ΕΛΕΓΧΟΣ ΤΙΜΟΛΟΓΙΩΝ</span><h2>Τιμολόγια service</h2><p>Τα QR που ολοκληρώθηκαν στον Server και τα αρχεία που χρειάζονται επιβεβαίωση.</p></div>
-            <div class="toolbar-filters"><select id="invoiceStatusFilter" aria-label="Φίλτρο τιμολογίων"><option value="">Όλα</option><option value="new">Νέα</option><option value="processing">Σε επεξεργασία</option><option value="needs_review">Προς έλεγχο</option><option value="warning">Με προειδοποίηση</option><option value="confirmed">Ολοκληρωμένα</option><option value="error">Με σφάλμα</option></select><select id="invoicePlateFilter" aria-label="Ομαδοποίηση ανά πινακίδα"><option value="">Όλες οι πινακίδες</option></select><button id="reprocessInvoices" class="secondary-button invoice-reprocess-all-button" type="button">↻ Νέα ανάγνωση όλων</button><button id="openInvoiceImports" class="primary-button" type="button">▦ Μαζική σάρωση QR</button><button id="invoiceReaderRules" class="secondary-button" type="button">Κανόνες ανάγνωσης</button><button id="invoiceRetryFailed" class="secondary-button" type="button">Επανάληψη αποτυχημένων</button><button id="invoiceBatchPause" class="secondary-button" type="button">Παύση / συνέχεια</button><label class="invoice-force-read"><input id="invoiceForceRead" type="checkbox"> Νέα ανάλυση από την αρχή</label><button type="button" class="secondary-button" data-open-followup="pending">Εκκρεμότητες στόλου</button><button type="button" class="secondary-button" data-open-operations="zip">Λήψη PDF σε ZIP</button><button type="button" class="secondary-button" data-open-operations="plans">Προγραμματισμένα service</button><button type="button" class="secondary-button" data-open-operations="diagnostics">Διάγνωση προβλήματος</button><button id="invoiceSequentialReview" type="button" class="secondary-button">Διαδοχικός έλεγχος</button><button id="refreshInvoices" class="secondary-button" type="button">Ανανέωση</button></div>
-          </div>
+            <div class="toolbar-filters"><button id="openInvoiceImports" class="primary-button" type="button">▦ Μαζική σάρωση QR</button><select id="invoicePlateFilter" aria-label="Ομαδοποίηση ανά πινακίδα"><option value="">Όλες οι πινακίδες</option></select><button id="refreshInvoices" class="secondary-button" type="button">Ανανέωση</button></div>
+          </div><details class="ui-toolbar-details"><summary><span>Εργαλεία τιμολογίων<small>Νέα ανάγνωση, μαζικές ενέργειες και έλεγχοι</small></span></summary><div class="ui-tools-body"><p>Εδώ βρίσκονται οι εργασίες που χρειάζεσαι περιστασιακά. Η νέα ανάλυση από την αρχή αγνοεί το αποθηκευμένο αποτέλεσμα ανάγνωσης και χρησιμοποιείται όταν υπάρχουν επίμονα λάθη.</p><button id="reprocessInvoices" class="secondary-button invoice-reprocess-all-button" type="button">↻ Νέα ανάγνωση όλων</button><button id="invoiceReaderRules" class="secondary-button" type="button">Κανόνες ανάγνωσης</button><button id="invoiceRetryFailed" class="secondary-button" type="button">Επανάληψη αποτυχημένων</button><button id="invoiceBatchPause" class="secondary-button" type="button">Παύση / συνέχεια</button><label class="invoice-force-read"><input id="invoiceForceRead" type="checkbox"> Νέα ανάλυση από την αρχή</label><button type="button" class="ui-help-button" aria-label="Τι κάνει η νέα ανάλυση από την αρχή;" data-ui-help="Αγνοεί το ήδη αποθηκευμένο αποτέλεσμα ανάγνωσης του PDF και ζητά νέα ανάλυση. Χρησιμοποίησέ το αν βλέπεις επίμονα λάθη μετά από επανάληψη. Μπορεί να χρειαστεί περισσότερος χρόνος ή χρήση AI.">?</button><button type="button" class="secondary-button" data-open-followup="pending">Εκκρεμότητες στόλου</button><button type="button" class="secondary-button" data-open-operations="zip">Λήψη PDF σε ZIP</button><button type="button" class="secondary-button" data-open-operations="plans">Προγραμματισμένα service</button><button type="button" class="secondary-button" data-open-operations="diagnostics">Διάγνωση προβλήματος</button><button id="invoiceSequentialReview" type="button" class="secondary-button">Διαδοχικός έλεγχος</button></div></details>
+          <div class="ui-invoice-filterbar"><div class="ui-segments" role="group" aria-label="Ουρά τιμολογίων"><button type="button" data-ui-invoice-queue="processing" aria-pressed="false">Σε επεξεργασία <b data-ui-count="processing">0</b></button><button type="button" data-ui-invoice-queue="attention" class="active" aria-pressed="true">Χρειάζονται έλεγχο <b data-ui-count="attention">0</b></button><button type="button" data-ui-invoice-queue="confirmed" aria-pressed="false">Ολοκληρωμένα <b data-ui-count="confirmed">0</b></button></div><select id="uiInvoiceExtra" aria-label="Πρόσθετο φίλτρο τιμολογίων"><option value="main">Βασικές ουρές</option><option value="">Όλα τα τιμολόγια</option><option value="new">Νέα</option><option value="needs_review">Μόνο προς έλεγχο</option><option value="warning">Μόνο προειδοποιήσεις</option><option value="error">Μόνο σφάλματα</option></select><select id="invoiceStatusFilter" hidden aria-label="Φίλτρο τιμολογίων"><option value="">Όλα τα τιμολόγια</option><option value="attention" selected>Χρειάζονται έλεγχο</option><option value="new">Νέα</option><option value="processing">Σε επεξεργασία</option><option value="needs_review">Προς έλεγχο</option><option value="warning">Με προειδοποίηση</option><option value="confirmed">Ολοκληρωμένα</option><option value="error">Με σφάλμα</option></select></div>
           <div class="report-types invoice-view-tabs" role="group" aria-label="Προβολή τιμολογίων"><button type="button" class="active" data-invoice-view="review" aria-pressed="true">Έλεγχος τιμολογίων</button><button type="button" data-invoice-view="files" aria-pressed="false">▤ Λίστα τιμολογίων</button></div>
           <input id="invoiceFileSearch" class="invoice-file-search" type="search" placeholder="Αναζήτηση πινακίδας ή αρχείου" aria-label="Αναζήτηση στη λίστα τιμολογίων" hidden>
           <div id="invoiceBulkProgress" class="invoice-bulk-progress is-hidden" aria-live="polite" aria-busy="false">
@@ -193,7 +195,7 @@
 
         <section id="viewPayroll" class="app-view is-hidden" data-view="payroll">
           <div class="section-toolbar"><div><span class="overline">ΔΕΥΤΕΡΑ – ΚΥΡΙΑΚΗ</span><h2>Μισθοδοσία</h2></div><div class="toolbar-filters"><input id="payrollStart" type="date"><button id="loadPayroll" class="secondary-button" type="button">Προβολή</button><button id="payrollLockButton" class="primary-button" type="button">Κλείδωμα</button></div></div>
-          <div id="payrollSummaryCards" class="metric-grid"></div>
+          <div class="ui-payroll-guide"><div><strong>Ώρες και υπερωρίες</strong><small>Οι πληρωτέες ώρες και οι εγκεκριμένες υπερωρίες διακρίνονται από όσες περιμένουν έγκριση.</small></div><div><strong>Προκαταβολές</strong><small>Τα ποσά που έχουν ήδη δοθεί ως προκαταβολή αφαιρούνται στον υπολογισμό του τελικού ποσού.</small></div><div><strong>Τελικό ποσό περιόδου</strong><small>Ο υπολογισμός της επιλεγμένης εβδομάδας μετά τις προσαρμογές. Δεν αποτελεί απόδειξη εξόφλησης.</small></div></div><div id="payrollSummaryCards" class="metric-grid"></div>
           <section class="panel table-panel"><div id="payrollTable" class="responsive-table"></div></section>
           <div class="two-column-actions"><button id="newAdjustmentButton" class="secondary-button" type="button">+ Bonus / κράτηση / προκαταβολή</button><button id="ruleSimulatorButton" class="secondary-button" type="button">Προσομοιωτής κανόνα</button><button id="payRulesButton" class="secondary-button" type="button">Κανόνες πληρωμής</button><button id="specialAssignmentsButton" class="secondary-button" type="button">Χειροκίνητες ειδικές ζώνες</button></div>
         </section>
@@ -206,7 +208,7 @@
 
         <section id="viewAlerts" class="app-view is-hidden" data-view="alerts"><div class="section-toolbar"><div><span class="overline">ΧΡΕΙΑΖΕΤΑΙ ΕΝΕΡΓΕΙΑ</span><h2>Ειδοποιήσεις</h2></div><div class="toolbar-filters"><button id="mobileNotificationsButton" class="secondary-button" type="button">Ενεργοποίηση στο κινητό</button><button id="alertRulesButton" class="secondary-button" type="button">Ρυθμίσεις ειδοποιήσεων</button><button id="resolveAllAlerts" class="secondary-button is-hidden" type="button">Ολοκλήρωση όλων</button><button id="refreshAlerts" class="secondary-button" type="button">Ανανέωση</button></div></div><p id="mobileNotificationsStatus" class="notification-status"></p><div id="alertList" class="alert-list"></div></section>
 
-        <section id="viewAudit" class="app-view is-hidden" data-view="audit"><div class="section-toolbar"><div><span class="overline">ΑΜΕΤΑΒΛΗΤΟ ΙΣΤΟΡΙΚΟ</span><h2>Audit Log</h2></div><button id="refreshAudit" class="secondary-button" type="button">Ανανέωση</button></div><section class="panel table-panel"><div id="auditTable" class="responsive-table"></div></section></section>
+        <section id="viewAudit" class="app-view is-hidden" data-view="audit"><div class="section-toolbar"><div><span class="overline">ΑΜΕΤΑΒΛΗΤΟ ΙΣΤΟΡΙΚΟ</span><h2>Αρχείο ενεργειών</h2></div><button id="refreshAudit" class="secondary-button" type="button">Ανανέωση</button></div><section class="panel table-panel"><div id="auditTable" class="responsive-table"></div></section></section>
 
         <section id="viewRecycle" class="app-view is-hidden" data-view="recycle"><div class="section-toolbar"><div><span class="overline">ΑΣΦΑΛΗΣ ΑΝΑΚΤΗΣΗ</span><h2>Κάδος &amp; ιστορικό διαγραφών</h2><p>Ανάκτησε καταχώρηση service, έλεγχο χιλιομέτρων, βάρδια ή πρόγραμμα που διαγράφηκε κατά λάθος.</p></div><div class="toolbar-filters"><select id="recycleType"><option value="">Όλοι οι τύποι</option><option value="fleet_history">Service / χιλιόμετρα</option><option value="shift">Πραγματικές βάρδιες</option><option value="schedule_assignment">Πρόγραμμα</option></select><label class="compact-check"><input id="recycleShowRestored" type="checkbox"> Ανακτημένα</label><button id="refreshRecycle" class="secondary-button" type="button">Ανανέωση</button></div></div><div id="recycleSummary" class="recycle-summary"></div><div id="recycleList" class="recycle-list"></div></section>
 
@@ -306,7 +308,7 @@
   <dialog id="invoiceReviewDialog" class="app-dialog wide-dialog invoice-review-dialog"><form id="invoiceReviewForm" method="dialog" novalidate>
     <div class="dialog-head"><div><span class="overline">ΕΠΙΒΕΒΑΙΩΣΗ OCR</span><h2>Έλεγχος τιμολογίου</h2></div><button type="button" data-close="invoiceReviewDialog">×</button></div>
     <input id="invoiceReviewId" type="hidden"><input id="invoiceReviewBikeId" type="hidden"><input id="invoiceReviewEntryId" type="hidden"><input id="invoiceReviewKey" type="hidden">
-    <div id="invoiceReviewMeta" class="invoice-review-meta"></div>
+    <button type="button" class="secondary-button ui-preview-toggle" id="uiInvoicePreviewToggle" aria-expanded="false" aria-controls="uiInvoicePreview">Προεπισκόπηση PDF</button><div class="ui-review-layout"><aside id="uiInvoicePreview" class="ui-pdf-preview" aria-label="Προεπισκόπηση τιμολογίου"></aside><div class="ui-review-fields">    <div id="invoiceReviewMeta" class="invoice-review-meta"></div>
     <div id="invoiceFieldEvidence" class="invoice-field-evidence"></div>
     <div id="invoiceReviewWarnings" class="invoice-review-warnings"></div>
     <div id="invoiceReviewTransfer" class="invoice-review-transfer is-hidden">
@@ -326,34 +328,36 @@
     <label class="field"><span>Εργασίες / γραμμές τιμολογίου — μία ανά γραμμή</span><textarea id="invoiceReviewTasks" rows="7" placeholder="π.χ. Αλλαγή λαδιών&#10;Ρύθμιση φρένων"></textarea></label>
     <label class="field"><span>Σχόλια</span><textarea id="invoiceReviewComments" rows="3"></textarea></label>
     <details id="invoiceReviewRawDetails" class="invoice-review-raw"><summary>Προβολή πλήρους κειμένου OCR</summary><pre id="invoiceReviewRawText"></pre></details>
+</div></div>
     <p id="invoiceReviewError" class="form-error"></p>
     <div class="dialog-actions invoice-review-actions"><button type="button" class="ghost-button" data-close="invoiceReviewDialog">Κλείσιμο</button><span></span><button id="invoiceReviewOpen" type="button" class="secondary-button">Άνοιγμα PDF</button><button id="invoiceReviewDownload" type="button" class="secondary-button">Λήψη PDF</button><button id="invoiceReviewSave" class="primary-button" type="submit">Αποθήκευση επιβεβαίωσης</button></div>
   </form></dialog>
 
-  <dialog id="pinDialog" class="app-dialog pin-dialog"><form id="pinForm" method="dialog"><div class="dialog-head"><div><span class="overline">ΔΕΥΤΕΡΗ ΕΠΙΒΕΒΑΙΩΣΗ</span><h2>Admin PIN</h2></div><button type="button" data-pin-cancel>×</button></div><p>Η ενέργεια θα καταγραφεί στο Audit Log.</p><label class="field"><span>PIN</span><input id="criticalPin" class="pin-field" type="password" inputmode="numeric" maxlength="6" autocomplete="off" required></label><label class="field"><span>Αιτιολογία</span><textarea id="criticalReason" rows="2"></textarea></label><p id="pinError" class="form-error"></p><div class="dialog-actions"><button type="button" class="ghost-button" data-pin-cancel>Άκυρο</button><button class="primary-button" type="submit">Επιβεβαίωση</button></div></form></dialog>
+  <dialog id="pinDialog" class="app-dialog pin-dialog"><form id="pinForm" method="dialog"><div class="dialog-head"><div><span class="overline">ΔΕΥΤΕΡΗ ΕΠΙΒΕΒΑΙΩΣΗ</span><h2>Admin PIN</h2></div><button type="button" data-pin-cancel>×</button></div><p>Η ενέργεια θα καταγραφεί στο Αρχείο ενεργειών.</p><label class="field"><span>PIN</span><input id="criticalPin" class="pin-field" type="password" inputmode="numeric" maxlength="6" autocomplete="off" required></label><label class="field"><span>Αιτιολογία</span><textarea id="criticalReason" rows="2"></textarea></label><p id="pinError" class="form-error"></p><div class="dialog-actions"><button type="button" class="ghost-button" data-pin-cancel>Άκυρο</button><button class="primary-button" type="submit">Επιβεβαίωση</button></div></form></dialog>
 
   <dialog id="simpleDialog" class="app-dialog"><form id="simpleForm" method="dialog"><div class="dialog-head"><div><span id="simpleOverline" class="overline">ΕΝΕΡΓΕΙΑ</span><h2 id="simpleTitle">—</h2></div><button type="button" data-close="simpleDialog">×</button></div><div id="simpleFields"></div><p id="simpleError" class="form-error"></p><div class="dialog-actions"><button type="button" class="ghost-button" data-close="simpleDialog">Άκυρο</button><button id="simpleSubmit" class="primary-button" type="submit">Αποθήκευση</button></div></form></dialog>
 
   <dialog id="installGuideDialog" class="app-dialog install-guide-dialog"><div class="dialog-body"><div class="dialog-head"><div><span class="overline">iPHONE / iPAD</span><h2>Εγκατάσταση Web App</h2></div><button id="installGuideClose" type="button" aria-label="Κλείσιμο">×</button></div><p id="iosInstallIntro" class="helper-copy">Δεν χρειάζεται αρχείο IPA. Το Fleet Control εγκαθίσταται ως Web App από το Safari.</p><ol class="install-steps"><li><b>1</b><span>Άνοιξε αυτή τη σελίδα στο <strong>Safari</strong>.</span></li><li><b>2</b><span>Πάτησε <strong>Κοινοποίηση</strong> και μετά <strong>Προσθήκη στην οθόνη Αφετηρίας</strong>.</span></li><li><b>3</b><span>Ενεργοποίησε <strong>Άνοιγμα ως εφαρμογή Web</strong> και πάτησε <strong>Προσθήκη</strong>.</span></li></ol><div class="install-guide-actions"><button id="iosShareButton" class="primary-button" type="button">Άνοιγμα κοινοποίησης</button><button id="iosCopyLink" class="secondary-button" type="button">Αντιγραφή συνδέσμου</button></div><p id="iosInstallStatus" class="security-note">Μετά την προσθήκη θα εμφανιστεί κανονικό εικονίδιο Fleet Control στην Αφετηρία.</p></div></dialog>
 
+  <dialog id="uiMoreDialog" class="app-dialog ui-nav-dialog" aria-labelledby="uiMoreTitle"><div class="dialog-head"><h2 id="uiMoreTitle">Περισσότερα</h2><button type="button" data-close="uiMoreDialog" aria-label="Πίσω">←</button></div><p class="ui-dialog-intro">Όλες οι λειτουργίες της εφαρμογής, οργανωμένες σε ένα σημείο.</p><div id="uiMoreItems" class="ui-nav-grid"></div></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./assets/v5.50.1/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.50.1"></script>
-  <script src="./assets/v5.50.1/service-model.js" defer></script>
-  <script src="./assets/v5.50.1/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.50.1/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.50.1/fleet-motion.js" defer></script>
-  <script src="./assets/v5.50.1/service-tools.js" defer></script>
-  <script src="./assets/v5.50.1/service-storage.js" defer></script>
-  <script src="./assets/v5.50.1/service-export.js" defer></script>
-  <script src="./assets/v5.50.1/shared-requests.js"></script>
-  <script src="./assets/v5.50.1/live-changes.js"></script>
-  <script src="./assets/v5.50.1/local-view-cache.js"></script>
-  <script src="./assets/v5.50.1/portal.js"></script>
+  <script src="./assets/v5.51.0/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.51.0"></script>
+  <script src="./assets/v5.51.0/service-model.js" defer></script>
+  <script src="./assets/v5.51.0/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.51.0/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.51.0/service-tools.js" defer></script>
+  <script src="./assets/v5.51.0/service-storage.js" defer></script>
+  <script src="./assets/v5.51.0/service-export.js" defer></script>
+  <script src="./assets/v5.51.0/shared-requests.js"></script>
+  <script src="./assets/v5.51.0/live-changes.js"></script>
+  <script src="./assets/v5.51.0/local-view-cache.js"></script>
+  <script src="./assets/v5.51.0/fleet-motion.js"></script>
+  <script src="./assets/v5.51.0/portal.js"></script>
   <script src="./vendor/jsQR.js"></script>
-  <script src="./assets/v5.50.1/invoice-import-ui.js"></script>
-  <script src="./assets/v5.50.1/service-followup.js" defer></script>
-  <script src="./assets/v5.50.1/fleet-operations.js" defer></script>
-  <script src="./assets/v5.50.1/sequential-review.js" defer></script>
+  <script src="./assets/v5.51.0/invoice-import-ui.js"></script>
+  <script src="./assets/v5.51.0/service-followup.js" defer></script>
+  <script src="./assets/v5.51.0/fleet-operations.js" defer></script>
+  <script src="./assets/v5.51.0/sequential-review.js" defer></script>
 </body>
 </html>

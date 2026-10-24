@@ -2223,6 +2223,8 @@
   function renderDetail() {
     const bike = getBike(activeBikeId);
     if (!bike) return;
+    window.FleetUI?.setBikeContext(bike.id);
+    window.FleetUI?.renderBikeFiles(bike);
     renderNextServiceCard(bike);
     const status = getStatus(bike);
     const major = getMajorServicePlan(bike);

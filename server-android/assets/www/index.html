@@ -7,6 +7,7 @@
   <title>Fleet Control Server</title>
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./scroll-stability.css">
+  <link rel="stylesheet" href="./ui-system.css">
 </head>
 <body>
   <div class="server-shell">
@@ -38,6 +39,7 @@
 
     <main class="server-content">
       <section id="panelStatus" class="tab-panel" data-panel="status">
+        <div class="ui-server-links"><button type="button" class="ui-server-link" data-server-jump="backup"><span><strong>Αντίγραφα ασφαλείας →</strong><small>Δημιουργία, έλεγχος και επαναφορά</small></span></button><button type="button" class="ui-server-link" data-server-jump="updates"><span><strong>Ενημερώσεις OTA →</strong><small>Έκδοση, λήψη και εγκατάσταση</small></span></button></div>
         <div class="metrics">
           <div><strong id="metricBikes">0</strong><span>μηχανάκια</span></div>
           <div><strong id="metricUsers">0</strong><span>χρήστες</span></div>
@@ -47,8 +49,8 @@
           <div><strong id="metricPending">0</strong><span>νέες αλλαγές</span></div>
         </div>
 
-        <div class="section-heading">
-          <h2>Κατάσταση συστήματος</h2>
+        <section class="server-section-card"><div class="section-heading">
+          <h2>Σύνδεση και συγχρονισμός</h2>
           <span id="systemBadge" class="state-badge">Έλεγχος</span>
         </div>
         <div class="status-list">
@@ -90,7 +92,7 @@
         </div>
 
         <article class="sync-diagnostics" aria-live="polite"><strong>Διαδρομή συγχρονισμού</strong><p id="syncDiagnosticStage">Αναμονή</p><small id="syncDiagnosticEndpoint"></small><p id="syncDiagnosticAdvice"></p><button id="retrySync" class="secondary-action" type="button">Συγχρονισμός τώρα</button><hr><small id="mirrorDiagnosticStage"></small><p id="mirrorDiagnosticError"></p><button id="retrySystemMirror" class="secondary-action" type="button">Επανάληψη αντιγράφου προσωπικού</button></article>
-        <div class="section-heading invoice-processing-heading">
+        </section><section class="server-section-card"><div class="section-heading invoice-processing-heading">
           <div><span class="overline dark">ΚΟΙΝΗ ΟΥΡΑ SERVER</span><h2>Επεξεργασία τιμολογίων</h2></div>
           <span id="invoiceProcessingBadge" class="state-badge">Αδρανές</span>
         </div>
@@ -108,7 +110,7 @@
           <p id="invoiceProcessingMessage"></p><p id="invoiceProcessingAdvice"></p><button id="retryServerInvoice" class="secondary-action" type="button" hidden>Διακοπή &amp; νέα προσπάθεια</button>
         </article>
 
-        <div class="section-heading device-health-heading">
+        </section><section class="server-section-card"><div class="section-heading device-health-heading">
           <h2>Υγεία κινητού-server</h2>
           <span id="deviceHealthBadge" class="state-badge">Έλεγχος</span>
         </div>
@@ -122,7 +124,7 @@
           <div><span>Δίκτυο</span><strong id="deviceNetwork">—</strong><small id="deviceUptime">—</small></div>
         </div>
 
-        <button id="serverToggle" class="primary-action" type="button">Εκκίνηση server</button>
+        </section><button id="serverToggle" class="primary-action" type="button">Εκκίνηση server</button>
         <p id="statusError" class="error-message"></p>
       </section>
 
@@ -154,7 +156,7 @@
         <article id="otaCard" class="ota-card" aria-live="polite">
           <div class="ota-card-head"><span class="ota-icon" aria-hidden="true">↻</span><div><span class="overline dark">ΕΝΗΜΕΡΩΣΗ SERVER</span><h3 id="otaVersion">Έλεγχος έκδοσης</h3></div><span class="ota-live-badge">OTA</span></div>
           <p id="otaStatus">Αυτόματος έλεγχος κάθε ώρα. Πριν την εγκατάσταση δημιουργείται πλήρες backup.</p>
-          <ol class="ota-steps"><li data-ota-step="0"><b>1</b><span>Έλεγχος</span></li><li data-ota-step="1"><b>2</b><span>Λήψη</span></li><li data-ota-step="2"><b>3</b><span>Backup</span></li><li data-ota-step="3"><b>4</b><span>Εγκατάσταση</span></li></ol>
+          <ol class="ota-steps"><li data-ota-step="0"><b>1</b><span>Έλεγχος</span></li><li data-ota-step="1"><b>2</b><span>Λήψη</span></li><li data-ota-step="2"><b>3</b><span>Αντίγραφα</span></li><li data-ota-step="3"><b>4</b><span>Εγκατάσταση</span></li></ol>
           <div id="otaProgress" class="ota-progress" role="progressbar" aria-label="Πρόοδος ενημέρωσης" aria-valuemin="0" aria-valuemax="100" hidden><span id="otaProgressBar"></span></div><small id="otaProgressLabel" class="ota-progress-label"></small>
           <div id="otaNotes"></div><p id="otaBackup" class="ota-backup"></p>
           <label class="ota-auto"><input id="automaticOta" type="checkbox"> Αυτόματη λήψη και εγκατάσταση</label>
@@ -206,7 +208,7 @@
 
     <nav class="bottom-nav" aria-label="Κύρια πλοήγηση">
       <button class="nav-item active" type="button" data-tab="status"><svg viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 12 2-6h4"/></svg><span>Κατάσταση</span></button>
-      <button class="nav-item" type="button" data-tab="backup"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1 0-8 6 6 0 0 1 11.4-1.9A4.5 4.5 0 0 1 18 17H8M12 12v8m0-8-3 3m3-3 3 3"/></svg><span>Backup</span></button>
+      <button class="nav-item" type="button" data-tab="backup"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1 0-8 6 6 0 0 1 11.4-1.9A4.5 4.5 0 0 1 18 17H8M12 12v8m0-8-3 3m3-3 3 3"/></svg><span>Αντίγραφα</span></button>
       <button class="nav-item" type="button" data-tab="updates"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg><span>Ενημερώσεις</span></button>
       <button class="nav-item" type="button" data-tab="settings"><svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19 12h3M2 12h3M12 2v3M12 19v3"/></svg><span>Ρυθμίσεις</span></button>
     </nav>
@@ -235,6 +237,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="./scroll-stability.js"></script>
   <script src="./fleet-navigation.js"></script>
+  <script src="./fleet-motion.js"></script>
   <script src="./app.js"></script>
   <script src="./server-diagnostics.js"></script>
 </body>

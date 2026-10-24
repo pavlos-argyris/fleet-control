@@ -13,7 +13,7 @@ const records = [record('newest', 'ΒΤΟ 756', '2026-10-03'), record('oldest', 
 const state = { invoiceDocuments: records, invoiceView: 'review', invoiceCollapsedGroups: new Set(), invoiceGroupAnimationUntil: 0, invoiceGroupRenderTimer: 0 };
 let clock = 1000;
 class Clock extends Date { static now() { return clock; } }
-const ctx = vm.createContext({ state, console, Map, Set, Date: Clock, encodeURIComponent,
+const ctx = vm.createContext({ document: { querySelector: () => ({hidden:false}), querySelectorAll: () => [] }, state, console, Map, Set, Date: Clock, encodeURIComponent,
   $: id => fields[id], can: () => true, renderInvoiceBulkProgress: () => {}, refreshWigglyProgressRings: () => {},
   portalInvoiceWorkItems: () => [], formatDate: String, km: String, invoiceProgressMarkup: () => '', invoiceStatusPill: () => '', invoiceStatusLabels: {},
   escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'),
