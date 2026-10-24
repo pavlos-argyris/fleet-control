@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-c4c403d8-6e90-4c1f-8ff5-c45876f7cd7e",
-  "sourceCommit": "242255c9c2d73b730b8b50044deb2cc6abb57f3c",
-  "releaseVersion": "5.51.0",
-  "requestedAt": "2026-10-24T14:24:07.024Z",
-  "reason": "User authorized the complete UI redesign and automatic publication; source CI 40101953793 succeeded with responsive Web/Client/Server browser verification and both APK builds."
+  "requestId": "fleet-a49bde75-e64d-4da2-a04d-2d6df11faad7",
+  "sourceCommit": "6a44c85e122ad5c4b6c4a3de6756149f3749832c",
+  "releaseVersion": "5.51.1",
+  "requestedAt": "2026-10-24T15:19:23.198Z",
+  "reason": "User authorized the single full-width Fleet list, integrated workspace and Server clipping correction with automatic publication. Source CI 40105579008 succeeded, including actual responsive layout/search tests, 24 Server bottom-of-tab cases, unchanged historical static URLs and both APK builds."
 }
