@@ -89,6 +89,7 @@ jobs:
       - run: node scripts/test-server-system-mirror.mjs
       - run: node scripts/test-server-offload-native.mjs
       - run: node scripts/test-backup-archive.mjs
+      - run: node scripts/test-invoice-sources-native.mjs
       - run: node scripts/test-invoice-zip-native.mjs
       - name: Restore original signing key
         env:
