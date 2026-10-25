@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-1856061b-8a26-443a-9126-8ed3abc0848f",
-  "sourceCommit": "bd02482a603d585b6ab13293b18467e7a0e954c7",
-  "releaseVersion": "5.51.2",
-  "requestedAt": "2026-10-24T16:14:10.825Z",
-  "reason": "User-authorized automatic release of the invoice UI fixes and labeled help; exact source passed Check saved source run 40110316236 including browser checks and both APK builds."
+  "requestId": "fleet-7bc0a802-c4ad-41c4-bad2-cf3a6e86b64a",
+  "sourceCommit": "5ee7b4adedac23077077fa183aa63c297629ca8f",
+  "releaseVersion": "5.51.3",
+  "requestedAt": "2026-10-25T20:28:21.785Z",
+  "reason": "Ο χρήστης εξουσιοδότησε αυτόματη δημοσίευση των διορθώσεων τιμολογίων, διατήρησης φωτογραφίας QR PDF και προεπισκόπησης. Επιτυχές CI 40230587321 για το πλήρες source commit."
 }
