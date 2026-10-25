@@ -3466,7 +3466,8 @@
     } catch (error) { toast(error.message); }
   }
 
-  async function openAdminInvoiceReview(id) {
+  async function openAdminInvoiceReview(id,options) {
+    const keepPreview=Boolean(options?.continueReview&&$("uiInvoicePreview")?.classList.contains("ui-preview-open"));
     const record = invoiceDocumentById(id);
     if (!record) return;
     if (record.status === "processing" || record.status === "delayed") return;
@@ -3537,22 +3538,22 @@
       window.FleetServiceUI.pdfEvidence(async function(){const headers={Authorization:'Bearer '+state.token};const response=await fetch(apiBase+'/api/service-documents/'+record.key.split('/').map(encodeURIComponent).join('/'),{headers,cache:'no-store'});if(!response.ok)throw new Error('Το PDF δεν είναι διαθέσιμο.');return response.blob();},field,values[field],record.name);
     },function(){window.FleetServiceUI.journal({id:record.entryId,km:record.serviceKm,updatedAt:record.serviceUpdatedAt,reviewJournal:record.reviewJournal},async function(id){await api('/api/admin/service-documents/undo-review',{method:'POST',body:{bikeId:record.bikeId,entryId:record.entryId,revisionId:id}});$("invoiceReviewDialog").close();await loadInvoices();});});
     $("invoiceReviewDialog").showModal();
-    prepareInlineInvoicePreview(record);
+    prepareInlineInvoicePreview(record,keepPreview);
     window.FleetSequentialReview?.opened(record.id,state.invoiceVisibleDocuments||[]);
   }
 
   let stopInlineInvoicePreview=null,inlinePreviewRecord=null;
-  function prepareInlineInvoicePreview(record){
+  function prepareInlineInvoicePreview(record,keepPreview){
     if(stopInlineInvoicePreview)stopInlineInvoicePreview();stopInlineInvoicePreview=null;inlinePreviewRecord=record;
     const photo=record.sourcePhoto||(String(record.contentType||'').startsWith('image/')?record:null),qr=record.qrUrl||record.invoiceData?.qrUrl||'',isPdf=record.contentType==='application/pdf';
     const bar=$("uiInvoiceSources");bar.innerHTML='<button type="button" class="secondary-button" data-source-pdf>PDF</button><button type="button" class="secondary-button" data-source-photo>Φωτογραφία</button><button type="button" class="secondary-button" data-source-qr>QR</button>';
-    const select=(file,kind)=>{if(stopInlineInvoicePreview)stopInlineInvoicePreview();stopInlineInvoicePreview=null;inlinePreviewRecord=file;bar.querySelectorAll('button').forEach(button=>button.classList.toggle('active',button.hasAttribute('data-source-'+kind)));showInlineInvoicePreview();};
+    const select=(file,kind)=>{if(stopInlineInvoicePreview)stopInlineInvoicePreview();stopInlineInvoicePreview=null;inlinePreviewRecord=file;$("uiInvoicePreviewToggle").textContent=kind==='photo'?'Προεπισκόπηση φωτογραφίας':'Προεπισκόπηση PDF';bar.querySelectorAll('button').forEach(button=>button.classList.toggle('active',button.hasAttribute('data-source-'+kind)));showInlineInvoicePreview();};
     bar.querySelector('[data-source-pdf]').disabled=!isPdf;bar.querySelector('[data-source-photo]').disabled=!photo;bar.querySelector('[data-source-qr]').disabled=!qr;
     bar.querySelector('[data-source-pdf]').onclick=()=>select(record,'pdf');bar.querySelector('[data-source-photo]').onclick=()=>select(photo,'photo');bar.querySelector('[data-source-qr]').onclick=()=>window.FleetServiceUI?.showQr(qr);
     bar.querySelector(isPdf?'[data-source-pdf]':'[data-source-photo]')?.classList.add('active');
     const box=$("uiInvoicePreview");box.classList.remove('ui-preview-open');box.innerHTML='<p>Επίλεξε PDF, φωτογραφία ή QR. Στο κινητό μπορείς να ανοίξεις την προεπισκόπηση με το αντίστοιχο κουμπί.</p>';
     $("uiInvoicePreviewToggle").textContent=isPdf?'Προεπισκόπηση PDF':'Προεπισκόπηση φωτογραφίας';$("uiInvoicePreviewToggle").setAttribute('aria-expanded','false');
-    if(window.matchMedia('(min-width:1101px)').matches)showInlineInvoicePreview();
+    if(keepPreview||window.matchMedia('(min-width:1101px)').matches)showInlineInvoicePreview();
   }
   function showInlineInvoicePreview(){
     const box=$("uiInvoicePreview");box.classList.add('ui-preview-open');$("uiInvoicePreviewToggle").setAttribute('aria-expanded','true');

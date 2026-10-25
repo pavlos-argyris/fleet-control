@@ -24,7 +24,7 @@
       }
       if(session!==active)return;
       if(!record){stop();root.FleetInvoiceApi.toast('Δεν υπάρχουν άλλα διαθέσιμα τιμολόγια μετά από αυτό στη συγκεκριμένη λίστα. Οι παραλειφθείσες εγγραφές παραμένουν για έλεγχο.');return;}
-      await root.FleetInvoiceApi.review(record.id);
+      await root.FleetInvoiceApi.review(record.id,{continueReview:true});
       if(session!==active)return;
       if(!dialog()?.open){stop();return;}
       bar();
