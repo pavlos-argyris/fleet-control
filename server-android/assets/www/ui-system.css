@@ -437,3 +437,12 @@ html.embedded-mode main{padding:20px 28px 24px}
   .qr-processing-main{width:100%;align-items:flex-start}
   .qr-processing-card .document-retry-button{align-self:flex-end;min-height:40px;padding:8px 16px}
 }
+.ui-preview-zoom{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.ui-preview-zoom button{min-height:42px;padding:8px 12px}
+.ui-preview-zoom output{min-width:48px;text-align:center;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.ui-preview-help{line-height:1.5}
+.ui-document-viewport{overflow:auto;max-height:65vh;max-height:min(65vh,680px);width:100%;min-width:0;overscroll-behavior:contain;scrollbar-gutter:stable;touch-action:none;cursor:grab;border-radius:8px;background:#dce7e9;user-select:none}
+.ui-document-viewport:focus-visible{outline:2px solid var(--teal);outline-offset:3px}
+.ui-document-viewport.is-panning{cursor:grabbing}
+.ui-document-content{max-width:none;min-width:0}
+.ui-document-content canvas,.ui-document-content .ui-invoice-photo{width:100%;max-width:none;height:auto;pointer-events:none}

@@ -3027,7 +3027,7 @@
       return String(item.status) === filter;
     };
     const filtered = records.filter(function (item) { return statusMatch(item) && (!plateSelect || !plateSelect.value || plateKey(item) === plateSelect.value); });
-    state.invoiceVisibleDocuments = filtered;
+    state.invoiceVisibleDocuments = [];
     const counts = records.reduce(function (result, item) {
       result.total += 1;
       if (["processing", "delayed"].includes(item.status)) result.processing += 1;
@@ -3097,6 +3097,7 @@
         if (kmDifference) return kmDifference;
         return String(right.serviceDate || right.uploadedAt || "").localeCompare(String(left.serviceDate || left.uploadedAt || ""));
       });
+      state.invoiceVisibleDocuments.push(...group.items);
       const warningCount = group.items.filter(function (item) { return Array.isArray(item.warnings) && item.warnings.length; }).length;
       return invoiceGroupMarkup(group.key, group.label, group.items, warningCount ? warningCount + " προειδοποιήσεις" : "Χωρίς προειδοποίηση", group.items.map(renderCard).join(""), "review");
     }).join("");
@@ -3537,7 +3538,7 @@
     },function(){window.FleetServiceUI.journal({id:record.entryId,km:record.serviceKm,updatedAt:record.serviceUpdatedAt,reviewJournal:record.reviewJournal},async function(id){await api('/api/admin/service-documents/undo-review',{method:'POST',body:{bikeId:record.bikeId,entryId:record.entryId,revisionId:id}});$("invoiceReviewDialog").close();await loadInvoices();});});
     $("invoiceReviewDialog").showModal();
     prepareInlineInvoicePreview(record);
-    window.FleetSequentialReview?.decorate();
+    window.FleetSequentialReview?.opened(record.id,state.invoiceVisibleDocuments||[]);
   }
 
   let stopInlineInvoicePreview=null,inlinePreviewRecord=null;
@@ -3623,13 +3624,14 @@
       if (result.document) state.invoiceDocuments.push(result.document);
       // Every invoice on this service uses the corrected manual mileage.
       await loadInvoices().catch(function () { toast("Αποθηκεύτηκε. Ανανέωσε τη λίστα τιμολογίων για τις υπόλοιπες αλλαγές."); });
-      window.FleetSequentialReview?.saved(record.id);
-      $("invoiceReviewDialog").close();
+      const advanced=window.FleetSequentialReview?.saved(record.id);
+      if(!advanced&&state.invoiceReviewDocument===record)$("invoiceReviewDialog").close();
       renderInvoiceQueue();
       toast("Τα στοιχεία του τιμολογίου επιβεβαιώθηκαν και αποθηκεύτηκαν.");
     } catch (error) {
-      $("invoiceReviewError").textContent = error.message;
-      button.disabled = false;
+      const message="Η αποθήκευση επιβεβαίωσης απέτυχε. "+(error.message||"Δοκίμασε ξανά.");
+      if(state.invoiceReviewDocument===record){$("invoiceReviewError").textContent=message;button.disabled=false;}
+      toast(message+" Οι διορθώσεις σου παραμένουν στο τρέχον τιμολόγιο.");
     }
   }
 

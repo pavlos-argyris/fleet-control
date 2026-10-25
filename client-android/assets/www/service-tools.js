@@ -17,28 +17,65 @@
     async function show(n){if(!doc||closed)return;const request=++showRevision,target=Math.max(1,Math.min(doc.numPages,n));if(render){render.cancel();await render.promise.catch(()=>{});}const p=await doc.getPage(target);if(closed||request!==showRevision)return;pageNumber=target;const width=Math.min(850,Math.max(280,d.clientWidth-48)),vp=p.getViewport({scale:width/p.getViewport({scale:1}).width}),canvas=d.querySelector('canvas');canvas.width=vp.width;canvas.height=vp.height;render=p.render({canvasContext:canvas.getContext('2d'),viewport:vp});await render.promise;if(closed||request!==showRevision)return;d.querySelector('[data-page]').textContent=pageNumber+' / '+doc.numPages;d.querySelector('[data-prev]').disabled=pageNumber===1;d.querySelector('[data-next]').disabled=pageNumber===doc.numPages;const items=matches.get(pageNumber)||[];d.querySelector('[data-highlights]').innerHTML=items.map(item=>{const tr=p.view?root.FleetPdfJsUtil.transform(vp.transform,item.transform):null;if(!tr)return '';const h=Math.max(8,Math.hypot(tr[2],tr[3])),w=Math.max(8,item.width*vp.scale);return '<i class="service-pdf-highlight" style="left:'+tr[4]+'px;top:'+(tr[5]-h)+'px;width:'+w+'px;height:'+h+'px"></i>';}).join('');}
     d.querySelector('[data-prev]').onclick=()=>show(pageNumber-1).catch(e=>status.textContent=e.message);d.querySelector('[data-next]').onclick=()=>show(pageNumber+1).catch(e=>status.textContent=e.message);
     try{const [blob,m]=await Promise.all([getBlob(),pdfModule()]);root.FleetPdfJsUtil=m.Util;if(closed)return;task=m.getDocument({data:new Uint8Array(await blob.arrayBuffer()),isEvalSupported:false,cMapUrl:pdfBase+'cmaps/',cMapPacked:true,standardFontDataUrl:pdfBase+'standard_fonts/',wasmUrl:pdfBase+'wasm/'});doc=await task.promise;if(closed){await task.destroy();return;}let first=1,count=0;for(let n=1;n<=Math.min(doc.numPages,10)&&!closed;n++){const page=await doc.getPage(n),text=await page.getTextContent(),items=text.items.filter(i=>i.str&&queries.some(q=>key(i.str).includes(q)));if(items.length){matches.set(n,items);if(!count)first=n;count+=items.length;}}if(closed)return;status.textContent=count?'Βρέθηκαν '+count+' πιθανές αντιστοιχίες.':'Δεν εντοπίστηκε το πεδίο στο κείμενο. Για σαρωμένα PDF κάνε οπτικό έλεγχο.';await show(first);}catch(e){if(!closed)status.textContent='Δεν άνοιξε η προεπισκόπηση: '+(e.message||'σφάλμα')+'. Χρησιμοποίησε Άνοιγμα PDF.';}}
-  // A single lazily loaded page; closing the review cancels loading and rendering.
+  function previewZoom(viewport,content,toolbar,onSettled){
+    let scale=1,base=0,ready=false,closed=false,frame=0,timer=0,pending=null,pinch=null;
+    const pointers=new Map(),out=toolbar.querySelector('[data-inline-zoom-value]'),minus=toolbar.querySelector('[data-inline-zoom-out]'),plus=toolbar.querySelector('[data-inline-zoom-in]'),reset=toolbar.querySelector('[data-inline-zoom-reset]');
+    const clamp=value=>Math.max(.5,Math.min(4,Number(value)||1));
+    function buttons(){out.textContent=Math.round(scale*100)+'%';minus.disabled=!ready||scale<=.5;plus.disabled=!ready||scale>=4;reset.disabled=!ready||scale===1;}
+    function settle(){clearTimeout(timer);if(ready&&!closed)timer=setTimeout(()=>{if(!closed)onSettled();},160);}
+    function fit(){const width=Math.min(720,Math.max(1,viewport.clientWidth));if(width===base)return;const old=base;base=width;content.style.width=base*scale+'px';if(old&&ready)settle();}
+    function apply(value,anchor){
+      if(!ready||closed)return;const next=clamp(value),rect=viewport.getBoundingClientRect(),x=anchor?.x??rect.left+viewport.clientWidth/2,y=anchor?.y??rect.top+viewport.clientHeight/2;
+      const docX=anchor?.docX??(viewport.scrollLeft+x-rect.left)/scale,docY=anchor?.docY??(viewport.scrollTop+y-rect.top)/scale;
+      scale=next;content.style.width=base*scale+'px';viewport.scrollLeft=docX*scale-(x-rect.left);viewport.scrollTop=docY*scale-(y-rect.top);buttons();settle();
+    }
+    function queue(value,anchor){pending={value,anchor};if(frame)return;frame=requestAnimationFrame(()=>{frame=0;const next=pending;pending=null;if(next)apply(next.value,next.anchor);});}
+    const points=()=>[...pointers.values()];
+    function startPinch(){const [a,b]=points(),rect=viewport.getBoundingClientRect(),x=(a.x+b.x)/2,y=(a.y+b.y)/2;pinch={distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),scale,docX:(viewport.scrollLeft+x-rect.left)/scale,docY:(viewport.scrollTop+y-rect.top)/scale};}
+    function down(event){if(!ready||event.pointerType==='mouse'&&event.button!==0)return;event.preventDefault();pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});viewport.setPointerCapture?.(event.pointerId);viewport.classList.add('is-panning');if(pointers.size===2)startPinch();}
+    function move(event){
+      const previous=pointers.get(event.pointerId);if(!previous||closed)return;event.preventDefault();pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+      if(pointers.size>=2){if(!pinch)startPinch();const [a,b]=points();queue(pinch.scale*Math.hypot(a.x-b.x,a.y-b.y)/pinch.distance,{x:(a.x+b.x)/2,y:(a.y+b.y)/2,docX:pinch.docX,docY:pinch.docY});}
+      else{viewport.scrollLeft+=previous.x-event.clientX;viewport.scrollTop+=previous.y-event.clientY;}
+    }
+    function up(event){pointers.delete(event.pointerId);pinch=null;if(!pointers.size)viewport.classList.remove('is-panning');}
+    function wheel(event){if(!ready||(!event.ctrlKey&&!event.metaKey))return;event.preventDefault();queue(scale*Math.exp(-event.deltaY*.004),{x:event.clientX,y:event.clientY});}
+    function keydown(event){if(!ready||!['+','=','-','0'].includes(event.key))return;event.preventDefault();apply(event.key==='0'?1:scale+(event.key==='-'?-.25:.25));}
+    function dblclick(event){event.preventDefault();apply(scale>1?1:2,{x:event.clientX,y:event.clientY});}
+    const listeners=[['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',up],['lostpointercapture',up],['wheel',wheel],['keydown',keydown],['dblclick',dblclick]];
+    listeners.forEach(([name,listener])=>viewport.addEventListener(name,listener,{passive:false}));
+    minus.onclick=()=>apply(scale-.25);plus.onclick=()=>apply(scale+.25);reset.onclick=()=>apply(1);
+    const observer=typeof ResizeObserver==='function'?new ResizeObserver(()=>{if(!closed)fit();}):null;observer?.observe(viewport);fit();buttons();
+    return {get scale(){return scale;},get width(){return base*scale;},enable(){ready=true;fit();buttons();},destroy(){closed=true;clearTimeout(timer);if(frame)cancelAnimationFrame(frame);observer?.disconnect();listeners.forEach(([name,listener])=>viewport.removeEventListener(name,listener));pointers.clear();}};
+  }
+  // Fetch once; zoom and page changes render locally without additional API reads.
   function inlinePdf(container,getBlob){
     let closed=false,task,pdf,render,revision=0,pageNumber=1,imageUrl='';
-    container.innerHTML='<div class="ui-pdf-controls"><button type="button" class="secondary-button" data-inline-prev aria-label="Προηγούμενη σελίδα PDF">←</button><span data-inline-page aria-live="polite">PDF</span><button type="button" class="secondary-button" data-inline-next aria-label="Επόμενη σελίδα PDF">→</button></div><p data-inline-status role="status">Φόρτωση προεπισκόπησης…</p><canvas aria-label="Σελίδα τιμολογίου"></canvas><img class="ui-invoice-photo" alt="Αρχική φωτογραφία τιμολογίου" hidden><button type="button" class="secondary-button" data-inline-retry hidden>Νέα προσπάθεια</button>';
-    const status=container.querySelector('[data-inline-status]'),prev=container.querySelector('[data-inline-prev]'),next=container.querySelector('[data-inline-next]'),retry=container.querySelector('[data-inline-retry]'),image=container.querySelector('img'),canvas=container.querySelector('canvas'),controls=container.querySelector('.ui-pdf-controls');prev.disabled=next.disabled=true;
+    container.innerHTML='<div class="ui-pdf-controls"><button type="button" class="secondary-button" data-inline-prev aria-label="Προηγούμενη σελίδα PDF">←</button><span data-inline-page aria-live="polite">PDF</span><button type="button" class="secondary-button" data-inline-next aria-label="Επόμενη σελίδα PDF">→</button></div><div class="ui-preview-zoom" role="group" aria-label="Ζουμ προεπισκόπησης"><button type="button" class="secondary-button" data-inline-zoom-out aria-label="Σμίκρυνση">−</button><output data-inline-zoom-value aria-live="polite">100%</output><button type="button" class="secondary-button" data-inline-zoom-in aria-label="Μεγέθυνση">+</button><button type="button" class="secondary-button" data-inline-zoom-reset>Επαναφορά</button></div><p class="ui-preview-help">Ζουμ με + / − ή δύο δάχτυλα. Σύρε μέσα στο έγγραφο για μετακίνηση.</p><p data-inline-status role="status">Φόρτωση προεπισκόπησης…</p><div class="ui-document-viewport" tabindex="0" aria-label="Προεπισκόπηση τιμολογίου με ζουμ και μετακίνηση"><div class="ui-document-content"><canvas aria-label="Σελίδα τιμολογίου"></canvas><img class="ui-invoice-photo" alt="Αρχική φωτογραφία τιμολογίου" draggable="false" hidden></div></div><button type="button" class="secondary-button" data-inline-retry hidden>Νέα προσπάθεια</button>';
+    const status=container.querySelector('[data-inline-status]'),prev=container.querySelector('[data-inline-prev]'),next=container.querySelector('[data-inline-next]'),retry=container.querySelector('[data-inline-retry]'),image=container.querySelector('img'),controls=container.querySelector('.ui-pdf-controls'),viewportBox=container.querySelector('.ui-document-viewport'),content=container.querySelector('.ui-document-content');
+    let canvas=container.querySelector('canvas');prev.disabled=next.disabled=true;
+    const zoom=previewZoom(viewportBox,content,container.querySelector('.ui-preview-zoom'),()=>{if(pdf&&!closed)show(pageNumber);});
     async function show(n){
       if(!pdf||closed)return;const request=++revision,target=Math.max(1,Math.min(pdf.numPages,n));prev.disabled=next.disabled=true;
-      try{if(render){render.cancel();await render.promise.catch(()=>{});}const page=await pdf.getPage(target);if(closed||request!==revision)return;
-        const width=Math.min(720,Math.max(220,container.clientWidth-28)),ratio=Math.min(1.5,root.devicePixelRatio||1),viewport=page.getViewport({scale:width/page.getViewport({scale:1}).width*ratio});canvas.width=Math.round(viewport.width);canvas.height=Math.round(viewport.height);
-        render=page.render({canvasContext:canvas.getContext('2d'),viewport});await render.promise;if(closed||request!==revision)return;
-        pageNumber=target;container.querySelector('[data-inline-page]').textContent=pageNumber+' / '+pdf.numPages;status.textContent='Έλεγξε το PDF και διόρθωσε τα στοιχεία δίπλα.';prev.disabled=target===1;next.disabled=target===pdf.numPages;
+      try{
+        if(render){render.cancel();await render.promise.catch(()=>{});}const page=await pdf.getPage(target);if(closed||request!==revision)return;
+        const natural=page.getViewport({scale:1}),width=Math.max(1,zoom.width),ratio=Math.min(1.5,root.devicePixelRatio||1,Math.sqrt(6000000/(width*width*natural.height/natural.width))),viewport=page.getViewport({scale:width/natural.width*ratio});
+        const fresh=document.createElement('canvas');fresh.setAttribute('aria-label','Σελίδα τιμολογίου');fresh.width=Math.max(1,Math.round(viewport.width));fresh.height=Math.max(1,Math.round(viewport.height));
+        render=page.render({canvasContext:fresh.getContext('2d'),viewport});await render.promise;if(closed||request!==revision)return;
+        canvas.replaceWith(fresh);canvas=fresh;
+        if(target!==pageNumber){viewportBox.scrollTop=0;viewportBox.scrollLeft=0;}
+        pageNumber=target;container.querySelector('[data-inline-page]').textContent=pageNumber+' / '+pdf.numPages;status.textContent='Έλεγξε το PDF και διόρθωσε τα στοιχεία δίπλα.';prev.disabled=target===1;next.disabled=target===pdf.numPages;zoom.enable();
       }catch(e){if(!closed&&request===revision){status.textContent='Δεν εμφανίστηκε η σελίδα. Δοκίμασε νέα προσπάθεια ή Άνοιγμα PDF.';retry.hidden=false;}}
     }
     async function load(){
-      retry.hidden=true;status.textContent='Φόρτωση προεπισκόπησης…';
+      pdf=null;retry.hidden=true;status.textContent='Φόρτωση προεπισκόπησης…';
       try{
         if(task)await task.destroy().catch(()=>{});if(imageUrl){URL.revokeObjectURL(imageUrl);imageUrl='';}
         const blob=await getBlob();if(closed)return;const bytes=new Uint8Array(await blob.arrayBuffer());if(closed)return;
         const isPdf=bytes.subarray(0,1024).some((value,i,head)=>value===37&&head[i+1]===80&&head[i+2]===68&&head[i+3]===70&&head[i+4]===45);
         if(!isPdf&&(/^image\//.test(blob.type)||bytes[0]===255&&bytes[1]===216||bytes[0]===137&&bytes[1]===80)){
           controls.hidden=canvas.hidden=true;image.hidden=false;imageUrl=URL.createObjectURL(blob);
-          image.onload=()=>{if(!closed)status.textContent='Αρχική φωτογραφία · έλεγξε τα στοιχεία του τιμολογίου.';};image.onerror=()=>{if(!closed){status.textContent='Η εικόνα δεν προβάλλεται σε αυτόν τον browser. Χρησιμοποίησε JPG/PNG ή λήψη αρχείου.';retry.hidden=false;}};image.src=imageUrl;return;
+          image.onload=()=>{if(!closed){status.textContent='Αρχική φωτογραφία · έλεγξε τα στοιχεία του τιμολογίου.';zoom.enable();}};image.onerror=()=>{if(!closed){status.textContent='Η εικόνα δεν προβάλλεται σε αυτόν τον browser. Χρησιμοποίησε JPG/PNG ή λήψη αρχείου.';retry.hidden=false;}};image.src=imageUrl;return;
         }
         image.hidden=true;controls.hidden=canvas.hidden=false;
         if(!isPdf)throw new Error('not_pdf');const module=await pdfModule();if(closed)return;
@@ -46,7 +83,7 @@
       }catch(e){if(!closed){status.textContent=e?.name==='PasswordException'?'Το PDF προστατεύεται με κωδικό. Χρησιμοποίησε Άνοιγμα PDF.':'Η προεπισκόπηση δεν φορτώθηκε. Πάτησε Νέα προσπάθεια ή επίλεξε την αρχική φωτογραφία, αν υπάρχει.';retry.hidden=false;console.warn('Invoice preview failed:',e?.name||'Error');}}
     }
     prev.onclick=()=>show(pageNumber-1);next.onclick=()=>show(pageNumber+1);retry.onclick=load;load();
-    return ()=>{closed=true;revision++;if(imageUrl)URL.revokeObjectURL(imageUrl);if(render)render.cancel();if(task)task.destroy().catch(()=>{});};
+    return ()=>{closed=true;revision++;zoom.destroy();if(imageUrl)URL.revokeObjectURL(imageUrl);if(render)render.cancel();if(task)task.destroy().catch(()=>{});};
   }
   function previewDocument(getBlob,title){const d=dialog(title||'Τιμολόγιο','<div class="ui-pdf-preview ui-source-preview"></div>',true);const stop=inlinePdf(d.querySelector('.ui-source-preview'),getBlob);d.addEventListener('close',stop,{once:true});return d;}
   function showQr(value){
@@ -55,5 +92,5 @@
     const link=d.querySelector('a');try{const url=new URL(text);if(!['http:','https:'].includes(url.protocol))throw new Error();link.href=url.href;}catch(error){link.remove();}
     d.querySelector('[data-copy-qr]').onclick=async()=>{try{await navigator.clipboard.writeText(text);d.querySelector('[data-copy-qr]').textContent='Αντιγράφηκε ✓';}catch(error){box.textContent=text;}};return d;
   }
-  root.FleetServiceUI={inlinePdf,previewDocument,showQr,dialog,mileage,kmDetail,amountInfo,reviewExtras,journal,maintenance,pdfEvidence,pdfQueries,advanced,escape:esc};document.addEventListener('DOMContentLoaded',advanced);
+  root.FleetServiceUI={previewZoom,inlinePdf,previewDocument,showQr,dialog,mileage,kmDetail,amountInfo,reviewExtras,journal,maintenance,pdfEvidence,pdfQueries,advanced,escape:esc};document.addEventListener('DOMContentLoaded',advanced);
 })(globalThis);
