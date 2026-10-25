@@ -12,4 +12,12 @@ Client/Web 5.51.3 · Server 2.2.11 · Worker 5.12.3.
 - Επιλογές PDF, Φωτογραφία και QR στον έλεγχο τιμολογίων και διόρθωση της προεπισκόπησης web.
 - Backup και επαναφορά του PDF μαζί με την αρχική φωτογραφία.
 
-[Πλήρης πηγαίος κώδικας APK](https://github.com/pavlos-argyris/fleet-control/tree/acd8e77fb8535b075e6cb30991dcb4e94eeb0795) · [Οδηγίες και έλεγχοι](https://github.com/pavlos-argyris/fleet-control/blob/acd8e77fb8535b075e6cb30991dcb4e94eeb0795/README_GR.md).
+[Πλήρης πηγαίος κώδικας APK](https://github.com/pavlos-argyris/fleet-control/tree/5ee7b4adedac23077077fa183aa63c297629ca8f) · [Οδηγίες και έλεγχοι](https://github.com/pavlos-argyris/fleet-control/blob/5ee7b4adedac23077077fa183aa63c297629ca8f/README_GR.md).
+
+## Επαλήθευση
+
+- Επιτυχές [CI του πηγαίου κώδικα](https://github.com/pavlos-argyris/fleet-control/actions/runs/40230587321).
+- Προεπισκόπηση PDF, φωτογραφίας και QR σε desktop, 390px, 320px και Client file://, με συνθετικά τιμολόγια και χωρίς σφάλματα browser.
+- Έλεγχοι αποτυχημένων/παλιών QR εργασιών, ασφαλούς επανάληψης, μίας χρέωσης και διατήρησης αρχείων μετά από διακοπή σύνδεσης.
+- Πραγματικός Java έλεγχος ZIP και επαναφοράς PDF και αρχικής φωτογραφίας ως διαφορετικών αρχείων.
+- Μεταγλώττιση και των δύο APK. Δεν έγινε αυτόματη επανεκτέλεση του παραγωγικού QR της ΤΝΗ 921 και δεν λήφθηκε παραγωγικό backup από τον βοηθό.
