@@ -202,7 +202,7 @@ public final class BackupManager {
         if(bikes!=null)for(int i=0;i<bikes.length();i++){
             JSONObject bike=bikes.optJSONObject(i);org.json.JSONArray history=bike==null?null:bike.optJSONArray("history");
             if(history!=null)for(int j=0;j<history.length();j++){
-                JSONObject entry=history.optJSONObject(j);org.json.JSONArray files=entry==null?null:entry.optJSONArray("attachments");
+                JSONObject entry=history.optJSONObject(j);org.json.JSONArray files=ServiceDocumentStore.invoiceFiles(entry==null?null:entry.optJSONArray("attachments"));
                 if(files!=null)for(int k=0;k<files.length();k++){JSONObject f=files.optJSONObject(k);if(f!=null&&f.optString("key","").length()>0)keys.add(f.optString("key"));}
             }
         }

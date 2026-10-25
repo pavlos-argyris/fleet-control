@@ -26,6 +26,11 @@ import java.util.Map;
 public final class ServiceDocumentStore {
     private ServiceDocumentStore() {}
 
+    static JSONArray invoiceFiles(JSONArray invoices) {
+        JSONArray result=new JSONArray();if(invoices==null)return result;
+        for(int i=0;i<invoices.length();i++){JSONObject file=invoices.optJSONObject(i);if(file==null)continue;result.put(file);JSONObject photo=file.optJSONObject("sourcePhoto");if(photo!=null)result.put(photo);}return result;
+    }
+
     public static int syncFromFleet(Context context, JSONObject fleet, String workerUrl, Map<String, String> headers) {
         if (fleet == null) return 0;
         int downloaded = 0;
@@ -38,7 +43,7 @@ public final class ServiceDocumentStore {
             if (history == null) continue;
             for (int j = 0; j < history.length(); j++) {
                 JSONObject entry = history.optJSONObject(j);
-                JSONArray attachments = entry == null ? null : entry.optJSONArray("attachments");
+                JSONArray attachments = invoiceFiles(entry == null ? null : entry.optJSONArray("attachments"));
                 if (attachments == null) continue;
                 for (int k = 0; k < attachments.length(); k++) {
                     JSONObject attachment = attachments.optJSONObject(k);
@@ -102,7 +107,7 @@ public final class ServiceDocumentStore {
             if (history == null) continue;
             for (int j = 0; j < history.length(); j++) {
                 JSONObject entry = history.optJSONObject(j);
-                JSONArray attachments = entry == null ? null : entry.optJSONArray("attachments");
+                JSONArray attachments = invoiceFiles(entry == null ? null : entry.optJSONArray("attachments"));
                 if (attachments == null) continue;
                 for (int k = 0; k < attachments.length(); k++) {
                     JSONObject attachment = attachments.optJSONObject(k);

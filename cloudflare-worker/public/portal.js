@@ -27,6 +27,7 @@
     service_conflict: "Σύγκρουση service", service_due: "Service που πλησιάζει", major_service_due: "Μεγάλο service", payroll_correction: "Διόρθωση μισθοδοσίας",
     correction_request: "Αίτημα διόρθωσης", backup_failed: "Αποτυχία backup", db_problem: "Πρόβλημα βάσης",
     server_offline: "Server offline", server_restart: "Επανεκκίνηση Server",
+    invoice_processing_failed: "Αποτυχία τιμολογίου",
     server_temperature: "Θερμοκρασία Server", server_storage: "Χώρος Server",
     server_battery: "Μπαταρία Server", server_restriction: "Περιορισμός Android"
   };
@@ -3072,6 +3073,7 @@
       const taskHtml = work.length ? '<ul class="invoice-queue-tasks">' + work.map(function (task) { return '<li>' + escapeHtml(task) + '</li>'; }).join("") + '</ul>' : '<span class="invoice-queue-muted">Δεν βρέθηκαν γραμμές εργασιών.</span>';
       const warningHtml = warnings.length ? '<div class="invoice-queue-warnings">' + warnings.map(function (warning) { return '<span>! ' + escapeHtml(warning.message || warning.label || "Χρειάζεται έλεγχος") + '</span>'; }).join("") + '</div>' : '';
       const hasPdf = Boolean(item.key);
+      const fileLabel=String(item.contentType||"").startsWith("image/")?"φωτογραφίας":"PDF";
       const busy = ["processing", "delayed"].includes(String(item.status));
       const reviewLabel = busy ? "Αναμονή PDF" : "Έλεγχος / διόρθωση";
       const serviceMeta = [item.bikeName || "—", item.serviceDate ? formatDate(item.serviceDate + "T12:00:00Z") : "—", item.serviceKm ? km(item.serviceKm) : "Χωρίς χλμ."].join(" • ");
@@ -3083,8 +3085,9 @@
       const retryJobId = item.jobId || data.qrJobId || '';
       const retryHtml = (item.canRestart || retryJobId || (item.key && item.error)) && (item.canRetry || ["error", "delayed"].includes(String(item.status))) ? '<button class="secondary-button invoice-retry-button" type="button" data-invoice-retry="' + escapeHtml(retryJobId) + '" data-invoice-retry-record="' + escapeHtml(item.id) + '">' + (item.status === 'delayed' ? 'Διακοπή &amp; νέα προσπάθεια' : 'Επανάληψη') + '</button>' : '';
       const forceAiHtml = hasPdf && can("fleet.manage") ? '<button class="secondary-button invoice-force-ai-button" type="button" data-invoice-force-ai="' + escapeHtml(item.id) + '" ' + (state.invoiceReprocessBusy ? 'disabled' : '') + '>⚡ Workers AI</button>' : '';
+      const sourceActions=(item.sourcePhoto||String(item.contentType||'').startsWith('image/')?'<button class="secondary-button" type="button" data-invoice-photo="'+escapeHtml(item.id)+'">Φωτογραφία</button>':'')+(item.qrUrl?'<button class="secondary-button" type="button" data-invoice-qr="'+escapeHtml(item.id)+'">QR</button>':'');
       const deleteHtml = can("fleet.manage") ? '<button class="secondary-button invoice-delete-button" type="button" data-invoice-delete="' + escapeHtml(item.id) + '">Διαγραφή</button>' : '';
-      return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? 'PDF διαθέσιμο' : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα PDF</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη PDF</button>' + deleteHtml + '</div></article>';
+      return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? (fileLabel==='PDF'?'PDF διαθέσιμο':'Φωτογραφία διαθέσιμη') : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα ' + fileLabel + '</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη ' + fileLabel + '</button>' + sourceActions + deleteHtml + '</div></article>';
     };
     $("invoiceQueueList").innerHTML = Array.from(grouped.entries()).map(function (pair) { return Object.assign({ key: pair[0] }, pair[1]); }).sort(function (a, b) { return a.label.localeCompare(b.label, "el"); }).map(function (group) {
       group.items.sort(function (left, right) {
@@ -3266,6 +3269,9 @@
   }
 
   async function openInvoiceDocument(record, download) {
+    if(record?.key&&!download&&String(record.contentType||'').startsWith('image/')){
+      window.FleetServiceUI?.previewDocument(()=>fetchInvoiceDocument(record).then(result=>result.blob),'Αρχική φωτογραφία τιμολογίου');return;
+    }
     if (!record || !record.key) return void toast("Το PDF δημιουργείται ακόμη από τον Server.");
     const popup = !download && !(window.AndroidFleet && typeof window.AndroidFleet.openPdf === "function") ? window.open("about:blank", "_blank") : null;
     try {
@@ -3537,8 +3543,14 @@
   let stopInlineInvoicePreview=null,inlinePreviewRecord=null;
   function prepareInlineInvoicePreview(record){
     if(stopInlineInvoicePreview)stopInlineInvoicePreview();stopInlineInvoicePreview=null;inlinePreviewRecord=record;
-    const box=$("uiInvoicePreview");box.classList.remove('ui-preview-open');box.innerHTML='<p>Το PDF εμφανίζεται δίπλα στα πεδία σε μεγάλη οθόνη. Στο κινητό πάτησε «Προεπισκόπηση PDF».</p>';
-    $("uiInvoicePreviewToggle").setAttribute('aria-expanded','false');
+    const photo=record.sourcePhoto||(String(record.contentType||'').startsWith('image/')?record:null),qr=record.qrUrl||record.invoiceData?.qrUrl||'',isPdf=record.contentType==='application/pdf';
+    const bar=$("uiInvoiceSources");bar.innerHTML='<button type="button" class="secondary-button" data-source-pdf>PDF</button><button type="button" class="secondary-button" data-source-photo>Φωτογραφία</button><button type="button" class="secondary-button" data-source-qr>QR</button>';
+    const select=(file,kind)=>{if(stopInlineInvoicePreview)stopInlineInvoicePreview();stopInlineInvoicePreview=null;inlinePreviewRecord=file;bar.querySelectorAll('button').forEach(button=>button.classList.toggle('active',button.hasAttribute('data-source-'+kind)));showInlineInvoicePreview();};
+    bar.querySelector('[data-source-pdf]').disabled=!isPdf;bar.querySelector('[data-source-photo]').disabled=!photo;bar.querySelector('[data-source-qr]').disabled=!qr;
+    bar.querySelector('[data-source-pdf]').onclick=()=>select(record,'pdf');bar.querySelector('[data-source-photo]').onclick=()=>select(photo,'photo');bar.querySelector('[data-source-qr]').onclick=()=>window.FleetServiceUI?.showQr(qr);
+    bar.querySelector(isPdf?'[data-source-pdf]':'[data-source-photo]')?.classList.add('active');
+    const box=$("uiInvoicePreview");box.classList.remove('ui-preview-open');box.innerHTML='<p>Επίλεξε PDF, φωτογραφία ή QR. Στο κινητό μπορείς να ανοίξεις την προεπισκόπηση με το αντίστοιχο κουμπί.</p>';
+    $("uiInvoicePreviewToggle").textContent=isPdf?'Προεπισκόπηση PDF':'Προεπισκόπηση φωτογραφίας';$("uiInvoicePreviewToggle").setAttribute('aria-expanded','false');
     if(window.matchMedia('(min-width:1101px)').matches)showInlineInvoicePreview();
   }
   function showInlineInvoicePreview(){
@@ -4531,6 +4543,8 @@
       if (invoiceView) return void setInvoiceView(invoiceView.dataset.invoiceView);
       const invoiceMode = event.target.closest("[data-invoice-reprocess-mode]");
       if (invoiceMode) return void reprocessAllInvoiceDocuments(invoiceMode.dataset.invoiceReprocessMode,false,$("invoiceForceRead")?.checked);
+      const photoSource=event.target.closest('[data-invoice-photo]');if(photoSource){const record=state.invoiceDocuments.find(item=>String(item.id)===photoSource.dataset.invoicePhoto);if(record)return void openInvoiceDocument(record.sourcePhoto||record,false);}
+      const qrSource=event.target.closest('[data-invoice-qr]');if(qrSource){const record=state.invoiceDocuments.find(item=>String(item.id)===qrSource.dataset.invoiceQr);if(record)return void window.FleetServiceUI?.showQr(record.qrUrl||record.invoiceData?.qrUrl);}
       const invoiceOpen = event.target.closest("[data-invoice-open]");
       if (invoiceOpen) return void openInvoiceDocument(invoiceDocumentById(invoiceOpen.dataset.invoiceOpen), false);
       const invoiceDownload = event.target.closest("[data-invoice-download]");

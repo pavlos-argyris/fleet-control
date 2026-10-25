@@ -239,7 +239,7 @@ public final class FleetDataStore extends SQLiteOpenHelper {
             String key = attachment.optString("key", "");
             for (int j = 0; j < attachments.length(); j++) {
                 JSONObject item = attachments.optJSONObject(j);
-                if (item == null || !key.equals(item.optString("key", ""))) next.put(item);
+                if (item != null && !key.equals(item.optString("key", "")) && !(attachment.optJSONObject("sourcePhoto")!=null && attachment.getJSONObject("sourcePhoto").optString("key").equals(item.optString("key")))) next.put(item);
             }
             next.put(new JSONObject(attachment.toString()));
             while (next.length() > 10) next.remove(0);
@@ -359,6 +359,22 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         JSONArray result=new JSONArray();for(int i=0;i<sorted.size()&&i<200;i++)result.put(sorted.get(i));return result;
     }
 
+    private static JSONArray preservePhotoBundles(JSONArray incoming,JSONArray previous) throws JSONException {
+        JSONArray out=new JSONArray();java.util.Set<String> photoKeys=new java.util.HashSet<String>();
+        if(incoming==null)return out;
+        for(int i=0;i<incoming.length();i++){
+            JSONObject file=incoming.optJSONObject(i);if(file==null)continue;file=new JSONObject(file.toString());
+            if(previous!=null)for(int j=0;j<previous.length();j++){
+                JSONObject old=previous.optJSONObject(j);if(old==null)continue;JSONObject photo=old.optJSONObject("sourcePhoto");
+                if(photo!=null&&photo.optString("key").equals(file.optString("key"))){file=new JSONObject(old.toString());break;}
+                if(old.optString("key").equals(file.optString("key"))&&file.optJSONObject("sourcePhoto")==null&&photo!=null)file.put("sourcePhoto",new JSONObject(photo.toString()));
+            }
+            JSONObject photo=file.optJSONObject("sourcePhoto");if(photo!=null)photoKeys.add(photo.optString("key"));out.put(file);
+        }
+        JSONArray result=new JSONArray();java.util.Set<String> seen=new java.util.HashSet<String>();
+        for(int i=0;i<out.length();i++){JSONObject file=out.getJSONObject(i);String key=file.optString("key");if(!photoKeys.contains(key)&&seen.add(key))result.put(file);}return result;
+    }
+
     private void addHistory(Map<String, JSONObject> map, JSONArray items) {
         if (items == null) return;
         for (int i = 0; i < items.length(); i++) {
@@ -369,6 +385,7 @@ public final class FleetDataStore extends SQLiteOpenHelper {
             JSONObject current = map.get(id);
             if (current == null || historyStamp(item).compareTo(historyStamp(current)) >= 0) {
                 if(current!=null&&item.optString("appointmentId","").length()==0&&current.optString("appointmentId","").length()>0){try{item.put("appointmentId",current.optString("appointmentId",""));}catch(JSONException ignored){}}
+                if(current!=null){try{item.put("attachments",preservePhotoBundles(item.optJSONArray("attachments"),current.optJSONArray("attachments")));}catch(JSONException ignored){}}
                 map.put(id,item);
             }
         }

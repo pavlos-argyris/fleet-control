@@ -19,20 +19,41 @@
     try{const [blob,m]=await Promise.all([getBlob(),pdfModule()]);root.FleetPdfJsUtil=m.Util;if(closed)return;task=m.getDocument({data:new Uint8Array(await blob.arrayBuffer()),isEvalSupported:false,cMapUrl:pdfBase+'cmaps/',cMapPacked:true,standardFontDataUrl:pdfBase+'standard_fonts/',wasmUrl:pdfBase+'wasm/'});doc=await task.promise;if(closed){await task.destroy();return;}let first=1,count=0;for(let n=1;n<=Math.min(doc.numPages,10)&&!closed;n++){const page=await doc.getPage(n),text=await page.getTextContent(),items=text.items.filter(i=>i.str&&queries.some(q=>key(i.str).includes(q)));if(items.length){matches.set(n,items);if(!count)first=n;count+=items.length;}}if(closed)return;status.textContent=count?'Βρέθηκαν '+count+' πιθανές αντιστοιχίες.':'Δεν εντοπίστηκε το πεδίο στο κείμενο. Για σαρωμένα PDF κάνε οπτικό έλεγχο.';await show(first);}catch(e){if(!closed)status.textContent='Δεν άνοιξε η προεπισκόπηση: '+(e.message||'σφάλμα')+'. Χρησιμοποίησε Άνοιγμα PDF.';}}
   // A single lazily loaded page; closing the review cancels loading and rendering.
   function inlinePdf(container,getBlob){
-    let closed=false,task,pdf,render,revision=0,pageNumber=1;
-    container.innerHTML='<div class="ui-pdf-controls"><button type="button" class="secondary-button" data-inline-prev aria-label="Προηγούμενη σελίδα PDF">←</button><span data-inline-page aria-live="polite">PDF</span><button type="button" class="secondary-button" data-inline-next aria-label="Επόμενη σελίδα PDF">→</button></div><p data-inline-status role="status">Φόρτωση προεπισκόπησης…</p><canvas aria-label="Σελίδα τιμολογίου"></canvas><button type="button" class="secondary-button" data-inline-retry hidden>Νέα προσπάθεια</button>';
-    const status=container.querySelector('[data-inline-status]'),prev=container.querySelector('[data-inline-prev]'),next=container.querySelector('[data-inline-next]'),retry=container.querySelector('[data-inline-retry]');prev.disabled=next.disabled=true;
+    let closed=false,task,pdf,render,revision=0,pageNumber=1,imageUrl='';
+    container.innerHTML='<div class="ui-pdf-controls"><button type="button" class="secondary-button" data-inline-prev aria-label="Προηγούμενη σελίδα PDF">←</button><span data-inline-page aria-live="polite">PDF</span><button type="button" class="secondary-button" data-inline-next aria-label="Επόμενη σελίδα PDF">→</button></div><p data-inline-status role="status">Φόρτωση προεπισκόπησης…</p><canvas aria-label="Σελίδα τιμολογίου"></canvas><img class="ui-invoice-photo" alt="Αρχική φωτογραφία τιμολογίου" hidden><button type="button" class="secondary-button" data-inline-retry hidden>Νέα προσπάθεια</button>';
+    const status=container.querySelector('[data-inline-status]'),prev=container.querySelector('[data-inline-prev]'),next=container.querySelector('[data-inline-next]'),retry=container.querySelector('[data-inline-retry]'),image=container.querySelector('img'),canvas=container.querySelector('canvas'),controls=container.querySelector('.ui-pdf-controls');prev.disabled=next.disabled=true;
     async function show(n){
-      if(!pdf||closed)return;const request=++revision;const target=Math.max(1,Math.min(pdf.numPages,n));prev.disabled=next.disabled=true;
+      if(!pdf||closed)return;const request=++revision,target=Math.max(1,Math.min(pdf.numPages,n));prev.disabled=next.disabled=true;
       try{if(render){render.cancel();await render.promise.catch(()=>{});}const page=await pdf.getPage(target);if(closed||request!==revision)return;
-        const width=Math.min(720,Math.max(220,container.clientWidth-28)),ratio=Math.min(1.5,root.devicePixelRatio||1),viewport=page.getViewport({scale:width/page.getViewport({scale:1}).width*ratio});const canvas=container.querySelector('canvas');canvas.width=Math.round(viewport.width);canvas.height=Math.round(viewport.height);
+        const width=Math.min(720,Math.max(220,container.clientWidth-28)),ratio=Math.min(1.5,root.devicePixelRatio||1),viewport=page.getViewport({scale:width/page.getViewport({scale:1}).width*ratio});canvas.width=Math.round(viewport.width);canvas.height=Math.round(viewport.height);
         render=page.render({canvasContext:canvas.getContext('2d'),viewport});await render.promise;if(closed||request!==revision)return;
         pageNumber=target;container.querySelector('[data-inline-page]').textContent=pageNumber+' / '+pdf.numPages;status.textContent='Έλεγξε το PDF και διόρθωσε τα στοιχεία δίπλα.';prev.disabled=target===1;next.disabled=target===pdf.numPages;
-      }catch(e){if(!closed&&request===revision){status.textContent='Δεν εμφανίστηκε η σελίδα. Χρησιμοποίησε Άνοιγμα PDF ή κάνε νέα προσπάθεια.';retry.hidden=false;}}
+      }catch(e){if(!closed&&request===revision){status.textContent='Δεν εμφανίστηκε η σελίδα. Δοκίμασε νέα προσπάθεια ή Άνοιγμα PDF.';retry.hidden=false;}}
     }
-    async function load(){retry.hidden=true;status.textContent='Φόρτωση προεπισκόπησης…';try{if(task)await task.destroy().catch(()=>{});const [blob,module]=await Promise.all([getBlob(),pdfModule()]);if(closed)return;const bytes=new Uint8Array(await blob.arrayBuffer());if(closed)return;task=module.getDocument({data:bytes,isEvalSupported:false,cMapUrl:pdfBase+'cmaps/',cMapPacked:true,standardFontDataUrl:pdfBase+'standard_fonts/',wasmUrl:pdfBase+'wasm/'});pdf=await task.promise;if(closed)return;await show(1);}catch(e){if(!closed){status.textContent='Η προεπισκόπηση δεν φορτώθηκε. Το Άνοιγμα PDF παραμένει διαθέσιμο.';retry.hidden=false;}}}
+    async function load(){
+      retry.hidden=true;status.textContent='Φόρτωση προεπισκόπησης…';
+      try{
+        if(task)await task.destroy().catch(()=>{});if(imageUrl){URL.revokeObjectURL(imageUrl);imageUrl='';}
+        const blob=await getBlob();if(closed)return;const bytes=new Uint8Array(await blob.arrayBuffer());if(closed)return;
+        const isPdf=bytes[0]===37&&bytes[1]===80&&bytes[2]===68&&bytes[3]===70;
+        if(!isPdf&&(/^image\//.test(blob.type)||bytes[0]===255&&bytes[1]===216||bytes[0]===137&&bytes[1]===80)){
+          controls.hidden=canvas.hidden=true;image.hidden=false;imageUrl=URL.createObjectURL(blob);
+          image.onload=()=>{if(!closed)status.textContent='Αρχική φωτογραφία · έλεγξε τα στοιχεία του τιμολογίου.';};image.onerror=()=>{if(!closed){status.textContent='Η εικόνα δεν προβάλλεται σε αυτόν τον browser. Χρησιμοποίησε JPG/PNG ή λήψη αρχείου.';retry.hidden=false;}};image.src=imageUrl;return;
+        }
+        image.hidden=true;controls.hidden=canvas.hidden=false;
+        if(!isPdf)throw new Error('not_pdf');const module=await pdfModule();if(closed)return;
+        task=module.getDocument({data:bytes,isEvalSupported:false,cMapUrl:pdfBase+'cmaps/',cMapPacked:true,standardFontDataUrl:pdfBase+'standard_fonts/',wasmUrl:pdfBase+'wasm/'});pdf=await task.promise;if(closed)return;await show(1);
+      }catch(e){if(!closed){status.textContent=e?.name==='PasswordException'?'Το PDF προστατεύεται με κωδικό. Χρησιμοποίησε Άνοιγμα PDF.':'Η προεπισκόπηση δεν φορτώθηκε. Πάτησε Νέα προσπάθεια ή επίλεξε την αρχική φωτογραφία, αν υπάρχει.';retry.hidden=false;console.warn('Invoice preview failed:',e?.name||'Error');}}
+    }
     prev.onclick=()=>show(pageNumber-1);next.onclick=()=>show(pageNumber+1);retry.onclick=load;load();
-    return ()=>{closed=true;revision++;if(render)render.cancel();if(task)task.destroy().catch(()=>{});};
+    return ()=>{closed=true;revision++;if(imageUrl)URL.revokeObjectURL(imageUrl);if(render)render.cancel();if(task)task.destroy().catch(()=>{});};
   }
-  root.FleetServiceUI={inlinePdf,dialog,mileage,kmDetail,amountInfo,reviewExtras,journal,maintenance,pdfEvidence,pdfQueries,advanced,escape:esc};document.addEventListener('DOMContentLoaded',advanced);
+  function previewDocument(getBlob,title){const d=dialog(title||'Τιμολόγιο','<div class="ui-pdf-preview ui-source-preview"></div>',true);const stop=inlinePdf(d.querySelector('.ui-source-preview'),getBlob);d.addEventListener('close',stop,{once:true});return d;}
+  function showQr(value){
+    const text=String(value||'').trim();if(!text)return;const d=dialog('Αποθηκευμένο QR','<div class="ui-stored-qr"></div><p class="service-action-help">Το QR διατηρείται μαζί με το τιμολόγιο και την αρχική φωτογραφία.</p><a class="secondary-button" target="_blank" rel="noopener noreferrer">Άνοιγμα συνδέσμου QR</a><button type="button" class="secondary-button" data-copy-qr>Αντιγραφή συνδέσμου</button>');
+    const box=d.querySelector('.ui-stored-qr');try{if(typeof root.qrcode==='function'){const code=root.qrcode(0,'M');code.addData(text);code.make();box.innerHTML=code.createSvgTag({scalable:true});}else box.textContent=text;}catch(error){box.textContent=text;}
+    const link=d.querySelector('a');try{const url=new URL(text);if(!['http:','https:'].includes(url.protocol))throw new Error();link.href=url.href;}catch(error){link.remove();}
+    d.querySelector('[data-copy-qr]').onclick=async()=>{try{await navigator.clipboard.writeText(text);d.querySelector('[data-copy-qr]').textContent='Αντιγράφηκε ✓';}catch(error){box.textContent=text;}};return d;
+  }
+  root.FleetServiceUI={inlinePdf,previewDocument,showQr,dialog,mileage,kmDetail,amountInfo,reviewExtras,journal,maintenance,pdfEvidence,pdfQueries,advanced,escape:esc};document.addEventListener('DOMContentLoaded',advanced);
 })(globalThis);

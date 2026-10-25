@@ -17,7 +17,7 @@ const names = ["selectedInvoiceFiles", "invoiceSelectionError", "normalizeQrValu
   "attachInvoiceToEntry", "attachInvoicesToEntry", "invoiceBatchMessage", "mergeBackgroundBike",
   "backgroundHistorySaveMarkup", "enqueueHistoryEntrySave", "runBackgroundHistorySave",
   "handleHistoryEntrySubmit", "handleServiceSubmit", "updateServicePreview",
-  "fleetScreenActive", "hasVisibleQrProcessing", "refreshVisibleQrProgress"];
+  "fleetScreenActive", "qrEntryState", "hasVisibleQrProcessing", "refreshVisibleQrProgress"];
 const shipped = names.map((name) => extract(app, name)).join("\n");
 const noop = () => {};
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -54,7 +54,7 @@ function fixture() {
   elements.historyEntryId.value = "entry-1";
   let counter = 0;
   const ctx = vm.createContext({ URL, console, navigator: { onLine: true }, elements, bikes: [bike()],
-    window: { confirm: () => true, FleetOperationsModel:globalThis.FleetOperationsModel }, MAX_SERVICE_ATTACHMENTS: 10, activeBikeId: "bike",
+    window: { confirm: () => true, FleetOperationsModel:globalThis.FleetOperationsModel, FleetServiceModel:globalThis.FleetServiceModel }, MAX_SERVICE_ATTACHMENTS: 10, activeBikeId: "bike",
     backgroundHistorySaves: new Map(), historyEntrySaveQueue: Promise.resolve(), qrProgressRefreshRunning: false,
     uid: () => "job-" + (++counter), formatKm: String, formatDate: String, parseInvoiceKm: Number,
     escapeHtml: String, invoiceLineText: String, refreshMajorTracking: noop,

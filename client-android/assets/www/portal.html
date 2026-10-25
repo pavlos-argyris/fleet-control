@@ -11,14 +11,14 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.51.2/portal.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/client-ota.css">
-  <script src="./assets/v5.51.2/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.51.2/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/service-followup.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/portal.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/client-ota.css">
+  <script src="./assets/v5.51.3/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.51.3/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/ui-system.css">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -165,7 +165,7 @@
         <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
           <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
             <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
-              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.51.2" title="Fleet Control — διαχείριση στόλου"></iframe>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.51.3" title="Fleet Control — διαχείριση στόλου"></iframe>
           </div>
           <details class="fleet-availability-panel fleet-availability-bottom">
             <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
@@ -308,7 +308,7 @@
   <dialog id="invoiceReviewDialog" class="app-dialog wide-dialog invoice-review-dialog"><form id="invoiceReviewForm" method="dialog" novalidate>
     <div class="dialog-head"><div><span class="overline">ΕΠΙΒΕΒΑΙΩΣΗ OCR</span><h2>Έλεγχος τιμολογίου</h2></div><button type="button" data-close="invoiceReviewDialog">×</button></div>
     <input id="invoiceReviewId" type="hidden"><input id="invoiceReviewBikeId" type="hidden"><input id="invoiceReviewEntryId" type="hidden"><input id="invoiceReviewKey" type="hidden">
-    <button type="button" class="secondary-button ui-preview-toggle" id="uiInvoicePreviewToggle" aria-expanded="false" aria-controls="uiInvoicePreview">Προεπισκόπηση PDF</button><div class="ui-review-layout"><aside id="uiInvoicePreview" class="ui-pdf-preview" aria-label="Προεπισκόπηση τιμολογίου"></aside><div class="ui-review-fields">    <div id="invoiceReviewMeta" class="invoice-review-meta"></div>
+    <div id="uiInvoiceSources" class="ui-document-sources" role="group" aria-label="Αρχεία και QR τιμολογίου"></div><button type="button" class="secondary-button ui-preview-toggle" id="uiInvoicePreviewToggle" aria-expanded="false" aria-controls="uiInvoicePreview">Προεπισκόπηση PDF</button><div class="ui-review-layout"><aside id="uiInvoicePreview" class="ui-pdf-preview" aria-label="Προεπισκόπηση τιμολογίου"></aside><div class="ui-review-fields">    <div id="invoiceReviewMeta" class="invoice-review-meta"></div>
     <div id="invoiceFieldEvidence" class="invoice-field-evidence"></div>
     <div id="invoiceReviewWarnings" class="invoice-review-warnings"></div>
     <div id="invoiceReviewTransfer" class="invoice-review-transfer is-hidden">
@@ -348,23 +348,24 @@
     <div id="uiInvoiceFilterOptions" class="ui-select-options" role="group" aria-label="Διαθέσιμες επιλογές"></div>
     <p id="uiInvoiceFilterEmpty" class="ui-empty" role="status" hidden>Δεν βρέθηκε πινακίδα. Δοκίμασε άλλη αναζήτηση.</p>
   </dialog>
-  <script src="./assets/v5.51.2/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.51.2"></script>
-  <script src="./assets/v5.51.2/service-model.js" defer></script>
-  <script src="./assets/v5.51.2/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.51.2/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.51.2/service-tools.js" defer></script>
-  <script src="./assets/v5.51.2/service-storage.js" defer></script>
-  <script src="./assets/v5.51.2/service-export.js" defer></script>
-  <script src="./assets/v5.51.2/shared-requests.js"></script>
-  <script src="./assets/v5.51.2/live-changes.js"></script>
-  <script src="./assets/v5.51.2/local-view-cache.js"></script>
-  <script src="./assets/v5.51.2/fleet-motion.js"></script>
-  <script src="./assets/v5.51.2/portal.js"></script>
+  <script src="./assets/v5.51.3/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.51.3"></script>
+  <script src="./assets/v5.51.3/service-model.js" defer></script>
+  <script src="./assets/v5.51.3/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.51.3/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.51.3/service-tools.js" defer></script>
+  <script src="./assets/v5.51.3/service-storage.js" defer></script>
+  <script src="./assets/v5.51.3/service-export.js" defer></script>
+  <script src="./assets/v5.51.3/shared-requests.js"></script>
+  <script src="./assets/v5.51.3/live-changes.js"></script>
+  <script src="./assets/v5.51.3/local-view-cache.js"></script>
+  <script src="./assets/v5.51.3/fleet-motion.js"></script>
+  <script src="./assets/v5.51.3/portal.js"></script>
   <script src="./vendor/jsQR.js"></script>
-  <script src="./assets/v5.51.2/invoice-import-ui.js"></script>
-  <script src="./assets/v5.51.2/service-followup.js" defer></script>
-  <script src="./assets/v5.51.2/fleet-operations.js" defer></script>
-  <script src="./assets/v5.51.2/sequential-review.js" defer></script>
+  <script src="./vendor/qrcode-generator.js"></script>
+  <script src="./assets/v5.51.3/invoice-import-ui.js"></script>
+  <script src="./assets/v5.51.3/service-followup.js" defer></script>
+  <script src="./assets/v5.51.3/fleet-operations.js" defer></script>
+  <script src="./assets/v5.51.3/sequential-review.js" defer></script>
 </body>
 </html>

@@ -105,6 +105,14 @@ input[type=checkbox],input[type=radio]{accent-color:var(--teal-dark)}
 .ui-invoice-filterbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0;flex-wrap:wrap}
 .ui-invoice-filterbar select{max-width:100%}
 .ui-select-source{display:none!important}
+.ui-qr-attention{display:grid;gap:6px;width:100%;padding:16px 18px;margin:0 0 14px;text-align:left;border:1px solid #e1c58c;background:#fff7e9;color:#77521f;border-radius:16px;line-height:1.5}
+.ui-qr-attention small{font-size:12px;font-weight:400}
+.ui-document-sources{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}
+.ui-document-sources button{min-width:84px}
+.ui-document-sources button.active{background:var(--mint);border-color:#96c8ba;color:var(--teal-dark)}
+.ui-invoice-photo{display:block;width:100%;height:auto;object-fit:contain;border-radius:12px;background:#fff}
+.ui-stored-qr{max-width:260px;margin:18px auto;overflow-wrap:anywhere}
+.ui-stored-qr svg{display:block;width:100%;height:auto}
 .ui-explain-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px}
 .ui-explain-button strong,.ui-explain-button small{display:block;font:inherit}
 .ui-explain-button small{margin-top:4px;color:var(--muted);font-size:11px;font-weight:400}

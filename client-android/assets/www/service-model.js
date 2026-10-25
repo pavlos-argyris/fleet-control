@@ -28,6 +28,18 @@
     const d=new Date(s+'T12:00:00Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===s?s:'';
   }
   const invoice = f => Object.assign({},f?.qrData||{},f?.ocr||{});
+  function sourcePhoto(value) {
+    if(!value||typeof value!=='object'||!String(value.key||'').startsWith('service-documents/')||String(value.key).includes('..')||!/^image\/(jpeg|png|webp|heic|heif)$/.test(String(value.contentType||'')))return null;
+    return {id:String(value.id||String(value.key).split('/').pop()).slice(0,160),key:String(value.key).slice(0,500),name:String(value.name||'φωτογραφία.jpg').slice(0,120),contentType:String(value.contentType),size:Math.max(0,Math.min(15728640,Number(value.size)||0)),uploadedAt:String(value.uploadedAt||'').slice(0,40)};
+  }
+  function preserveInvoiceFiles(primary,previous) {
+    primary=Array.isArray(primary)?primary.filter(file=>file&&typeof file==='object'):[];previous=Array.isArray(previous)?previous.filter(file=>file&&typeof file==='object'):[];
+    return primary.map(file=>{
+      const same=(previous||[]).find(old=>old.key===file.key),bundle=(previous||[]).find(old=>old.sourcePhoto?.key===file.key);
+      if(bundle)return {...bundle};
+      return {...file,sourcePhoto:sourcePhoto(file.sourcePhoto)||sourcePhoto(same?.sourcePhoto)};
+    }).filter((file,i,all)=>all.findIndex(other=>other.key===file.key)===i&&!all.some(other=>other.sourcePhoto?.key===file.key));
+  }
   function amounts(data) {
     const net=cents(data?.netAmount),vat=cents(data?.vatAmount),gross=cents(data?.totalAmount);
     return {net,vat,gross,mismatch:net!=null&&vat!=null&&gross!=null&&Math.abs(net+vat-gross)>1};
@@ -106,6 +118,27 @@
     }
     return result;
   }
+  function qrDocumentState(entry, now) {
+    const original=entry?.invoiceData||{};
+    if(entry?.type==='check'||(!original.qrUrl&&!original.qrJobId))return null;
+    const data={...original},job=String(data.qrJobId||''),url=String(data.qrUrl||'');
+    const attachment=(entry.attachments||[]).find(file=>file.key&&(
+      (job&&[file.renderJobId,file.ocr?.qrJobId,file.qrData?.qrJobId].some(id=>String(id||'')===job))||
+      (url&&[file.qrUrl,file.qrValue,file.ocr?.qrUrl,file.qrData?.qrUrl].some(value=>String(value||'')===url))));
+    const rawStatus=String(data.qrProcessingStatus||'processing');
+    const needsVerification=rawStatus==='completed'&&!attachment;
+    if(needsVerification){
+      data.qrProcessingStatus='delayed';
+      data.qrProcessingStage='Το PDF δεν έχει συνδεθεί με το service · χρειάζεται έλεγχος';
+      data.qrProcessingError='Η παλιά ένδειξη ολοκλήρωσης δεν επιβεβαιώνεται από συνημμένο PDF.';
+    }else if(rawStatus==='processing'){
+      const last=Date.parse(data.qrProcessingUpdatedAt||data.qrProcessingStartedAt||entry.updatedAt||'');
+      if(Number.isFinite(last)&&(now??Date.now())-last>=90000){data.qrProcessingStatus='delayed';data.qrProcessingStage='Δεν υπάρχει πρόσφατη ενημέρωση από τον Server';}
+    }
+    const status=String(data.qrProcessingStatus||'processing');
+    data.qrProcessingProgress=String(status==='completed'&&attachment?100:Math.max(0,Math.min(95,Number(data.qrProcessingProgress)||5)));
+    return {data,status,attachment,needsVerification,attention:['error','delayed','cancelled'].includes(status),visible:status!=='completed'||!attachment};
+  }
   function pendingInvoice(entry) {
     const data=entry.invoiceData||{};
     return !!data.qrUrl && !['completed','failed','error','cancelled','superseded'].includes(data.qrProcessingStatus||'');
@@ -122,5 +155,5 @@
     }
     return rows.sort((a,b)=>date(b.entry.date).localeCompare(date(a.entry.date))||String(a.bike.name).localeCompare(String(b.bike.name),'el')||String(a.entry.id).localeCompare(String(b.entry.id)));
   }
-  root.FleetServiceModel={cents,euro,date,invoice,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,pendingInvoice,missingInvoices};
+  root.FleetServiceModel={cents,euro,date,invoice,sourcePhoto,preserveInvoiceFiles,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,qrDocumentState,pendingInvoice,missingInvoices};
 })(globalThis);

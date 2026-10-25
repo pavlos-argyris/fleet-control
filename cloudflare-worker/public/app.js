@@ -438,6 +438,7 @@
                 qrValue: String(file.qrValue || file.qrUrl || "").trim().slice(0, 4000),
                 qrUrl: String(file.qrUrl || (String(file.qrValue || "").trim().match(/^https?:\/\//i) ? file.qrValue : "")).trim().slice(0, 2000),
                 renderJobId: String(file.renderJobId || "").trim().slice(0, 120),
+                sourcePhoto: window.FleetServiceModel.sourcePhoto(file.sourcePhoto),
                 ocrError: String(file.ocrError || "").trim().slice(0, 500),
                 reviewSeenAt: normalizedIso(file.reviewSeenAt),
                 ocr: file.ocr && typeof file.ocr === "object" ? file.ocr : null
@@ -526,6 +527,7 @@
       const existing = historyMap.get(entry.id);
       if (!existing) historyMap.set(entry.id,entry);
       else if(historyStamp(entry)>=historyStamp(existing))historyMap.set(entry.id,Object.assign({},entry,{
+        attachments:window.FleetServiceModel.preserveInvoiceFiles(entry.attachments,existing.attachments),
         appointmentId:entry.appointmentId||existing.appointmentId,
         invoiceExpectation:entry.invoiceExpectation||existing.invoiceExpectation,
         kmAcknowledgments:window.FleetServiceModel?window.FleetServiceModel.kmAcknowledgments((existing.kmAcknowledgments||[]).concat(entry.kmAcknowledgments||[]).filter((v,i,a)=>a.map(x=>x.signature).lastIndexOf(v.signature)===i)):[],
@@ -1670,6 +1672,7 @@
   }
 
   function renderHome() {
+    renderQrAttention();
     if (!elements.serviceOrderView.classList.contains("is-hidden")) renderServiceOrder();
     const ordered = sortedBikes();
     const staleChecks = ordered.filter(mileageCheckIsStale);
@@ -2009,7 +2012,7 @@
     const value = data || {};
     const status = String(value.qrProcessingStatus || "processing");
     const rawProgress = Number(value.qrProcessingProgress);
-    const reported = Math.max(5, Math.min(100, Number.isFinite(rawProgress) ? rawProgress : 5));
+    const reported = Math.max(5, Math.min(status === "completed" ? 100 : 95, Number.isFinite(rawProgress) ? rawProgress : 5));
     const started = qrTimestampMs(value.qrProcessingStartedAt);
     const updated = qrTimestampMs(value.qrProcessingUpdatedAt || value.qrProcessingStartedAt);
     const current = Number.isFinite(now) ? now : Date.now();
@@ -2165,18 +2168,56 @@
     }
   }
 
+  function qrEntryState(entry) {
+    return window.FleetServiceModel.qrDocumentState(entry);
+  }
+
+  function qrAttentionRows(fleet) {
+    const rows=[];
+    for(const bike of fleet||[])for(const entry of bike.history||[]){const state=qrEntryState(entry);if(state?.attention)rows.push({bike,entry,state});}
+    return rows;
+  }
+
+  const qrNoticeMemory = new Set();
+  const qrRetries = new Set();
+  function notifyQrFailures(rows) {
+    if(!fleetScreenActive())return;
+    const key='fleet-qr-notices:'+String(currentUser?.id||'local');let saved=[];
+    try{saved=JSON.parse(localStorage.getItem(key)||'[]');}catch(error){}
+    const seen=new Set(Array.isArray(saved)?saved:[]),fresh=[];
+    for(const row of rows){
+      if(row.state.needsVerification)continue;
+      const data=row.state.data,id=[row.bike.id,row.entry.id,data.qrJobId||data.qrUrl,row.state.status,data.qrProcessingStartedAt||'initial'].join('|');
+      if(seen.has(id)||qrNoticeMemory.has(key+id))continue;
+      seen.add(id);qrNoticeMemory.add(key+id);fresh.push(row);
+    }
+    if(!fresh.length)return;
+    try{localStorage.setItem(key,JSON.stringify([...seen].slice(-100)));}catch(error){}
+    const first=fresh[0];
+    showToast(fresh.length>1?fresh.length+' τιμολόγια χρειάζονται έλεγχο. Άνοιξε την προειδοποίηση στο Fleet.':first.bike.name+' · '+formatDate(first.entry.date)+': '+(first.state.data.qrProcessingError||'Η επεξεργασία καθυστερεί. Έλεγξε τον Server ή πάτησε Επανάληψη.'));
+  }
+
+  function renderQrAttention() {
+    const list=document.getElementById('bikeList');if(!list)return;
+    const rows=qrAttentionRows(bikes);let banner=document.getElementById('qrAttentionBanner');
+    if(!banner){banner=document.createElement('button');banner.id='qrAttentionBanner';banner.type='button';banner.className='secondary-action ui-qr-attention';list.before(banner);}
+    banner.hidden=!rows.length;
+    if(rows.length){const first=rows[0];banner.innerHTML='<strong>'+rows.length+' '+(rows.length===1?'τιμολόγιο χρειάζεται έλεγχο':'τιμολόγια χρειάζονται έλεγχο')+'</strong><small>'+escapeHtml(first.bike.name+' · '+formatDate(first.entry.date))+' · Πάτησε για έλεγχο και επανάληψη</small>';banner.onclick=()=>{openDetail(first.bike.id,true);window.FleetUI?.setBikeTab('history');requestAnimationFrame(()=>document.querySelector('[data-history-entry="'+CSS.escape(first.entry.id)+'"]')?.scrollIntoView({block:'center',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}));};}
+    notifyQrFailures(rows);
+  }
+
   function qrProcessingMarkup(entry) {
-    const data = normalizeInvoiceData(entry && entry.invoiceData) || {};
+    const data = qrEntryState(entry)?.data || normalizeInvoiceData(entry && entry.invoiceData) || {};
     const status = String(data.qrProcessingStatus || "processing");
     const progressModel = qrProgressModel(data);
     const progress = progressModel.progress;
     const delayed = status === "delayed";
-    const failed = status === "error";
+    const failed = status === "error" || status === "cancelled";
     const statusClass = failed ? " error" : delayed ? " delayed" : "";
-    const statusLabel = failed ? "Αποτυχία επεξεργασίας" : delayed ? "Καθυστέρηση · ελέγξτε ή επαναλάβετε" : "Το PDF δημιουργείται στον Server";
+    const statusLabel = failed ? "Το τιμολόγιο δεν ολοκληρώθηκε" : delayed ? "Χρειάζεται έλεγχος · διαθέσιμη επανάληψη" : "Το PDF δημιουργείται στον Server";
     const error = data.qrProcessingError ? '<p class="qr-processing-error">' + escapeHtml(data.qrProcessingError) + '</p>' : "";
-    const retry = (failed || delayed) && data.qrJobId && canManageHistory()
-      ? '<button type="button" class="document-retry-button" data-retry-qr="' + escapeHtml(data.qrJobId) + '" data-retry-qr-entry="' + escapeHtml(entry && entry.id || "") + '">Επανάληψη</button>'
+    const retry = (failed || delayed) && canManageHistory()
+      ? '<button type="button" class="document-retry-button" data-retry-qr="' + escapeHtml(data.qrJobId || 'legacy') + '" data-retry-qr-entry="' + escapeHtml(entry && entry.id || "") + '"'+(qrRetries.has(String(entry?.id))?' disabled':'')+'>Επανάληψη</button>'
       : "";
     return '<div class="history-documents"><div class="history-document-row qr-processing-card' + statusClass + '"><div class="qr-processing-main"><div class="qr-progress-ring" style="--progress:' + progress + '" aria-label="' + progress + '%"><canvas class="qr-progress-canvas" data-wiggly-progress data-progress="' + progress + '" data-status="' + escapeHtml(status) + '" width="96" height="96" aria-hidden="true"></canvas><strong>' + progress + '%</strong></div><div><strong>' + statusLabel + '</strong><span>' + escapeHtml(String(data.qrProcessingStage || "Αναμονή από τον Server")) + '</span><small>' + qrElapsedLabel(data) + (progressModel.estimated ? " · εκτίμηση" : "") + '</small>' + error + '</div></div>' + retry + '</div></div>';
   }
@@ -2307,18 +2348,19 @@
             const deleteButton = canManageHistory() && !shiftManaged
               ? '<button type="button" class="document-delete-button" data-delete-document="' + escapeHtml(file.key) + '" data-delete-document-entry="' + escapeHtml(entry.id) + '" aria-label="Διαγραφή τιμολογίου">Διαγραφή</button>'
               : '';
-            return '<div class="history-document-row"><div class="history-document-main">' + viewButton + downloadButton + '</div>' + deleteButton + renderInvoiceOcrDetails(file, entry) + '</div>';
+            const sources=(file.sourcePhoto?'<button type="button" class="document-button" data-view-document="'+escapeHtml(file.sourcePhoto.key)+'">Φωτογραφία</button>':'')+(file.qrUrl?'<button type="button" class="document-button" data-view-qr="'+escapeHtml(file.qrUrl)+'">QR</button>':'');
+            return '<div class="history-document-row"><div class="history-document-main">' + viewButton + downloadButton + sources + '</div>' + deleteButton + renderInvoiceOcrDetails(file, entry) + '</div>';
           }).join("") + '</div>'
         : "";
       const qrData = normalizeInvoiceData(entry && entry.invoiceData) || {};
-      const qrProgress = isService && qrData.qrUrl && (!attachments || ["processing", "delayed", "error"].includes(String(qrData.qrProcessingStatus || "")))
+      const qrProgress = isService && qrEntryState(entry)?.visible
         ? qrProcessingMarkup(entry) : "";
       const historyActions = canManageHistory() && !shiftManaged
         ? '<div class="history-entry-actions"><button type="button" data-edit-history="' + escapeHtml(entry.id) + '" aria-label="Επεξεργασία καταχώρησης">Επεξεργασία</button><button class="danger" type="button" data-delete-history="' + escapeHtml(entry.id) + '" aria-label="Διαγραφή καταχώρησης">Διαγραφή</button></div>'
         : "";
       const backgroundSaveMarkup = backgroundHistorySaveMarkup(bike.id, entry.id);
       return `
-        <article class="history-entry ${isService ? "service" : "check"}">
+        <article class="history-entry ${isService ? "service" : "check"}" data-history-entry="${escapeHtml(entry.id)}">
           <div class="history-icon">${icon}</div>
           <div class="history-content">
             <div class="history-top">
@@ -2343,6 +2385,7 @@
       `;
     }).join("");
     refreshWigglyProgressRings(elements.detailHistory);
+    notifyQrFailures(qrAttentionRows([bike]));
   }
 
   function getHistoryEntry(bike, entryId) {
@@ -2511,19 +2554,19 @@
     }
   }
 
-  async function importQrDocument(bikeId, entryId, value, allowDuplicate) {
+  async function importQrDocument(bikeId, entryId, value, allowDuplicate, sourcePhotoKey) {
     const qrValue = normalizeQrValue(value);
     if (!qrValue) return null;
     try {
       const response = await fetch(apiBase + "/api/service-documents/import-qr", {
         method: "POST",
         headers: requestHeaders(true),
-        body: JSON.stringify({ bikeId: String(bikeId), entryId: String(entryId), value: qrValue, allowDuplicate:allowDuplicate===true }),
+        body: JSON.stringify({ bikeId: String(bikeId), entryId: String(entryId), value: qrValue, allowDuplicate:allowDuplicate===true, sourcePhotoKey:sourcePhotoKey||"" }),
         cache: "no-store"
       });
       const data = await response.json().catch(function () { return {}; });
       if(data.code==="duplicate_invoice"&&!allowDuplicate){
-        if(window.confirm("Το τιμολόγιο υπάρχει ήδη:\n"+(data.matches||[]).map(function(item){return item.bikeName+" · "+item.serviceDate;}).join("\n")+"\nΝα το προσθέσω και σε αυτό το service;"))return importQrDocument(bikeId,entryId,value,true);
+        if(window.confirm("Το τιμολόγιο υπάρχει ήδη:\n"+(data.matches||[]).map(function(item){return item.bikeName+" · "+item.serviceDate;}).join("\n")+"\nΝα το προσθέσω και σε αυτό το service;"))return importQrDocument(bikeId,entryId,value,true,sourcePhotoKey);
         return {ok:false,error:"Το διπλό τιμολόγιο δεν προστέθηκε.",matches:data.matches};
       }
       if (!response.ok) throw new Error(data.error || "Δεν ήταν δυνατή η άντληση του τιμολογίου από το QR.");
@@ -2538,6 +2581,11 @@
     const entry = getHistoryEntry(bike, entryId);
     if (!bike || !entry) return;
     const current = normalizeInvoiceData(entry.invoiceData) || {};
+    // Link a successful result before rendering its completion status. Otherwise
+    // a genuine completed callback briefly looks like a missing-document error.
+    if (state?.status === 'completed' && state.attachment?.key) {
+      entry.attachments=(entry.attachments||[]).filter(file=>file.key!==state.attachment.key&&file.key!==state.attachment.sourcePhoto?.key).concat([state.attachment]);
+    }
     const rawProgress = Number(state && state.progress);
     const storedProgress = Number(current.qrProcessingProgress);
     const safeProgress = Number.isFinite(rawProgress) ? rawProgress : Number.isFinite(storedProgress) ? storedProgress : 5;
@@ -2615,6 +2663,13 @@
     if (!response.ok) throw new Error(data.error || "Η επισύναψη του τιμολογίου απέτυχε.");
     const attachment = data.attachment || null;
     if (!attachment) return null;
+    if(qrValue&&String(attachment.contentType||'').startsWith('image/')){
+      const imported=await importQrDocument(bikeId,entryId,qrValue,false,attachment.key);
+      if(imported?.attachment)return imported.attachment;
+      if(imported?.queued&&imported.jobId){attachment.pendingPdfJobId=imported.jobId;updateQrProcessingLocal(bikeId,entryId,{jobId:imported.jobId,status:'processing',progress:5,stage:'Η φωτογραφία και το QR αποθηκεύτηκαν · δημιουργείται το ηλεκτρονικό PDF',qrUrl:normalizeQrUrl(qrValue)});return attachment;}
+      attachment.pendingPdfError='Η φωτογραφία αποθηκεύτηκε, αλλά το ηλεκτρονικό PDF δεν ξεκίνησε: '+(imported?.error||'Χρειάζεται επανάληψη.');
+      attachment.ocrError=attachment.pendingPdfError;updateQrProcessingLocal(bikeId,entryId,{status:'error',progress:5,stage:'Το PDF δεν ξεκίνησε',error:attachment.pendingPdfError,qrUrl:normalizeQrUrl(qrValue)});
+    }
     if (qrValue) {
       attachment.qrValue = qrValue;
       attachment.qrUrl = normalizeQrUrl(qrValue);
@@ -2715,15 +2770,15 @@
       : await reviewInvoiceAttachment(attachment, latestBike, latestEntry);
     if (reviewData) applyInvoiceReviewToEntry(latestBike, latestEntry, attachment, reviewData);
     latestEntry.invoiceData = normalizeInvoiceData(Object.assign({}, latestEntry.invoiceData || {}, {
-      qrJobId: queuedQrJob || (attachment && attachment.renderJobId) || "",
-      qrProcessingStatus: "completed",
-      qrProcessingProgress: "100",
-      qrProcessingStage: "Ολοκληρώθηκε",
-      qrProcessingError: "",
+      qrJobId: attachment.pendingPdfJobId || queuedQrJob || (attachment && attachment.renderJobId) || "",
+      qrProcessingStatus: attachment.pendingPdfJobId ? "processing" : attachment.pendingPdfError ? "error" : "completed",
+      qrProcessingProgress: attachment.pendingPdfJobId || attachment.pendingPdfError ? "5" : "100",
+      qrProcessingStage: attachment.pendingPdfJobId ? "Η φωτογραφία και το QR αποθηκεύτηκαν · δημιουργείται PDF" : attachment.pendingPdfError ? "Το PDF δεν ξεκίνησε" : "Ολοκληρώθηκε",
+      qrProcessingError: attachment.pendingPdfError || "",
       qrProcessingUpdatedAt: new Date().toISOString()
     }));
     const existingAttachments = Array.isArray(latestEntry.attachments)
-      ? latestEntry.attachments.filter(function (item) { return String(item.key) !== String(attachment.key); })
+      ? latestEntry.attachments.filter(function (item) { return String(item.key) !== String(attachment.key) && String(item.key) !== String(attachment.sourcePhoto?.key || ""); })
       : [];
     latestEntry.attachments = existingAttachments.concat([attachment]);
     latestEntry.updatedAt = new Date().toISOString();
@@ -2763,36 +2818,31 @@
   }
 
   async function retryQrDocumentJob(bikeId, entryId, jobId) {
-    if (!jobId) return;
-    updateQrProcessingLocal(bikeId, entryId, { jobId: jobId, status: "processing", progress: 5, stage: "Επανάληψη · αναμονή Server", error: "" });
+    if(qrRetries.has(String(entryId)))return;
+    const original=getHistoryEntry(getBike(bikeId),entryId);if(!original)return;
+    qrRetries.add(String(entryId));
     try {
-      const response = await fetch(apiBase + "/api/service-documents/jobs/" + encodeURIComponent(jobId) + "/retry", {
-        method: "POST", headers: requestHeaders(true), body: JSON.stringify({}), cache: "no-store"
-      });
-      const data = await response.json().catch(function () { return {}; });
-      if (!response.ok) throw new Error(data.error || "Δεν ήταν δυνατή η επανάληψη του QR.");
-      updateQrProcessingLocal(bikeId, entryId, data);
-      const result = await waitForQrDocumentJob(jobId, bikeId, entryId);
-      if (!result || !result.attachment) {
-        showToast(result && result.status === "error" ? "Η επανάληψη απέτυχε. Δες το σφάλμα στο ιστορικό." : "Η επανάληψη συνεχίζεται στο παρασκήνιο.");
-        return;
-      }
-      const bike = getBike(bikeId);
-      const entry = getHistoryEntry(bike, entryId);
-      if (!bike || !entry) throw new Error("Το service δεν βρέθηκε.");
-      const attachment = result.attachment;
-      ensureAttachmentQr(attachment, attachment.qrValue || attachment.qrUrl);
-      const dataFromAttachment = invoiceDataFromAttachment(attachment);
-      if (dataFromAttachment) applyInvoiceReviewToEntry(bike, entry, attachment, dataFromAttachment);
-      entry.invoiceData = normalizeInvoiceData(Object.assign({}, entry.invoiceData || {}, { qrJobId: jobId, qrProcessingStatus: "completed", qrProcessingProgress: "100", qrProcessingStage: "Ολοκληρώθηκε", qrProcessingError: "", qrProcessingUpdatedAt: new Date().toISOString() }));
-      entry.attachments = (Array.isArray(entry.attachments) ? entry.attachments.filter(function (file) { return String(file.key) !== String(attachment.key); }) : []).concat([attachment]).slice(-10);
-      entry.updatedAt = new Date().toISOString();
-      bike.updatedAt = entry.updatedAt;
-      saveBikes();
-      showToast("Το PDF του τιμολογίου δημιουργήθηκε και προστέθηκε στο service.");
-    } catch (error) {
-      updateQrProcessingLocal(bikeId, entryId, { jobId: jobId, status: "error", progress: 5, stage: "Αποτυχία · χρειάζεται επανάληψη", error: error && error.message ? error.message : "Η επανάληψη απέτυχε." });
-      showToast(error && error.message ? error.message : "Η επανάληψη απέτυχε.");
+      const request=async id=>{
+        const response=await fetch(apiBase+'/api/admin/service-documents/restart',{method:'POST',headers:requestHeaders(true),body:JSON.stringify({jobId:id||'',bikeId,entryId,qrUrl:original.invoiceData?.qrUrl||''}),cache:'no-store'});
+        return {response,data:await response.json().catch(()=>({}))};
+      };
+      let restarted=await request(jobId==='legacy'?'':jobId);
+      // Old applied jobs may have expired from the queue. The stored QR still
+      // allows a fenced new attempt without deleting any existing documents.
+      if(restarted.response.status===404&&original.invoiceData?.qrUrl)restarted=await request('');
+      if(!restarted.response.ok)throw new Error(restarted.data.error||'Δεν ξεκίνησε η νέα προσπάθεια.');
+      const data=restarted.data,nextJob=data.jobId||jobId;
+      if(data.attachment){updateQrProcessingLocal(bikeId,entryId,{...data,jobId:nextJob,status:'completed',progress:100,stage:'Ολοκληρώθηκε'});saveBikes();showToast('Το υπάρχον τιμολόγιο συνδέθηκε με το service.');return;}
+      if(!nextJob||nextJob==='legacy')throw new Error('Δεν δόθηκε αναγνωριστικό νέας προσπάθειας.');
+      updateQrProcessingLocal(bikeId,entryId,{jobId:nextJob,status:'processing',progress:5,stage:'Νέα προσπάθεια · αναμονή Server',startedAt:new Date().toISOString(),error:''});
+      showToast('Η νέα προσπάθεια ξεκίνησε. Τα υπάρχοντα τιμολόγια διατηρούνται.');
+      const result=await waitForQrDocumentJob(nextJob,bikeId,entryId);
+      if(result?.attachment){updateQrProcessingLocal(bikeId,entryId,result);saveBikes();showToast('Το τιμολόγιο ολοκληρώθηκε και προστέθηκε στο service.');}
+    } catch(error) {
+      showToast(error?.message||'Η επανάληψη δεν ξεκίνησε. Δοκίμασε ξανά.');
+    } finally {
+      qrRetries.delete(String(entryId));
+      if(String(activeBikeId)===String(bikeId))renderDetail();
     }
   }
 
@@ -2956,6 +3006,7 @@
       const response = await fetch(apiBase + "/api/service-documents/" + attachment.key.split("/").map(encodeURIComponent).join("/"), { headers: headers, cache: "no-store" });
       if (!response.ok) throw new Error("Το τιμολόγιο δεν είναι διαθέσιμο.");
       const blob = await response.blob();
+      if(String(blob.type).startsWith("image/")){window.FleetServiceUI?.previewDocument(()=>Promise.resolve(blob),"Αρχική φωτογραφία τιμολογίου");return;}
       if (window.AndroidFleet && typeof window.AndroidFleet.openPdf === "function") {
         window.AndroidFleet.openPdf(await blobToBase64(blob), attachment.name || "τιμολόγιο.pdf");
         return;
@@ -4135,6 +4186,7 @@
         enqueueHistoryEntrySave(job);
       }
     });
+    const qrSource=event.target.closest("[data-view-qr]");if(qrSource)return void window.FleetServiceUI?.showQr(qrSource.dataset.viewQr);
     const retryQr = event.target.closest("[data-retry-qr]");
     if (retryQr) return requireEditAccess(function () { retryQrDocumentJob(activeBikeId, retryQr.dataset.retryQrEntry, retryQr.dataset.retryQr); });
     const deleteDocument = event.target.closest("[data-delete-document]");
@@ -4368,17 +4420,18 @@
     const bike = getBike(activeBikeId);
     return Boolean(bike && Array.isArray(bike.history) && bike.history.some(function (entry) {
       const data = normalizeInvoiceData(entry && entry.invoiceData) || {};
-      return entry && entry.type !== "check" && ["processing", "delayed"].includes(String(data.qrProcessingStatus || "")) && data.qrJobId;
+      return entry && entry.type !== "check" && data.qrJobId && (["processing", "delayed"].includes(String(data.qrProcessingStatus || "")) || qrEntryState(entry)?.needsVerification);
     }));
   }
   let qrProgressRefreshRunning = false;
   async function refreshVisibleQrProgress() {
-    if (qrProgressRefreshRunning || window.FleetLive?.connected() || !fleetScreenActive() || !webToken || !activeBikeId || !hasVisibleQrProcessing()) return;
+    if (qrProgressRefreshRunning || !fleetScreenActive() || !webToken || !activeBikeId || !hasVisibleQrProcessing()) return;
     const bike = getBike(activeBikeId);
     const bikeId = bike && bike.id;
     const jobs = (bike && Array.isArray(bike.history) ? bike.history : []).map(function (entry) {
       const data = normalizeInvoiceData(entry && entry.invoiceData) || {};
-      return entry && entry.type !== "check" && ["processing", "delayed"].includes(String(data.qrProcessingStatus || "")) && data.qrJobId
+      const verify=qrEntryState(entry)?.needsVerification;
+      return entry && entry.type !== "check" && data.qrJobId && (verify || (!window.FleetLive?.connected() && ["processing", "delayed"].includes(String(data.qrProcessingStatus || ""))))
         ? { entry: entry, jobId: data.qrJobId } : null;
     }).filter(Boolean);
     if (!jobs.length) return;
@@ -4397,9 +4450,9 @@
           } else {
             updateQrProcessingLocal(bikeId, job.entry.id, {
               jobId: job.jobId,
-              status: "delayed",
+              status: response.status === 404 ? "error" : "delayed",
               progress: 5,
-              stage: "Δεν απαντά ο Server · θα ξαναδοκιμάσει",
+              stage: response.status === 404 ? "Η παλιά εργασία δεν βρέθηκε · πάτησε Επανάληψη" : "Δεν απαντά ο Server · θα ξαναδοκιμάσει",
               error: data.error || "Δεν ήταν δυνατή η ενημέρωση της εργασίας."
             });
           }

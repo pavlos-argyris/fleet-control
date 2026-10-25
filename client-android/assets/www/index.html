@@ -11,14 +11,14 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.51.2/styles.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/client-ota.css">
-  <script src="./assets/v5.51.2/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.51.2/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/service-followup.css">
-  <link rel="stylesheet" href="./assets/v5.51.2/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/styles.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/client-ota.css">
+  <script src="./assets/v5.51.3/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.51.3/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.51.3/ui-system.css">
 </head>
 <body>
   <div class="app-shell">
@@ -135,6 +135,7 @@
             <p>Πρόσθεσε το πρώτο μηχανάκι και όρισε κάθε πόσα χιλιόμετρα κάνει σέρβις.</p>
           </section>
 
+          <button id="qrAttentionBanner" type="button" class="secondary-action ui-qr-attention" hidden></button>
           <section id="bikeList" class="bike-list ui-compact" aria-label="Λίστα μηχανών"></section>
           <div class="fleet-export-footer">
             <div><span class="eyebrow">ΑΝΑΦΟΡΑ ΣΤΟΛΟΥ</span><strong>Εξαγωγή πλήρους ιστορικού</strong><small>Επίλεξε όσα μηχανάκια θέλεις και δημιούργησε ένα ενιαίο PDF.</small></div>
@@ -818,22 +819,22 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./assets/v5.51.2/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.51.2" defer></script>
-  <script src="./vendor/jsQR.js?v=5.51.2" defer></script>
-  <script src="./vendor/qrcode-generator.js?v=5.51.2" defer></script>
-  <script src="./assets/v5.51.2/service-model.js" defer></script>
-  <script src="./assets/v5.51.2/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.51.2/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.51.2/fleet-motion.js" defer></script>
-  <script src="./assets/v5.51.2/service-tools.js" defer></script>
-  <script src="./assets/v5.51.2/service-storage.js" defer></script>
-  <script src="./assets/v5.51.2/service-export.js" defer></script>
-  <script src="./assets/v5.51.2/shared-requests.js" defer></script>
-  <script src="./assets/v5.51.2/live-changes.js" defer></script>
-  <script src="./assets/v5.51.2/local-view-cache.js" defer></script>
-  <script src="./assets/v5.51.2/app.js" defer></script>
-  <script src="./assets/v5.51.2/service-followup.js" defer></script>
-  <script src="./assets/v5.51.2/fleet-operations.js" defer></script>
+  <script src="./assets/v5.51.3/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.51.3" defer></script>
+  <script src="./vendor/jsQR.js?v=5.51.3" defer></script>
+  <script src="./vendor/qrcode-generator.js?v=5.51.3" defer></script>
+  <script src="./assets/v5.51.3/service-model.js" defer></script>
+  <script src="./assets/v5.51.3/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.51.3/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.51.3/fleet-motion.js" defer></script>
+  <script src="./assets/v5.51.3/service-tools.js" defer></script>
+  <script src="./assets/v5.51.3/service-storage.js" defer></script>
+  <script src="./assets/v5.51.3/service-export.js" defer></script>
+  <script src="./assets/v5.51.3/shared-requests.js" defer></script>
+  <script src="./assets/v5.51.3/live-changes.js" defer></script>
+  <script src="./assets/v5.51.3/local-view-cache.js" defer></script>
+  <script src="./assets/v5.51.3/app.js" defer></script>
+  <script src="./assets/v5.51.3/service-followup.js" defer></script>
+  <script src="./assets/v5.51.3/fleet-operations.js" defer></script>
 </body>
 </html>
