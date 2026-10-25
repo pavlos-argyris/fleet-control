@@ -274,9 +274,9 @@ async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
     if (!located || located.entry.type === "check") return { attached: false };
     const { entry, bike } = located;
     const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
-    const duplicate = attachments.some(item => String(item.key) === String(attachment.key) ||
+    const duplicate = attachments.some(item => String(item.key) === String(attachment.key) || item.sourcePhoto?.key===attachment.key ||
       (attachment.renderJobId && String(item.renderJobId) === String(attachment.renderJobId)));
-    if (duplicate) return { attached: true, duplicate: true, version: located.version, attachment: attachments.find(item => String(item.key) === String(attachment.key) || String(item.renderJobId) === String(attachment.renderJobId)) };
+    if (duplicate) return { attached: true, duplicate: true, version: located.version, attachment: attachments.find(item => String(item.key) === String(attachment.key) || item.sourcePhoto?.key===attachment.key || (attachment.renderJobId && String(item.renderJobId) === String(attachment.renderJobId))) };
     if (attachments.length >= MAX_SERVICE_ATTACHMENTS && !attachments.some(file=>file.key===attachment.sourcePhoto?.key)) return { attached: false, status: 409,
       error: "Μπορείς να κρατήσεις έως 10 τιμολόγια σε ένα service. Τα υπάρχοντα αρχεία διατηρούνται." };
     mergeServiceQrMetadata(entry, attachment.qrValue, attachment.qrUrl, attachment.renderJobId ? {
@@ -653,10 +653,10 @@ async function importQrServiceDocument(request, env) {
   const entry = located?.entry;
   if (!entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε. Αποθήκευσε πρώτα το service και ξαναδοκίμασε." }, 404);
   const sourcePhotoKey=cleanText(body.sourcePhotoKey,500);
-  const photo=sourcePhotoKey?(entry.attachments||[]).find(file=>file.key===sourcePhotoKey&&ServiceModel.sourcePhoto(file)):null;
+  const photo=sourcePhotoKey?(entry.attachments||[]).flatMap(file=>[file,file.sourcePhoto]).find(file=>file?.key===sourcePhotoKey&&ServiceModel.sourcePhoto(file)):null;
   if(sourcePhotoKey&&!photo)return json({error:"Η αρχική φωτογραφία δεν βρέθηκε στο service."},404);
   const existing = (entry.attachments || []).find(item => item.contentType==='application/pdf' && String(item.qrUrl || item.qrValue) === qrUrl);
-  if(existing&&photo&&!existing.sourcePhoto){existing.sourcePhoto=ServiceModel.sourcePhoto(photo);entry.attachments=entry.attachments.filter(file=>file.key!==photo.key);entry.updatedAt=new Date().toISOString();const saved=await writeServiceEntry(env,located,entry,'invoice-photo-link',entry.updatedAt);if(!saved)return json({error:"Το service άλλαξε. Δοκίμασε ξανά."},409);}
+  if(existing&&photo&&!existing.sourcePhoto){existing.sourcePhoto=ServiceModel.sourcePhoto(photo);existing.uploadId=existing.uploadId||photo.uploadId||"";entry.attachments=entry.attachments.filter(file=>file.key!==photo.key);entry.updatedAt=new Date().toISOString();const saved=await writeServiceEntry(env,located,entry,'invoice-photo-link',entry.updatedAt);if(!saved)return json({error:"Το service άλλαξε. Δοκίμασε ξανά."},409);}
   if (existing) return json({ ok: true, duplicate: true, documentAvailable: true, attachment: existing, extracted: existing.ocr || null, qrValue, qrUrl, requiresConfirmation: Boolean(existing.ocr) });
   const duplicateMatches=(await invoiceDuplicates(env,{qrUrl})).filter(match=>String(match.bikeId)!==bikeId||String(match.entryId)!==entryId);
   if(duplicateMatches.length&&!body.allowDuplicate)return json({error:"Το τιμολόγιο υπάρχει ήδη σε άλλο service.",code:"duplicate_invoice",matches:duplicateMatches},409);
@@ -3427,6 +3427,7 @@ async function uploadServerRenderedServiceDocument(request, env) {
     qrUrl,
     renderJobId: jobId,
     sourcePhoto: ServiceModel.sourcePhoto(photo),
+    uploadId: cleanText(photo?.uploadId,100),
     ocrError,
     ocr: extracted || null
   };

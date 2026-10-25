@@ -35,7 +35,7 @@
       try{
         if(task)await task.destroy().catch(()=>{});if(imageUrl){URL.revokeObjectURL(imageUrl);imageUrl='';}
         const blob=await getBlob();if(closed)return;const bytes=new Uint8Array(await blob.arrayBuffer());if(closed)return;
-        const isPdf=bytes[0]===37&&bytes[1]===80&&bytes[2]===68&&bytes[3]===70;
+        const isPdf=bytes.subarray(0,1024).some((value,i,head)=>value===37&&head[i+1]===80&&head[i+2]===68&&head[i+3]===70&&head[i+4]===45);
         if(!isPdf&&(/^image\//.test(blob.type)||bytes[0]===255&&bytes[1]===216||bytes[0]===137&&bytes[1]===80)){
           controls.hidden=canvas.hidden=true;image.hidden=false;imageUrl=URL.createObjectURL(blob);
           image.onload=()=>{if(!closed)status.textContent='Αρχική φωτογραφία · έλεγξε τα στοιχεία του τιμολογίου.';};image.onerror=()=>{if(!closed){status.textContent='Η εικόνα δεν προβάλλεται σε αυτόν τον browser. Χρησιμοποίησε JPG/PNG ή λήψη αρχείου.';retry.hidden=false;}};image.src=imageUrl;return;
