@@ -60,6 +60,7 @@ public final class MainActivity extends Activity {
         preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
         executor = Executors.newSingleThreadExecutor();
         setDefaults();
+        OtaManager.resumeAfterRestart(getApplicationContext());
         requestNotificationPermissionIfNeeded();
 
         webView = new WebView(this);

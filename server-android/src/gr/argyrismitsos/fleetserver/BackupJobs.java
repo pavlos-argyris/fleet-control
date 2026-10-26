@@ -94,7 +94,7 @@ public final class BackupJobs {
         synchronized(active){Transfer previous=active.get(original.getString("id"));if(previous!=null&&!previous.finished.get())return previous;}
         JSONObject job=new JSONObject(original.toString());if(job.optString("targetFolder").length()==0){BackupStatus.failure(c,job.getString("id"),"Το τοπικό αντίγραφο είναι έτοιμο. Διάλεξε φάκελο και πάτησε Επανάληψη αποστολής.",false);throw new IOException("Διάλεξε φάκελο backup για την αποστολή του τοπικού αντιγράφου.");}
         if(retry){String next=stamp(c);job.put("fileName","FleetControl_backup_"+next+".fcbackup").put("docsName","FleetControl_documents_"+next+".fcdocs");}
-        BackupStatus.start(c,job.getString("id"),job.optString("kind","manual"));
+        JSONObject live=BackupStatus.get(c);if(!job.getString("id").equals(live.optString("id"))||!"preparing".equals(live.optString("state")))BackupStatus.start(c,job.getString("id"),job.optString("kind","manual"));
         job.put("attempt",UUID.randomUUID().toString()).put("exported",false);save(c,job);Transfer transfer=new Transfer(c,job);synchronized(active){active.put(job.getString("id"),transfer);}
         try{exports.execute(transfer);}catch(RejectedExecutionException e){transfer.cancel("Ο πάροχος φακέλου δεν έχει τερματίσει προηγούμενες αποστολές. Διάλεξε άλλο φάκελο ή επανεκκίνησε τον Server. Το τοπικό αντίγραφο διατηρείται.",false);throw e;}return transfer;
     }
