@@ -118,7 +118,10 @@ public final class OtaManager {
             JSONObject job=BackupJobs.requestForUpdate(c,store,info.getString("releaseId"));
             if(job==null){String error=p.getString("ota_checkpoint_error","");stage(c,error.length()>0?"backup_failed":"backup",error.length()>0?error:"Προετοιμασία τοπικού αντιγράφου πριν την ενημέρωση. Δες το αναλυτικό στάδιο στα Αντίγραφα.");return;}
             if(!job.optBoolean("localReady")){stage(c,"backup","Αναμονή ολοκλήρωσης τοπικού αντιγράφου.");return;}
-            if(!force&&!job.optBoolean("exported")){stage(c,"backup","Το τοπικό αντίγραφο είναι έτοιμο. Αναμονή αποστολής στον φάκελο backup· δες πρόοδο ή επίλεξε Επανάληψη αποστολής / Παύση & ενημέρωση.");return;}
+            if(!force&&!job.optBoolean("exported")){
+                JSONObject progress=BackupStatus.get(c);boolean stopped=job.getString("id").equals(progress.optString("id"))&&("failed".equals(progress.optString("state"))||"paused".equals(progress.optString("state")));
+                stage(c,stopped?"backup_failed":"backup",stopped?"Η αποστολή backup σταμάτησε: "+progress.optString("error")+" Το τοπικό αντίγραφο διατηρείται. Επίλεξε Επανάληψη αποστολής, Παύση & ενημέρωση ή Αναβολή.":"Το τοπικό αντίγραφο είναι έτοιμο. Αναμονή αποστολής στον φάκελο backup· δες πρόοδο ή επίλεξε Επανάληψη αποστολής / Παύση & ενημέρωση.");return;
+            }
             if(!BackupJobs.localReady(c,job))throw new IllegalStateException("Δεν υπάρχει επαληθευμένο τοπικό αντίγραφο.");
             OtaInstaller.validate(c,file(c),info.getInt("versionCode"),info.getString("version"),info.getLong("sizeBytes"),info.getString("sha256"));
             p.edit().putLong("ota_attempt_at",System.currentTimeMillis()).putBoolean("ota_apply_requested",false).putString("ota_backup_name",job.getString("fileName")).putLong("ota_backup_at",System.currentTimeMillis()).commit();
