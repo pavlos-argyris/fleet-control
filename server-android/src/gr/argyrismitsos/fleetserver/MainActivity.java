@@ -182,6 +182,7 @@ public final class MainActivity extends Activity {
         result.put("lastBackupTime", preferences.getString(BackupManager.KEY_LAST_TIME, ""));
         result.put("lastBackupResult", preferences.getString(BackupManager.KEY_LAST_RESULT, "Δεν έχει γίνει ακόμη"));
         result.put("backupMetadata",new JSONObject(preferences.getString(BackupManager.KEY_LAST_METADATA,"{}")));
+        result.put("backupProgress",BackupStatus.get(this));
         result.put("backupVerification",new JSONObject(preferences.getString(BackupManager.KEY_VERIFICATION,"{}")));
         result.put("canVerifyLastBackup",preferences.getString(BackupManager.KEY_LAST_URI,"").length()>0);
         result.put("databaseOk", preferences.getBoolean("database_ok", false));
@@ -229,13 +230,16 @@ public final class MainActivity extends Activity {
         executor.submit(new Runnable() {
             @Override
             public void run() {
+                boolean critical="backup".equals(event)||"backupRestore".equals(event)||"clientUpload".equals(event)||"webUpload".equals(event)||"releaseActivated".equals(event)||"invoiceResume".equals(event);
+                String lane="action:"+event;
+                if(critical&&!ServerWorkTracker.begin(getApplicationContext(),lane,"Ενέργεια Server",event.equals("backup")?"Χειροκίνητο backup":event.equals("backupRestore")?"Επαναφορά δεδομένων":"Αποθήκευση αλλαγών")){emitError(event,"Προετοιμάζεται ενημέρωση. Πάτησε Αναβολή ενημέρωσης πριν ξεκινήσεις νέα εργασία.");return;}
                 try {
                     JSONObject payload = task.run();
                     payload.put("ok", true);
                     emit(event, payload);
                 } catch (Exception error) {
                     emitError(event, error.getMessage());
-                }
+                }finally{if(critical)ServerWorkTracker.finish(lane);}
             }
         });
     }
@@ -413,6 +417,9 @@ public final class MainActivity extends Activity {
             try { if (Build.VERSION.SDK_INT>=26) Context.class.getMethod("startForegroundService",Intent.class).invoke(MainActivity.this,intent); else startService(intent); }
             catch (Exception error) {emitError("server",error.getMessage());}
         }
+        @JavascriptInterface public void pauseAndInstallServerUpdate(){OtaManager.requestForce(getApplicationContext());startAction(SyncService.SYNC_NOW,null);}
+        @JavascriptInterface public void postponeServerUpdate(){OtaManager.cancelWait(getApplicationContext());}
+        @JavascriptInterface public void retryBackupExport(){new Thread(new Runnable(){public void run(){try{BackupJobs.retry(getApplicationContext());}catch(Exception e){emitError("backup",e.getMessage());}}},"fleet-backup-retry").start();}
         @JavascriptInterface public void checkServerUpdate() { OtaManager.check(getApplicationContext(), true); }
         @JavascriptInterface public void setAutomaticOta(boolean enabled) { preferences.edit().putBoolean("automatic_ota", enabled).apply(); }
         @JavascriptInterface public void installServerUpdate() {

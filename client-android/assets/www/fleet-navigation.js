@@ -12,5 +12,9 @@
   const proto=root.HTMLDialogElement?.prototype;
   if(proto){const show=proto.showModal;proto.showModal=function(){const result=show.apply(this,arguments);const index=opened.indexOf(this);if(index>=0)opened.splice(index,1);opened.push(this);if(!this.dataset.fleetBackTracked){this.dataset.fleetBackTracked='1';this.addEventListener('close',cleanup);}ensure();return result;};}
   root.addEventListener('popstate',e=>{if(pending){pending=false;e.stopImmediatePropagation();ensure();return;}if(!guard)return;guard=false;e.stopImmediatePropagation();closeTop();ensure();},true);
-  root.FleetNavigation={back};
+  function afterClose(dialog,callback){
+    const ready=()=>{if(dialog.open)return;if(pending||queued){root.setTimeout(ready,16);return;}callback();};
+    if(dialog.open)dialog.addEventListener('close',()=>queueMicrotask(ready),{once:true});else queueMicrotask(ready);
+  }
+  root.FleetNavigation={back,afterClose};
 })(window);

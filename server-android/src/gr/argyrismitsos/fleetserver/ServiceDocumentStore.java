@@ -31,7 +31,9 @@ public final class ServiceDocumentStore {
         for(int i=0;i<invoices.length();i++){JSONObject file=invoices.optJSONObject(i);if(file==null)continue;result.put(file);JSONObject photo=file.optJSONObject("sourcePhoto");if(photo!=null)result.put(photo);}return result;
     }
 
-    public static int syncFromFleet(Context context, JSONObject fleet, String workerUrl, Map<String, String> headers) {
+    public interface SyncControl {boolean pause();void stage(String name,int done);}
+    public static int syncFromFleet(Context context,JSONObject fleet,String workerUrl,Map<String,String> headers){return syncFromFleet(context,fleet,workerUrl,headers,null);}
+    public static int syncFromFleet(Context context, JSONObject fleet, String workerUrl, Map<String, String> headers,SyncControl control) {
         if (fleet == null) return 0;
         int downloaded = 0;
         JSONArray bikes = fleet.optJSONArray("bikes");
@@ -46,11 +48,13 @@ public final class ServiceDocumentStore {
                 JSONArray attachments = invoiceFiles(entry == null ? null : entry.optJSONArray("attachments"));
                 if (attachments == null) continue;
                 for (int k = 0; k < attachments.length(); k++) {
+                    if(Thread.currentThread().isInterrupted()||(control!=null&&control.pause()))return downloaded;
                     JSONObject attachment = attachments.optJSONObject(k);
                     String key = attachment == null ? "" : attachment.optString("key", "");
                     if (key.length() == 0 || !key.startsWith("service-documents/")) continue;
                     File local = new File(root, sha256(key) + extension(attachment.optString("name", "")));
                     if (local.exists() && local.length() > 0) continue;
+                    if(control!=null)control.stage(attachment.optString("name","τιμολόγιο"),downloaded);
                     try {
                         FleetHttp.downloadToFile(workerUrl + "/api/service-documents/" + encodePath(key), local, headers);
                         downloaded++;
@@ -166,14 +170,18 @@ public final class ServiceDocumentStore {
     }
 
     public static JSONObject restoreArchive(Context context, JSONObject fleet, byte[] archive) throws Exception {
+        if(archive==null||archive.length==0)return new JSONObject().put("available",false).put("expected",0).put("restored",0).put("documents",new JSONArray());
+        return restoreArchive(context,fleet,new java.io.ByteArrayInputStream(archive));
+    }
+    public static JSONObject restoreArchive(Context context, JSONObject fleet, InputStream archive) throws Exception {
         JSONObject result = new JSONObject();
         JSONArray documents = new JSONArray();
-        if (archive == null || archive.length == 0) return result.put("available", false).put("expected", 0).put("restored", 0).put("documents", documents);
+        if (archive == null) return result.put("available", false).put("expected", 0).put("restored", 0).put("documents", documents);
         File root = new File(context.getFilesDir(), "service-documents");
         if (!root.exists() && !root.mkdirs()) throw new IOException("Δεν δημιουργήθηκε ο φάκελος τιμολογίων.");
         Map<String, JSONObject> manifestByZipName = new HashMap<String, JSONObject>();
         Map<String, File> restoredFiles = new HashMap<String, File>();
-        ZipInputStream zip = new ZipInputStream(new java.io.ByteArrayInputStream(archive));
+        ZipInputStream zip = new ZipInputStream(archive);
         try {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {

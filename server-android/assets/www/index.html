@@ -143,6 +143,13 @@
           <div class="status-row"><span class="row-copy"><strong>Τελευταία επιτυχής αποθήκευση backup</strong><small id="lastBackup">Δεν έχει γίνει ακόμη</small></span></div>
           <div class="status-row"><span class="row-copy"><strong>Διατήρηση</strong><small id="retentionLabel">Τα τελευταία 30 αντίγραφα</small></span></div>
         </div>
+        <article id="backupProgressCard" class="backup-progress-card" aria-live="polite" hidden>
+          <div class="backup-progress-head"><div><span class="overline dark">ΠΡΟΟΔΟΣ ΑΝΤΙΓΡΑΦΟΥ</span><h3 id="backupProgressStage">Προετοιμασία</h3></div><strong id="backupProgressPercent">0%</strong></div>
+          <div id="backupLiveBar" class="ota-progress" role="progressbar" aria-label="Πρόοδος backup" aria-valuemin="0" aria-valuemax="100"><span id="backupLiveFill"></span></div>
+          <p id="backupProgressDetail"></p><p id="backupProgressTiming"></p><p id="backupProgressSafety"></p><p id="backupProgressError" class="backup-health-warning" role="status"></p>
+          <div class="dialog-buttons"><button id="retryBackupExport" class="secondary-action" type="button" hidden>Επανάληψη αποστολής</button></div>
+          <small>Το ποσοστό αφορά τα στάδια προετοιμασίας και εγγραφής, όχι εκτίμηση του χρόνου που απομένει. Το 100% εμφανίζεται αφού ολοκληρωθεί η εγγραφή και των δύο αρχείων.</small>
+        </article>
         <button id="backupNow" class="primary-action" type="button">Δημιουργία backup τώρα</button>
         <div class="backup-health-card"><strong>Έλεγχος αντιγράφου ασφαλείας</strong><p id="backupContents">Τα στοιχεία περιεχομένου θα εμφανιστούν μετά το επόμενο backup.</p><p id="backupVerificationStatus" role="status">Δεν έχει γίνει έλεγχος αναγνωσιμότητας.</p><div class="dialog-buttons"><button id="verifyLastBackup" class="secondary-action" type="button">Έλεγχος τελευταίου backup</button><button id="verifyBackupFile" class="secondary-action" type="button">Έλεγχος άλλου αρχείου</button></div><small>Διαβάζει και ελέγχει τα δεδομένα και τα συνοδευτικά PDF, χωρίς επαναφορά. Το .fcdocs πρέπει να είναι στον επιλεγμένο φάκελο backup. Συνυπολογίζονται και τα διαθέσιμα τοπικά PDF των service στον κάδο.</small></div>
         <button id="restoreBackup" class="secondary-action full-action" type="button">Επαναφορά από αρχείο backup</button>
@@ -155,12 +162,15 @@
         </div>
         <article id="otaCard" class="ota-card" aria-live="polite">
           <div class="ota-card-head"><span class="ota-icon" aria-hidden="true">↻</span><div><span class="overline dark">ΕΝΗΜΕΡΩΣΗ SERVER</span><h3 id="otaVersion">Έλεγχος έκδοσης</h3></div><span class="ota-live-badge">OTA</span></div>
-          <p id="otaStatus">Αυτόματος έλεγχος κάθε ώρα. Πριν την εγκατάσταση δημιουργείται πλήρες backup.</p>
+          <p id="otaStatus">Αυτόματος έλεγχος κάθε ώρα. Πριν την εγκατάσταση ελέγχονται τα δεδομένα και τα διαθέσιμα τοπικά τιμολόγια.</p>
           <ol class="ota-steps"><li data-ota-step="0"><b>1</b><span>Έλεγχος</span></li><li data-ota-step="1"><b>2</b><span>Λήψη</span></li><li data-ota-step="2"><b>3</b><span>Αντίγραφα</span></li><li data-ota-step="3"><b>4</b><span>Εγκατάσταση</span></li></ol>
           <div id="otaProgress" class="ota-progress" role="progressbar" aria-label="Πρόοδος ενημέρωσης" aria-valuemin="0" aria-valuemax="100" hidden><span id="otaProgressBar"></span></div><small id="otaProgressLabel" class="ota-progress-label"></small>
           <div id="otaNotes"></div><p id="otaBackup" class="ota-backup"></p>
+          <section id="otaWaitDetails" class="ota-wait-details" hidden><strong>Τι περιμένει η ενημέρωση</strong><div id="otaBlockers"></div><p id="otaCheckpointDetail"></p></section>
           <label class="ota-auto"><input id="automaticOta" type="checkbox"> Αυτόματη λήψη και εγκατάσταση</label>
           <div class="ota-actions"><button id="checkServerUpdate" class="secondary-action" type="button">Έλεγχος τώρα</button><button id="installServerUpdate" class="primary-action" type="button">Εγκατάσταση ενημέρωσης</button></div>
+          <div class="ota-actions"><button id="pauseAndInstallUpdate" class="secondary-action" type="button" hidden>Παύση &amp; ενημέρωση</button><button id="postponeUpdate" class="secondary-action" type="button" hidden>Αναβολή ενημέρωσης</button><button id="otaRetryBackup" class="secondary-action" type="button" hidden>Επανάληψη αποστολής backup</button></div>
+          <small class="ota-force-help">Η παύση περιμένει ασφαλές σημείο και επαληθευμένο τοπικό backup. Οι εκκρεμείς εργασίες συνεχίζονται όταν ξεκινήσει η νέα έκδοση.</small>
         </article>
         <p class="action-message">Client και Web δημοσιεύονται αυτόματα από το συνδεδεμένο έργο. Οι παρακάτω επιλογές παραμένουν διαθέσιμες για χειροκίνητη μεταφόρτωση.</p>
         <article class="update-box">
@@ -238,6 +248,12 @@
   <script src="./scroll-stability.js"></script>
   <script src="./fleet-navigation.js"></script>
   <script src="./fleet-motion.js"></script>
+  <dialog id="forceUpdateDialog" class="backup-restore-preview">
+    <div class="dialog-head"><h2>Παύση εργασιών &amp; ενημέρωση</h2></div>
+    <p>Ο Server θα σταματήσει να αναλαμβάνει νέες εργασίες, θα περιμένει ασφαλές σημείο και θα δημιουργήσει νέο τοπικό αντίγραφο. Δεν παρακάμπτεται η αποθήκευση δεδομένων ή ο έλεγχος του APK.</p>
+    <p>Αν καθυστερεί ο φάκελος backup, η αποστολή παύει και θα επαναληφθεί μετά την ενημέρωση. Το τοπικό αντίγραφο διατηρείται μέσα στην εφαρμογή: <strong>χάνεται με απεγκατάσταση, εκκαθάριση δεδομένων ή απώλεια συσκευής.</strong></p>
+    <p id="forceUpdateContents"></p><div class="dialog-buttons"><button type="button" class="secondary-action" data-close="forceUpdateDialog">Άκυρο</button><button id="confirmForceUpdate" type="button" class="primary-action inline">Παύση &amp; ενημέρωση</button></div>
+  </dialog>
   <script src="./app.js"></script>
   <script src="./server-diagnostics.js"></script>
 </body>
