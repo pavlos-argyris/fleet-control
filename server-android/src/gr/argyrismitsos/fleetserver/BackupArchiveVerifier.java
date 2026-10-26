@@ -3,6 +3,9 @@ package gr.argyrismitsos.fleetserver;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -23,9 +26,11 @@ public final class BackupArchiveVerifier {
     }
     public static String digest(byte[] bytes)throws Exception {return hex(MessageDigest.getInstance("SHA-256").digest(bytes));}
     public static boolean matches(Item item,long size,String sha){return item!=null&&item.size==size&&(sha==null||sha.length()==0||sha.equals(item.sha256));}
-    public static Map<String,Item> inspect(byte[] bytes)throws Exception {
+    public static Map<String,Item> inspect(byte[] bytes)throws Exception { return inspect(new ByteArrayInputStream(bytes)); }
+    public static String digest(File file)throws Exception {MessageDigest hash=MessageDigest.getInstance("SHA-256");InputStream in=new FileInputStream(file);try{byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)hash.update(b,0,n);}finally{in.close();}return hex(hash.digest());}
+    public static Map<String,Item> inspect(InputStream stream)throws Exception {
         Map<String,Item> items=new LinkedHashMap<String,Item>();long total=0;
-        ZipInputStream zip=new ZipInputStream(new ByteArrayInputStream(bytes));
+        ZipInputStream zip=new ZipInputStream(stream);
         try {
             ZipEntry entry;
             while((entry=zip.getNextEntry())!=null){

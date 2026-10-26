@@ -493,7 +493,18 @@
   }
 
   function persistBikes() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(bikes));
+    const payload=JSON.stringify(bikes);
+    try { localStorage.setItem(STORAGE_KEY,payload); }
+    catch(error){
+      // Evict only reproducible read caches. Never delete fleet data, outbox,
+      // credentials, drafts or uploaded files to make a write appear successful.
+      if(!['QuotaExceededError','NS_ERROR_DOM_QUOTA_REACHED'].includes(error?.name)&&Number(error?.code)!==22)throw error;
+      const disposable=[];
+      for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith('fleet-view-cache-v1:')||key?.startsWith('fleet-shared-read-v1:'))disposable.push(key);}
+      disposable.forEach(key=>localStorage.removeItem(key));
+      try { localStorage.setItem(STORAGE_KEY,payload); }
+      catch(second){throw new Error('Δεν χώρεσε η καταχώρηση στην τοπική αποθήκευση. Τα προηγούμενα δεδομένα διατηρήθηκαν. Μην κάνεις εκκαθάριση δεδομένων της εφαρμογής.');}
+    }
   }
 
   function persistDirtyBikes() {
@@ -3231,6 +3242,7 @@
   }
 
   function updateMileage(bike, km, date) {
+    const previous=Object.assign({},bike,{history:(bike.history||[]).slice()});
     const now = new Date().toISOString();
     bike.currentKm = Math.max(Number(bike.currentKm) || 0, km);
     bike.lastCheckedAt = date;
@@ -3251,7 +3263,7 @@
       updatedAt: now
     });
     refreshMajorTracking(bike);
-    saveBikes();
+    try {saveBikes();}catch(error){Object.assign(bike,previous);throw error;}
     const status = getStatus(bike);
     status.majorPlan = getMajorServicePlan(bike);
     return status;
@@ -3263,8 +3275,9 @@
       : "";
     elements.quickCheckResult.className = "check-result " + status.key;
     elements.quickCheckResult.innerHTML =
-      "<div><strong>" + escapeHtml(bike.name) + " — " + escapeHtml(status.label) +
-      "</strong><span>" + escapeHtml(status.message) + "</span>" + majorCopy + "</div>";
+      "<div><strong>✓ Ο έλεγχος αποθηκεύτηκε · " + escapeHtml(bike.name) +
+      "</strong><span>Τωρινή ένδειξη: " + escapeHtml(formatKm(bike.currentKm)) + " · Επόμενο service: " + escapeHtml(formatKm(bike.nextServiceKm)) +
+      "</span><strong>" + escapeHtml(status.short) + "</strong><span>" + escapeHtml(status.message) + "</span>" + majorCopy + "</div>";
   }
 
   function handleQuickCheck(event) {
@@ -3290,11 +3303,15 @@
       return;
     }
 
-    const status = updateMileage(bike, km, today());
+    let status;
+    try {status=updateMileage(bike,km,today());}
+    catch(error){elements.quickCheckError.textContent='Ο έλεγχος δεν αποθηκεύτηκε: '+(error.message||'Δοκίμασε ξανά.');showToast(elements.quickCheckError.textContent);return;}
     renderHome();
+    if(activeBikeId===bike.id)renderDetail();
     elements.quickBikeSelect.value = bike.id;
     elements.quickCurrentKm.value = bike.currentKm;
     showCheckResult(bike, status);
+    elements.quickCheckResult.scrollIntoView?.({block:'nearest',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
     showToast(status.key === "ok" ? "Ο έλεγχος αποθηκεύτηκε." : bike.name + ": " + status.message);
     if ((status.key !== "ok" || majorNeedsAttention(bike)) && window.AndroidFleet && typeof window.AndroidFleet.notifyService === "function") {
       const notificationMessage = majorNeedsAttention(bike)
@@ -3681,7 +3698,7 @@
       !window.confirm("Η ημερομηνία είναι παλαιότερη από το τελευταίο service αλλά αλλάζει τα τρέχοντα χιλιόμετρα ή τον κύκλο λαδιών.\nΤρέχοντα: "+formatKm(bike.currentKm)+" → "+formatKm(Math.max(bike.currentKm,serviceKm))+"\nΕπόμενα λάδια: "+formatKm(bike.nextServiceKm)+" → "+formatKm(oilChanged&&serviceKm>=bike.lastServiceKm?serviceKm+bike.intervalKm:bike.nextServiceKm)+"\nΝα συνεχίσω;"))return;
     }
     const now = new Date().toISOString();
-    const previousBikeState = { lastServiceKm:bike.lastServiceKm,nextServiceKm:bike.nextServiceKm,currentKm:bike.currentKm,updatedAt:bike.updatedAt };
+    const previousBikeState = JSON.parse(JSON.stringify(bike));
     const startsOilCycle = oilChanged && serviceKm >= Number(bike.lastServiceKm || 0);
     if (startsOilCycle) {
       bike.lastServiceKm = serviceKm;
@@ -3718,12 +3735,20 @@
     bike.nextServiceNotes=window.FleetOperationsModel.changeNextServiceNotes(bike.nextServiceNotes,{text:nextNotesText,completedIds:completedNotes,sourceEntryId:entryId,completedEntryId:entryId,now,uid});
     bike.history.unshift(newEntry);
     refreshMajorTracking(bike);
-    saveBikes();
+    try {saveBikes();}catch(error){
+      Object.assign(bike,previousBikeState);
+      if(hasInvoice&&typeof serviceStorageScope==='function'&&window.FleetServiceStorage){try{await window.FleetServiceStorage.remove(serviceStorageScope(),'outbox',entryId);}catch(ignored){}}
+      elements.serviceFormError.textContent='Το service δεν αποθηκεύτηκε: '+(error.message||'Δοκίμασε ξανά.');showToast(elements.serviceFormError.textContent);return;
+    }
     renderHome();
     if (activeBikeId === bike.id) renderDetail();
+    const saveNext=Boolean(event.submitter&&event.submitter.dataset.saveNext!==undefined);
+    const completed=()=>{if(!saveNext&&typeof openDetail==='function'){const changed=history.state?.view!=='detail'||String(history.state.bikeId)!==String(bike.id);openDetail(bike.id,changed);window.FleetUI?.setBikeTab('summary');showToast('✓ Το service αποθηκεύτηκε · '+bike.name);}};
+    if(!saveNext&&window.FleetNavigation?.afterClose)window.FleetNavigation.afterClose(elements.serviceDialog,completed);
+    else if(!saveNext&&elements.serviceDialog.addEventListener)elements.serviceDialog.addEventListener('close',completed,{once:true});
     elements.serviceDialog.close();
     if (typeof clearServiceDraft === "function") clearServiceDraft(bike.id);
-    if (event.submitter && event.submitter.dataset.saveNext !== undefined) openServiceDialog(bike);
+    if(saveNext)openServiceDialog(bike);
     if (hasInvoice && typeof processServiceOutbox === "function" && window.indexedDB) {
       processServiceOutbox(); showToast("Το service αποθηκεύτηκε. Τα τιμολόγια παραμένουν στην ουρά μέχρι να ολοκληρωθούν."); return;
     }

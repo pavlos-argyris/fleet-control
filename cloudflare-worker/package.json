@@ -1,6 +1,6 @@
 {
   "name": "fleet-control-cloudflare",
-  "version": "5.12.4",
+  "version": "5.12.5",
   "type": "module",
   "private": true,
   "scripts": {

@@ -17,7 +17,7 @@ const bridge = { getDashboard: () => JSON.stringify(data), saveSettings: raw => 
   saved = JSON.parse(raw); if (!saveOk) return JSON.stringify({ ok: false, message: 'error' });
   data = { ...data, ...saved }; return JSON.stringify({ ...data, ok: true });
 }, loadReleases() {}, checkServerUpdate() {}, verifyLastBackup(){backupChecks++;}, chooseBackupVerification(){selectedChecks++;} };
-let backupChecks=0,selectedChecks=0;
+let backupChecks=0,selectedChecks=0,forced=0,retried=0,postponed=0;Object.assign(bridge,{pauseAndInstallServerUpdate(){forced++;},retryBackupExport(){retried++;},postponeServerUpdate(){postponed++;}});
 let tick;
 const context = vm.createContext({ console, window: { AndroidServer: bridge, scrollTo() {} },
   document: { getElementById: element, querySelectorAll: () => [] }, setInterval: fn => { tick = fn; }, setTimeout: () => 1, clearTimeout() {} });
@@ -52,5 +52,9 @@ assert.match(element('backupContents').textContent,/3 \/ 5/);assert.match(elemen
 element('verifyLastBackup').listeners.click();assert.equal(backupChecks,1);assert.match(element('backupMessage').textContent,/Δεν γίνεται επαναφορά/);
 element('verifyBackupFile').listeners.click();assert.equal(selectedChecks,1);assert.match(element('backupMessage').textContent,/χωρίς επαναφορά/);
 context.window.FleetServer.onNativeEvent('backupVerification',{ok:true,message:'Το backup διαβάζεται.',bikes:2,historyEntries:5,records:10,documentsMessage:'Ελέγχθηκαν CRC και SHA.'});assert.match(element('backupMessage').textContent,/CRC και SHA/);
+data.backupProgress={id:'job',state:'exporting',stage:'Εγγραφή στον φάκελο',percent:99,localReady:true,expectedDocuments:3,includedDocuments:2,missingDocuments:1,elapsedSeconds:90,stageSeconds:60,idleSeconds:45};data.ota={stage:'backup',ready:{version:'2.2.13'},backupProgress:data.backupProgress,blockers:[{title:'Αντίγραφο',detail:'<script>test</script>',elapsedSeconds:120,stageSeconds:90}]};tick();
+assert.equal(element('backupProgressPercent').textContent,'99%');assert.equal(element('backupNow').disabled,true);assert.match(element('backupProgressSafety').textContent,/Λείπουν 1/);assert.match(element('backupProgressTiming').textContent,/90 δευτ/);assert.match(element('otaBlockers').innerHTML,/&lt;script&gt;/);assert.equal(element('otaProgress').attrs['aria-valuenow'],'99');
+data.backupProgress.state='failed';data.backupProgress.error='Provider timeout';tick();assert.equal(element('retryBackupExport').hidden,false);assert.match(element('backupProgressError').textContent,/Provider timeout/);element('retryBackupExport').listeners.click();assert.equal(retried,1);element('pauseAndInstallUpdate').listeners.click();assert.equal(forced,0);assert.match(element('forceUpdateContents').textContent,/Λείπουν 1/);element('confirmForceUpdate').listeners.click();assert.equal(forced,1);element('postponeUpdate').listeners.click();assert.equal(postponed,1);
+data.backupProgress.state='completed';data.backupProgress.percent=100;tick();assert.equal(element('backupProgressPercent').textContent,'100%');assert.equal(element('retryBackupExport').hidden,true);
 for (const id of nodes.keys()) assert.ok(html.includes('id="' + id + '"'), 'Missing HTML element: ' + id);
 console.log('OK actual Server UI: draft settings survive 1-second polling/focus/native events, save success/failure, escaped bullet notes, download progress, truthful indeterminate backup and Android confirmation.');

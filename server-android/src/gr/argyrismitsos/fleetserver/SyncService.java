@@ -51,6 +51,7 @@ public final class SyncService extends Service {
     private final java.util.concurrent.atomic.AtomicBoolean mirrorRunning = new java.util.concurrent.atomic.AtomicBoolean();
     private volatile java.util.concurrent.atomic.AtomicBoolean activeCancellation;
     private volatile String activeJobId = "";
+    private volatile boolean activePausedForUpdate;
     public static final String SYNC_NOW="fleet.sync.now", RETRY_INVOICE="fleet.invoice.retry", MIRROR_NOW="fleet.mirror.now";
 
     private FleetDataStore store;
@@ -60,6 +61,7 @@ public final class SyncService extends Service {
     public void onCreate() {
         super.onCreate();
         store = new FleetDataStore(getApplicationContext());
+        OtaManager.resumeAfterRestart(getApplicationContext());
         workQueue=new LocalWorkQueue(new LocalWorkQueue.Storage(){
             public JSONObject read(){return store.getLocalWorkState();}
             public void write(JSONObject value){store.setLocalWorkState(value);}
@@ -144,8 +146,9 @@ public final class SyncService extends Service {
         SharedPreferences preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
         // Use the completed previous cycle as a safe checkpoint. Do not wait
         // for the user-configured mirror interval to apply a downloaded update.
-        if (!invoiceRunning.get() && !mirrorRunning.get()) OtaManager.maybeApply(getApplicationContext(), store);
-        if (OtaManager.installationInProgress(getApplicationContext())) return;
+        if(OtaManager.forceRequested(this)&&activeCancellation!=null){activePausedForUpdate=true;activeCancellation.set(true);}
+        OtaManager.maybeApply(getApplicationContext(),store);
+        if (OtaManager.shouldYieldForUpdate(getApplicationContext())||OtaManager.installationPending(getApplicationContext())) return;
         OtaManager.check(getApplicationContext(), false);
         long lastAttempt = preferences.getLong("last_sync_attempt_ms", 0);
         boolean busy=invoiceRunning.get();
@@ -159,8 +162,10 @@ public final class SyncService extends Service {
         }
         preferences.edit().putLong("last_sync_attempt_ms", System.currentTimeMillis()).apply();
 
+        if(!ServerWorkTracker.begin(this,"sync","Συγχρονισμός δεδομένων","Έλεγχος τοπικής ουράς και cloud"))return;
         try {
             syncOnce(preferences);
+            ServerWorkTracker.finish("sync");
             syncFailures=0;
             if (!invoiceRunning.get() && !mirrorRunning.get()) OtaManager.maybeApply(getApplicationContext(), store);
         } catch (Exception error) {
@@ -172,7 +177,7 @@ public final class SyncService extends Service {
                     .putLong("sync_error_at",System.currentTimeMillis())
                     .apply();
             updateNotification(preferences.getBoolean("server_online", false) ? "Συνδεδεμένος • προσωρινή καθυστέρηση συγχρονισμού" : "Εκτός σύνδεσης • θα ξαναδοκιμάσει");
-        }
+        } finally {ServerWorkTracker.finish("sync");}
     }
 
     private void syncOnce(SharedPreferences preferences) throws Exception {
@@ -251,10 +256,9 @@ public final class SyncService extends Service {
         }
 
         if (yieldForUpdate) {
-            // OCR results live in the Worker. Refresh both mirrors before the
-            // pre-install backup so it includes every completed invoice result.
-            store.mergeFleet(FleetHttp.getJson(base + "/api/snapshot", headers));
-            refreshSystemMirror(base,headers,preferences);
+            // Preserve the completed local checkpoint; unfinished mirror pages
+            // remain uncommitted and are fetched again after the update.
+            if(!OtaManager.forceRequested(this))store.mergeFleet(FleetHttp.getJson(base + "/api/snapshot", headers));
         }
         if (!backupRequests.isEmpty()) {
             try {
@@ -314,16 +318,19 @@ public final class SyncService extends Service {
     }
 
     private void syncStage(SharedPreferences p,String stage,String endpoint) {
+        ServerWorkTracker.stage("sync","Συγχρονισμός δεδομένων",stage);
         p.edit().putString("sync_stage",stage).putString("sync_endpoint",endpoint).apply();
     }
-    private void refreshSystemMirror(String base,Map<String,String> headers,final SharedPreferences p) throws Exception {
-        JSONObject value=SystemMirror.update(base,headers,store.getFleet(),store.getSystemExport(),new SystemMirror.Progress(){public void stage(String stage){p.edit().putString("mirror_stage",stage).apply();}});
+    private void refreshSystemMirror(String base,Map<String,String> headers,final SharedPreferences p)throws Exception{refreshSystemMirror(base,headers,p,"sync");}
+    private void refreshSystemMirror(String base,Map<String,String> headers,final SharedPreferences p,final String lane) throws Exception {
+        JSONObject value=SystemMirror.update(base,headers,store.getFleet(),store.getSystemExport(),new SystemMirror.Progress(){public void stage(String stage){if(OtaManager.shouldYieldForUpdate(getApplicationContext()))throw new java.util.concurrent.CancellationException("Το αντίγραφο θα συνεχιστεί μετά την ενημέρωση.");ServerWorkTracker.stage(lane,"Αντίγραφο προσωπικού και τιμολογίων",stage);p.edit().putString("mirror_stage",stage).apply();}});
         store.setSystemExport(value);
         p.edit().putString("mirror_error","").putString("mirror_stage","Το αντίγραφο προσωπικού ενημερώθηκε").putLong("mirror_success_ms",System.currentTimeMillis()).apply();
     }
     private void mirrorSafely(){mirrorSafely(false);}
     private void mirrorSafely(boolean force) {
-        if (!mirrorRunning.compareAndSet(false,true)) return;
+        if(OtaManager.shouldYieldForUpdate(this)||!mirrorRunning.compareAndSet(false,true))return;
+        if(!ServerWorkTracker.begin(this,"mirror","Αντίγραφο προσωπικού και τιμολογίων","Έλεγχος ενημερώσεων αντιγράφου")){mirrorRunning.set(false);return;}
         SharedPreferences p=getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE);
         String base=p.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
         try {
@@ -333,15 +340,18 @@ public final class SyncService extends Service {
                 catch(Exception rulesError){p.edit().putString("invoice_rules_error",safeMessage(rulesError)).apply();}
             }
             JSONObject saved=store.getSystemExport().optJSONObject("mirror");
-            if(MirrorPollPolicy.mirror(force,p.getBoolean("mirror_hint_ready",false),saved==null?null:saved.optString("epoch"),saved==null?-1:saved.optLong("cursor",-1),p.getString("mirror_remote_epoch",""),p.getLong("mirror_remote_cursor",-2),System.currentTimeMillis(),p.getLong("mirror_success_ms",0)))refreshSystemMirror(base,serverHeaders(),p);
+            if(MirrorPollPolicy.mirror(force,p.getBoolean("mirror_hint_ready",false),saved==null?null:saved.optString("epoch"),saved==null?-1:saved.optLong("cursor",-1),p.getString("mirror_remote_epoch",""),p.getLong("mirror_remote_cursor",-2),System.currentTimeMillis(),p.getLong("mirror_success_ms",0)))refreshSystemMirror(base,serverHeaders(),p,"mirror");
             else p.edit().putString("mirror_stage","Το αντίγραφο είναι ενημερωμένο · χωρίς νέα λήψη").apply();
-            ServiceDocumentStore.syncFromFleet(getApplicationContext(),store.getFleet(),base,serverHeaders());
+            ServiceDocumentStore.syncFromFleet(getApplicationContext(),store.getFleet(),base,serverHeaders(),new ServiceDocumentStore.SyncControl(){public boolean pause(){return OtaManager.shouldYieldForUpdate(getApplicationContext());}public void stage(String name,int done){ServerWorkTracker.stage("mirror","Τοπικά τιμολόγια","Λήψη "+name+" · ολοκληρώθηκαν "+done);}});
+            if(OtaManager.shouldYieldForUpdate(this))return;
             BackupManager.maybeAutomatic(getApplicationContext(),store);
-        } catch (Exception error) { p.edit().putString("mirror_error",safeMessage(error)).apply(); }
-        finally { mirrorRunning.set(false); }
+        } catch(java.util.concurrent.CancellationException paused){p.edit().putString("mirror_stage","Παύση για ενημέρωση · θα συνεχιστεί μετά").apply();}
+        catch (Exception error) { p.edit().putString("mirror_error",safeMessage(error)).apply(); }
+        finally { ServerWorkTracker.finish("mirror");mirrorRunning.set(false); }
     }
     private static String safeMessage(Exception error) { return error.getMessage()==null ? "Δεν ολοκληρώθηκε η ενέργεια." : error.getMessage(); }
     private void invoiceState(String job,String stage,int progress,String error) {
+        if(invoiceRunning.get())ServerWorkTracker.stage("invoice","Επεξεργασία τιμολογίου",stage);
         try {
             JSONObject value=new JSONObject().put("jobId",job).put("stage",stage).put("progress",progress).put("error",error).put("updatedAt",isoNow());
             getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE).edit().putString("invoice_job_state",value.toString()).apply();
@@ -358,6 +368,7 @@ public final class SyncService extends Service {
     private void invoiceSafely() {
         if (OtaManager.installationInProgress(getApplicationContext()) || OtaManager.shouldYieldForUpdate(getApplicationContext())) return;
         if (!invoiceRunning.compareAndSet(false,true)) return;
+        if(!ServerWorkTracker.begin(this,"invoice","Επεξεργασία τιμολογίων","Έλεγχος αποθηκευμένης ουράς")){invoiceRunning.set(false);return;}
         SharedPreferences p=getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE);
         String base=p.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
         Map<String,String> headers=serverHeaders();
@@ -367,7 +378,7 @@ public final class SyncService extends Service {
             JSONArray ops=workQueue.ready(System.currentTimeMillis());
             if (ops==null) return;
             for (int i=0;i<ops.length();i++) {
-                if (Thread.currentThread().isInterrupted()) return;
+                if (Thread.currentThread().isInterrupted()||OtaManager.shouldYieldForUpdate(this)) return;
                 JSONObject op=ops.getJSONObject(i);String id=op.optString("id");
                 if (store.wasApplied(id)) { acknowledgeOne(base,id,headers); continue; }
                 if ("service_document_reprocess_batch".equals(op.optString("type"))) {
@@ -375,7 +386,7 @@ public final class SyncService extends Service {
                     if (result.optBoolean("complete",false)) {store.markApplied(id);acknowledgeOne(base,id,headers);}
                     continue;
                 }
-                activeJobId=id; activeCancellation=new java.util.concurrent.atomic.AtomicBoolean();
+                activePausedForUpdate=false;activeJobId=id; activeCancellation=new java.util.concurrent.atomic.AtomicBoolean();
                 try {
                     JSONObject result=op.optJSONObject("payload")!=null&&op.getJSONObject("payload").has("documentKey")
                         ?analyzeStoredDocument(base,op,headers):renderAndUploadServiceDocument(base,id,op.optJSONObject("payload"),headers);
@@ -387,15 +398,16 @@ public final class SyncService extends Service {
                     invoiceState(id,"Ολοκληρώθηκε · PDF και στοιχεία αποθηκεύτηκαν",100,result.optString("extractionError",""));
                     p.edit().putString("last_service_document_error",result.optString("extractionError","")).apply();
                 } catch (Exception error) {
+                    if(activePausedForUpdate){workQueue.update(id,"retryAt",0L);invoiceState(id,"Παύση για ενημέρωση · θα συνεχιστεί μετά",0,"");continue;}
                     if (error instanceof java.util.concurrent.CancellationException || (activeCancellation!=null && activeCancellation.get()) || (error instanceof FleetHttp.HttpStatusException && ((FleetHttp.HttpStatusException)error).statusCode==410)) {acknowledgeOne(base,id,headers);continue;}
                     workQueue.update(id,"retryAt",System.currentTimeMillis()+60000L);
                     invoiceState(id,"Χρειάζεται έλεγχος",0,safeMessage(error));
                     p.edit().putString("last_service_document_error",safeMessage(error)).apply();
                     try {reportOperationError(base,id,safeMessage(error),error,headers);} catch(Exception ignored){}
-                } finally {activeJobId="";activeCancellation=null;}
+                } finally {activeJobId="";activeCancellation=null;activePausedForUpdate=false;}
             }
         } catch (Exception error) {markInvoiceReprocessError(p,safeMessage(error));p.edit().putString("invoice_queue_error",safeMessage(error)).apply();}
-        finally {invoiceRunning.set(false);}
+        finally {ServerWorkTracker.finish("invoice");invoiceRunning.set(false);}
     }
     private void acknowledgeOne(String base,String id,Map<String,String> headers) throws Exception {
         workQueue.update(id,"localComplete",true);
@@ -407,6 +419,7 @@ public final class SyncService extends Service {
             JSONObject copy = new JSONObject(batch.toString());
             if (stage != null && stage.length() > 0) copy.put("serverStage", stage);
             copy.put("serverUpdatedAt", isoNow());
+            if(invoiceRunning.get())ServerWorkTracker.stage("invoice","Νέα ανάγνωση τιμολογίων",copy.optString("serverStage","Αναμονή απάντησης"));
             preferences.edit()
                     .putString(PREF_INVOICE_REPROCESS_STATE, copy.toString())
                     .putString(PREF_INVOICE_REPROCESS_UPDATED_AT, isoNow())
@@ -540,7 +553,9 @@ public final class SyncService extends Service {
             for (int index = 0; index < count; index++) {
                 JSONObject item = window.optJSONObject(index);
                 if (item == null) throw new Exception("Η νέα ανάγνωση περιέχει μη έγκυρο τιμολόγιο.");
-                JSONObject localOcr = results.get(index).get();
+                Future<JSONObject> pending=results.get(index);long deadline=System.currentTimeMillis()+180000L;JSONObject localOcr;
+                while(true){if(OtaManager.forceRequested(this))throw new java.util.concurrent.CancellationException("Η τοπική ανάγνωση παύει για την ενημέρωση. Η ουρά διατηρείται.");long remaining=deadline-System.currentTimeMillis();if(remaining<=0)throw new java.util.concurrent.TimeoutException("Η τοπική ανάγνωση ξεπέρασε τα 180 δευτερόλεπτα. Η ουρά διατηρείται για νέα προσπάθεια.");try{localOcr=pending.get(Math.min(remaining,250),TimeUnit.MILLISECONDS);break;}catch(java.util.concurrent.TimeoutException waiting){}}
+
                 String name = item.optString("name", "invoice.pdf");
                 JSONObject body = new JSONObject();
                 body.put("action", "result");
@@ -571,6 +586,7 @@ public final class SyncService extends Service {
             }
             return result.put("complete", result.optBoolean("complete", false));
         } finally {
+            for(Future<JSONObject> future:results)future.cancel(true);
             workers.shutdownNow();
         }
     }

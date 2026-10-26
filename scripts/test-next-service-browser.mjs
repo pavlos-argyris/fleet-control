@@ -26,6 +26,8 @@ try{for(const mode of ['web','client','client','client']){
  if(mode==='client')await page.locator('#bottomNav [data-go="fleet"]').click();
  const fleet=mode==='client'?page.frameLocator('#fleetModuleFrame'):page;
  await fleet.locator('#bikeList [data-bike-id="bike-0"]').click();await fleet.locator('#nextServiceCard').waitFor();
+ await fleet.locator('#detailCheckButton').click();await fleet.locator('#quickCurrentKm').fill('1300');await fleet.locator('#quickCheckForm button[type=submit]').click();await fleet.locator('#quickCheckResult').waitFor({state:'visible'});assert.match(await fleet.locator('#quickCheckResult').textContent(),/2[.\s]?700/);assert.match(await fleet.locator('#quickCheckResult').textContent(),/αποθηκεύτηκε/);await fleet.locator('#quickCheckBackButton').click();await fleet.locator('#nextServiceCard').waitFor();
+ 
  await fleet.locator('#nextServiceAdd').fill('Έλεγχος ιμάντα\nΑλλαγή πίσω ελαστικού');await fleet.locator('#nextServiceSave').click();
  assert.match(await fleet.locator('#nextServiceList').textContent(),/Έλεγχος ιμάντα/);assert.equal(await fleet.locator('#nextServiceList .next-service-row').count(),2);
  await fleet.locator('#nextServiceCard').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(output,mode+'-bike-notes.png')});
