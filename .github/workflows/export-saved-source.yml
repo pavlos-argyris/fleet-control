@@ -1,0 +1,28 @@
+name: Export saved source
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/export-saved-source.yml']
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive the exact tracked source without credentials
+        run: |
+          git archive --format=zip --output=Fleet_Control_Saved_Source.zip HEAD
+          git rev-parse HEAD > SOURCE_COMMIT.txt
+          sha256sum Fleet_Control_Saved_Source.zip > SOURCE_SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fleet-saved-source
+          path: |
+            Fleet_Control_Saved_Source.zip
+            SOURCE_COMMIT.txt
+            SOURCE_SHA256SUMS.txt
+          retention-days: 7
