@@ -49,3 +49,6 @@ node scripts/test-offload-polling.mjs
 node scripts/test-shared-requests.mjs
 node scripts/test-live-changes.mjs
 node scripts/test-change-events.mjs
+
+node scripts/test-staff-schedule-payroll.mjs
+node scripts/test-payroll-parity.mjs

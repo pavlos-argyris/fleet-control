@@ -1182,7 +1182,7 @@
     const managers = state.employees.filter(function (item) { return item.role !== "employee"; }).length;
     $("newEmployeeButton").classList.toggle("is-hidden", !can("employees.manage"));
     $("employeeStats").innerHTML = [
-      metric("Ενεργοί λογαριασμοί", String(active), state.employees.length + " συνολικά", "●"),
+      metric("Ενεργά άτομα", String(active), state.employees.length + " συνολικά", "●"),
       metric("Εργαζόμενοι", String(employees), "Ρόλος Employee", "♙"),
       metric("Διαχειριστές", String(managers), "Owner / Managers", "⌾")
     ].join("");
@@ -1193,8 +1193,8 @@
     }
     $("employeeList").innerHTML = state.employees.length ? state.employees.map(function (item) {
       const rule = state.payRules.find(function (entry) { return String(entry.id) === String(item.payRuleId); });
-      const editActions = (can("employees.manage") ? '<button type="button" data-employee-edit="' + escapeHtml(item.id) + '">Επεξεργασία</button>' : '') + (can("security.manage") ? '<button type="button" data-password-reset="' + escapeHtml(item.id) + '">Νέος κωδικός</button><button type="button" data-force-logout="' + escapeHtml(item.id) + '">Αποσύνδεση</button>' : '');
-      return '<article class="employee-card ' + (item.active ? "" : "disabled") + '"><div class="employee-card-head"><div class="employee-avatar">' + escapeHtml(initials(item.fullName)) + '</div><div class="employee-identity"><strong>' + escapeHtml(item.fullName) + '</strong><small>@' + escapeHtml(item.username) + ' • ' + escapeHtml(roleLabel(item.role)) + '</small></div>' + statusPill(item.active ? "available" : "inactive") + '</div><div class="employee-meta"><span><small>Μηχανάκι</small><strong>' + escapeHtml(vehicleLabel(item)) + '</strong></span><span><small>Κανόνας πληρωμής</small><strong>' + escapeHtml(rule ? rule.name + " • v" + rule.version : item.payRuleId || "Αυτόματος") + '</strong></span><span><small>Ομάδα</small><strong>' + escapeHtml(item.employeeGroup || "Χωρίς ομάδα") + '</strong></span><span><small>Τελευταία σύνδεση</small><strong>' + escapeHtml(item.lastSeenAt ? formatDateTime(item.lastSeenAt) : "Ποτέ") + '</strong></span></div><div class="employee-card-actions"><button type="button" data-employee-detail="' + escapeHtml(item.id) + '">Προβολή</button>' + editActions + '</div></article>';
+      const editActions = (can("employees.manage") ? '<button type="button" data-employee-edit="' + escapeHtml(item.id) + '">Επεξεργασία</button>' : '') + (can("security.manage") && item.loginEnabled !== false ? '<button type="button" data-password-reset="' + escapeHtml(item.id) + '">Νέος κωδικός</button><button type="button" data-force-logout="' + escapeHtml(item.id) + '">Αποσύνδεση</button>' : '') + (can("employees.manage") && String(item.id) !== String(state.user.id) ? '<button class="danger-button" type="button" data-employee-delete="' + escapeHtml(item.id) + '">Διαγραφή</button>' : '');
+      return '<article class="employee-card ' + (item.active ? "" : "disabled") + '"><div class="employee-card-head"><div class="employee-avatar">' + escapeHtml(initials(item.fullName)) + '</div><div class="employee-identity"><strong>' + escapeHtml(item.fullName) + '</strong><small>' + (item.loginEnabled === false ? 'Χωρίς λογαριασμό' : '@' + escapeHtml(item.username)) + ' • ' + escapeHtml(roleLabel(item.role)) + '</small></div>' + statusPill(item.active ? "available" : "inactive") + '</div><div class="employee-meta"><span><small>Μηχανάκι</small><strong>' + escapeHtml(vehicleLabel(item)) + '</strong></span><span><small>Κανόνας πληρωμής</small><strong>' + escapeHtml(rule ? rule.name + " • v" + rule.version : item.payRuleId || "Αυτόματος") + '</strong></span><span><small>Ομάδα</small><strong>' + escapeHtml(item.employeeGroup || "Χωρίς ομάδα") + '</strong></span><span><small>Τελευταία σύνδεση</small><strong>' + escapeHtml(item.lastSeenAt ? formatDateTime(item.lastSeenAt) : "Ποτέ") + '</strong></span></div><div class="employee-card-actions"><button type="button" data-employee-detail="' + escapeHtml(item.id) + '">Προβολή</button>' + editActions + '</div></article>';
     }).join("") : '<p class="empty-copy">Δεν υπάρχουν λογαριασμοί.</p>';
   }
 
@@ -1290,6 +1290,18 @@
     }
   }
 
+  function applyEmployeeLoginState() {
+    const management = $("employeeRole").value !== "employee";
+    if (management) $("employeeLoginEnabled").checked = true;
+    $("employeeLoginEnabled").disabled = management;
+    const enabled = $("employeeLoginEnabled").checked;
+    const needsPassword = enabled && (!state.editingEmployee || state.editingEmployee.loginEnabled === false);
+    $("employeeUsername").closest("label").classList.toggle("is-hidden", !enabled);
+    $("employeeUsername").required = enabled;
+    $("employeePasswordWrap").classList.toggle("is-hidden", !needsPassword);
+    $("employeePassword").required = needsPassword;
+  }
+
   async function openEmployeeDialog(id) {
     const item = id ? state.employees.find(function (entry) { return String(entry.id) === String(id); }) : null;
     if (id && !item) return toast("Ο εργαζόμενος δεν βρέθηκε.");
@@ -1308,8 +1320,8 @@
     $("employeeHireDate").value = item && item.hireDate ? item.hireDate : inputDate(0);
     $("employeeNotes").value = item ? item.notes : "";
     $("usesOwnVehicle").checked = item ? Boolean(item.usesOwnVehicle) : false;
-    $("employeePasswordWrap").classList.toggle("is-hidden", Boolean(item));
-    $("employeePassword").required = !item;
+    $("employeeLoginEnabled").checked = item ? item.loginEnabled !== false : false;
+    applyEmployeeLoginState();
     $("employeeVehicle").innerHTML = '<option value="">Φόρτωση μηχανών…</option>';
     $("employeePayRule").innerHTML = '<option value="">Φόρτωση κανόνων…</option>';
     $("showSchedule").checked = item ? item.showSchedule : true;
@@ -1372,6 +1384,7 @@
     const role = $("employeeRole").value;
     const usesOwnVehicle = $("usesOwnVehicle").checked;
     return {
+      loginEnabled: $("employeeLoginEnabled").checked,
       fullName: $("employeeName").value.trim(), username: $("employeeUsername").value.trim(),
       email: $("employeeEmail").value.trim(), phone: $("employeePhone").value.trim(),
       role: role, employeeGroup: $("employeeGroup").value.trim(), payRuleId: $("employeePayRule").value || null, hireDate: $("employeeHireDate").value || null,
@@ -1389,10 +1402,14 @@
     event.preventDefault();
     const current = state.editingEmployee;
     const payload = employeePayload();
-    if (!payload.fullName || !payload.username) return void ($("employeeError").textContent = "Συμπλήρωσε ονοματεπώνυμο και username.");
-    if (!current) payload.password = $("employeePassword").value;
+    if (!payload.fullName) return void ($("employeeError").textContent = "Συμπλήρωσε το ονοματεπώνυμο.");
+    if (payload.loginEnabled && !payload.username) return void ($("employeeError").textContent = "Συμπλήρωσε όνομα χρήστη για τη σύνδεση.");
+    if (payload.loginEnabled && (!current || current.loginEnabled === false)) {
+      payload.password = $("employeePassword").value;
+      if (payload.password.length < 8) return void ($("employeeError").textContent = "Ο αρχικός κωδικός χρειάζεται τουλάχιστον 8 χαρακτήρες.");
+    }
     const critical = !current ? payload.role !== "employee" || payload.permissions.length > 0 || payload.employeeGroup || payload.payRuleId || payload.assignedVehicleId || payload.usesOwnVehicle || payload.canChangeVehicle || payload.showActualClockIn || payload.showActualClockOut || payload.showPayableHours || payload.showPaymentAmount || payload.showShiftKilometers
-      : payload.role !== current.role || payload.active !== current.active || payload.assignedVehicleId !== current.assignedVehicleId || payload.usesOwnVehicle !== Boolean(current.usesOwnVehicle) ||
+      : payload.loginEnabled !== (current.loginEnabled !== false) || payload.role !== current.role || payload.active !== current.active || payload.assignedVehicleId !== current.assignedVehicleId || payload.usesOwnVehicle !== Boolean(current.usesOwnVehicle) ||
         payload.employeeGroup !== (current.employeeGroup || "") || payload.payRuleId !== current.payRuleId ||
         payload.canChangeVehicle !== current.canChangeVehicle || payload.showSchedule !== current.showSchedule ||
         payload.showActualClockIn !== current.showActualClockIn || payload.showActualClockOut !== current.showActualClockOut ||
@@ -1413,6 +1430,20 @@
     } catch (error) {
       if (!/ακυρώθηκε/.test(error.message)) $("employeeError").textContent = error.message;
     }
+  }
+
+  async function deleteEmployee(id) {
+    const item = state.employees.find(entry => String(entry.id) === String(id));
+    if (!item) return;
+    try {
+      const data = await simpleEditor({overline:"ΔΙΑΧΕΙΡΙΣΗ ΠΡΟΣΩΠΙΚΟΥ",title:"Διαγραφή εργαζομένου",submit:"Μεταφορά στον κάδο",
+        html:'<div class="restore-preview"><strong>'+escapeHtml(item.fullName)+'</strong><p>Το άτομο αφαιρείται από τη λίστα και αποσυνδέεται. Το πρόγραμμα, οι παλιές βάρδιες και η μισθοδοσία παραμένουν. Μπορείς να το ανακτήσεις από τον Κάδο.</p></div><label class="field"><span>Γράψε το ονοματεπώνυμο για επιβεβαίωση</span><input id="employeeDeleteName" autocomplete="off"></label><label class="field"><span>Αιτιολογία</span><textarea id="employeeDeleteReason" rows="2" required></textarea></label>',
+        collect:function(){if($("employeeDeleteName").value.trim()!==item.fullName)throw new Error("Το ονοματεπώνυμο δεν ταιριάζει.");const reason=$("employeeDeleteReason").value.trim();if(!reason)throw new Error("Γράψε αιτιολογία.");return {confirm:true,reason};}});
+      const confirmation=await requestPin(false);
+      await api("/api/admin/employees/"+encodeURIComponent(id),{method:"DELETE",pin:confirmation.pin,body:data});
+      toast("Ο εργαζόμενος μεταφέρθηκε στον κάδο. Το ιστορικό διατηρήθηκε.");
+      await loadEmployees();state.viewLoadedAt.schedules=0;
+    } catch(error){if(!/ακυρώθηκε/.test(error.message))toast(error.message);}
   }
 
   async function resetPassword(userId) {
@@ -1641,39 +1672,39 @@
     const sheets = xmlChildren(workbookXml, "sheet");
     if (!sheets.length) throw new Error("Το Excel δεν περιέχει φύλλο.");
     const relItems = xmlChildren(relsXml, "Relationship");
-    const relationId = sheets[0].getAttribute("r:id") || sheets[0].getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
-    const relation = relItems.find(function (item) { return item.getAttribute("Id") === relationId; });
-    let target = relation && relation.getAttribute("Target") || "worksheets/sheet1.xml";
-    target = target.replace(/^\//, "").replace(/^\.\//, "");
-    const sheetPath = target.startsWith("xl/") ? target : "xl/" + target;
-    const sheetXml = new DOMParser().parseFromString(await unzipText(entries.get(sheetPath)), "application/xml");
-    const rows = xmlChildren(sheetXml, "row").map(function (row) {
-      const result = [];
-      xmlChildren(row, "c").forEach(function (cell) {
-        const ref = cell.getAttribute("r") || "";
-        const columnLetters = (ref.match(/^[A-Z]+/i) || ["A"])[0].toUpperCase();
-        let column = 0; for (let index = 0; index < columnLetters.length; index += 1) column = column * 26 + columnLetters.charCodeAt(index) - 64;
-        column -= 1;
-        while (result.length <= column) result.push("");
-        const type = cell.getAttribute("t") || "";
-        const valueNode = xmlChildren(cell, "v")[0];
-        const inline = xmlChildren(cell, "is").map(function (item) { return xmlChildren(item, "t").map(function (node) { return node.textContent || ""; }).join(""); }).join("");
-        const raw = inline || (valueNode ? valueNode.textContent || "" : "");
-        result[column] = type === "s" ? (shared[Number(raw)] || "") : raw;
+    const programSheets=sheets.filter(item=>/^Πρόγραμμα(?:\s|$)/u.test(item.getAttribute("name")||""));
+    const selected=programSheets.length?programSheets:[sheets[0]],output=[];
+    for(const selectedSheet of selected){
+      const relationId=selectedSheet.getAttribute("r:id")||selectedSheet.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships","id");
+      const relation=relItems.find(item=>item.getAttribute("Id")===relationId);
+      if(!relation||relation.getAttribute("TargetMode")==="External")throw new Error("Το φύλλο Excel δεν είναι έγκυρο.");
+      let target=relation.getAttribute("Target")||"";target=target.replace(/^\//,"").replace(/^\.\//,"");
+      const sheetPath=target.startsWith("xl/")?target:"xl/"+target;
+      if(!/^xl\/worksheets\/[^/]+\.xml$/.test(sheetPath)||!entries.has(sheetPath))throw new Error("Δεν βρέθηκε το φύλλο προγράμματος.");
+      const sheetXml=new DOMParser().parseFromString(await unzipText(entries.get(sheetPath)),"application/xml");
+      if(sheetXml.getElementsByTagName("parsererror").length)throw new Error("Το φύλλο Excel είναι κατεστραμμένο.");
+      const rows=xmlChildren(sheetXml,"row").map(row=>{
+        const result=[];
+        xmlChildren(row,"c").forEach(cell=>{
+          const letters=(String(cell.getAttribute("r")||"").match(/^[A-Z]+/i)||["A"])[0].toUpperCase();
+          let column=0;for(const letter of letters)column=column*26+letter.charCodeAt(0)-64;column--;
+          if(column>100)throw new Error("Το φύλλο έχει υπερβολικά πολλές στήλες.");
+          while(result.length<=column)result.push("");
+          const type=cell.getAttribute("t")||"",v=xmlChildren(cell,"v")[0]?.textContent||"";
+          const inline=xmlChildren(cell,"is").flatMap(item=>xmlChildren(item,"t")).map(node=>node.textContent||"").join("");
+          result[column]=type==="s"?(shared[Number(v)]||""):type==="inlineStr"?inline:v!==""&&(type==="n"||type==="")&&Number.isFinite(Number(v))?Number(v):inline||v;
+        });return result;
       });
-      return result;
-    });
-    if (!rows.length) return [];
-    const headers = rows.shift().map(function (item) { return String(item || "").trim(); });
-    return rows.filter(function (items) { return items.some(function (item) { return String(item || "").trim() !== ""; }); }).map(function (items) {
-      const result = {}; headers.forEach(function (header, index) { if (header) result[header] = items[index] == null ? "" : items[index]; }); return result;
-    });
+      output.push(...window.FleetScheduleWorkbook.rowsFromMatrix(rows));
+      if(output.length>2048)throw new Error("Το αρχείο ξεπερνά τις 2.048 γραμμές εισαγωγής.");
+    }
+    return output;
   }
 
   async function parseScheduleFile(file) {
     if (!file || file.size > 5 * 1024 * 1024) throw new Error("Το αρχείο πρέπει να είναι έως 5 MB.");
-    if (/\\.csv$/i.test(file.name) || file.type === "text/csv") return csvRows(await file.text());
-    if (!/\\.xlsx$/i.test(file.name)) throw new Error("Επίλεξε αρχείο .xlsx ή .csv.");
+    if (/\.csv$/i.test(file.name) || file.type === "text/csv") return csvRows(await file.text());
+    if (!/\.xlsx$/i.test(file.name)) throw new Error("Επίλεξε αρχείο .xlsx ή .csv.");
     return xlsxRows(await file.arrayBuffer());
   }
 
@@ -1683,47 +1714,67 @@
     const errors = data.errors || [];
     box.innerHTML = '<strong>' + (data.valid ? "✓ Η προεπισκόπηση είναι έγκυρη." : "⚠ Χρειάζονται διορθώσεις πριν την εισαγωγή.") + '</strong>' +
       '<span>Γραμμές που θα μπουν στο Πρόχειρο: ' + numberFormat.format((data.assignments || []).length) + '</span>' +
-      (errors.length ? '<ul>' + errors.slice(0, 12).map(function (item) { return '<li>Γραμμή ' + escapeHtml(item.row || "—") + ': ' + escapeHtml(item.message) + '</li>'; }).join("") + '</ul>' : "");
+      ((data.weeks||[]).length ? '<div class="import-week-summary">'+data.weeks.map(w=>'<span><strong>'+escapeHtml(isoDateLabel(w.weekStart,false))+'</strong><small>'+w.assignments.length+' αναθέσεις στο Πρόχειρο</small></span>').join('')+'</div>':'') +
+      ((data.missingVehicles||[]).length?'<p class="field-hint">'+data.missingVehicles.length+' αναθέσεις χρειάζονται μηχανάκι πριν τη Δημοσίευση. Μπορείς να διορθώσεις το Excel ή το Πρόχειρο.</p>':'') +
+      (errors.length ? '<ul>'  + errors.slice(0, 12).map(function (item) { return '<li>Γραμμή ' + escapeHtml(item.row || "—") + ': ' + escapeHtml(item.message) + '</li>'; }).join("") + '</ul>' : "");
     $("scheduleImportCommit").disabled = !data.valid;
   }
 
   async function openScheduleImportDialog() {
     state.scheduleImportRows = null; state.scheduleImportPreview = null;
+    $("scheduleTemplateFrom").value=mondayIso($("scheduleWeekDate").value||inputDate(0));
+    $("scheduleTemplateTo").value=addIsoDays($("scheduleTemplateFrom").value,6);
+    $("scheduleImportRecheck").classList.add("is-hidden");
     $("scheduleImportFile").value = ""; $("scheduleImportFileName").textContent = "Δεν έχει επιλεγεί αρχείο.";
     $("scheduleImportPreview").classList.add("is-hidden"); $("scheduleImportError").textContent = ""; $("scheduleImportCommit").disabled = true;
     $("scheduleImportDialog").showModal();
   }
 
+  async function downloadScheduleTemplate() {
+    const button=$("scheduleDownloadTemplate");button.disabled=true;$("scheduleImportError").textContent="";
+    try {
+      const data=await api("/api/admin/schedule-import/template-data?from="+encodeURIComponent($("scheduleTemplateFrom").value)+"&to="+encodeURIComponent($("scheduleTemplateTo").value));
+      const bytes=window.FleetScheduleWorkbook.build(data),url=URL.createObjectURL(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+      const a=document.createElement("a");a.href=url;a.download="Fleet_Control_Program_"+data.startDate+"_"+data.endDate+".xlsx";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+      toast("Το Excel περιέχει τα τωρινά στοιχεία και το επιλεγμένο διάστημα.");
+    } catch(error){$("scheduleImportError").textContent=error.message;}finally{button.disabled=false;}
+  }
+
   async function handleScheduleImportFile(event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
+    const generation=(state.scheduleImportGeneration||0)+1;state.scheduleImportGeneration=generation;
+    state.scheduleImportRows=null;state.scheduleImportPreview=null;$("scheduleImportCommit").disabled=true;$("scheduleImportRecheck").classList.remove("is-hidden");
     $("scheduleImportFileName").textContent = file.name;
     $("scheduleImportError").textContent = "";
     try {
       const rows = await parseScheduleFile(file);
       if (!rows.length) throw new Error("Το αρχείο δεν περιέχει γραμμές εισαγωγής.");
       const preview = await api("/api/admin/schedule-import/preview", { method: "POST", body: { rows: rows } });
+      if(generation!==state.scheduleImportGeneration)return;
       state.scheduleImportRows = rows; state.scheduleImportPreview = preview; renderImportPreview(preview);
     } catch (error) { $("scheduleImportError").textContent = error.message; $("scheduleImportCommit").disabled = true; }
   }
 
   async function commitScheduleImport(event) {
     event.preventDefault();
-    if (!state.scheduleImportRows || !state.scheduleImportPreview) return;
+    if (!state.scheduleImportRows || !state.scheduleImportPreview || $("scheduleImportCommit").disabled) return;
+    $("scheduleImportCommit").disabled=true;
     try {
       let replace = false;
       if (state.scheduleImportPreview.target && state.scheduleImportPreview.target.state !== "empty") {
-        if (!window.confirm("Η εβδομάδα έχει ήδη πρόγραμμα. Να αντικατασταθεί το Πρόχειρο; Το δημοσιευμένο πρόγραμμα μένει μέχρι τη Δημοσίευση.")) return;
+        await simpleEditor({overline:"ΕΙΣΑΓΩΓΗ EXCEL",title:"Ενημέρωση υπάρχοντος προγράμματος",submit:"Συνέχεια στο Πρόχειρο",html:'<div class="restore-preview"><strong>Αλλάζουν μόνο οι ημέρες και οι εργαζόμενοι του αρχείου</strong><p>Κενή βάρδια σημαίνει ρεπό. Οι υπόλοιπες ημέρες διατηρούνται. Το δημοσιευμένο πρόγραμμα αλλάζει μόνο όταν πατήσεις Δημοσίευση σε κάθε εβδομάδα.</p></div>',collect:()=>({confirmed:true})});
         replace = true;
       }
       const result = await api("/api/admin/schedule-import/commit", { method: "POST", body: {
-        rows: state.scheduleImportRows, confirm: true, replace, reason: "Εισαγωγή εβδομαδιαίου προγράμματος από Excel"
+        rows: state.scheduleImportRows, confirm: true, replace, previewToken:state.scheduleImportPreview.previewToken, reason: "Εισαγωγή εβδομαδιαίου προγράμματος από Excel"
       } });
       $("scheduleImportDialog").close();
       $("scheduleWeekDate").value = result.draft.weekStart;
-      toast("Το Excel αποθηκεύτηκε ως Πρόχειρο. Έλεγξε τις μηχανές και δημοσίευσέ το.");
+      toast("Το Excel αποθηκεύτηκε σε "+(result.weeks?.length||1)+" πρόχειρες εβδομάδες. Έλεγξε και δημοσίευσε κάθε εβδομάδα από το Πρόγραμμα.");
       await loadSchedules(true);
     } catch (error) { $("scheduleImportError").textContent = error.message; }
+    finally { $("scheduleImportCommit").disabled = !state.scheduleImportPreview?.valid; }
   }
 
   async function copyPreviousScheduleWeek() {
@@ -3756,6 +3807,8 @@
     const end = datePlus(start, 6);
     const data = await api("/api/admin/payroll?start=" + start + "&end=" + end);
     state.payroll = data;
+    const scheduleSource=(data.hoursSource || data.period.hoursSource)==="schedule";
+    $("payrollSourceInfo").innerHTML='<div><strong>'+ (scheduleSource?"Υπολογισμός από δημοσιευμένο πρόγραμμα":"Υπολογισμός από πραγματικές καταγραφές")+'</strong><p>'+ (data.lockedSnapshot?"Η πηγή και τα ποσά διατηρούνται όπως ήταν στο κλείδωμα της περιόδου.":scheduleSource?"Μετρούν οι δημοσιευμένες βάρδιες, χωρίς να απαιτείται clock in/out. Τα πρόχειρα δεν υπολογίζονται. Οι διορθώσεις προγράμματος ενημερώνουν αυτή την ανοικτή περίοδο.":"Μετρούν οι ολοκληρωμένες πραγματικές καταγραφές clock in/out. Το πρόγραμμα διατηρείται ανεξάρτητα.")+'</p></div>'+(can("settings.manage")?'<button class="secondary-button" type="button" data-go="settings">Ρύθμιση πηγής</button>':'');
     $("payrollLockButton").classList.toggle("is-hidden", !can("payroll.lock"));
     $("newAdjustmentButton").classList.toggle("is-hidden", !can("payroll.manage"));
     $("payRulesButton").classList.toggle("is-hidden", !can("payroll.manage"));
@@ -4240,7 +4293,7 @@
   }
 
   function recycleTypeLabel(type) {
-    return type === "fleet_history" ? "Service / χιλιόμετρα" : type === "shift" ? "Πραγματική βάρδια" : type === "schedule_assignment" ? "Πρόγραμμα" : type;
+    return type === "employee" ? "Εργαζόμενος" : type === "fleet_history" ? "Service / χιλιόμετρα" : type === "shift" ? "Πραγματική βάρδια" : type === "schedule_assignment" ? "Πρόγραμμα" : type;
   }
 
   async function loadRecycle() {
@@ -4286,6 +4339,7 @@
   async function loadSettings() {
     const results = await Promise.all([api("/api/admin/settings"), loadDevices()]);
     const data = results[0];
+    $("payrollHoursSource").value = data.settings.payroll_hours_source || "clock";
     $("noSchedulePolicy").value = data.settings.no_schedule_policy || "allow_warning";
     $("adminSessionDuration").value = data.settings.admin_session_duration || "4h";
     $("fallbackHour").value = data.settings.safety_fallback_hour || "5";
@@ -4298,6 +4352,7 @@
     try {
       const confirmation = await requestPin(true);
       await api("/api/admin/settings", { method: "PUT", pin: confirmation.pin, body: {
+        payroll_hours_source: $("payrollHoursSource").value,
         no_schedule_policy: $("noSchedulePolicy").value,
         admin_session_duration: $("adminSessionDuration").value,
         safety_fallback_hour: $("fallbackHour").value,
@@ -4346,6 +4401,7 @@
       goTo(target);
     });
     $("employeeForm").addEventListener("submit", saveEmployee);
+    $("employeeLoginEnabled").addEventListener("change", applyEmployeeLoginState);
     $("scheduleForm").addEventListener("submit", saveSchedule);
     $("scheduleEditForm").addEventListener("submit", saveScheduleEdit);
     $("pinForm").addEventListener("submit", submitPin);
@@ -4355,6 +4411,8 @@
     $("scheduleTemplatesButton").addEventListener("click", function () { openTemplateManager().catch(function (error) { toast(error.message); }); });
     $("scheduleCopyButton").addEventListener("click", copyPreviousScheduleWeek);
     $("scheduleImportButton").addEventListener("click", openScheduleImportDialog);
+    $("scheduleDownloadTemplate").addEventListener("click", downloadScheduleTemplate);
+    $("scheduleImportRecheck").addEventListener("click",()=>handleScheduleImportFile({target:$("scheduleImportFile")}));
     $("schedulePublishButton").addEventListener("click", publishCurrentScheduleWeek);
     $("scheduleImportFile").addEventListener("change", function (event) { handleScheduleImportFile(event).catch(function (error) { $("scheduleImportError").textContent = error.message; }); });
     $("scheduleImportForm").addEventListener("submit", commitScheduleImport);
@@ -4433,7 +4491,7 @@
     $("systemSettingsForm").addEventListener("submit", saveSettings);
     $("changeAdminPin").addEventListener("click", changeAdminPin);
     $("refreshDevices").addEventListener("click", loadDevices);
-    $("employeeRole").addEventListener("change", function () { renderEmployeePermissions(null, $("employeeRole").value); });
+    $("employeeRole").addEventListener("change", function () { renderEmployeePermissions(null, $("employeeRole").value); applyEmployeeLoginState(); });
     $("usesOwnVehicle").addEventListener("change", applyOwnVehicleEmployeeState);
     document.querySelectorAll("[data-pin-cancel]").forEach(function (button) { button.addEventListener("click", cancelPin); });
     document.addEventListener("click", function (event) {
@@ -4465,6 +4523,8 @@
         if (dialog && dialog.open) dialog.close();
         return;
       }
+      const deletedEmployee = event.target.closest("[data-employee-delete]");
+      if (deletedEmployee) return void deleteEmployee(deletedEmployee.dataset.employeeDelete);
       const edit = event.target.closest("[data-employee-edit]");
       if (edit) return void openEmployeeDialog(edit.dataset.employeeEdit);
       const employeeDetail = event.target.closest("[data-employee-detail]");

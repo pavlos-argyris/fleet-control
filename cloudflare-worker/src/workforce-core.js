@@ -110,11 +110,19 @@ export function coverageBucketStatus(plannedCount, actualCount, endAt, now = Dat
   return planned > actual ? "under" : actual > planned ? "over" : planned ? "covered" : "empty";
 }
 
+const zonedFormatters = new Map();
 function zonedParts(value, timeZone) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+  const zone = timeZone || "Europe/Athens";
+  let formatter = zonedFormatters.get(zone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: timeZone || "Europe/Athens", year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", weekday: "short"
-  }).formatToParts(new Date(value));
+    });
+    if (zonedFormatters.size >= 8) zonedFormatters.clear();
+    zonedFormatters.set(zone, formatter);
+  }
+  const parts = formatter.formatToParts(new Date(value));
   const result = {};
   parts.forEach((part) => { if (part.type !== "literal") result[part.type] = part.value; });
   return result;
@@ -226,7 +234,7 @@ export function computePayBreakdown(input) {
         rateCents: overtimeRate
       };
     }
-    const minuteOfDay = localMinutes(minuteStart, timeZone);
+    const minuteOfDay = windows.length ? localMinutes(minuteStart, timeZone) : 0;
     const candidates = windows.filter((window) => windowMatches(minuteOfDay, toMinute(window.startTime), toMinute(window.endTime)))
       .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
     const special = candidates[0] || null;
@@ -258,9 +266,25 @@ export function computePayBreakdown(input) {
     }
   }
 
-  for (let index = 0; index < totalWholeMinutes; index += 1) {
+  for (let index = 0; index < totalWholeMinutes;) {
     const minuteStart = payableStart + index * 60_000;
-    appendSegment(minuteStart, minuteStart + 60_000, 1);
+    let run = totalWholeMinutes - index;
+    if (hasOvertimeOverride && minuteStart < overtimeStart) {
+      run = Math.min(run, Math.max(1, Math.ceil((overtimeStart - minuteStart) / 60_000)));
+    }
+    if (windows.length && !(hasOvertimeOverride && minuteStart >= overtimeStart)) {
+      const minute = localMinutes(minuteStart, timeZone);
+      run = Math.min(run, 60);
+      for (const window of windows) for (const boundary of [toMinute(window.startTime), toMinute(window.endTime)]) {
+        const distance = (boundary - minute + 1440) % 1440;
+        if (distance) run = Math.min(run, distance);
+      }
+      // Preserve the original per-minute semantics over a daylight-saving
+      // jump/repeated hour. Only stable wall-clock spans are grouped.
+      if (run > 1 && localMinutes(minuteStart + (run - 1) * 60_000, timeZone) !== (minute + run - 1) % 1440) run = 1;
+    }
+    appendSegment(minuteStart, minuteStart + run * 60_000, run);
+    index += run;
   }
 
   const fractional = durationMinutes - totalWholeMinutes;
