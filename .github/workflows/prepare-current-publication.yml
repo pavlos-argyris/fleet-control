@@ -1,6 +1,6 @@
 # QR regression samples resolve the current history row inside one browser task.
 # Prepare again only after the QR layout check uses one visible, scoped DOM snapshot.
-name: Prepare Fleet 5.51.6 publication request
+name: Prepare Fleet 5.51.7 publication request
 on:
   workflow_dispatch:
   push:
@@ -27,7 +27,7 @@ jobs:
       - name: Save the reviewable request without committing or deploying
         uses: actions/upload-artifact@v4
         with:
-          name: fleet-5.51.6-publication-request
+          name: fleet-5.51.7-publication-request
           path: .github/fleet-publish-request.json
           include-hidden-files: true
           retention-days: 7
