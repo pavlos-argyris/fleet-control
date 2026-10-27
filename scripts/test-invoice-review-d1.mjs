@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
+const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url));
+const {Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
+const folder=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-review-d1-'));let runtime;
+try{
+ await build({entryPoints:[path.resolve('cloudflare-worker/src/worker.js')],bundle:true,format:'esm',platform:'neutral',outfile:path.join(folder,'worker.mjs')});
+ runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(folder,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'review-d1-fixture'},bindings:{SERVER_KEY:'review-d1-server',PIN_PEPPER:'review-d1-pepper'}}));
+ const db=await runtime.getD1Database('DB');
+ const call=async(url,body,token)=>{const response=await runtime.dispatchFetch('http://fixture'+url,{method:body?'POST':'GET',headers:token?{Authorization:'Bearer '+token,'Content-Type':'application/json'}:{'X-Fleet-Server-Key':'review-d1-server','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:response.status,data:await response.json()};};
+ const boot=await call('/api/auth/bootstrap',{fullName:'D1 Review Fixture',username:'d1review',password:'D1ReviewFixture!7'});assert.equal(boot.status,200,JSON.stringify(boot.data));const token=boot.data.token;
+ const stamp='2026-10-10T10:00:00.000Z',key='service-documents/b/e/d1.pdf';
+ const entry={id:'e',type:'service',date:'2026-10-10',km:9000,tasks:['Γενικός έλεγχος'],notes:'Γενικός έλεγχος',oilChanged:false,majorService:false,updatedAt:stamp,attachments:[{id:'pdf',key,name:'d1.pdf',contentType:'application/pdf',ocr:{plate:'BTO-756',odometerKm:'9000',totalAmount:'59'}}]};
+ const fleet={bikes:[{id:'b',name:'BTO-756',currentKm:10000,lastServiceKm:9000,intervalKm:3000,updatedAt:stamp,history:[entry]}]};
+ await db.prepare('UPDATE fleet_snapshot SET data=?,version=20 WHERE id=1').bind(JSON.stringify(fleet)).run();
+ const listed=await call('/api/admin/service-documents',undefined,token);assert.equal(listed.status,200);assert.equal(listed.data.documents[0].detailsLazy,true);
+ const seen=await call('/api/admin/service-documents/seen',{bikeId:'b',entryId:'e',key},token);assert.equal(seen.status,200);
+ const full=await call('/api/admin/service-documents/transfer-options?'+new URLSearchParams({bikeId:'b',entryId:'e',key,includeDocument:'1'}),undefined,token);assert.equal(full.status,200,JSON.stringify(full.data));assert.equal(full.data.document.serviceUpdatedAt,stamp);
+ const body={bikeId:'b',entryId:'e',key,requestId:'d1-review-attempt-000001',expectedReviewRevision:full.data.document.reviewRevision,compactResponse:true,invoiceData:{plate:'BTO-756',odometerKm:'9000',totalAmount:'60'}};
+ const before=await db.prepare('SELECT data,version FROM fleet_snapshot').first();
+ await db.prepare("CREATE TRIGGER injected_review_failure BEFORE INSERT ON fleet_operations WHEN NEW.type='snapshot_replace_bike' BEGIN SELECT RAISE(ABORT,'injected_review_failure'); END").run();
+ const failed=await call('/api/admin/service-documents/review',body,token);assert.equal(failed.status,500,JSON.stringify(failed.data));
+ assert.deepEqual(await db.prepare('SELECT data,version FROM fleet_snapshot').first(),before);
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM idempotency_keys WHERE action='service_invoice_review'").first()).n,0);
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM vehicle_registry WHERE bike_id='b'").first()).n,0);
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action='service_document_reviewed'").first()).n,0);
+ await db.prepare('DROP TRIGGER injected_review_failure').run();
+ const saved=await call('/api/admin/service-documents/review',body,token);assert.equal(saved.status,200,JSON.stringify(saved.data));assert.equal(saved.data.document.status,'confirmed');
+ const snapshot=await db.prepare('SELECT data,version FROM fleet_snapshot').first();assert.equal(snapshot.version,before.version+1);
+ const again=await call('/api/admin/service-documents/review',body,token);assert.equal(again.status,200);assert.equal(again.data.reused,true);assert.deepEqual(await db.prepare('SELECT data,version FROM fleet_snapshot').first(),snapshot);
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM fleet_operations WHERE type='snapshot_replace_bike'").first()).n,1);
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action='service_document_reviewed'").first()).n,1);
+ console.log('PASS actual Workerd/D1 review: lazy document detail, seen metadata, transactional snapshot/registry/receipt/outbox/audit rollback and exactly-once retry after failure. Synthetic data only.');
+}finally{if(runtime)await runtime.dispose();fs.rmSync(folder,{recursive:true,force:true});}

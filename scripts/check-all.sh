@@ -10,6 +10,7 @@ node scripts/check-web-assets.mjs cloudflare-worker/public client-android/assets
 node --check server-android/assets/www/app.js
 node scripts/test-server-update-ui.mjs
 node scripts/test-client-ota-ui.mjs
+node scripts/test-client-landscape.mjs
 node scripts/test-ota-setup.mjs
 node --test scripts/test-publish-request.mjs
 node scripts/test-ota-releases.mjs
@@ -26,6 +27,8 @@ node scripts/test-next-service-model.mjs
 node scripts/test-fleet-operations-ui.mjs
 node scripts/test-service-followup.mjs
 node scripts/test-sequential-review.mjs
+node scripts/test-invoice-review-reliability.mjs
+node scripts/test-invoice-review-d1.mjs
 node scripts/test-pdf-evidence.mjs
 node scripts/test-invoice-preview-zoom.mjs
 node scripts/test-dialog-navigation.mjs

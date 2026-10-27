@@ -8,6 +8,7 @@ const OperationsModel = globalThis.FleetOperationsModel;
 import { INVOICE_IMPORT_SCHEMA, routeInvoiceImports, readImportDraftForJob, finishImportDraft, restartImportDraft, invoiceDuplicates } from './invoice-imports.js';
 import { visibleSnapshotRow, snapshotSummary, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike } from "./snapshot-store.js";
 import { routeServiceOperations } from './service-operations.js';
+import { stableReviewJson, readReviewReceipt, commitInvoiceReview } from './invoice-review-store.js';
 import { routeReleases } from "./releases.js";
 import {
   authenticateExternal,
@@ -991,8 +992,9 @@ function invoiceDataForServiceDocument(entry, attachment) {
   return data.confirmedAt ? data : normalizeServiceDocumentOcr(data) || {};
 }
 
-function adminServiceDocumentRecord(bike, entry, attachment, pending = null, allBikes = []) {
+function adminServiceDocumentRecord(bike, entry, attachment, pending = null, allBikes = [], compact = false) {
   const data = invoiceDataForServiceDocument(entry, attachment);
+  if(compact)for(const field of ['rawText','fieldEvidence','analysisTimings'])delete data[field];
   const warnings = serviceDocumentWarnings(bike, entry, data);
   const name = attachment?.name || buildInvoiceDisplayName(bike?.name, data.invoiceDate, entry?.date, attachment?.originalName);
   const processing = pending ? serviceRenderState(pending.payload || {}, pending.operationStatus || "pending", pending.createdAt) : null;
@@ -1008,7 +1010,7 @@ function adminServiceDocumentRecord(bike, entry, attachment, pending = null, all
     serviceDate: String(entry?.date || pending?.serviceDate || ""),
     serviceKm: Number(entry?.km || pending?.serviceKm || 0),
     serviceUpdatedAt: String(entry?.updatedAt || ""),
-    reviewJournal: ServiceModel.journal(entry?.reviewJournal),
+    reviewJournal: compact ? [] : ServiceModel.journal(entry?.reviewJournal),
     tasks: Array.isArray(entry?.tasks) ? entry.tasks.slice(0, 30) : [],
     key: String(attachment?.key || ""),
     name,
@@ -1023,6 +1025,7 @@ function adminServiceDocumentRecord(bike, entry, attachment, pending = null, all
     warnings,
     transferOptions: [],
     transferOptionsLazy: true,
+    detailsLazy: Boolean(compact && attachment?.key),
     error: String(attachment?.ocrError || processing?.error || ""),
     processing: Boolean(processing && ["processing", "delayed"].includes(processing.status)),
     progress: processing ? processing.progress : (status === "confirmed" ? 100 : 0),
@@ -1046,10 +1049,15 @@ async function invoiceTransferOptions(request, env) {
   const attachment = located?.entry.attachments?.find(item => String(item.key) === key);
   if (!located || !attachment) return json({ error: "Το τιμολόγιο δεν βρέθηκε." }, 404);
   const data = invoiceDataForServiceDocument(located.entry, attachment);
+  const extra = {};
+  if(url.searchParams.get('includeDocument')==='1'){
+    extra.document=adminServiceDocumentRecord(located.bike,located.entry,attachment);
+    extra.document.reviewRevision=await invoiceReviewRevision(located.entry,attachment);
+  }
   const names = await fleetNames(env);
   const exact = data.plate ? names.filter(b => b.id !== located.bike.id && invoicePlateKey(b.name) === invoicePlateKey(data.plate)) : [];
   const candidates = exact.length ? exact : names.filter(b => b.id !== located.bike.id);
-  if (!candidates.length) return json({ options: [] });
+  if (!candidates.length) return json({ options: [], ...extra });
   const ids = candidates.map(b => String(b.id));
   const rows = await env.DB.prepare(`SELECT json_extract(b.value,'$.id') AS bikeId, json_extract(b.value,'$.name') AS bikeName,
     json_extract(h.value,'$.id') AS entryId, json_extract(h.value,'$.date') AS serviceDate, json_extract(h.value,'$.km') AS serviceKm
@@ -1057,7 +1065,7 @@ async function invoiceTransferOptions(request, env) {
     WHERE s.id=1 AND json_extract(b.value,'$.id') IN (${ids.map(() => '?').join(',')})
     AND json_extract(h.value,'$.type') != 'check' ORDER BY bikeName, serviceKm DESC LIMIT 200`).bind(...ids).all();
   const options = (rows.results || []).sort((a,b) => String(a.bikeName).localeCompare(String(b.bikeName), "el") || Number(b.serviceKm || 0) - Number(a.serviceKm || 0));
-  return json({ options });
+  return json({ options, ...extra });
 }
 
 async function listAdminServiceDocuments(request, env) {
@@ -1066,8 +1074,16 @@ async function listAdminServiceDocuments(request, env) {
   catch (error) { return json({ error: error?.message || "Χρειάζεται σύνδεση διαχείρισης." }, Number(error?.status) || 401); }
   if (!actor) return json({ error: "Χρειάζεται σύνδεση διαχείρισης." }, 401);
   const summary = await snapshotSummary(env);
-  const invoiceRows = await env.DB.prepare(`SELECT json_extract(b.value,'$.id') AS bike_id,
-    json_extract(b.value,'$.name') AS bike_name, h.value AS entry_json
+  const invoiceRows = await env.DB.prepare(`SELECT s.version AS snapshot_version, json_extract(b.value,'$.id') AS bike_id,
+    json_extract(b.value,'$.name') AS bike_name,
+    json_object('id',json_extract(h.value,'$.id'),'type',json_extract(h.value,'$.type'),
+      'date',json_extract(h.value,'$.date'),'km',json_extract(h.value,'$.km'),
+      'updatedAt',json_extract(h.value,'$.updatedAt'),'tasks',json_extract(h.value,'$.tasks'),
+      'invoiceData',json_remove(json_extract(h.value,'$.invoiceData'),'$.rawText','$.fieldEvidence','$.analysisTimings'),
+      'attachments',json((SELECT COALESCE(json_group_array(json(json_remove(a.value,
+        '$.ocr.rawText','$.ocr.fieldEvidence','$.ocr.analysisTimings',
+        '$.qrData.rawText','$.qrData.fieldEvidence','$.qrData.analysisTimings'))),'[]')
+        FROM json_each(h.value,'$.attachments') a))) AS entry_json
     FROM fleet_snapshot s, json_each(s.data,'$.bikes') b, json_each(b.value,'$.history') h
     WHERE s.id=1 AND json_extract(h.value,'$.type') != 'check'
     AND (json_array_length(h.value,'$.attachments') > 0 OR json_extract(h.value,'$.invoiceData.qrUrl') IS NOT NULL)
@@ -1077,7 +1093,7 @@ async function listAdminServiceDocuments(request, env) {
     if (!bikes.has(row.bike_id)) bikes.set(row.bike_id, { id: row.bike_id, name: row.bike_name, history: [] });
     bikes.get(row.bike_id).history.push(JSON.parse(row.entry_json));
   }
-  const snapshot = { version: summary.version, data: { bikes: [...bikes.values()] } };
+  const snapshot = { version: Number(invoiceRows.results?.[0]?.snapshot_version ?? summary.version), data: { bikes: [...bikes.values()] } };
   const pendingRows = await env.DB.prepare("SELECT id, payload, status, created_at FROM fleet_operations WHERE type = 'service_document_render' AND status IN ('pending','error') ORDER BY created_at DESC LIMIT 100").all();
   const pendingIds=new Set((pendingRows.results||[]).map(row=>row.id));
   const documents = [];
@@ -1085,7 +1101,7 @@ async function listAdminServiceDocuments(request, env) {
     for (const entry of bike.history || []) {
       if (entry.type === "check") continue;
       for (const attachment of entry.attachments || []) {
-        documents.push(adminServiceDocumentRecord(bike, entry, attachment, null, snapshot.data.bikes));
+        documents.push(adminServiceDocumentRecord(bike, entry, attachment, null, snapshot.data.bikes,true));
       }
       const legacy=ServiceModel.qrDocumentState(entry);
       if (entry.invoiceData?.qrUrl && !pendingIds.has(entry.invoiceData.qrJobId) && (legacy?.needsVerification || (!(entry.attachments || []).length && !entry.invoiceData.qrJobId))) {
@@ -1103,7 +1119,7 @@ async function listAdminServiceDocuments(request, env) {
           } : {},
           operationStatus: legacy?.needsVerification || entry.invoiceData.qrProcessingStatus === "error" ? "error" : "pending",
           createdAt: entry.invoiceData.qrProcessingStartedAt || entry.updatedAt || ""
-        }, snapshot.data.bikes));
+        }, snapshot.data.bikes,true));
       }
     }
   }
@@ -1113,15 +1129,15 @@ async function listAdminServiceDocuments(request, env) {
     const bike = (snapshot.data.bikes || []).find((item) => String(item.id) === String(payload.bikeId));
     const entry = bike && (bike.history || []).find((item) => String(item.id) === String(payload.entryId));
     if (!bike || !entry) continue;
-    if(payload.sourcePhotoKey){const photo=entry.attachments?.find(file=>file.key===payload.sourcePhotoKey);if(photo){const index=documents.findIndex(item=>item.key===photo.key);if(index>=0)documents[index]=adminServiceDocumentRecord(bike,entry,photo,{jobId:row.id,payload,operationStatus:row.status,createdAt:row.created_at},snapshot.data.bikes);continue;}}
-    if(payload.documentKey){const attachment=entry.attachments?.find(file=>file.key===payload.documentKey);if(attachment&&attachment.renderJobId!==row.id){const index=documents.findIndex(item=>item.key===payload.documentKey);if(index>=0)documents[index]=adminServiceDocumentRecord(bike,entry,attachment,{jobId:row.id,payload,operationStatus:row.status,createdAt:row.created_at},snapshot.data.bikes);}continue;}
+    if(payload.sourcePhotoKey){const photo=entry.attachments?.find(file=>file.key===payload.sourcePhotoKey);if(photo){const index=documents.findIndex(item=>item.key===photo.key);if(index>=0)documents[index]=adminServiceDocumentRecord(bike,entry,photo,{jobId:row.id,payload,operationStatus:row.status,createdAt:row.created_at},snapshot.data.bikes,true);continue;}}
+    if(payload.documentKey){const attachment=entry.attachments?.find(file=>file.key===payload.documentKey);if(attachment&&attachment.renderJobId!==row.id){const index=documents.findIndex(item=>item.key===payload.documentKey);if(index>=0)documents[index]=adminServiceDocumentRecord(bike,entry,attachment,{jobId:row.id,payload,operationStatus:row.status,createdAt:row.created_at},snapshot.data.bikes,true);}continue;}
     const existing = (entry.attachments || []).find((item) => String(item.renderJobId) === String(row.id) || String(item.qrUrl || item.qrValue) === String(payload.qrUrl));
     if (existing) continue;
     documents.push(adminServiceDocumentRecord(bike, entry, null, {
       jobId: row.id, bikeId: bike.id, bikeName: bike.name, entryId: entry.id,
       serviceDate: entry.date, serviceKm: entry.km, qrValue: payload.qrValue, qrUrl: payload.qrUrl,
       payload, operationStatus: row.status, createdAt: row.created_at
-    }, snapshot.data.bikes));
+    }, snapshot.data.bikes,true));
   }
   documents.sort((left, right) => String(right.uploadedAt || right.serviceDate || "").localeCompare(String(left.uploadedAt || left.serviceDate || "")));
   return json({ ok: true, documents, serverVersion: snapshot.version, generatedAt: new Date().toISOString() });
@@ -1143,11 +1159,13 @@ async function markAdminServiceDocumentSeen(request, env) {
     const entry = located.entry;
     const now = new Date().toISOString();
     const data = normalizeServiceInvoiceData(entry.invoiceData) || {};
+    const attachment = key && (entry.attachments || []).find(item => String(item.key) === key);
+    if(key && !attachment)return json({error:'Το τιμολόγιο δεν βρέθηκε.'},404);
+    if(data.reviewSeenAt && (!attachment || attachment.reviewSeenAt))return json({ok:true,reviewSeenAt:attachment?.reviewSeenAt||data.reviewSeenAt,version:located.version,unchanged:true});
     data.reviewSeenAt = data.reviewSeenAt || now;
     entry.invoiceData = data;
-    const attachment = key && (entry.attachments || []).find(item => String(item.key) === key);
     if (attachment) attachment.reviewSeenAt = attachment.reviewSeenAt || now;
-    entry.updatedAt = now;
+    // Viewing an invoice changes only seen metadata, never the service revision.
     const version = await writeServiceEntry(env, located, entry, "admin-service-document-seen", now);
     if (version) return json({ ok: true, reviewSeenAt: data.reviewSeenAt, version });
   }
@@ -1155,75 +1173,56 @@ async function markAdminServiceDocumentSeen(request, env) {
 }
 
 async function applyServiceDocumentReprocess(env, request, actor, snapshot, fleet, originalBike, originalEntry, originalAttachment, previous, extracted, ocrWarning, options = {}) {
-  const names = await fleetNames(env);
-  for (let attempt=0; attempt<5; attempt++) {
-    const located = await readServiceEntry(env, originalBike.id, originalEntry.id);
-    const bike = located?.bike;
-    const entry = located?.entry;
-    const attachment = entry?.attachments?.find(item => String(item.key) === String(originalAttachment.key));
-    if (!attachment) throw new Error("Το τιμολόγιο διαγράφηκε κατά την ανάγνωση.");
+  const names=await fleetNames(env),owner=actor||{id:'android-server',role:'system'};
+  const requestId=options.jobId?'analysis-'+options.jobId:crypto.randomUUID();
+  const hash=await sha256(stableReviewJson({key:originalAttachment.key,extracted,ocrWarning,jobId:options.jobId||''}));
+  const receipt=await readReviewReceipt(env,owner,requestId,hash);
+  if(receipt&&!receipt.conflict)return receipt;
+  for(let attempt=0;attempt<5;attempt++){
+    const located=await readServiceEntry(env,originalBike.id,originalEntry.id),entry=located?.entry,bike=located?.bike;
+    const attachment=entry?.attachments?.find(item=>String(item.key)===String(originalAttachment.key));
+    if(!attachment)throw new Error('Το τιμολόγιο διαγράφηκε κατά την ανάγνωση.');
     if(options.jobId&&attachment.renderJobId===options.jobId)return {document:adminServiceDocumentRecord(bike,entry,attachment),version:located.version,reused:true};
-    if(options.jobId&&await renderJobCancelled(env,options.jobId))throw new Error("Η προσπάθεια διακόπηκε.");
-    const current = invoiceDataForServiceDocument(entry, attachment);
-    const fresh = refineInvoicePlateForFleet(normalizeServiceDocumentOcr({
-      ...(extracted || current),
-      qrUrl: attachment.qrUrl || current.qrUrl || "",
-      source: extracted?.source || current.source || options.source || "reprocessed"
-    }) || {}, names);
-    const confirmed = Boolean(current.confirmedAt || current.reviewStatus === "confirmed");
-    // Manual corrections remain authoritative after confirmation. For an
-    // unconfirmed invoice the new extraction replaces the old one.
-    const data = confirmed
-      ? mergeServerInvoiceData(fresh, current)
-      : mergeServerInvoiceData(current, fresh);
-    const now = new Date().toISOString();
-    data.ocrReprocessedAt = now;
-    // Keep human-entered invoice fields; refresh metadata of the latest attempt.
-    for (const field of ["ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence"]) {
-      if (fresh[field] !== undefined) data[field] = fresh[field];
+    if(options.jobId&&await renderJobCancelled(env,options.jobId))throw new Error('Η προσπάθεια διακόπηκε.');
+    const current=invoiceDataForServiceDocument(entry,attachment),before=reviewBusinessState(entry),revisionBefore=await invoiceReviewRevision(entry,attachment);
+    const fresh=refineInvoicePlateForFleet(normalizeServiceDocumentOcr({...extracted,qrUrl:attachment.qrUrl||current.qrUrl||'',source:extracted?.source||current.source||options.source||'reprocessed'})||{},names);
+    const confirmed=Boolean(current.confirmedAt||current.reviewStatus==='confirmed');
+    // An unavailable reader may update error/evidence metadata only. It must
+    // not perform the old retroactive cleanup of service tasks/notes/workshop.
+    const data=ocrWarning?{...current}:confirmed?mergeServerInvoiceData(fresh,current):mergeServerInvoiceData(current,fresh);
+    const now=new Date().toISOString();data.ocrReprocessedAt=now;
+    for(const field of ['ocrSource','ocrFallbackUsed','ocrFallbackReason','ocrFallbackError','localReadStatus','localReadAt','ocrConfidence'])if(fresh[field]!==undefined)data[field]=fresh[field];
+    if(ocrWarning)data.ocrFallbackError=cleanText(ocrWarning,500);
+    data.reviewStatus=current.reviewStatus||data.reviewStatus||'';
+    if(current.confirmedAt)data.confirmedAt=current.confirmedAt;
+    if(current.reviewedBy)data.reviewedBy=current.reviewedBy;
+    attachment.ocr=normalizeServiceDocumentOcr(data);attachment.ocrError=cleanText(ocrWarning,500);
+    if(options.jobId){
+      attachment.renderJobId=options.jobId;Object.assign(attachment.ocr,{qrJobId:options.jobId,qrProcessingStatus:ocrWarning?'error':'completed',qrProcessingProgress:ocrWarning?'0':'100',qrProcessingStage:ocrWarning?'Η ανάγνωση δεν ολοκληρώθηκε':'Ολοκληρώθηκε'});
+      if(ocrWarning)attachment.ocr.qrProcessingError=cleanText(ocrWarning,500);else delete attachment.ocr.qrProcessingError;
     }
-    data.reviewStatus = current.reviewStatus || data.reviewStatus || "";
-    if (current.confirmedAt) data.confirmedAt = current.confirmedAt;
-    if (current.reviewedBy) data.reviewedBy = current.reviewedBy;
-    attachment.ocr = normalizeServiceDocumentOcr(data);
-    attachment.ocrError = cleanText(ocrWarning, 500);
-    if(options.jobId){attachment.renderJobId=options.jobId;attachment.ocr.qrJobId=options.jobId;attachment.ocr.qrProcessingStatus="completed";attachment.ocr.qrProcessingProgress="100";attachment.ocr.qrProcessingStage="Ολοκληρώθηκε";delete attachment.ocr.qrProcessingError;}
-    attachment.name = uniqueInvoiceDisplayName(
-      buildInvoiceDisplayName(bike.name, data.invoiceDate, entry.date, attachment.name),
-      entry.attachments,
-      attachment.key
-    );
-    entry.invoiceData = attachment.ocr;
-    entry.tasks = mergeInvoiceTasks(entry.tasks, invoiceWorkItems(fresh).concat(invoiceWorkItems(attachment.ocr)));
-    entry.notes = entry.tasks.join("\n");
-    if (attachment.ocr.supplier) entry.workshop = attachment.ocr.supplier;
-    entry.updatedAt = now;
-    bike.updatedAt = now;
-    const normalizedEntry = normalizeHistory([entry])[0];
-    const version = await writeServiceEntry(env, located, normalizedEntry, options.source || "admin-service-document-reprocess", now, options.jobId || "");
-    if (!version) continue;
-    const operationId = crypto.randomUUID();
-    const bikeRow = await env.DB.prepare("SELECT b.value AS bike_json FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? LIMIT 1")
-      .bind(bike.id).first();
-    if (!bikeRow?.bike_json) throw new Error("Η μηχανή αφαιρέθηκε κατά την ανάγνωση.");
-    await env.DB.batch([
-      env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
-        VALUES (?,?,?,'available',1,?) ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,
-        odometer=excluded.odometer,version=vehicle_registry.version+1,updated_at=excluded.updated_at`)
-        .bind(bike.id, bike.name, bike.currentKm, now),
-      env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)")
-        .bind(operationId, '{"bike":' + bikeRow.bike_json + '}', now)
-    ]);
-    if(options.jobId)await resolveServiceDocumentFailure(env,options.jobId);
-    const warnings = serviceDocumentWarnings(bike, normalizedEntry, attachment.ocr);
-    if (options.audit !== false && actor) await recordExternalAudit(env, request, actor, "service_document_reprocessed", "service_document", attachment.key,
-      { bikeId: bike.id, entryId: entry.id, previous: current },
-      { bikeId: bike.id, entryId: entry.id, invoiceData: attachment.ocr, warnings },
-      options.auditLabel || "Νέα ανάγνωση και καθαρισμός παλιού τιμολογίου", false);
-    return { confirmedPreserved: confirmed, ocrWarning: cleanText(ocrWarning, 500),
-      document: adminServiceDocumentRecord(bike, normalizedEntry, attachment), version, operationId, warnings };
+    if(!ocrWarning){
+      attachment.name=uniqueInvoiceDisplayName(buildInvoiceDisplayName(bike.name,data.invoiceDate,entry.date,attachment.name),entry.attachments,attachment.key);
+      const tasks=mergeInvoiceTasks(entry.tasks,invoiceWorkItems(confirmed?current:fresh).concat(invoiceWorkItems(attachment.ocr)));
+      if(stableReviewJson(tasks)!==stableReviewJson(entry.tasks)){entry.tasks=tasks;entry.notes=tasks.join('\n');}
+      if(attachment.ocr.supplier&&attachment.ocr.supplier!==current.supplier)entry.workshop=attachment.ocr.supplier;
+    }
+    if(!ocrWarning)entry.invoiceData=attachment.ocr;
+    const serviceChanged=stableReviewJson(reviewBusinessState(entry))!==stableReviewJson(before);
+    const revisionAfter=await invoiceReviewRevision(entry,attachment),contentChanged=revisionBefore!==revisionAfter;
+    if(contentChanged)entry.updatedAt=now;
+    const normalized=normalizeHistory([entry])[0],storedFile=normalized.attachments.find(item=>item.key===attachment.key);
+    const document=adminServiceDocumentRecord(bike,normalized,storedFile,null,[],true);document.reviewRevision=revisionAfter;
+    const result={confirmedPreserved:confirmed,ocrWarning:cleanText(ocrWarning,500),serviceChanged,document,warnings:document.warnings};
+    const saved=await commitInvoiceReview(env,{actor:owner,requestId,hash,updates:[{located,entry:normalized,bikePatch:contentChanged?{updatedAt:now}:{}}],result,now,changed:true,
+      source:options.source||'admin-service-document-reprocess',syncBike:!ocrWarning,renderJobId:options.jobId||'',
+      audit:options.audit===false?false:{action:ocrWarning?'service_document_read_failed':'service_document_reprocessed',before:{bikeId:bike.id,entryId:entry.id,invoiceData:ServiceModel.state(JSON.parse(located.entryJson),current).invoiceData},after:{bikeId:bike.id,entryId:entry.id,serviceChanged,invoiceData:ServiceModel.state(normalized,attachment.ocr).invoiceData,error:cleanText(ocrWarning,500)},reason:options.auditLabel||'Νέα ανάγνωση τιμολογίου',ip:request.headers.get('CF-Connecting-IP')||''}});
+    if(!saved)continue;
+    if(saved.conflict)throw new Error('Η εργασία ανάγνωσης έχει ήδη διαφορετικό αποτέλεσμα.');
+    if(options.jobId&&!ocrWarning)await resolveServiceDocumentFailure(env,options.jobId);
+    return saved;
   }
-  throw new Error("Το service ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά την ανάγνωση.");
+  throw new Error('Το service ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά την ανάγνωση.');
 }
 
 async function reprocessAdminServiceDocument(request, env) {
@@ -1270,9 +1269,7 @@ async function reprocessAdminServiceDocument(request, env) {
       ocrFallbackError: ""
     });
   } catch (error) {
-    // Even if the OCR service is temporarily unavailable, the reprocess
-    // action still applies the retroactive cleanup to the stored extraction:
-    // object values, duplicate work lines and item codes are normalized.
+    // Failed extraction records the error without applying service changes.
     ocrWarning = error?.message || "Δεν ολοκληρώθηκε η νέα ανάγνωση του τιμολογίου.";
     extracted = normalizeServiceDocumentOcr({
       ...current,
@@ -1667,173 +1664,110 @@ async function extractStoredInvoiceOcr(env, bytes, type, filename) {
   throw new Error("Το αρχείο του τιμολογίου δεν είναι υποστηριζόμενο PDF ή εικόνα.");
 }
 
+function reviewBusinessState(entry) {
+  return { ...ServiceModel.state(entry, {}), id:entry.id, type:entry.type, date:entry.date, cost:entry.cost || '' };
+}
+
+async function invoiceReviewRevision(entry, attachment) {
+  const current = invoiceDataForServiceDocument(entry,attachment), data = {};
+  for (const field of ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','lineItems','parts',
+    'plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm']) {
+    if (current[field] !== undefined) data[field] = current[field];
+  }
+  return sha256(stableReviewJson({entry:reviewBusinessState(entry),key:attachment.key,data}));
+}
+
+async function invoiceReviewResponse(env, body, result) {
+  if (result.conflict) return json({error:'Ο κωδικός αυτής της αποστολής χρησιμοποιήθηκε με διαφορετικές διορθώσεις. Άνοιξε ξανά τον έλεγχο.',code:'review_request_conflict'},409);
+  if (body.compactResponse === true) return json(result);
+  // Older clients still receive their bike field. Only that bike is loaded.
+  const located = await readSnapshotBike(env,String(result.document.bikeId));
+  const entry=located?.bike.history?.find(item=>String(item.id)===String(result.document.entryId)),file=entry?.attachments?.find(item=>item.key===result.document.key);
+  const document=entry&&file?adminServiceDocumentRecord(located.bike,entry,file):result.document;
+  if(entry&&file)document.reviewRevision=await invoiceReviewRevision(entry,file);
+  return json({...result,document,bike:located?.bike || null});
+}
+
 async function reviewAdminServiceDocument(request, env) {
   let actor;
-  try { actor = await authenticateExternal(request, env, "fleet.manage"); }
-  catch (error) { return json({ error: error?.message || "Χρειάζεται σύνδεση διαχείρισης." }, Number(error?.status) || 401); }
-  if (!isManagementActor(actor)) return json({ error: "Η επιβεβαίωση τιμολογίου επιτρέπεται μόνο σε λογαριασμό διαχείρισης." }, 403);
-  const body = await request.json().catch(() => ({}));
-  const bikeId = cleanText(body.bikeId, 100);
-  const entryId = cleanText(body.entryId, 100);
-  const key = cleanText(body.key, 500);
-  if (!bikeId || !entryId || !key || !isServiceDocumentKey(key)) return json({ error: "Λείπει η σύνδεση με το τιμολόγιο." }, 400);
-  const snapshot = await readSnapshot(env);
-  const fleet = JSON.parse(JSON.stringify(snapshot.data || { bikes: [] }));
-  const bikeIndex = (fleet.bikes || []).findIndex((item) => String(item.id) === bikeId);
-  const bike = bikeIndex >= 0 ? fleet.bikes[bikeIndex] : null;
-  const entry = bike && (bike.history || []).find((item) => String(item.id) === entryId);
-  const attachment = entry && (entry.attachments || []).find((item) => String(item.key) === key);
-  if (!bike || !entry || !attachment || entry.type === "check") return json({ error: "Το τιμολόγιο ή το service δεν βρέθηκε." }, 404);
-  if (body.expectedEntryUpdatedAt !== undefined && String(body.expectedEntryUpdatedAt) !== String(entry.updatedAt || "")) return json({ error: "Το service άλλαξε. Άνοιξε ξανά τον έλεγχο." }, 409);
-  const submitted = body.invoiceData && typeof body.invoiceData === "object" ? body.invoiceData : {};
-  const original = invoiceDataForServiceDocument(entry, attachment);
-  const beforeReview = ServiceModel.state(entry, original);
-  const data = mergeServerInvoiceData(original, submitted);
-  for (const field of ["supplier","invoiceNumber","invoiceDate","plate","odometerKm","totalAmount","netAmount","vatAmount","workPerformed","comments"]) if (Object.hasOwn(submitted,field)) data[field] = cleanText(submitted[field],field === "workPerformed" ? 2000 : 500);
-  const submittedTasks = Array.isArray(body.tasks) ? body.tasks : entry.tasks;
-  const tasks = mergeInvoiceTasks(submittedTasks, invoiceWorkItems(data));
-  const now = new Date().toISOString();
-  data.confirmedAt = now;
-  data.reviewSeenAt = data.reviewSeenAt || attachment.reviewSeenAt || now;
-  data.reviewedBy = cleanText(actor.full_name || actor.fullName || actor.username || actor.id || "admin", 120);
-  data.reviewStatus = "confirmed";
-
-  const destinationBikeId = !body.keepOnCurrent && body.moveToBikeId && body.moveToEntryId ? cleanText(body.moveToBikeId, 100) : bikeId;
-  const destinationEntryId = !body.keepOnCurrent && body.moveToBikeId && body.moveToEntryId ? cleanText(body.moveToEntryId, 100) : entryId;
-  const destinationBike = fleet.bikes.find((item) => String(item.id) === destinationBikeId);
-  const destinationEntry = destinationBike?.history?.find((item) => String(item.id) === destinationEntryId);
-  if (!destinationBike || !destinationEntry || destinationEntry.type === "check") return json({ error: "Το service προορισμού δεν βρέθηκε." }, 404);
-  const destinationBefore = ServiceModel.state(destinationEntry, invoiceDataForServiceDocument(destinationEntry, attachment));
-  const destinationKmBefore = Number(destinationEntry.km);
-  if (body.mileageDecision && !["keep","apply"].includes(body.mileageDecision)) return json({ error: "Μη έγκυρη επιλογή χιλιομέτρων." }, 400);
-  if (body.mileageDecision && Number(body.expectedServiceKm) !== destinationKmBefore) return json({ error: "Τα χιλιόμετρα άλλαξαν. Άνοιξε ξανά τον έλεγχο." }, 409);
-  if (body.updateServiceKm === true) {
-    const invoiceKm = invoiceOdometer(data.odometerKm);
-    if (!invoiceKm || invoiceKm > 2_000_000_000) return json({ error: "Γράψε σωστά τα χιλιόμετρα του τιμολογίου." }, 400);
-    if (Number(body.expectedServiceKm) !== Number(destinationEntry.km)) return json({ error: "Τα χιλιόμετρα του service άλλαξαν. Άνοιξε ξανά τον έλεγχο και επιβεβαίωσε τη διόρθωση." }, 409);
-    data.serviceKmBeforeCorrection = String(destinationEntry.km);
-    data.serviceKmAfterCorrection = String(invoiceKm);
-    destinationEntry.km = invoiceKm;
-    destinationBike.historyCorrectedAt = now;
-    destinationBike.odometerFloorKm = await workforceOdometerFloor(env, destinationBikeId);
-    data.correctedByUserAt = now;
+  try { actor = await authenticateExternal(request, env, 'fleet.manage'); }
+  catch (error) { return json({error:error?.message || 'Χρειάζεται σύνδεση διαχείρισης.'},Number(error?.status)||401); }
+  if (!isManagementActor(actor)) return json({error:'Η επιβεβαίωση τιμολογίου επιτρέπεται μόνο σε λογαριασμό διαχείρισης.'},403);
+  const body = await request.json().catch(()=>({})),bikeId=cleanText(body.bikeId,100),entryId=cleanText(body.entryId,100),key=cleanText(body.key,500);
+  if (!bikeId || !entryId || !isServiceDocumentKey(key)) return json({error:'Λείπει η σύνδεση με το τιμολόγιο.'},400);
+  if (body.requestId !== undefined && !/^[a-zA-Z0-9_-]{16,100}$/.test(String(body.requestId))) return json({error:'Μη έγκυρος κωδικός αποθήκευσης.'},400);
+  if (body.expectedReviewRevision !== undefined && !/^[a-f0-9]{64}$/.test(String(body.expectedReviewRevision))) return json({error:'Μη έγκυρη έκδοση ελέγχου.'},400);
+  const requestId=body.requestId || crypto.randomUUID(),hash=await sha256(stableReviewJson(body));
+  const receipt=await readReviewReceipt(env,actor,requestId,hash);
+  if (receipt) return invoiceReviewResponse(env,body,receipt);
+  const shouldMove=!body.keepOnCurrent && body.moveToBikeId && body.moveToEntryId;
+  const targetBikeId=shouldMove?cleanText(body.moveToBikeId,100):bikeId,targetEntryId=shouldMove?cleanText(body.moveToEntryId,100):entryId;
+  if (shouldMove && targetBikeId===bikeId && targetEntryId===entryId) return json({error:'Το τιμολόγιο είναι ήδη συνδεδεμένο με αυτό το service.'},400);
+  for (let attempt=0;attempt<5;attempt++) {
+    const located=await readServiceEntry(env,bikeId,entryId),entry=located?.entry;
+    const attachment=entry?.attachments?.find(item=>String(item.key)===key);
+    if (!entry || entry.type==='check' || !attachment) return json({error:'Το τιμολόγιο ή το service δεν βρέθηκε.'},404);
+    const destination=shouldMove?await readServiceEntry(env,targetBikeId,targetEntryId):located,target=destination?.entry;
+    if (!target || target.type==='check') return json({error:'Το service προορισμού δεν βρέθηκε.'},404);
+    if (shouldMove && target.attachments.filter(item=>item.key!==key).length>=MAX_SERVICE_ATTACHMENTS) return json({error:'Το service προορισμού έχει ήδη 10 τιμολόγια. Τα υπάρχοντα αρχεία διατηρούνται.'},409);
+    const revision=body.expectedReviewRevision?await invoiceReviewRevision(entry,attachment):null;
+    const original=invoiceDataForServiceDocument(entry,attachment),before=ServiceModel.state(entry,original),targetBefore=ServiceModel.state(target,invoiceDataForServiceDocument(target,target.attachments?.at(-1)));
+    const sourceBusiness=reviewBusinessState(entry),targetBusiness=reviewBusinessState(target),submitted=body.invoiceData&&typeof body.invoiceData==='object'&&!Array.isArray(body.invoiceData)?body.invoiceData:{};
+    const data=mergeServerInvoiceData(original,submitted),now=new Date().toISOString(),name=cleanText(actor.full_name||actor.fullName||actor.username||actor.user_id||'admin',120);
+    for (const field of ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments']) if(Object.hasOwn(submitted,field)) data[field]=cleanText(submitted[field],field==='workPerformed'?2000:500);
+    const tasks=mergeInvoiceTasks(Array.isArray(body.tasks)?body.tasks:entry.tasks,invoiceWorkItems(data));
+    if (body.mileageDecision && !['keep','apply'].includes(body.mileageDecision)) return json({error:'Μη έγκυρη επιλογή χιλιομέτρων.'},400);
+    if ((body.mileageDecision || body.updateServiceKm===true) && Number(body.expectedServiceKm)!==Number(target.km)) return json({error:'Τα χιλιόμετρα άλλαξαν. Άνοιξε ξανά τον έλεγχο.',code:'review_conflict'},409);
+    const invoiceKm=invoiceOdometer(data.odometerKm),kmChanged=body.updateServiceKm===true && invoiceKm!==Number(target.km);
+    if (body.updateServiceKm===true && (!invoiceKm || invoiceKm>2000000000)) return json({error:'Γράψε σωστά τα χιλιόμετρα του τιμολογίου.'},400);
+    if (kmChanged) {data.serviceKmBeforeCorrection=String(target.km);data.serviceKmAfterCorrection=String(invoiceKm);target.km=invoiceKm;data.correctedByUserAt=now;}
+    if (invoiceKm && (body.mileageDecision || body.updateServiceKm===true)) Object.assign(data,{mileageResolution:body.updateServiceKm===true?'apply':'keep',mileageResolutionEntryId:targetEntryId,mileageResolutionRead:String(invoiceKm),mileageResolutionServiceKm:String(target.km)});
+    if (body.keepOnCurrent===true && data.plate && invoicePlateKey(data.plate)!==invoicePlateKey(located.bike.name)) Object.assign(data,{plateResolution:'kept-current',plateResolutionBikeId:bikeId,plateResolutionPlate:invoicePlateKey(located.bike.name),plateResolutionRead:invoicePlateKey(data.plate)});
+    const meaningful=['plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','invoiceDate','supplier','invoiceNumber','comments','lineItems','parts','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead'];
+    const contentChanged=meaningful.some(field=>stableReviewJson(data[field]??null)!==stableReviewJson(original[field]??null));
+    if (contentChanged) data.correctedByUserAt=now;
+    data.confirmedAt=contentChanged?now:original.confirmedAt||now;
+    data.reviewedBy=contentChanged?name:original.reviewedBy||name;
+    data.reviewStatus='confirmed';data.reviewSeenAt=original.reviewSeenAt||attachment.reviewSeenAt||now;
+    let outputFile=attachment;
+    if (shouldMove) {
+      const remaining=entry.attachments.filter(item=>item.key!==key),otherTasks=remaining.flatMap(item=>invoiceWorkItems(mergeServerInvoiceData(item.qrData,item.ocr)));
+      const imported=invoiceWorkItems(data).map(normalizedTaskKey),shared=otherTasks.map(normalizedTaskKey);
+      entry.tasks=(entry.tasks||[]).filter(task=>!imported.includes(normalizedTaskKey(task))||shared.includes(normalizedTaskKey(task)));
+      if(stableReviewJson(entry.tasks)!==stableReviewJson(sourceBusiness.tasks))entry.notes=entry.tasks.join('\n');
+      entry.attachments=remaining;const last=remaining.at(-1);entry.invoiceData=last?mergeServerInvoiceData(last.qrData,last.ocr):null;
+      outputFile={...attachment};target.attachments=target.attachments.filter(item=>item.key!==key).concat(outputFile);
+      target.tasks=mergeInvoiceTasks(target.tasks,invoiceWorkItems(data));
+    } else target.tasks=tasks.length?tasks:target.tasks;
+    if (stableReviewJson(target.tasks)!==stableReviewJson(targetBusiness.tasks))target.notes=target.tasks.join('\n');
+    if (data.supplier)target.workshop=data.supplier;
+    const newName=uniqueInvoiceDisplayName(buildInvoiceDisplayName(destination.bike.name,data.invoiceDate,target.date,attachment.name),target.attachments,key);
+    const invoiceChanged=shouldMove || stableReviewJson(data)!==stableReviewJson(original) || !!attachment.ocrError || attachment.name!==newName;
+    const serviceChanged=shouldMove || stableReviewJson(reviewBusinessState(target))!==stableReviewJson(targetBusiness);
+    const changed=invoiceChanged||serviceChanged;
+    if (changed && ((body.expectedReviewRevision && revision!==body.expectedReviewRevision) || (!body.expectedReviewRevision && body.expectedEntryUpdatedAt!==undefined && String(body.expectedEntryUpdatedAt)!==String(JSON.parse(located.entryJson).updatedAt||'')))) return json({error:'Το service ή τα στοιχεία του τιμολογίου άλλαξαν. Άνοιξε ξανά τον έλεγχο· οι διορθώσεις σου δεν αντικατέστησαν νεότερα δεδομένα.',code:'review_conflict'},409);
+    const updates=[];
+    if(changed){
+      Object.assign(outputFile,{ocr:data,qrData:data,ocrError:'',reviewSeenAt:data.reviewSeenAt,name:newName});target.invoiceData=data;target.updatedAt=now;
+      ServiceModel.decision(target,key,shouldMove?targetBefore:before,data,name,now,!!shouldMove);
+      if(shouldMove){entry.updatedAt=now;updates.push({located,entry:normalizeHistory([entry])[0],bikePatch:{updatedAt:now}});}
+      updates.push({located:destination,entry:normalizeHistory([target])[0],bikePatch:{updatedAt:now}});
+    } else updates.push({located,entry,bikePatch:{}});
+    if(kmChanged){
+      const full=await readSnapshotBike(env,targetBikeId);
+      if(!full)return json({error:'Το μηχανάκι προορισμού δεν βρέθηκε.'},404);
+      for(const update of updates)if(String(update.located.bike.id)===targetBikeId){const index=full.bike.history.findIndex(item=>item.id===update.entry.id);if(index>=0)full.bike.history[index]=update.entry;}
+      full.bike.historyCorrectedAt=now;full.bike.odometerFloorKm=await workforceOdometerFloor(env,targetBikeId);
+      const normalized=normalizeBike(full.bike),update=updates.at(-1);update.bikeJson=full.json;
+      for(const field of ['lastServiceKm','currentKm','nextServiceKm','lastCheckedAt','historyCorrectedAt','odometerFloorKm','hasMajorService','lastMajorServiceKm','lastMajorServiceMilestoneKm','pendingMajorServiceKm','nextMajorServiceKm','majorServiceTargetKm'])update.bikePatch[field]=normalized[field];
+    }
+    const storedEntry=updates.at(-1).entry,storedFile=storedEntry.attachments.find(item=>item.key===key);
+    const document=adminServiceDocumentRecord(destination.bike,storedEntry,storedFile,null,[],true);document.reviewRevision=await invoiceReviewRevision(storedEntry,storedFile);
+    const result={ok:true,requestId,document,serviceChanged:!!serviceChanged,invoiceChanged:!!invoiceChanged,unchanged:!changed,...(shouldMove?{moved:true,movedFromKey:key}:{})};
+    const saved=await commitInvoiceReview(env,{actor,requestId,hash,updates,result,now,changed,source:shouldMove?'admin-service-document-move':'admin-service-document-review',audit:{action:shouldMove?'service_document_moved':'service_document_reviewed',before:{bikeId,entryId,state:before},after:{bikeId:targetBikeId,entryId:targetEntryId,invoiceData:ServiceModel.state(storedEntry,data).invoiceData,serviceChanged},reason:shouldMove?'Μεταφορά τιμολογίου στο σωστό μηχανάκι':'Επιβεβαίωση και διόρθωση στοιχείων τιμολογίου',ip:request.headers.get('CF-Connecting-IP')||''}});
+    if(saved)return invoiceReviewResponse(env,body,saved);
   }
-  const reviewedKm = invoiceOdometer(data.odometerKm);
-  if (reviewedKm && (body.mileageDecision || body.updateServiceKm === true)) {
-    data.mileageResolution = body.updateServiceKm === true ? "apply" : "keep";
-    data.mileageResolutionEntryId = destinationEntryId;
-    data.mileageResolutionRead = String(reviewedKm);
-    data.mileageResolutionServiceKm = String(destinationEntry.km);
-  }
-  if (body.keepOnCurrent === true && data.plate && invoicePlateKey(data.plate) !== invoicePlateKey(bike.name)) {
-    data.plateResolution = "kept-current";
-    data.plateResolutionBikeId = bikeId;
-    data.plateResolutionPlate = invoicePlateKey(bike.name);
-    data.plateResolutionRead = invoicePlateKey(data.plate);
-    data.correctedByUserAt = now;
-  }
-  if (["plate", "odometerKm", "totalAmount", "workPerformed", "invoiceDate"].some((field) =>
-    Object.hasOwn(submitted, field) && String(submitted[field] || "").trim() !== String(original[field] || "").trim())) data.correctedByUserAt = now;
-
-  const moveToBikeId = cleanText(body.moveToBikeId, 100);
-  const moveToEntryId = cleanText(body.moveToEntryId, 100);
-  const shouldMove = !body.keepOnCurrent && moveToBikeId && moveToEntryId;
-  if (shouldMove) {
-    if (moveToBikeId === bikeId && moveToEntryId === entryId) return json({ error: "Το τιμολόγιο είναι ήδη συνδεδεμένο με αυτό το service." }, 400);
-    const targetBikeIndex = (fleet.bikes || []).findIndex((item) => String(item.id) === moveToBikeId);
-    const targetBike = targetBikeIndex >= 0 ? fleet.bikes[targetBikeIndex] : null;
-    const targetEntry = targetBike && (targetBike.history || []).find((item) => String(item.id) === moveToEntryId);
-    if (!targetBike || !targetEntry || targetEntry.type === "check") return json({ error: "Το μηχανάκι ή το service προορισμού δεν βρέθηκε." }, 404);
-    if ((targetEntry.attachments || []).filter((item) => String(item.key) !== key).length >= MAX_SERVICE_ATTACHMENTS) return json({ error: "Το service προορισμού έχει ήδη 10 τιμολόγια. Τα υπάρχοντα αρχεία διατηρούνται." }, 409);
-
-    const sourceTasks = Array.isArray(entry.tasks) ? entry.tasks : [];
-    const importedTasks = invoiceWorkItems(data);
-    entry.tasks = sourceTasks.filter((task) => {
-      const sourceKey = normalizedTaskKey(task);
-      return !importedTasks.some((item) => {
-        const importedKey = normalizedTaskKey(item);
-        return sourceKey && importedKey && (sourceKey === importedKey || sourceKey.includes(importedKey) || importedKey.includes(sourceKey));
-      });
-    });
-    entry.notes = entry.tasks.join("\n");
-    entry.attachments = (entry.attachments || []).filter((item) => String(item.key) !== key);
-    if (!entry.attachments.length && (!entry.invoiceData || String(entry.invoiceData.qrUrl || "") === String(data.qrUrl || attachment.qrUrl || ""))) entry.invoiceData = null;
-    entry.updatedAt = now;
-    bike.updatedAt = now;
-
-    const movedAttachment = JSON.parse(JSON.stringify(attachment));
-    movedAttachment.ocr = data;
-    movedAttachment.qrData = data;
-    movedAttachment.ocrError = "";
-    movedAttachment.reviewSeenAt = data.reviewSeenAt;
-    movedAttachment.name = uniqueInvoiceDisplayName(buildInvoiceDisplayName(targetBike.name, data.invoiceDate, targetEntry.date, attachment.name), targetEntry.attachments, attachment.key);
-    targetEntry.attachments = (targetEntry.attachments || []).filter((item) => String(item.key) !== key).concat([movedAttachment]);
-    targetEntry.tasks = mergeInvoiceTasks(targetEntry.tasks, importedTasks);
-    targetEntry.notes = targetEntry.tasks.join("\n");
-    if (data.supplier) targetEntry.workshop = data.supplier;
-    targetEntry.invoiceData = data;
-    targetEntry.updatedAt = now;
-    ServiceModel.decision(targetEntry, key, destinationBefore, data, data.reviewedBy, now, true);
-    targetBike.updatedAt = now;
-
-    const normalizedSource = normalizeBike(bike);
-    const normalizedTarget = normalizeBike(targetBike);
-    fleet.bikes[bikeIndex] = normalizedSource;
-    fleet.bikes[targetBikeIndex] = normalizedTarget;
-    const stored = await writeServiceReviewSnapshot(env, normalizeFleet(fleet), "admin-service-document-move", snapshot.version);
-    if (!stored) return json({ error: "Το service ενημερώθηκε ταυτόχρονα. Άνοιξε ξανά τον έλεγχο πριν αποθηκεύσεις." }, 409);
-    const sourceOperationId = crypto.randomUUID();
-    const targetOperationId = crypto.randomUUID();
-    const registry = (item) => env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
-      VALUES (?,?,?,'available',1,?) ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,
-      odometer=excluded.odometer,version=vehicle_registry.version+1,updated_at=excluded.updated_at`)
-      .bind(item.id, item.name, item.currentKm, now);
-    await env.DB.batch([
-      registry(normalizedSource),
-      registry(normalizedTarget),
-      env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)")
-        .bind(sourceOperationId, JSON.stringify({ bike: normalizedSource }), now),
-      env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)")
-        .bind(targetOperationId, JSON.stringify({ bike: normalizedTarget }), now)
-    ]);
-    const warnings = serviceDocumentWarnings(targetBike, targetEntry, data);
-    await recordExternalAudit(env, request, actor, "service_document_moved", "service_document", key,
-      { bikeId, entryId }, { fromBikeId: bikeId, fromEntryId: entryId, toBikeId: moveToBikeId, toEntryId: moveToEntryId, invoiceData: data, warnings },
-      "Μεταφορά τιμολογίου στο σωστό μηχανάκι", false);
-    return json({ ok: true, moved: true, movedFromKey: key, bike: normalizedTarget,
-      document: adminServiceDocumentRecord(normalizedTarget, targetEntry, movedAttachment, null, fleet.bikes),
-      version: stored.version, operationId: targetOperationId });
-  }
-
-  entry.tasks = tasks.length ? tasks : (Array.isArray(entry.tasks) ? entry.tasks : []);
-  entry.notes = entry.tasks.join("\n");
-  if (data.supplier) entry.workshop = data.supplier;
-  entry.invoiceData = data;
-  attachment.ocr = data;
-  attachment.qrData = data;
-  attachment.ocrError = "";
-  attachment.reviewSeenAt = data.reviewSeenAt;
-  attachment.name = uniqueInvoiceDisplayName(buildInvoiceDisplayName(bike.name, data.invoiceDate, entry.date, attachment.name), entry.attachments, attachment.key);
-  ServiceModel.decision(entry, key, beforeReview, data, data.reviewedBy, now, false);
-  entry.updatedAt = now;
-  bike.updatedAt = now;
-  fleet.bikes[bikeIndex] = normalizeBike(bike);
-  const stored = await writeServiceReviewSnapshot(env, normalizeFleet(fleet), "admin-service-document-review", snapshot.version);
-  if (!stored) return json({ error: "Το service ενημερώθηκε ταυτόχρονα. Άνοιξε ξανά τον έλεγχο πριν αποθηκεύσεις." }, 409);
-  const operationId = crypto.randomUUID();
-  await env.DB.batch([
-    env.DB.prepare(`INSERT INTO vehicle_registry (bike_id,name,odometer,status,version,updated_at)
-      VALUES (?,?,?,'available',1,?) ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,
-      odometer=excluded.odometer,version=vehicle_registry.version+1,updated_at=excluded.updated_at`)
-      .bind(bike.id, bike.name, bike.currentKm, now),
-    env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) VALUES (?,'authenticated-client','snapshot_replace_bike',?,'pending',?)")
-      .bind(operationId, JSON.stringify({ bike: fleet.bikes[bikeIndex] }), now)
-  ]);
-  const warnings = serviceDocumentWarnings(bike, entry, data);
-  await recordExternalAudit(env, request, actor, "service_document_reviewed", "service_document", key,
-    { bikeId, entryId, invoiceData: original }, { bikeId, entryId, invoiceData: data, warnings },
-    "Επιβεβαίωση και διόρθωση στοιχείων τιμολογίου", false);
-  return json({ ok: true, bike: fleet.bikes[bikeIndex], document: adminServiceDocumentRecord(fleet.bikes[bikeIndex], entry, attachment, null, fleet.bikes), version: stored.version, operationId });
+  return json({error:'Υπάρχουν ταυτόχρονες ενημερώσεις. Οι διορθώσεις σου παραμένουν· δοκίμασε ξανά.',code:'review_busy'},409);
 }
 
 async function resolveQrServiceDocument(request, env) {

@@ -15,6 +15,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -192,6 +193,15 @@ public class MainActivity extends Activity {
         setContentView(webView);
         webView.loadUrl("file:///android_asset/www/portal.html");
         scheduleUpdateCheck(2500L);
+    }
+
+    // Keep the live page (open card/dialog, unsaved inputs and scroll) on rotation
+    // and window resizing. The manifest opts into these configuration changes;
+    // Android resizes the same WebView and its existing responsive CSS reflows.
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (webView != null) webView.requestLayout();
     }
 
     private WebViewClient localWebViewClient() {

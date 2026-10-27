@@ -8,7 +8,7 @@
 
 ## Τρέχουσα εργασία
 
-- **Το #10 ολοκληρώθηκε, συγχωνεύτηκε και δημοσιεύτηκε. Ο Codex αυτής της συνομιλίας δεν έχει άλλη ενεργή εργασία ή δημοσίευση.**
+- **Το #10 ολοκληρώθηκε, συγχωνεύτηκε και δημοσιεύτηκε. Η νεότερη εργασία αυτής της συνομιλίας είναι το #3 / PR #15, έτοιμο για ενσωμάτωση από τον συντονιστή #1 / PR #14, χωρίς merge/deploy από τον βοηθό #3.**
 - PR [#11](https://github.com/pavlos-argyris/fleet-control/pull/11): merged. Το issue #10 έκλεισε ως completed.
 - Πηγαίος κώδικας παραγωγής: [e2a760f](https://github.com/pavlos-argyris/fleet-control/commit/e2a760fa7f20ec712f6eedc9d4d59b33fdaa3efe).
 - Ακριβές main CI: [40572575880](https://github.com/pavlos-argyris/fleet-control/actions/runs/40572575880), success.
@@ -103,3 +103,43 @@
 - Εκκρεμότητες και ακριβές επόμενο βήμα:
 
 Πριν αποθηκεύσεις, ξαναδιάβασε το αρχείο για να μη χαθεί παράλληλη ενημέρωση. Η αλλαγή μόνο αυτής της καταγραφής μετά από δημοσίευση δεν απαιτεί επαναδημοσίευση της ίδιας έκδοσης.
+
+
+## Παράλληλη εργασία — Issue #3, βοηθός landscape
+
+- **Ανάληψη:** 27/10/2026, μόνο #3. Κλάδος `codex/issue-3-landscape`, από main `a7fc2cd0a934c1e734fea64359563bd1d587f3e1`. Ξεχωριστό draft PR ακολουθεί πριν τις αλλαγές κώδικα.
+- **Κατάσταση:** έρευνα Android WebView/manifest/viewport/CSS και συγκριτικοί έλεγχοι Client/Web σε κινητό/tablet.
+- **Όρια:** ο συντονιστής του #1 / PR #14 αναλαμβάνει τελική ενσωμάτωση και δημοσίευση. Ο βοηθός #3 δεν κάνει merge, κλείσιμο issue, publication request, tag/release ή deploy. Δεν αλλάζει backend τιμολογίων ή παραγωγικά δεδομένα.
+- **Παράδοση:** ελεγμένο PR, πραγματικά αποτελέσματα και περιορισμοί, screenshots και πλήρες source artifact. Δεν λήφθηκε παραγωγικό backup.
+
+### Ορόσημο #3 — 27/10/2026, PR #15
+
+- **PR:** https://github.com/pavlos-argyris/fleet-control/pull/15, draft. Μόνο #3, χωρίς merge/deploy· ο συντονιστής του #1 / PR #14 κρατά ενσωμάτωση και τελικές εκδόσεις.
+- **Αιτία/αλλαγή:** Client manifest `screenOrientation=portrait`. Αφαιρείται και δηλώνονται configuration changes με διατήρηση του ίδιου WebView. Callback super + requestLayout χωρίς reload. Runtime μόνο Client manifest/MainActivity. Δεν χρειάστηκε αλλαγή portal.js/CSS/backend, ούτε παλιά snapshots.
+- **Τοπική επαλήθευση:** πλήρες `scripts/check-all.sh` success, νέο manifest/lifecycle regression (αποτυγχάνει στο αρχικό portrait manifest), Chromium Web/file Client σε 390×844↔844×390, 320×667↔667×320, 800×1280↔1280×800. Πέρασαν dashboard/βάρδιες/πρόγραμμα/εργαζόμενοι/τιμολόγια/Fleet/καρτέλα/νέο service, πλάτος, κύλιση, κουμπιά διαλόγων και διατήρηση ανοικτής φόρμας κατά rotation. Client test APK build success· compiled manifest χωρίς portrait, mask 0xda0.
+- **Εικόνες:** browser baseline/after στο docs/issue-3-landscape και πλήρη screenshots/results στο CI artifact. Οι baseline browser εικόνες δεν δείχνουν native Android letterboxing· η native αλλαγή τεκμηριώνεται με manifest/αρνητικό regression/compiled APK.
+- **Περιορισμοί:** Chromium/file Client δεν είναι Android WebView. Δεν υπάρχει emulator/φυσική συσκευή, δεν επιβεβαιώθηκε εγκατάσταση ή παραγωγικό backup. Test signing μόνο, metadata αμετάβλητη βάσει ειδικής οδηγίας· ο συντονιστής αυξάνει Client versionCode πριν παραγωγή.
+- **Επόμενο:** πλήρες GitHub PR CI, τελική επιθεώρηση και ready for review. Παραμένει draft έως επιβεβαίωση CI.
+
+### Παράδοση #3 — έτοιμο για ενσωμάτωση από τον συντονιστή — δεν έγινε merge/deploy
+
+- **PR/branch:** [#15](https://github.com/pavlos-argyris/fleet-control/pull/15), `codex/issue-3-landscape`. Η μετατροπή ready for review ακολουθεί την επιβεβαίωση της καταγραφής. Ακριβές ελεγμένο source head: `4de5ad2e48c31722bebde72519d66da876bf802f`. Η παρούσα μεταγενέστερη ενημέρωση αλλάζει μόνο αυτό το Markdown· το τελικό PR head/CI φαίνεται στον σύνδεσμο PR και καταγράφεται και στην περιγραφή του.
+- **Πλήρες CI:** [40580699346](https://github.com/pavlos-argyris/fleet-control/actions/runs/40580699346), **success**. Πέρασαν όλη η σουίτα source/API/SQLite/D1, όλες οι υπάρχουσες browser/native δοκιμές, νέος έλεγχος landscape, κατασκευή και των δύο test APK, έλεγχος compiled Client manifest και Worker **dry-run μόνο**.
+- **Screenshots/results:** [artifact 12770176076](https://github.com/pavlos-argyris/fleet-control/actions/runs/40580699346/artifacts/12770176076), `client-landscape/after`: 84 εικόνες, 6 συνδυασμοί Web/file Client × κινητό/μικρό κινητό/tablet, 0 page errors. Υπάρχουν αντιπροσωπευτικές baseline/after εικόνες στο `docs/issue-3-landscape/`. Το baseline είναι browser, όχι native portrait screenshot.
+- **Κατασκευασμένο APK:** [manifest artifact 12769502554](https://github.com/pavlos-argyris/fleet-control/actions/runs/40580699346/artifacts/12769502554), χωρίς portrait lock, `configChanges=0xda0`. Προσωρινό test signing, όχι παραγωγική ενημέρωση.
+- **Πλήρης πηγαίος κώδικας:** [complete-source 12768818547](https://github.com/pavlos-argyris/fleet-control/actions/runs/40580699346/artifacts/12768818547), όλα τα τμήματα, SOURCE_COMMIT και SHA256SUMS. Η τελική documentation-only έκδοση και το αντίστοιχο πλήρες artifact αναφέρονται στο PR μετά το δικό της CI.
+- **Τεχνική παράδοση/όρια:** [ISSUE_3_LANDSCAPE_GR.md](ISSUE_3_LANDSCAPE_GR.md). Δεν έγινε δοκιμή σε Android WebView/emulator/φυσική συσκευή, εγκατάσταση, νέο παραγωγικό backup ή restore. Η παλιά έκδοση metadata διατηρείται αποκλειστικά για branch CI. Ο συντονιστής οριστικοποιεί εκδόσεις/versionCode/snapshots και ελέγχει το τελικό, αρχικά υπογεγραμμένο APK σε συσκευή.
+- **Συντονισμός:** το runtime diff αφορά μόνο Client manifest/MainActivity, χωρίς portal.js/CSS/backend και χωρίς παλιά versioned assets. Διατηρούνται οι προσθήκες tests/CI και οι καταγραφές και των δύο PR κατά την ενσωμάτωση. Δεν απομένει ενεργή υλοποίηση #3 από αυτόν τον βοηθό.
+- **Επόμενο βήμα — μόνο συντονιστής:** παραλαβή PR #15 μαζί με #14, τελικές εκδόσεις, έλεγχοι τελικού main, ενσωμάτωση και εξουσιοδοτημένη δημοσίευση. Το issue #3 παραμένει ανοιχτό. Ο βοηθός #3 δεν έκανε merge, publication request, tag/release ή deploy και δεν θα ξεκινήσει νέα δημοσίευση.
+
+
+## Ορόσημο συντονιστή #1/#3 — τελικοί έλεγχοι 5.51.9, 27/10/2026
+
+- **Ευθύνη:** #1 / PR #14 / codex/issue-1-invoice-reliability, και ενσωμάτωση/δημοσίευση #3. Η ανεξάρτητη παράδοση #3 του PR #15 (ecf08a1, exact CI 40581748782 success) ελέγχθηκε και συγχωνεύτηκε από τον συντονιστή στο main 4d4ef4458bf36fded662b2ecff0af45e69cd9dd0. Δεν ζητήθηκε publish αυτού του ενδιάμεσου main.
+- **#1 ευρήματα:** αναπαραγωγή 409 από seen που αλλάζει updatedAt και 500 μετά από ήδη committed επιβεβαίωση με αποτυχία ουράς. Καταγράφηκαν επίσης βαριά λίστα/full-fleet normalization, global-version conflicts, μεταβολή χειροκίνητων στοιχείων σε αποτυχία OCR και παλιές UI αποκρίσεις.
+- **Υλοποίηση:** στοχευμένες αναγνώσεις/guards, μία D1 συναλλαγή για receipt/snapshot/registry/outbox/audit, ασφαλές retry/no-op, compact list και πλήρες detail στο άνοιγμα, seen metadata χωρίς αλλαγή service stamp, αποτυχία OCR χωρίς αλλαγή business fields, UI διατήρηση/σειρά/απομόνωση σύνδεσης. Αναλυτικά στο INVOICE_RELIABILITY_5.51.9_GR.md.
+- **Διατήρηση #3:** manifest/MainActivity callback, νέοι landscape/browser/compiled-APK έλεγχοι, CI και όλες οι καταγραφές/εικόνες του άλλου βοηθού. Δεν αντικαταστάθηκαν οι αλλαγές #10/#7. Τελικός κοινός υποψήφιος Client/Web 5.51.9 / Client code 81, Worker 5.12.9, συμβατός Server 2.2.15 / code 41.
+- **Επαληθευμένα τοπικά:** νέες Worker/SQLite και πραγματικές Workerd/D1 δοκιμές rollback/retry/no-op/concurrency, sequential review και poll ordering/session isolation, load 40 bikes/20.000 entries/200 invoices, παλιές backup/review δοκιμές πριν το τελικό compact receipt. Στη συνολική σουίτα εντοπίστηκε απώλεια journal για legacy review callers μετά τη συμπίεση αποδείξεων· επανήλθε πλήρες legacy document και η σουίτα εκτελείται ξανά. Η τελική επιτυχία CI δεν έχει ακόμη καταγραφεί σε αυτό το ορόσημο.
+- **Μετρήσιμο αποτέλεσμα:** payload λίστας 2.020.672 → 191.434 bytes για τα ίδια 200 συνθετικά τιμολόγια, περίπου -90,5%. Τοπικοί χρόνοι SQLite δεν είναι CPU παραγωγής Cloudflare. Δεν έγινε νέα μαζική ανάλυση παραγωγής.
+- **Δημοσίευση/backup:** δεν υπάρχει ακόμη request/ενεργοποίηση της 5.51.9 σε αυτό το checkpoint. Κανένα νέο production backup, καμία εγκατάσταση ή restore φυσικής συσκευής. Παραμένει ενεργή η προηγούμενη 5.51.8 μέχρι επιβεβαιωμένο publish.
+- **Ακριβές επόμενο:** ολοκλήρωση combined check-all, αποθήκευση τελικού source στο PR #14 και πλήρες CI, merge μετά success, CI ακριβούς main, ξεχωριστό κανονικό request-only commit, παρακολούθηση publish/online hashes και ενημέρωση εδώ/issues. Το #3 ενσωματώθηκε αλλά περιμένει την ίδια τελική δημοσίευση. Τα #1/#3 δεν κλείνουν πριν τελική επαλήθευση.

@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+const root=process.cwd(),toolchain=process.env.FLEET_ANDROID_TOOLCHAIN_ROOT||path.join(root,'.android-toolchain');
+const aapt=process.env.FLEET_AAPT_BIN||path.join(toolchain,'usr/lib/android-sdk/build-tools/debian/aapt');
+const version=JSON.parse(fs.readFileSync('release-config.json','utf8')).client.version;
+const apk=path.join(root,'dist','Fleet_Control_Client_v'+version+'.apk');
+const libraries=['usr/lib/x86_64-linux-gnu/android','usr/lib','usr/lib/x86_64-linux-gnu','lib/x86_64-linux-gnu'].map(p=>path.join(toolchain,p));
+const xml=execFileSync(aapt,['dump','xmltree',apk,'AndroidManifest.xml'],{encoding:'utf8',env:{...process.env,LD_LIBRARY_PATH:[...libraries,process.env.LD_LIBRARY_PATH||''].join(':')}});
+const main=xml.match(/E: activity[^\n]*\n([\s\S]*?)(?=\n      E: |$)/)?.[1];
+assert.ok(main?.includes('".MainActivity"'),'Compiled Client launcher activity');
+assert.doesNotMatch(main,/android:screenOrientation/,'The packaged APK must not retain the old portrait lock');
+const flags=parseInt(main.match(/android:configChanges[^\n]*\)0x([a-f0-9]+)/i)?.[1]||'0',16);
+assert.equal(flags&0xda0,0xda0,'Compiled configuration mask retains orientation, screenSize, smallestScreenSize, screenLayout and keyboardHidden');
+const output='verification/client-landscape';fs.mkdirSync(output,{recursive:true});fs.writeFileSync(path.join(output,'compiled-manifest.txt'),xml);
+console.log('PASS compiled Client APK manifest: no portrait lock; configuration mask 0x'+flags.toString(16)+'. This inspects the APK, not a running Android device.');

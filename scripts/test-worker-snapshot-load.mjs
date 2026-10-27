@@ -91,7 +91,14 @@ env.AI={toMarkdown:async()=>({data:'Synthetic invoice',format:'markdown'}),run:a
 const retryResponse=await call('/api/service-documents/jobs/'+jobs[2].id+'/retry',{},token);
 assert.equal(retryResponse.status,200);const retried=await retryResponse.json();assert.equal(retried.reprocessed,true);assert.equal(retried.status,'completed');assert.equal(aiCalls,1);
 const afterRetry=await readServiceEntry(env,'bike-2','entry-0');assert.equal(afterRetry.entry.attachments.length,1);assert.equal(afterRetry.entry.attachments[0].ocrError,'');
-const listResponse=await call('/api/admin/service-documents',undefined,token);assert.equal(listResponse.status,200);const list=await listResponse.json();assert.equal(list.documents.filter(d=>d.key).length,200);
+const listStart=performance.now();largeParses=0;let listResponse;
+JSON.parse=function(value,...args){if(typeof value==='string' && value.length>500000)largeParses++;return parse(value,...args);};
+try{listResponse=await call('/api/admin/service-documents',undefined,token);}finally{JSON.parse=parse;}
+assert.equal(listResponse.status,200);const listText=await listResponse.text(),list=parse(listText);assert.equal(list.documents.filter(d=>d.key).length,200);
+assert.equal(largeParses,0,'Invoice list must not parse the full fleet snapshot');
+assert.ok(list.documents.filter(d=>d.key).every(d=>d.detailsLazy && !d.invoiceData.rawText && !d.invoiceData.fieldEvidence && !d.reviewJournal.length),'Bulk list omits raw OCR, evidence and review journals while retaining all invoices');
+const invoiceListMs=performance.now()-listStart,invoiceListBytes=Buffer.byteLength(listText);
+console.log(JSON.stringify({invoices:200,invoiceListBytes,invoiceListMs,scope:'local SQLite; CPU is not the Cloudflare production limit'}));
 assert.ok(list.documents.every(d=>d.transferOptions.length===0 && d.transferOptionsLazy===true));
 const options=await call('/api/admin/service-documents/transfer-options?bikeId=bike-2&entryId=entry-0&key='+encodeURIComponent(afterRetry.entry.attachments[0].key),undefined,token);assert.equal(options.status,200);assert.ok((await options.json()).options.length<=200);
 // Restart cancels the old identity; late callbacks/uploads and ACK cannot
