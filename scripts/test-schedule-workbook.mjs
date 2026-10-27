@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import path from 'node:path';import {execFileSync} from 'node:child_process';
+const sandbox={TextEncoder,Uint8Array,DataView,Map,Set,Date};vm.createContext(sandbox);vm.runInContext(fs.readFileSync('cloudflare-worker/public/schedule-workbook.js','utf8'),sandbox);
+const data={startDate:'2026-11-02',endDate:'2026-11-15',generatedAt:'2026-10-27T12:00:00Z',employees:[{id:'staff-1',fullName:'Γιώργος Παπαδόπουλος',assignedVehicleId:'bike-1'},{id:'staff-2',fullName:'Μαρία & Σία <δοκιμή>',usesOwnVehicle:true}],templates:[{id:'early',name:'08:00 - 16:00'},{id:'split',name:'08:00 - 13:00 / 18:00 - 00:00'}],vehicles:[{id:'bike-1',name:'ΒΤΟ 756'},{id:'bike-2',name:'ΑΗΕ 976'}],assignments:[{employee_id:'staff-1',work_date:'2026-11-02',template_id:'early',vehicle_id:'bike-1'}]};
+const bytes=sandbox.FleetScheduleWorkbook.build(data);assert.ok(bytes.byteLength>10000);
+const folder=path.resolve('verification/staff-schedule');fs.mkdirSync(folder,{recursive:true});const file=path.join(folder,'workbook-structure.xlsx');fs.writeFileSync(file,bytes);
+const check=execFileSync('python3',['scripts/fixtures/check-schedule-workbook.py',file],{encoding:'utf8'});console.log(check.trim());
+const rows=sandbox.FleetScheduleWorkbook.rowsFromMatrix([['Εργαζόμενος','Αναγνωριστικό εργαζομένου','2026-11-02 Βάρδια','2026-11-02 Μηχανάκι','2026-11-03 Βάρδια','2026-11-03 Μηχανάκι'],['Συνώνυμος','stable-id','08:00 - 16:00','ΒΤΟ 756','','']]);
+assert.equal(rows.length,2);assert.equal(rows[0].employeeId,'stable-id');assert.equal(rows[0].templateName,'08:00 - 16:00');assert.equal(rows[1].templateName,'','blank shift explicitly survives as day off');
+assert.equal(sandbox.FleetScheduleWorkbook.rowsFromMatrix([['date','employeeId','templateId'],[46000,'staff-1','early']])[0].date,46000,'numeric Excel dates survive parsing');
+assert.throws(()=>sandbox.FleetScheduleWorkbook.build({...data,endDate:'2027-02-01'}),/42/);
+console.log('PASS generated XLSX package, named dropdown ranges, full fortnight, protected stable identity, escaped Greek names and explicit day-off round trip.');

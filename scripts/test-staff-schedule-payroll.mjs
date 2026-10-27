@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 
 import worker from "../cloudflare-worker/src/worker.js";
-import { zonedLocalToUtc } from "../cloudflare-worker/src/workforce-core.js";
+import { zonedLocalToUtc,addCalendarDays,mondayPeriod } from "../cloudflare-worker/src/workforce-core.js";
 
 const BASE_URL = "https://simulation.invalid";
 const SERVER_KEY = "simulation-server-key";
@@ -218,26 +218,41 @@ fails(await request('/api/admin/employees/'+owner.user.id,'DELETE',{confirm:true
 
 // A full fortnight for 30 people, well above the former 80-row limit.
 const people=[];for(let i=0;i<30;i++)people.push(ok(await request('/api/admin/employees','POST',{fullName:'Πρόγραμμα '+i,loginEnabled:false,usesOwnVehicle:true}),201).employee);
-const rows=[];for(let n=0;n<14;n++){const day=new Date(Date.parse('2026-11-02T12:00:00Z')+n*86400000).toISOString().slice(0,10);for(const person of people)rows.push({date:day,employeeId:person.id,templateId:'tpl-0800-1600',withoutVehicle:true});}
+const futureWeek=addCalendarDays(mondayPeriod(Date.now()).startDate,7),futureNext=addCalendarDays(futureWeek,7),futureWeekEnd=addCalendarDays(futureWeek,6),futureEnd=addCalendarDays(futureWeek,13);
+const rows=[];for(let n=0;n<14;n++){const day=new Date(Date.parse(futureWeek+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);for(const person of people)rows.push({date:day,employeeId:person.id,templateId:'tpl-0800-1600',withoutVehicle:true});}
 const preview=ok(await request('/api/admin/schedule-import/preview','POST',{rows}));assert.equal(preview.valid,true,JSON.stringify(preview.errors));assert.equal(preview.weeks.length,2);assert.equal(preview.assignments.length,420);
 const committed=ok(await request('/api/admin/schedule-import/commit','POST',{rows,confirm:true,previewToken:preview.previewToken}),201);assert.equal(committed.weeks.length,2);
-assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedule_week_drafts WHERE week_start>='2026-11-02'").get().n,2);
-assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedules WHERE start_at>=? AND status<>'cancelled'").get('2026-11-01').n,0,'import changes draft only');
-for(const weekStart of ['2026-11-02','2026-11-09'])ok(await request('/api/admin/schedule-week/publish','POST',{weekStart}));
-assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedules WHERE start_at>='2026-11-01' AND status<>'cancelled'").get().n,420,'no publication truncation');
-const total=ok(await call('/api/admin/payroll?start=2026-11-02&end=2026-11-15',{token}));assert.equal(total.totals.finalCents,30*14*4800);assert.equal(total.employees.length,30);
-const template=ok(await call('/api/admin/schedule-import/template-data?from=2026-11-02&to=2026-11-15',{token}));assert.equal(template.days,14);assert.equal(template.assignments.length,420);assert.ok(template.employees.some(e=>e.id===people[0].id));
+assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedule_week_drafts WHERE week_start>=?").get(futureWeek).n,2);
+assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedules WHERE start_at>=? AND status<>'cancelled'").get(futureWeek).n,0,'import changes draft only');
+for(const weekStart of [futureWeek,futureNext])ok(await request('/api/admin/schedule-week/publish','POST',{weekStart}));
+assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedules WHERE start_at>=? AND status<>'cancelled'").get(futureWeek).n,420,'no publication truncation');
+const total=ok(await call('/api/admin/payroll?start='+futureWeek+'&end='+futureEnd,{token}));assert.equal(total.totals.finalCents,30*14*4800);assert.equal(total.employees.length,30);
+const template=ok(await call('/api/admin/schedule-import/template-data?from='+futureWeek+'&to='+futureEnd,{token}));assert.equal(template.days,14);assert.equal(template.assignments.length,420);assert.ok(template.employees.some(e=>e.id===people[0].id));
 const originalCount=db.sqlite.prepare('SELECT COUNT(*) AS n FROM schedule_week_drafts').get().n;
-const invalid=ok(await request('/api/admin/schedule-import/preview','POST',{rows:[...rows,{date:'2026-11-02',employeeName:'Unknown employee',templateName:'08:00 - 16:00'}]}));assert.equal(invalid.valid,false);
-fails(await request('/api/admin/schedule-import/commit','POST',{rows:[...rows,{date:'2026-11-02',employeeName:'Unknown employee',templateId:'tpl-0800-1600'}],confirm:true,replace:true}),422,'schedule_import_invalid','invalid multi-week import');
+const invalid=ok(await request('/api/admin/schedule-import/preview','POST',{rows:[...rows,{date:futureWeek,employeeName:'Unknown employee',templateName:'08:00 - 16:00'}]}));assert.equal(invalid.valid,false);
+fails(await request('/api/admin/schedule-import/commit','POST',{rows:[...rows,{date:futureWeek,employeeName:'Unknown employee',templateId:'tpl-0800-1600'}],confirm:true,replace:true}),422,'schedule_import_invalid','invalid multi-week import');
 assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM schedule_week_drafts').get().n,originalCount);
 const oldPlan=ok(await request('/api/admin/schedule-import/preview','POST',{rows:[rows[0]]}));
 db.sqlite.prepare("UPDATE shift_templates SET name=name||' changed' WHERE id='tpl-0800-1600'").run();
 fails(await request('/api/admin/schedule-import/commit','POST',{rows:[rows[0]],confirm:true,replace:true,previewToken:oldPlan.previewToken}),409,'schedule_import_stale','stale preview');
-const dayOff=ok(await request('/api/admin/schedule-import/preview','POST',{rows:[{date:'2026-11-02',employeeId:people[0].id,templateName:''}]}));assert.equal(dayOff.valid,true);assert.equal(dayOff.assignments.length,209,'day off preserves other employees and six other days');
+const dayOff=ok(await request('/api/admin/schedule-import/preview','POST',{rows:[{date:futureWeek,employeeId:people[0].id,templateName:''}]}));assert.equal(dayOff.valid,true);assert.equal(dayOff.assignments.length,209,'day off preserves other employees and six other days');
 fails(await request('/api/admin/schedule-import/preview','POST',{rows:Array.from({length:2049},()=>rows[0])}),400,null,'oversized import rejected rather than truncated');
 // Cross-week overlap is checked against incoming rows, not only the old DB.
 ok(await request('/api/admin/shift-templates','POST',{name:'Sunday overnight',segments:[{start:'23:00',end:'10:00'}]}),201);
 const overnight=db.sqlite.prepare("SELECT id FROM shift_templates WHERE name='Sunday overnight'").get().id;
 const crossing=ok(await request('/api/admin/schedule-import/preview','POST',{rows:[{date:'2026-12-06',employeeId:people[0].id,templateId:overnight},{date:'2026-12-07',employeeId:people[0].id,templateId:'tpl-0800-1600'}]}));assert.equal(crossing.valid,false);assert.ok(crossing.errors.some(e=>e.code==='employee_conflict'));
+fails(await request('/api/admin/employees/'+people[0].id,'DELETE',{confirm:true}),409,'employee_future_schedules','future cancellation needs explicit confirmation');
+ok(await request('/api/admin/payroll/lock','POST',{startDate:futureWeek,endDate:futureWeekEnd}));
+fails(await request('/api/admin/employees/'+people[0].id,'DELETE',{confirm:true,cancelFuture:true}),409,'payroll_locked','future locked payroll preserved');
+ok(await request('/api/admin/payroll/unlock','POST',{startDate:futureWeek,endDate:futureWeekEnd,reason:'Test safe future cancellation'}));
+const futureArchive=ok(await request('/api/admin/employees/'+people[0].id,'DELETE',{confirm:true,cancelFuture:true}));assert.equal(futureArchive.cancelledFutureSchedules,14);
+assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedules WHERE employee_id=? AND status<>'cancelled'").get(people[0].id).n,0);
+assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedules WHERE start_at>=? AND status<>'cancelled'").get(futureWeek).n,406,'other 29 employees retain every shift');
+assert.throws(()=>db.sqlite.prepare("INSERT INTO shifts(id,employee_id,vehicle_id,current_vehicle_id,status,actual_clock_in,initial_km,created_at,updated_at) VALUES ('late-clock',?,?,?,'active','2026-11-02T06:00:00Z',0,'now','now')").run(people[0].id,'own-late','own-late'),/employee_inactive/,'stale clock-in cannot race archived employee');
+ok(await request('/api/admin/recycle-bin/'+futureArchive.recycleId+'/restore','POST',{reason:'Restore identity only'}));
+assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM schedules WHERE employee_id=? AND status<>'cancelled'").get(people[0].id).n,0,'restoration does not silently recreate future bookings');
+const activeId=people[1].id;db.sqlite.prepare("INSERT INTO shifts(id,employee_id,vehicle_id,current_vehicle_id,status,actual_clock_in,initial_km,created_at,updated_at) VALUES ('working-guard',?,?,?,'active','2026-10-27T06:00:00Z',0,'now','now')").run(activeId,'own-guard','own-guard');
+fails(await request('/api/admin/employees/'+activeId,'DELETE',{confirm:true,cancelFuture:true}),409,'employee_working','working employee protected');
+assert.throws(()=>db.sqlite.prepare("UPDATE app_users SET deleted_at='now',active=0 WHERE id=?").run(activeId),/employee_working/,'database enforces the same guard after an API race');
+assert.throws(()=>db.sqlite.prepare("UPDATE app_users SET active=0 WHERE id=?").run(owner.user.id),/owner_required/,'database protects last owner from concurrent mutations');
 console.log('PASS Issue #7 actual Worker + SQLite: accountless staff, same-ID activation, revoked login, planned/actual source isolation, past edits, locked source, safe employee archive/restore, 420 assignments across two weeks, complete publication, partial-date preservation, stale/invalid/oversized and cross-week import checks. Synthetic data only.');

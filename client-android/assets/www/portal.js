@@ -1437,8 +1437,8 @@
     if (!item) return;
     try {
       const data = await simpleEditor({overline:"ΔΙΑΧΕΙΡΙΣΗ ΠΡΟΣΩΠΙΚΟΥ",title:"Διαγραφή εργαζομένου",submit:"Μεταφορά στον κάδο",
-        html:'<div class="restore-preview"><strong>'+escapeHtml(item.fullName)+'</strong><p>Το άτομο αφαιρείται από τη λίστα και αποσυνδέεται. Το πρόγραμμα, οι παλιές βάρδιες και η μισθοδοσία παραμένουν. Μπορείς να το ανακτήσεις από τον Κάδο.</p></div><label class="field"><span>Γράψε το ονοματεπώνυμο για επιβεβαίωση</span><input id="employeeDeleteName" autocomplete="off"></label><label class="field"><span>Αιτιολογία</span><textarea id="employeeDeleteReason" rows="2" required></textarea></label>',
-        collect:function(){if($("employeeDeleteName").value.trim()!==item.fullName)throw new Error("Το ονοματεπώνυμο δεν ταιριάζει.");const reason=$("employeeDeleteReason").value.trim();if(!reason)throw new Error("Γράψε αιτιολογία.");return {confirm:true,reason};}});
+        html:'<div class="restore-preview"><strong>'+escapeHtml(item.fullName)+'</strong><p>Το άτομο αφαιρείται από τη λίστα και τα Πρόχειρα και αποσυνδέεται. Οι παλιές βάρδιες και η μισθοδοσία διατηρούνται. Μπορείς να το ανακτήσεις από τον Κάδο· οι ακυρωμένες μελλοντικές βάρδιες θα χρειαστούν νέα καταχώρηση.</p></div><label class="own-vehicle-option"><input id="employeeDeleteFuture" type="checkbox" checked><span><strong>Να ακυρωθούν οι μελλοντικές βάρδιες</strong><small>Αποτρέπεται νέος υπολογισμός προγραμματισμένων ωρών μετά τη διαγραφή. Κλειδωμένες ή ήδη ξεκινημένες βάρδιες προστατεύονται.</small></span></label><label class="field"><span>Γράψε το ονοματεπώνυμο για επιβεβαίωση</span><input id="employeeDeleteName" autocomplete="off"></label><label class="field"><span>Αιτιολογία</span><textarea id="employeeDeleteReason" rows="2" required></textarea></label>',
+        collect:function(){if($("employeeDeleteName").value.trim()!==item.fullName)throw new Error("Το ονοματεπώνυμο δεν ταιριάζει.");const reason=$("employeeDeleteReason").value.trim();if(!reason)throw new Error("Γράψε αιτιολογία.");return {confirm:true,reason,cancelFuture:$("employeeDeleteFuture").checked};}});
       const confirmation=await requestPin(false);
       await api("/api/admin/employees/"+encodeURIComponent(id),{method:"DELETE",pin:confirmation.pin,body:data});
       toast("Ο εργαζόμενος μεταφέρθηκε στον κάδο. Το ιστορικό διατηρήθηκε.");
@@ -1734,8 +1734,13 @@
     const button=$("scheduleDownloadTemplate");button.disabled=true;$("scheduleImportError").textContent="";
     try {
       const data=await api("/api/admin/schedule-import/template-data?from="+encodeURIComponent($("scheduleTemplateFrom").value)+"&to="+encodeURIComponent($("scheduleTemplateTo").value));
-      const bytes=window.FleetScheduleWorkbook.build(data),url=URL.createObjectURL(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
-      const a=document.createElement("a");a.href=url;a.download="Fleet_Control_Program_"+data.startDate+"_"+data.endDate+".xlsx";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+      const bytes=window.FleetScheduleWorkbook.build(data),name="Fleet_Control_Program_"+data.startDate+"_"+data.endDate+".xlsx";
+      if(window.AndroidFleet && typeof window.AndroidFleet.exportHistoryExcel === "function") {
+        window.AndroidFleet.exportHistoryExcel(bytesToBase64(bytes),name);
+      } else {
+        const url=URL.createObjectURL(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})),a=document.createElement("a");
+        a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+      }
       toast("Το Excel περιέχει τα τωρινά στοιχεία και το επιλεγμένο διάστημα.");
     } catch(error){$("scheduleImportError").textContent=error.message;}finally{button.disabled=false;}
   }
@@ -4056,7 +4061,7 @@
   }
 
   const reportLabels = {
-    employee: "Εργαζόμενος", employeeName: "Εργαζόμενος", actual_clock_in: "Actual Clock In",
+    hoursSource: "Πηγή ωρών", hoursSourceLabel: "Πηγή ωρών", employee: "Εργαζόμενος", employeeName: "Εργαζόμενος", actual_clock_in: "Actual Clock In",
     actual_clock_out: "Actual Clock Out", payable_hours: "Πληρωτέες ώρες", vehicle: "Μηχανάκι",
     initial_km: "Αρχικά χλμ.", final_km: "Τελικά χλμ.", shift_km: "Χλμ. βάρδιας",
     status: "Κατάσταση", final_pay_cents: "Τελική αμοιβή", started_at: "Έναρξη",
@@ -4069,6 +4074,7 @@
 
   function reportValue(key, value) {
     if (value == null || value === "") return "—";
+    if (key === "hoursSource") return value === "schedule" ? "Δημοσιευμένο πρόγραμμα" : "Πραγματικές καταγραφές";
     if (/_at$/.test(key)) return formatDateTime(value);
     if (/Cents$|_cents$/.test(key)) return money(value);
     if (["initial_km", "final_km", "shift_km", "distance", "km", "kilometers"].includes(key)) return km(value);

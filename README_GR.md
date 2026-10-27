@@ -1,3 +1,8 @@
+# Fleet Control 5.51.7
+
+Client/Web 5.51.7 · Server 2.2.15 · Worker 5.12.7.
+[Εργαζόμενοι χωρίς σύνδεση, μισθοδοσία από πρόγραμμα και ενημερωμένο Excel](docs/STAFF_SCHEDULE_PAYROLL_5.51.7_GR.md).
+
 # Fleet Control 5.51.6
 
 Client/Web 5.51.6 · Server 2.2.14 · Worker 5.12.6.

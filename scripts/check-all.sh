@@ -52,3 +52,8 @@ node scripts/test-change-events.mjs
 
 node scripts/test-staff-schedule-payroll.mjs
 node scripts/test-payroll-parity.mjs
+
+node scripts/test-schedule-workbook.mjs
+node scripts/test-personnel-migration.mjs
+node scripts/test-personnel-d1.mjs
+node scripts/test-schedule-excel-roundtrip.mjs

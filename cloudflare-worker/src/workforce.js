@@ -705,6 +705,12 @@ export async function ensureWorkforceSchema(env) {
   await ensureColumn(env, "app_users", "login_enabled", "INTEGER NOT NULL DEFAULT 1");
   await ensureColumn(env, "app_users", "deleted_at", "TEXT");
   await ensureColumn(env, "payroll_periods", "hours_source", "TEXT");
+  await env.DB.exec([
+    "CREATE TRIGGER IF NOT EXISTS staff_guard_active_shift BEFORE INSERT ON shifts WHEN NEW.status='active' AND NOT EXISTS(SELECT 1 FROM app_users WHERE id=NEW.employee_id AND active=1 AND deleted_at IS NULL) BEGIN SELECT RAISE(ABORT,'employee_inactive'); END;",
+    "CREATE TRIGGER IF NOT EXISTS staff_guard_archive_working BEFORE UPDATE OF deleted_at ON app_users WHEN NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL AND EXISTS(SELECT 1 FROM shifts WHERE employee_id=OLD.id AND status='active') BEGIN SELECT RAISE(ABORT,'employee_working'); END;",
+    "CREATE TRIGGER IF NOT EXISTS staff_guard_last_owner BEFORE UPDATE OF role,active,login_enabled,deleted_at ON app_users WHEN OLD.role='owner' AND (NEW.role<>'owner' OR NEW.active<>1 OR NEW.login_enabled<>1 OR NEW.deleted_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM app_users WHERE id<>OLD.id AND role='owner' AND active=1 AND login_enabled=1 AND deleted_at IS NULL) BEGIN SELECT RAISE(ABORT,'owner_required'); END;",
+    "CREATE TRIGGER IF NOT EXISTS staff_guard_future_schedule BEFORE INSERT ON schedules WHEN NEW.status<>'cancelled' AND NEW.start_at>=strftime('%Y-%m-%dT%H:%M:%fZ','now') AND EXISTS(SELECT 1 FROM app_users WHERE id=NEW.employee_id AND (active<>1 OR deleted_at IS NOT NULL)) BEGIN SELECT RAISE(ABORT,'employee_inactive'); END;"
+  ].join('\n'));
   await ensureColumn(env, "pay_rules", "late_grace_minutes", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(env, "pay_rules", "late_clock_out_grace_minutes", "INTEGER NOT NULL DEFAULT 30");
   await ensureColumn(env, "shifts", "overtime_rate_cents", "INTEGER");
@@ -819,6 +825,9 @@ export async function routeWorkforce(request, env, path, deps) {
       ...(error.details && typeof error.details === "object" ? error.details : {})
     }, error.status);
     const message = String(error && error.message || "");
+    if (/employee_working/.test(message)) return wfJson({error:"Ο εργαζόμενος έχει ενεργή βάρδια. Ολοκλήρωσέ την πριν τη διαγραφή.",code:"employee_working"},409);
+    if (/employee_inactive/.test(message)) return wfJson({error:"Ο εργαζόμενος διαγράφηκε ή απενεργοποιήθηκε. Ανανέωσε το πρόγραμμα πριν συνεχίσεις.",code:"employee_inactive"},409);
+    if (/owner_required/.test(message)) return wfJson({error:"Πρέπει να παραμείνει τουλάχιστον ένας ενεργός Owner.",code:"owner_required"},409);
     if (/UNIQUE constraint failed: shifts\.current_vehicle_id/.test(message)) {
       await createAlert(env, "vehicle_conflict", "warning", "Ταυτόχρονη δέσμευση απορρίφθηκε",
         "Δύο χρήστες προσπάθησαν να δεσμεύσουν το ίδιο μηχανάκι. Η βάση κράτησε μόνο την πρώτη επιβεβαιωμένη βάρδια.",
@@ -1455,18 +1464,36 @@ async function deleteEmployee(request, env, deps, id) {
   if (active) throw new ApiError(409, "Ο εργαζόμενος έχει ενεργή βάρδια. Ολοκλήρωσέ την πριν τη διαγραφή.", "employee_working");
   if (body.confirm !== true) throw new ApiError(400, "Χρειάζεται επιβεβαίωση διαγραφής εργαζομένου.");
   const now = nowIso(), epoch = Math.floor(Date.now()/1000), recycleId = uuid();
+  const future=(await env.DB.prepare("SELECT sc.* FROM schedules sc WHERE sc.employee_id=? AND sc.start_at>=? AND sc.status IN ('planned','awaiting','absent')").bind(id,now).all()).results||[];
+  if(future.length && body.cancelFuture !== true)throw new ApiError(409,"Ο εργαζόμενος έχει μελλοντικές βάρδιες. Επιβεβαίωσε την ακύρωσή τους πριν τη διαγραφή.","employee_future_schedules",{futureCount:future.length});
+  if(future.length){
+    const dates=future.map(row=>localDate(row.start_at,DEFAULT_TIME_ZONE)).sort();
+    const locked=await env.DB.prepare("SELECT 1 FROM payroll_periods WHERE status='locked' AND start_date<=? AND end_date>=? LIMIT 1").bind(dates.at(-1),dates[0]).first();
+    if(locked)throw new ApiError(409,"Υπάρχουν μελλοντικές βάρδιες σε κλειδωμένη μισθοδοσία. Έλεγξε πρώτα την περίοδο.","payroll_locked");
+    const split=await env.DB.prepare(`SELECT 1 FROM schedules sc JOIN schedule_assignments sa ON sa.id=sc.series_id
+      WHERE sc.employee_id=? AND sc.start_at<? AND sc.status<>'cancelled' AND sc.series_id IN
+      (SELECT series_id FROM schedules WHERE employee_id=? AND start_at>=? AND status IN ('planned','awaiting','absent')) LIMIT 1`).bind(id,now,id,now).first();
+    if(split)throw new ApiError(409,"Η τρέχουσα σπαστή βάρδια έχει ήδη αρχίσει. Ολοκλήρωσε ή διόρθωσε πρώτα τη βάρδια πριν τη διαγραφή.","employee_split_started");
+  }
+  const drafts=(await env.DB.prepare("SELECT week_start,assignments FROM schedule_week_drafts WHERE EXISTS(SELECT 1 FROM json_each(assignments) WHERE json_extract(value,'$.employeeId')=?)").bind(id).all()).results||[];
+  const removedDrafts=drafts.map(d=>({weekStart:d.week_start,assignments:parseJson(d.assignments,[]).filter(a=>a.employeeId===id)}));
   // The employee row and every payroll/schedule reference remain in place.
   // Archive only the state needed for restoration, never password material.
-  const payload = JSON.stringify({employeeId:id,active:Number(employee.active),loginEnabled:Number(employee.login_enabled ?? 1)});
+  const payload = JSON.stringify({employeeId:id,active:Number(employee.active),loginEnabled:Number(employee.login_enabled ?? 1),cancelledFutureScheduleIds:future.map(row=>row.id),removedDrafts});
   await env.DB.batch([
     env.DB.prepare("INSERT INTO deleted_records(id,record_type,record_id,label,payload,deleted_at,deleted_by,deleted_by_name,reason) VALUES (?,'employee',?,?,?,?,?,?,?)")
       .bind(recycleId,id,employee.full_name,payload,now,actor.user_id,actor.full_name,text(body.reason,500)),
     env.DB.prepare("UPDATE app_users SET active=0,login_enabled=0,deleted_at=?,force_logout_after=?,updated_at=? WHERE id=? AND deleted_at IS NULL").bind(now,epoch,now,id),
     env.DB.prepare("UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL").bind(epoch,id),
-    env.DB.prepare("UPDATE registered_devices SET active=0 WHERE user_id=?").bind(id)
+    env.DB.prepare("UPDATE registered_devices SET active=0 WHERE user_id=?").bind(id),
+    env.DB.prepare(`UPDATE schedule_assignments SET status='cancelled',updated_at=? WHERE employee_id=? AND id IN
+      (SELECT series_id FROM schedules WHERE employee_id=? AND start_at>=? AND status IN ('planned','awaiting','absent'))`).bind(now,id,id,now),
+    env.DB.prepare("UPDATE schedules SET status='cancelled',updated_at=? WHERE employee_id=? AND start_at>=? AND status IN ('planned','awaiting','absent')").bind(now,id,now),
+    env.DB.prepare(`UPDATE schedule_week_drafts SET assignments=(SELECT COALESCE(json_group_array(json(value)),'[]') FROM json_each(schedule_week_drafts.assignments) WHERE json_extract(value,'$.employeeId')<>?),updated_at=?
+      WHERE EXISTS(SELECT 1 FROM json_each(schedule_week_drafts.assignments) WHERE json_extract(value,'$.employeeId')=?)`).bind(id,now,id)
   ]);
   await audit(env,request,actor,"employee_deleted","user",id,null,{recycleId,historyPreserved:true},text(body.reason,500),pinUsed);
-  return wfJson({deleted:true,recycleId,historyPreserved:true});
+  return wfJson({deleted:true,recycleId,historyPreserved:true,cancelledFutureSchedules:future.length});
 }
 
 async function resetEmployeePassword(request, env, deps, id) {
@@ -2792,6 +2819,7 @@ function draftAssignmentInput(item, weekStart) {
     vehicleId: requestedScheduleVehicleId(item),
     withoutVehicle: explicitNoVehicle(item),
     notes: text(item?.notes, 500),
+    segments: Array.isArray(item?.segments) ? templateSegments(item.segments) : undefined,
     weekStart
   };
 }
@@ -2821,12 +2849,12 @@ async function validateDraftAssignments(env, assignments, weekStart, options = {
   const employeeIds = [...new Set(normalized.map((item) => item.employeeId).filter(Boolean))];
   const templateIds = [...new Set(normalized.map((item) => item.templateId).filter(Boolean))];
   const vehicleIds = new Set();
-  const employees = new Map((options.context?.employees || []).map(row=>[String(row.id),row]));
-  const templates = new Map((options.context?.templates || []).map(row=>[String(row.id),row]));
+  const employees = new Map([...(options.context?.employees || []),...(options.context?.retainedEmployees || [])].map(row=>[String(row.id),row]));
+  const templates = new Map([...(options.context?.templates || []),...(options.context?.retainedTemplates || [])].map(row=>[String(row.id),row]));
   const vehicles = new Map((options.context?.vehicles || []).map(row=>[String(row.bike_id),row]));
   if (employeeIds.length && !options.context) {
     const marks = employeeIds.map(() => "?").join(",");
-    const rows = await env.DB.prepare(`SELECT id,full_name,role,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE active=1 AND id IN (${marks})`).bind(...employeeIds).all();
+    const rows = await env.DB.prepare(`SELECT id,full_name,role,active,deleted_at,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(employeeIds)).all();
     (rows.results || []).forEach((row) => employees.set(String(row.id), row));
   }
   normalized.forEach((item) => {
@@ -2836,13 +2864,13 @@ async function validateDraftAssignments(env, assignments, weekStart, options = {
   });
   if (templateIds.length && !options.context) {
     const marks = templateIds.map(() => "?").join(",");
-    const rows = await env.DB.prepare(`SELECT * FROM shift_templates WHERE active=1 AND id IN (${marks})`).bind(...templateIds).all();
+    const rows = await env.DB.prepare(`SELECT * FROM shift_templates WHERE id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(templateIds)).all();
     (rows.results || []).forEach((row) => templates.set(String(row.id), row));
   }
   if (vehicleIds.size && !options.context) {
     const ids = [...vehicleIds];
     const marks = ids.map(() => "?").join(",");
-    const rows = await env.DB.prepare(`SELECT bike_id,name,status,odometer FROM vehicle_registry WHERE bike_id IN (${marks})`).bind(...ids).all();
+    const rows = await env.DB.prepare(`SELECT bike_id,name,status,odometer FROM vehicle_registry WHERE bike_id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(ids)).all();
     (rows.results || []).forEach((row) => vehicles.set(String(row.bike_id), row));
   }
   const timeZone = options.context?.timeZone || await setting(env, "timezone", DEFAULT_TIME_ZONE);
@@ -2865,6 +2893,9 @@ async function validateDraftAssignments(env, assignments, weekStart, options = {
       continue;
     }
     const employee = employees.get(item.employeeId);
+    if((Number(employee.active ?? 1)!==1||employee.deleted_at)&&item.date>=localDate(Date.now(),timeZone)){
+      errors.push({row:rowNumber,code:"employee",message:"Ο ανενεργός ή διαγραμμένος εργαζόμενος δεν μπορεί να λάβει νέα ή μελλοντική βάρδια."});continue;
+    }
     const ownVehicle = bool(employee.uses_own_vehicle);
     const effectiveItem = {
       ...item,
@@ -2888,11 +2919,16 @@ async function validateDraftAssignments(env, assignments, weekStart, options = {
       errors.push({ row: rowNumber, code: "vehicle", message: "Το μηχανάκι δεν βρέθηκε ή είναι σε service/ανενεργό." });
       continue;
     }
+    if(Number(templates.get(item.templateId).active ?? 1)!==1&&item.date>=localDate(Date.now(),timeZone)){
+      errors.push({row:rowNumber,code:"template",message:"Το ανενεργό πρότυπο δεν μπορεί να χρησιμοποιηθεί σε νέα ή μελλοντική βάρδια."});continue;
+    }
     let intervals;
     try {
-      const intervalKey=item.date+":"+item.templateId;
+      const segments=templateSegments(item.segments || templates.get(item.templateId).segments);
+      effectiveItem.segments=segments;
+      const intervalKey=item.date+":"+item.templateId+":"+JSON.stringify(segments);
       intervals=intervalCache.get(intervalKey);
-      if(!intervals){intervals=templateSegments(templates.get(item.templateId).segments).map(segment=>scheduleInterval(item.date,segment.start,segment.end,timeZone));intervalCache.set(intervalKey,intervals);}
+      if(!intervals){intervals=segments.map(segment=>scheduleInterval(item.date,segment.start,segment.end,timeZone));intervalCache.set(intervalKey,intervals);}
     } catch (error) {
       errors.push({ row: rowNumber, code: "time", message: error.message });
       continue;
@@ -2950,12 +2986,13 @@ async function readPublishedScheduleAssignments(env, weekStart) {
   const timeZone = await setting(env, "timezone", DEFAULT_TIME_ZONE);
   const startBoundary = scheduleInterval(weekStart, "00:00", "00:01", timeZone).start;
   const endBoundary = scheduleInterval(addCalendarDays(weekEnd, 1), "00:00", "00:01", timeZone).start;
-  const [rows, legacyRows] = await Promise.all([
-    env.DB.prepare("SELECT employee_id AS employeeId,template_id AS templateId, work_date AS date,vehicle_id AS vehicleId,notes FROM schedule_assignments WHERE status='planned' AND work_date BETWEEN ? AND ? ORDER BY work_date,employee_id").bind(weekStart, weekEnd).all(),
+  const [rows, legacyRows, actualRows] = await Promise.all([
+    env.DB.prepare("SELECT id,employee_id AS employeeId,template_id AS templateId, work_date AS date,vehicle_id AS vehicleId,notes FROM schedule_assignments WHERE status='planned' AND work_date BETWEEN ? AND ? ORDER BY work_date,employee_id").bind(weekStart, weekEnd).all(),
     env.DB.prepare(`SELECT sc.id FROM schedules sc
       LEFT JOIN schedule_assignments sa ON sa.id=sc.series_id AND sa.status='planned'
       WHERE sc.start_at>=? AND sc.start_at<? AND sc.status NOT IN ('cancelled') AND sa.id IS NULL LIMIT 1`)
-      .bind(startBoundary, endBoundary).all()
+      .bind(startBoundary, endBoundary).all(),
+    env.DB.prepare("SELECT series_id,start_at,end_at FROM schedules WHERE start_at>=? AND start_at<? AND status<>'cancelled' ORDER BY start_at").bind(startBoundary,endBoundary).all()
   ]);
   return {
     assignments: (rows.results || []).map((row) => ({
@@ -2963,7 +3000,9 @@ async function readPublishedScheduleAssignments(env, weekStart) {
       date: row.date,
       templateId: row.templateId,
       vehicleId: row.vehicleId || null,
-      withoutVehicle: !row.vehicleId
+      withoutVehicle: !row.vehicleId,
+      notes:row.notes||"",
+      segments:(actualRows.results||[]).filter(sc=>sc.series_id===row.id).map(sc=>({start:localClock(sc.start_at,timeZone),end:localClock(sc.end_at,timeZone)}))
     })),
     hasLegacyRows: (legacyRows.results || []).length > 0
   };
@@ -3007,8 +3046,8 @@ async function expandDraftRows(env, draft, timeZone) {
   const employeeIds = [...new Set(assignments.map((item) => item.employeeId).filter(Boolean))];
   const templateIds = [...new Set(assignments.map((item) => item.templateId).filter(Boolean))];
   const maps = await Promise.all([
-    employeeIds.length ? env.DB.prepare(`SELECT id,full_name,employee_group,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE id IN (${employeeIds.map(() => "?").join(",")})`).bind(...employeeIds).all() : Promise.resolve({ results: [] }),
-    templateIds.length ? env.DB.prepare(`SELECT * FROM shift_templates WHERE id IN (${templateIds.map(() => "?").join(",")})`).bind(...templateIds).all() : Promise.resolve({ results: [] })
+    employeeIds.length ? env.DB.prepare(`SELECT id,full_name,employee_group,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(employeeIds)).all() : Promise.resolve({ results: [] }),
+    templateIds.length ? env.DB.prepare(`SELECT * FROM shift_templates WHERE id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(templateIds)).all() : Promise.resolve({ results: [] })
   ]);
   const employees = new Map((maps[0].results || []).map((row) => [String(row.id), row]));
   const templates = new Map((maps[1].results || []).map((row) => [String(row.id), row]));
@@ -3022,7 +3061,7 @@ async function expandDraftRows(env, draft, timeZone) {
   });
   const vehicleIds = [...new Set(resolvedAssignments.map((item) => item.vehicleId).filter(Boolean))];
   const vehicleRows = vehicleIds.length
-    ? await env.DB.prepare(`SELECT bike_id,name FROM vehicle_registry WHERE bike_id IN (${vehicleIds.map(() => "?").join(",")})`).bind(...vehicleIds).all()
+    ? await env.DB.prepare(`SELECT bike_id,name FROM vehicle_registry WHERE bike_id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(vehicleIds)).all()
     : { results: [] };
   const vehicles = new Map((vehicleRows.results || []).map((row) => [String(row.bike_id), row]));
   const rows = [];
@@ -3030,7 +3069,7 @@ async function expandDraftRows(env, draft, timeZone) {
     const employee = employees.get(String(item.employeeId));
     const template = templates.get(String(item.templateId));
     if (!employee || !template) return;
-    templateSegments(template.segments).forEach((segment) => {
+    templateSegments(item.segments || template.segments).forEach((segment) => {
       const interval = scheduleInterval(item.date, segment.start, segment.end, timeZone);
       rows.push({
         id: `draft-${draft.week_start}-${draftAssignmentKey(item)}-${segment.start}`,
@@ -3081,12 +3120,13 @@ function scheduleImportRange(from,to) {
 
 async function scheduleImportCatalog(env) {
   const [employees,templates,vehicles,timeZone]=await Promise.all([
-    env.DB.prepare("SELECT id,full_name,username,login_enabled,role,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE active=1 AND deleted_at IS NULL ORDER BY full_name,id").all(),
-    env.DB.prepare("SELECT * FROM shift_templates WHERE active=1 ORDER BY sort_order,name,id").all(),
+    env.DB.prepare("SELECT id,full_name,username,login_enabled,role,active,deleted_at,assigned_vehicle_id,uses_own_vehicle FROM app_users ORDER BY full_name,id").all(),
+    env.DB.prepare("SELECT * FROM shift_templates ORDER BY sort_order,name,id").all(),
     env.DB.prepare("SELECT bike_id,name,status,odometer FROM vehicle_registry vr WHERE status NOT IN ('service','inactive') AND NOT EXISTS(SELECT 1 FROM vehicle_archives va WHERE va.bike_id=vr.bike_id AND va.active=1) ORDER BY name").all(),
     setting(env,"timezone",DEFAULT_TIME_ZONE)
   ]);
-  return {employees:employees.results||[],templates:templates.results||[],vehicles:vehicles.results||[],timeZone};
+  const all=employees.results||[];
+  return {employees:all.filter(e=>Number(e.active)===1&&!e.deleted_at),retainedEmployees:all.filter(e=>Number(e.active)!==1||e.deleted_at),templates:(templates.results||[]).filter(t=>Number(t.active)===1),retainedTemplates:(templates.results||[]).filter(t=>Number(t.active)!==1),vehicles:vehicles.results||[],timeZone};
 }
 
 async function scheduleTemplateData(request,env,deps) {
@@ -3127,7 +3167,7 @@ async function normalizeScheduleImportRows(env, rows, catalog) {
     const noVehicle=key(importCell(row,["withoutVehicle","noVehicle","Χωρίς μηχανάκι"]));
     const withoutVehicle=["ναι","yes","true","1","χωρίς μηχανάκι","χωρις μηχανακι"].includes(noVehicle)||["χωρίς μηχανάκι","χωρις μηχανακι","ιδιόκτητο μηχανάκι"].includes(key(vehicleName))||bool(employee?.uses_own_vehicle);
     const vehicle=!withoutVehicle&&(vehicleId||vehicleName)?match(vehicles,"bike_id",vehicleId,"name",vehicleName,number,"διαθέσιμο μηχανάκι"):null;
-    if(employee&&template&&date)assignments.push({employeeId:employee.id,date,templateId:template.id,vehicleId:vehicle?.bike_id||null,withoutVehicle,notes:text(importCell(row,["notes","Σημειώσεις"]),500)});
+    if(employee&&template&&date)assignments.push({employeeId:employee.id,date,templateId:template.id,vehicleId:vehicle?.bike_id||null,withoutVehicle,notes:(row.notes!==undefined||row["Σημειώσεις"]!==undefined)?text(importCell(row,["notes","Σημειώσεις"]),500):undefined});
   });
   const dates=scopes.map(x=>x.date).sort();
   if(dates.length)scheduleImportRange(dates[0],dates.at(-1));
@@ -3150,13 +3190,17 @@ async function scheduleImportPlan(env,rows) {
   for(const start of starts){
     const draft=(drafts.results||[]).find(x=>x.week_start===start),publication=(pubs.results||[]).find(x=>x.week_start===start);
     const scope=new Set(normalized.scopes.filter(x=>mondayForDate(x.date)===start).map(x=>x.employeeId+":"+x.date));
-    const old=draft?parseJson(draft.assignments,[]):(base.results||[]).filter(x=>mondayForDate(x.work_date)===start).map(x=>({employeeId:x.employee_id,date:x.work_date,templateId:x.template_id,vehicleId:x.vehicle_id,withoutVehicle:!x.vehicle_id,notes:x.notes}));
+    const old=draft?parseJson(draft.assignments,[]):(base.results||[]).filter(x=>mondayForDate(x.work_date)===start).map(x=>({employeeId:x.employee_id,date:x.work_date,templateId:x.template_id,vehicleId:x.vehicle_id,withoutVehicle:!x.vehicle_id,notes:x.notes,segments:(occupied.results||[]).filter(sc=>sc.series_id===x.id).sort((a,b)=>a.start_at.localeCompare(b.start_at)).map(sc=>({start:localClock(sc.start_at,catalog.timeZone),end:localClock(sc.end_at,catalog.timeZone)}))}));
     const weekFrom=scheduleInterval(start,"00:00","00:01",catalog.timeZone).start,weekTo=scheduleInterval(addCalendarDays(start,7),"00:00","00:01",catalog.timeZone).start;
     const baseIds=new Set((base.results||[]).map(b=>b.id));
     const legacy=(occupied.results||[]).some(x=>x.start_at>=weekFrom&&x.start_at<weekTo&&!baseIds.has(x.series_id));
     if(legacy&&!draft)errors.push({row:0,message:"Η εβδομάδα "+start+" περιέχει παλιές βάρδιες χωρίς ασφαλή ομαδοποίηση. Διόρθωσέ τες από το Πρόγραμμα πριν αντικαταστήσεις την εβδομάδα."});
     if((locked.results||[]).some(x=>x.start_date<=addCalendarDays(start,6)&&x.end_date>=start))errors.push({row:0,message:"Η μισθοδοσία της εβδομάδας "+start+" είναι κλειδωμένη."});
-    const merged=old.filter(x=>!scope.has(x.employeeId+":"+x.date)).concat(normalized.assignments.filter(x=>mondayForDate(x.date)===start));
+    const incoming=normalized.assignments.filter(x=>mondayForDate(x.date)===start).map(item=>{
+      const previous=old.filter(x=>x.employeeId===item.employeeId&&x.date===item.date),matching=previous.find(x=>x.templateId===item.templateId)||(previous.length===1?previous[0]:null);
+      return {...item,notes:item.notes!==undefined?item.notes:matching?.notes||"",segments:matching?.templateId===item.templateId?matching.segments:undefined};
+    });
+    const merged=old.filter(x=>!scope.has(x.employeeId+":"+x.date)).concat(incoming);
     const check=await validateDraftAssignments(env,merged,start,{context});errors.push(...check.errors.map(x=>({...x,message:start+": "+x.message})));
     weeks.push({weekStart:start,assignments:check.assignments,missingVehicles:check.missingVehicles,state:draft?"draft":publication||old.length?"published":"empty",baseRevision:Number(publication?.revision||0),previousUpdatedAt:draft?.updated_at||null});
   }
@@ -3208,7 +3252,7 @@ async function publishScheduleWeek(request, env, deps) {
   if (locked) throw new ApiError(409, "Η εβδομάδα περιέχει βάρδια με πραγματικό Clock In και δεν αντικαθίσταται.", "schedule_week_locked");
   const now = nowIso(),publication=await schedulePublication(env,weekStart),revision=Number(publication?.revision||0)+1;
   const prepared=check.assignments.map(item=>({assignmentId:uuid(),employeeId:item.employeeId,templateId:item.templateId,workDate:item.date,vehicleId:item.vehicleId||null,notes:item.notes||"",
-    intervals:templateSegments(check.templates.get(item.templateId).segments).map(segment=>scheduleInterval(item.date,segment.start,segment.end,timeZone))}));
+    intervals:templateSegments(item.segments || check.templates.get(item.templateId).segments).map(segment=>scheduleInterval(item.date,segment.start,segment.end,timeZone))}));
   // Cancelling the old plan and inserting the complete new plan are one D1
   // transaction, including publication metadata. A failed insert rolls back all.
   await env.DB.batch([
@@ -3385,8 +3429,8 @@ async function createWeekAssignments(request, env, deps) {
   const employeePlaceholders = employeeIds.map(() => "?").join(",");
   const templatePlaceholders = templateIds.map(() => "?").join(",");
   const [employeeRows, templateRows] = await Promise.all([
-    env.DB.prepare(`SELECT id,full_name,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE active=1 AND id IN (${employeePlaceholders})`).bind(...employeeIds).all(),
-    env.DB.prepare(`SELECT * FROM shift_templates WHERE active=1 AND id IN (${templatePlaceholders})`).bind(...templateIds).all()
+    env.DB.prepare(`SELECT id,full_name,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE active=1 AND id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(employeeIds)).all(),
+    env.DB.prepare(`SELECT * FROM shift_templates WHERE active=1 AND id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(templateIds)).all()
   ]);
   const employees = new Map((employeeRows.results || []).map((row) => [String(row.id), row]));
   const templates = new Map((templateRows.results || []).map((row) => [String(row.id), row]));
@@ -3398,7 +3442,7 @@ async function createWeekAssignments(request, env, deps) {
   });
   const vehicleIdList = [...vehicleIds];
   const vehicleRows = vehicleIdList.length
-    ? await env.DB.prepare(`SELECT bike_id,name,status FROM vehicle_registry WHERE bike_id IN (${vehicleIdList.map(() => "?").join(",")})`).bind(...vehicleIdList).all()
+    ? await env.DB.prepare(`SELECT bike_id,name,status FROM vehicle_registry WHERE bike_id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(vehicleIdList)).all()
     : { results: [] };
   const vehicles = new Map((vehicleRows.results || []).map((row) => [String(row.bike_id), row]));
   if (employees.size !== employeeIds.length) throw new ApiError(400, "Ένας ή περισσότεροι διανομείς δεν βρέθηκαν ή δεν είναι ενεργοί.");
@@ -3778,7 +3822,7 @@ async function createSchedules(request, env, deps) {
     throw new ApiError(400, "Συμπλήρωσε σωστά ημερομηνίες και ώρες.");
   }
   const employeePlaceholders = employeeIds.map(() => "?").join(",");
-  const employeeRows = await env.DB.prepare(`SELECT id,full_name,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE active=1 AND id IN (${employeePlaceholders})`).bind(...employeeIds).all();
+  const employeeRows = await env.DB.prepare(`SELECT id,full_name,assigned_vehicle_id,uses_own_vehicle FROM app_users WHERE active=1 AND id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(employeeIds)).all();
   const employees = new Map((employeeRows.results || []).map((row) => [String(row.id), row]));
   if (employees.size !== employeeIds.length) throw new ApiError(400, "Ένας ή περισσότεροι εργαζόμενοι δεν είναι ενεργοί ή δεν βρέθηκαν.");
   const vehicleByEmployee = new Map(employeeIds.map((employeeId) => [employeeId, effectiveScheduleVehicleId(body, employees.get(employeeId))]));
@@ -3786,7 +3830,7 @@ async function createSchedules(request, env, deps) {
   const vehicles = new Map();
   if (vehicleIds.length) {
     await syncVehicleRegistry(env, deps);
-    const vehicleRows = await env.DB.prepare(`SELECT bike_id,name,status FROM vehicle_registry WHERE bike_id IN (${vehicleIds.map(() => "?").join(",")})`).bind(...vehicleIds).all();
+    const vehicleRows = await env.DB.prepare(`SELECT bike_id,name,status FROM vehicle_registry WHERE bike_id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(vehicleIds)).all();
     (vehicleRows.results || []).forEach((row) => vehicles.set(String(row.bike_id), row));
     if (vehicles.size !== vehicleIds.length || [...vehicles.values()].some((vehicle) => ["service", "inactive"].includes(String(vehicle.status)))) {
       throw new ApiError(400, "Το προανατεθειμένο μηχανάκι δεν είναι διαθέσιμο για πρόγραμμα.", "vehicle_unavailable");
@@ -3804,6 +3848,8 @@ async function createSchedules(request, env, deps) {
   if (totalRows > 40) {
     throw new ApiError(400, "Η μαζική δημιουργία υποστηρίζει έως 40 βάρδιες κάθε φορά. Χώρισε το διάστημα σε μικρότερα τμήματα.", "schedule_batch_too_large");
   }
+  const locked=await env.DB.prepare("SELECT 1 FROM payroll_periods WHERE status='locked' AND start_date<=? AND end_date>=? LIMIT 1").bind(selectedDates.at(-1),selectedDates[0]).first();
+  if(locked)throw new ApiError(409,"Η μισθοδοσία του διαστήματος είναι κλειδωμένη.","payroll_locked");
   const intervals = selectedDates.map((date) => ({ date, ...scheduleInterval(date, startTime, endTime, timeZone) }));
   const existingRows = await loadScheduleConflictRows(env, intervals, [], vehicleIds);
   const seriesId = uuid();
@@ -4883,7 +4929,7 @@ async function lockPayroll(request, env, deps) {
       SELECT json_extract(value,'$.id'),?,json_extract(value,'$.employee'),json_extract(value,'$.data'),? FROM json_each(?)`).bind(summary.period.id,now,JSON.stringify(snapshots)),
     env.DB.prepare("UPDATE payroll_periods SET status='locked',locked_at=?,locked_by=?,hours_source=?,updated_at=? WHERE id=? AND status='open'").bind(now,actor.user_id,summary.hoursSource,now,summary.period.id)
   ]);
-  await audit(env, request, actor, "payroll_locked", "payroll_period", summary.period.id, { status: "open" }, { status: "locked", employees: summary.employees.length }, text(body.reason, 500), pinUsed);
+  await audit(env, request, actor, "payroll_locked", "payroll_period", summary.period.id, { status: "open" }, { status: "locked", hoursSource:summary.hoursSource, employees: summary.employees.length }, text(body.reason, 500), pinUsed);
   return wfJson({ locked: true });
 }
 
@@ -5017,7 +5063,7 @@ function deletedRecordPublic(row, canRestore) {
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
   let details = "";
   if (row.record_type === "employee") {
-    details = "Το ιστορικό, το πρόγραμμα και η μισθοδοσία διατηρούνται. Οι παλιές συνδέσεις παραμένουν αποσυνδεδεμένες.";
+    details = "Το παλιό ιστορικό και η μισθοδοσία διατηρούνται. Οι ακυρωμένες μελλοντικές βάρδιες δεν επανέρχονται αυτόματα· έλεγξε το Πρόγραμμα.";
   } else if (row.record_type === "fleet_history") {
     const entry = payload.entry || {};
     details = `${entry.type === "service" ? "Service" : "Έλεγχος χιλιομέτρων"} • ${Number(entry.km || 0).toLocaleString("el-GR")} χλμ. • ${entry.date || "—"}`;
@@ -5085,6 +5131,7 @@ async function restoreScheduleArchive(env, payload, actor, deletedRow) {
   const scheduleRows = Array.isArray(payload.schedules) ? payload.schedules.slice(0, 20) : [];
   if (!scheduleRows.length) throw new ApiError(409, "Το αντίγραφο της προγραμματισμένης βάρδιας είναι κενό.", "archive_invalid");
   for (const row of scheduleRows) {
+    await assertPayrollOpen(env,localDate(row.start_at,await setting(env,"timezone",DEFAULT_TIME_ZONE)));
     const employeeConflict = await env.DB.prepare(`SELECT id FROM schedules WHERE id<>? AND employee_id=?
       AND status NOT IN ('cancelled','completed') AND start_at<? AND end_at>? LIMIT 1`)
       .bind(row.id, row.employee_id, row.end_at, row.start_at).first();
@@ -5265,7 +5312,7 @@ async function reportData(request, env, deps) {
   }
   if (type === "payroll") {
     const summary = await buildPayrollSummary(env, from, to);
-    return wfJson({ type, from, to, columns: ["employeeName","payableHours","normalHours","specialHours","kilometers","basePayCents","specialPayCents","bonusCents","deductionCents","advanceCents","finalCents"], rows: summary.employees });
+    return wfJson({ type, from, to, columns: ["employeeName","hoursSourceLabel","payableHours","normalHours","specialHours","kilometers","basePayCents","specialPayCents","bonusCents","deductionCents","advanceCents","finalCents"], rows: summary.employees.map(item=>({...item,hoursSourceLabel:summary.hoursSource === "schedule" ? "Δημοσιευμένο πρόγραμμα" : "Πραγματικές καταγραφές"})) });
   }
   throw new ApiError(400, "Ο τύπος αναφοράς δεν υποστηρίζεται.");
 }

@@ -1,14 +1,14 @@
 /* Portable schedule workbook: native OOXML, no macros or remote library. */
 (function (root) {
   "use strict";
-  const encoder=new TextEncoder(),xml=value=>String(value??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+  const encoder=new TextEncoder(),xml=value=>String(value??"").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
   const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
   function column(n){let result='';for(n++;n;n=Math.floor((n-1)/26))result=String.fromCharCode(65+(n-1)%26)+result;return result;}
   function day(date,n){return new Date(Date.parse(date+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);}
   function monday(date){const n=new Date(date+'T12:00:00Z').getUTCDay()||7;return day(date,1-n);}
   function sheet(rows,widths,options={}) {
     const content=rows.map((row,i)=>'<row r="'+(i+1)+'" ht="'+(i?28:42)+'" customHeight="1">'+row.map((v,j)=>'<c r="'+column(j)+(i+1)+'" s="'+(i?j<2?2:3:1)+'" t="inlineStr"><is><t xml:space="preserve">'+xml(v)+'</t></is></c>').join('')+'</row>').join('');
-    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="'+ns+'"><sheetViews><sheetView workbookViewId="0"><pane xSplit="1" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><cols>'+widths.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+Math.abs(w)+'" customWidth="1"'+(w<0?' hidden="1"':'')+'/>').join('')+'</cols><sheetData>'+content+'</sheetData>'+(options.filter?'<autoFilter ref="A1:'+column(rows[0].length-1)+rows.length+'"/>':'')+(options.validation||'')+'<pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.15" footer="0.15"/><pageSetup paperSize="8" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>';
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="'+ns+'"><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="1" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><cols>'+widths.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+Math.abs(w)+'" customWidth="1"'+(w<0?' hidden="1"':'')+'/>').join('')+'</cols><sheetData>'+content+'</sheetData>'+(options.filter?'<autoFilter ref="A1:'+column(rows[0].length-1)+rows.length+'"/>':'')+(options.validation||'')+'<pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.15" footer="0.15"/><pageSetup paperSize="8" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>';
   }
   const crcTable=Array.from({length:256},(_,n)=>{let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0;});
   function crc(bytes){let c=0xffffffff;for(const b of bytes)c=crcTable[(c^b)&255]^(c>>>8);return(c^0xffffffff)>>>0;}
@@ -29,12 +29,18 @@
     const dates=[];for(let date=data.startDate;date<=data.endDate;date=day(date,1)){dates.push(date);if(dates.length>42)throw new Error('Έως 42 ημέρες ανά πρότυπο.');}
     if(!dates.length||dates.length*data.employees.length>2048)throw new Error('Το διάστημα ξεπερνά το όριο του προτύπου.');
     const sheets=[],files={},templateNames=new Map(data.templates.map(t=>[String(t.id),t.name])),vehicleNames=new Map(data.vehicles.map(v=>[String(v.id),v.name]));
-    const existing=new Map((data.assignments||[]).map(a=>[a.employee_id+':'+a.work_date,a]));
+    const employeeIds=new Set(data.employees.map(e=>String(e.id)));
+    const existing=new Map();for(const a of data.assignments||[]){if(!employeeIds.has(String(a.employee_id)))continue;const key=a.employee_id+':'+a.work_date;if(!existing.has(key))existing.set(key,[]);existing.get(key).push(a);}
+    for(const entries of existing.values())for(const a of entries)if(!templateNames.has(String(a.template_id)))throw new Error('Το πρόγραμμα περιέχει ανενεργό ή άγνωστο πρότυπο. Διόρθωσέ το από το Πρόγραμμα ή ενεργοποίησε το πρότυπο πριν κατεβάσεις Excel.');
     const groups=new Map();for(const date of dates){const week=monday(date);if(!groups.has(week))groups.set(week,[]);groups.get(week).push(date);}
-    let index=0;
+    let index=0,importRows=0;
     for(const [week,days] of groups){
       const rows=[['Εργαζόμενος','Αναγνωριστικό εργαζομένου',...days.flatMap(d=>[d+' Βάρδια',d+' Μηχανάκι'])]];
-      for(const e of data.employees)rows.push([e.fullName,String(e.id),...days.flatMap(d=>{const a=existing.get(e.id+':'+d);return [a?templateNames.get(String(a.template_id))||'':'',e.usesOwnVehicle?'Ιδιόκτητο μηχανάκι':a&&!a.vehicle_id?'Χωρίς μηχανάκι':vehicleNames.get(String(a?a.vehicle_id:e.assignedVehicleId||''))||''];})]);
+      for(const e of data.employees){
+        const slots=Math.max(1,...days.map(d=>existing.get(e.id+':'+d)?.length||0));
+        for(let slot=0;slot<slots;slot++)rows.push([e.fullName+(slot?' ('+(slot+1)+'η βάρδια)':''),String(e.id),...days.flatMap(d=>{const a=existing.get(e.id+':'+d)?.[slot];return [a?templateNames.get(String(a.template_id))||'':'',e.usesOwnVehicle?'Ιδιόκτητο μηχανάκι':a&&!a.vehicle_id?'Χωρίς μηχανάκι':vehicleNames.get(String(a?a.vehicle_id:e.assignedVehicleId||''))||''];})]);
+      }
+      importRows+=(rows.length-1)*days.length;if(importRows>2048)throw new Error('Οι πρόσθετες βάρδιες ξεπερνούν τις 2.048 γραμμές εισαγωγής. Διάλεξε μικρότερο διάστημα.');
       const validations=days.flatMap((_,i)=>[[column(2+i*2),'ShiftChoices'],[column(3+i*2),'VehicleChoices']]).map(([col,name])=>'<dataValidation type="list" allowBlank="1" showErrorMessage="1" showInputMessage="1" errorStyle="stop" errorTitle="Επιλογή από τη λίστα" error="Χρησιμοποίησε μία από τις διαθέσιμες επιλογές." promptTitle="'+(name==='ShiftChoices'?'Πρότυπο βάρδιας':'Μηχανάκι ημέρας')+'" prompt="'+(name==='ShiftChoices'?'Κενό σημαίνει ρεπό για αυτή την ημέρα.':'Η προανάθεση μπορεί να αλλάξει για αυτή την ημέρα.')+'" sqref="'+col+'2:'+col+rows.length+'"><formula1>'+name+'</formula1></dataValidation>').join('');
       sheets.push({name:'Πρόγραμμα '+week,xml:sheet(rows,[28,-38,...days.flatMap(()=>[25,22])],{filter:true,validation:'<dataValidations count="'+days.length*2+'">'+validations+'</dataValidations>'})});index++;
     }
@@ -49,6 +55,7 @@
       ['4. Πρόχειρο','Η αποθήκευση ενημερώνει τις ημέρες των εργαζομένων που περιέχει το αρχείο. Οι υπόλοιπες διατηρούνται.'],
       ['5. Δημοσίευση','Κάθε εβδομάδα παραμένει πρόχειρη μέχρι να πατήσεις Δημοσίευση στην εφαρμογή.'],
       ['Ταυτοποίηση','Μην αλλάζεις τη στήλη ονομάτων ή τη κρυφή στήλη αναγνωριστικών.'],
+      ['Πρόσθετες βάρδιες','Αν υπάρχουν ξεχωριστές βάρδιες την ίδια ημέρα, εμφανίζονται σε πρόσθετες σειρές του ίδιου ατόμου.'],
       ['Νέα στοιχεία','Αν άλλαξαν εργαζόμενοι, πρότυπα ή μηχανάκια, κατέβασε καινούριο πρότυπο.']
     ],[25,100])});
     const shifts=data.templates.map(t=>t.name),vehicles=[...data.vehicles.map(v=>v.name),'Χωρίς μηχανάκι','Ιδιόκτητο μηχανάκι'];
