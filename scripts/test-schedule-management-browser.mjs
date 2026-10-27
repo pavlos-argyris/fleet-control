@@ -31,10 +31,11 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
  });
  try{
   await page.goto('https://fixture.invalid/portal.html');await page.locator('#sideNav [data-go="schedules"]').waitFor({state:'attached'});
-  const nav=width>=1100?page.locator('#sideNav'):page.locator('#bottomNav');
+  const nav=width>860?page.locator('#sideNav'):page.locator('#bottomNav');
   const direct=nav.locator('[data-go="schedules"]');if(await direct.count())await direct.click();else{await nav.locator('[data-ui-more]').click();await page.locator('#uiMoreDialog [data-go="schedules"]').click();}
   await page.locator('#newScheduleButton').click();await page.locator('[data-builder-mode="employee"]').click();await page.locator('#weekScheduleEmployee').selectOption(e.id);
   await page.locator('[data-new-day-template="'+week+'"]').click();await page.locator('#quickShiftStart').fill('04:13');await page.locator('#quickShiftEnd').fill('05:27');await page.locator('#simpleSubmit').click();await page.waitForFunction(()=>!document.querySelector('#simpleDialog').open);
+  await page.waitForFunction(date=>Boolean(document.querySelector('[data-day-template="'+date+'"]')?.value),week);
   const template=db.sqlite.prepare("SELECT * FROM shift_templates WHERE name='04:13 - 05:27'").get();assert.ok(template);
   assert.equal(await page.locator('[data-day-template="'+week+'"]').inputValue(),template.id);
   await page.locator('#scheduleSubmitButton').click();await page.waitForFunction(()=>!document.querySelector('#scheduleDialog').open);
