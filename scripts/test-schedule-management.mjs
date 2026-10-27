@@ -83,4 +83,32 @@ const race=await req('/api/admin/schedule-vehicles/plan','POST',{weekStart:futur
 env.DB.batch=originalBatch;
 assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM schedule_edit_guard').get().n,0);
 assert.equal((await call('/api/admin/schedule-vehicles/plan',{method:'POST',body:{weekStart:week}})).status,401);
+// Split templates deduplicate regardless of input order; adjacent and overnight
+// allocations reuse one bike only when the complete intervals do not overlap.
+const splitSegments=[{start:'03:11',end:'04:12'},{start:'20:13',end:'21:14'}];
+ok(await req('/api/admin/shift-templates','POST',{segments:splitSegments}),201);
+assert.equal((await req('/api/admin/shift-templates','POST',{segments:[...splitSegments].reverse()})).status,409);
+const adjacent=ok(await req('/api/admin/shift-templates','POST',{segments:[{start:'07:25',end:'08:12'}]}),201).template;
+const overnightTemplate=ok(await req('/api/admin/shift-templates','POST',{segments:[{start:'23:13',end:'01:27'}]}),201).template;
+const earlyTemplate=ok(await req('/api/admin/shift-templates','POST',{segments:[{start:'01:26',end:'02:21'}]}),201).template;
+const later=addCalendarDays(week,14);
+db.sqlite.prepare("UPDATE vehicle_registry SET status='available' WHERE bike_id='bike-a'").run();
+db.sqlite.prepare("UPDATE vehicle_registry SET status='inactive' WHERE bike_id='bike-b'").run();
+ok(await req('/api/admin/schedule-week','POST',{assignments:[{employeeId:staff[0].id,date:later,templateId:template.id,withoutVehicle:true},{employeeId:staff[1].id,date:later,templateId:adjacent.id,withoutVehicle:true}]}),201);
+const adjacentPlan=ok(await req('/api/admin/schedule-vehicles/plan','POST',{weekStart:later}));assert.equal(adjacentPlan.proposals.length,2);assert.ok(adjacentPlan.proposals.every(p=>p.vehicleId==='bike-a'));
+const sunday=addCalendarDays(later,6),nextWeek=addCalendarDays(later,7);
+ok(await req('/api/admin/schedule-week','POST',{assignments:[{employeeId:staff[2].id,date:sunday,templateId:overnightTemplate.id,vehicleId:'bike-a'},{employeeId:staff[3].id,date:nextWeek,templateId:earlyTemplate.id,withoutVehicle:true}]}),201);
+const crossWeekPlan=ok(await req('/api/admin/schedule-vehicles/plan','POST',{weekStart:nextWeek}));assert.equal(crossWeekPlan.proposals.length,0);assert.equal(crossWeekPlan.unassigned.length,1,'Sunday overnight blocks Monday availability');
+// Whole-week template updates use a bounded batch rather than one query per shift.
+const largeStaff=[];
+for(let i=0;i<20;i++)largeStaff.push(ok(await req('/api/admin/employees','POST',{fullName:'Bulk Staff '+i,loginEnabled:false}),201).employee);
+const largeAssignments=largeStaff.flatMap(e=>Array.from({length:7},(_,day)=>({employeeId:e.id,date:addCalendarDays(week,day),templateId:template.id,withoutVehicle:true})));
+ok(await req('/api/admin/schedule-week','POST',{assignments:largeAssignments}),201);
+const largeBody={segments:[{start:'06:21',end:'07:27'}]},largePreview=ok(await req('/api/admin/shift-templates/'+template.id,'PUT',{...largeBody,preview:true}));
+assert.ok(largePreview.changes.length>=140);
+let batchSize=0;env.DB.batch=async statements=>{if(statements.some(s=>s.sql.includes('INSERT INTO schedule_edit_guard')))batchSize=statements.length;return originalBatch(statements);};
+ok(await req('/api/admin/shift-templates/'+template.id,'PUT',{...largeBody,confirm:true,previewToken:largePreview.previewToken}));assert.ok(batchSize<=10,'bounded batch for full week: '+batchSize);env.DB.batch=originalBatch;
+// Locked payroll is listed as an exclusion, not silently rewritten.
+db.sqlite.prepare("INSERT INTO payroll_periods(id,start_date,end_date,status,created_at,updated_at) VALUES('locked10',?,?,'locked',?,?)").run(week,addCalendarDays(week,6),today,today);
+const lockPreview=ok(await req('/api/admin/shift-templates/'+template.id,'PUT',{segments:[{start:'06:22',end:'07:28'}],preview:true}));assert.equal(lockPreview.changes.length,0);assert.ok(lockPreview.excluded.length>=140);assert.ok(lockPreview.excluded.every(x=>/Κλειδωμένη/.test(x.reason)));
 console.log('PASS #10 API/SQLite: time names/sorting; duplicate API and database races; confirmed/stale/atomic template propagation; independent and historical hours; vehicle suggestions, shortage, manual conflict, draft edits and auto allocation; stale transaction rollback; authorization.');

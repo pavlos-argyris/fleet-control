@@ -2746,12 +2746,15 @@ async function updateShiftTemplate(request, env, templateId) {
   const now = nowIso();
   const statements = [env.DB.prepare(`UPDATE shift_templates SET name=?,segments=?,active=?,sort_order=?,color=?,updated_at=? WHERE id=?`)
     .bind(plan.input.name,JSON.stringify(plan.input.segments),plan.input.active?1:0,plan.input.sortOrder,plan.input.color,now,templateId)];
-  // Cancel all affected rows before re-inserting, so adjacent shifts can move together.
-  for (const item of plan.updates) statements.push(env.DB.prepare("UPDATE schedules SET status='cancelled',updated_at=? WHERE series_id=? AND status<>'cancelled'").bind(now,item.id));
-  for (const item of plan.updates) {
-    statements.push(env.DB.prepare("UPDATE schedule_assignments SET updated_at=? WHERE id=?").bind(now,item.id));
-    for (const interval of item.intervals) statements.push(env.DB.prepare(`INSERT INTO schedules(id,employee_id,vehicle_id,series_id,start_at,end_at,status,notes,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,'planned',?,?,?,?)`)
-      .bind(uuid(),item.employee_id,item.vehicle_id,item.id,interval.start,interval.end,item.notes||"",actor.user_id,now,now));
+  // Materialize the whole change with bounded SQL statements, even for a full
+  // workforce week. Cancel together before insertion so adjacent rows can move.
+  if(plan.updates.length){
+    const ids=JSON.stringify(plan.updates.map(item=>item.id));
+    const rows=plan.updates.flatMap(item=>item.intervals.map(interval=>({id:uuid(),employee:item.employee_id,vehicle:item.vehicle_id,series:item.id,start:interval.start,end:interval.end,notes:item.notes||""})));
+    statements.push(env.DB.prepare("UPDATE schedules SET status='cancelled',updated_at=? WHERE series_id IN (SELECT value FROM json_each(?)) AND status<>'cancelled'").bind(now,ids));
+    statements.push(env.DB.prepare("UPDATE schedule_assignments SET updated_at=? WHERE id IN (SELECT value FROM json_each(?))").bind(now,ids));
+    statements.push(env.DB.prepare(`INSERT INTO schedules(id,employee_id,vehicle_id,series_id,start_at,end_at,status,notes,created_by,created_at,updated_at)
+      SELECT json_extract(value,'$.id'),json_extract(value,'$.employee'),json_extract(value,'$.vehicle'),json_extract(value,'$.series'),json_extract(value,'$.start'),json_extract(value,'$.end'),'planned',json_extract(value,'$.notes'),?,?,? FROM json_each(?)`).bind(actor.user_id,now,now,JSON.stringify(rows)));
   }
   if (plan.draft) statements.push(env.DB.prepare("UPDATE schedule_week_drafts SET assignments=?,updated_at=? WHERE week_start=?").bind(JSON.stringify(plan.draft),now,plan.week));
   if (plan.updates.length) statements.push(...scheduleRevisionStatements(env,actor,plan.week,now));
@@ -3603,7 +3606,7 @@ async function updateScheduleAssignment(request, env, deps, assignmentId) {
   const actor = await authenticate(request, env, "schedules.manage");
   const body = await bodyJson(request);
   const guardDate = text(body.date || body.workDate,10) || localDate(Date.now(),await setting(env,"timezone",DEFAULT_TIME_ZONE));
-  const editSnapshot = await scheduleSnapshot(env,mondayForDate(guardDate),await setting(env,"timezone",DEFAULT_TIME_ZONE));
+  const editSnapshot = await scheduleSnapshot(env,mondayForDate(guardDate),await setting(env,"timezone",DEFAULT_TIME_ZONE),assignmentId);
   const old = await env.DB.prepare("SELECT * FROM schedule_assignments WHERE id=? AND status='planned'").bind(assignmentId).first();
   if (!old) {
     // Upgrade a legacy schedule row lazily.  Older releases did not create a
@@ -5562,7 +5565,7 @@ async function ensureScheduleManagementGuards(env) {
     WHEN NEW.status NOT IN ('cancelled','completed') AND NEW.${column} IS NOT NULL AND EXISTS(SELECT 1 FROM schedules t WHERE t.id<>NEW.id AND t.${column}=NEW.${column} AND t.status NOT IN ('cancelled','completed') AND t.start_at<NEW.end_at AND t.end_at>NEW.start_at)
     BEGIN SELECT RAISE(ABORT,'${kind}_schedule_conflict'); END;`));
 }
-async function scheduleSnapshot(env,week,timeZone) {
+async function scheduleSnapshot(env,week,timeZone,assignmentId="") {
   const start=scheduleInterval(week,"00:00","00:01",timeZone).start;
   const end=scheduleInterval(addCalendarDays(week,8),"00:00","00:01",timeZone).start;
   const tables={
@@ -5580,9 +5583,9 @@ async function scheduleSnapshot(env,week,timeZone) {
   const args=[];
   const parts=Object.entries(tables).map(([table,columns])=>{
     let where="";
-    if(table==='schedules'){where="WHERE start_at<? AND end_at>?";args.push(end,start);}
-    if(table==='shifts'){where="WHERE schedule_id IN (SELECT id FROM schedules WHERE start_at<? AND end_at>?)";args.push(end,start);}
-    if(table==='schedule_assignments'){where="WHERE work_date BETWEEN ? AND ?";args.push(week,addCalendarDays(week,6));}
+    if(table==='schedules'){where="WHERE (start_at<? AND end_at>?)"+(assignmentId?" OR series_id=? OR id=?":"");args.push(end,start,...(assignmentId?[assignmentId,assignmentId]:[]));}
+    if(table==='shifts'){where="WHERE schedule_id IN (SELECT id FROM schedules WHERE (start_at<? AND end_at>?)"+(assignmentId?" OR series_id=? OR id=?":"")+")";args.push(end,start,...(assignmentId?[assignmentId,assignmentId]:[]));}
+    if(table==='schedule_assignments'){where="WHERE work_date BETWEEN ? AND ?"+(assignmentId?" OR id=?":"");args.push(week,addCalendarDays(week,6),...(assignmentId?[assignmentId]:[]));}
     if(table==='schedule_week_drafts'||table==='schedule_publications'){where="WHERE week_start=?";args.push(week);}
     return `(SELECT json_group_array(json_object(${columns.map(c=>`'${c}',${c}`).join(',')})) FROM (SELECT * FROM ${table} ${where} ORDER BY ${columns[0]}))`;
   });
@@ -5716,9 +5719,11 @@ async function manageScheduleVehicles(request,env,deps) {
       const assignments=draft.assignments.map(item=>{const proposal=proposals.find(p=>p.id===draftAssignmentKey(item));return proposal?{...item,vehicleId:proposal.vehicleId,withoutVehicle:false}:item;});
       statements.push(env.DB.prepare("UPDATE schedule_week_drafts SET assignments=?,updated_at=? WHERE week_start=?").bind(JSON.stringify(assignments),now,week));
     }else{
-      for(const proposal of proposals){
-        statements.push(env.DB.prepare("UPDATE schedule_assignments SET vehicle_id=?,updated_at=? WHERE id=?").bind(proposal.vehicleId,now,proposal.id));
-        statements.push(env.DB.prepare("UPDATE schedules SET vehicle_id=?,updated_at=? WHERE (series_id=? OR id=?) AND status IN ('planned','awaiting','absent')").bind(proposal.vehicleId,now,proposal.id,proposal.id));
+      if(proposals.length){
+        const changes=JSON.stringify(proposals.map(p=>({id:p.id,vehicle:p.vehicleId})));
+        const cte="WITH changes AS (SELECT json_extract(value,'$.id') AS id,json_extract(value,'$.vehicle') AS vehicle FROM json_each(?)) ";
+        statements.push(env.DB.prepare(cte+"UPDATE schedule_assignments SET vehicle_id=(SELECT vehicle FROM changes WHERE changes.id=schedule_assignments.id),updated_at=? WHERE id IN (SELECT id FROM changes)").bind(changes,now));
+        statements.push(env.DB.prepare(cte+"UPDATE schedules SET vehicle_id=(SELECT vehicle FROM changes WHERE changes.id=schedules.series_id OR changes.id=schedules.id LIMIT 1),updated_at=? WHERE (series_id IN (SELECT id FROM changes) OR id IN (SELECT id FROM changes)) AND status IN ('planned','awaiting','absent')").bind(changes,now));
       }
       if(proposals.length)statements.push(...scheduleRevisionStatements(env,actor,week,now));
     }
