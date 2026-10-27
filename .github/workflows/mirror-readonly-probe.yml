@@ -1,0 +1,32 @@
+name: Read-only mirror diagnosis
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/mirror-readonly-probe.yml', 'scripts/probe-server-mirror.mjs']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify deployed APK bytes and inspect mirror responses without changing data
+        env:
+          FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
+          FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
+        run: node scripts/probe-server-mirror.mjs
+      - name: Save counts, HTTP status and Ray IDs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirror-readonly-diagnosis
+          path: verification/mirror-probe/report.json
+          if-no-files-found: error
+          retention-days: 7
