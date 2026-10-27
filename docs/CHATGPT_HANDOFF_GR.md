@@ -100,3 +100,12 @@
 - **Κατάσταση:** έρευνα Android WebView/manifest/viewport/CSS και συγκριτικοί έλεγχοι Client/Web σε κινητό/tablet.
 - **Όρια:** ο συντονιστής του #1 / PR #14 αναλαμβάνει τελική ενσωμάτωση και δημοσίευση. Ο βοηθός #3 δεν κάνει merge, κλείσιμο issue, publication request, tag/release ή deploy. Δεν αλλάζει backend τιμολογίων ή παραγωγικά δεδομένα.
 - **Παράδοση:** ελεγμένο PR, πραγματικά αποτελέσματα και περιορισμοί, screenshots και πλήρες source artifact. Δεν λήφθηκε παραγωγικό backup.
+
+### Ορόσημο #3 — 27/10/2026, PR #15
+
+- **PR:** https://github.com/pavlos-argyris/fleet-control/pull/15, draft. Μόνο #3, χωρίς merge/deploy· ο συντονιστής του #1 / PR #14 κρατά ενσωμάτωση και τελικές εκδόσεις.
+- **Αιτία/αλλαγή:** Client manifest `screenOrientation=portrait`. Αφαιρείται και δηλώνονται configuration changes με διατήρηση του ίδιου WebView. Callback super + requestLayout χωρίς reload. Runtime μόνο Client manifest/MainActivity. Δεν χρειάστηκε αλλαγή portal.js/CSS/backend, ούτε παλιά snapshots.
+- **Τοπική επαλήθευση:** πλήρες `scripts/check-all.sh` success, νέο manifest/lifecycle regression (αποτυγχάνει στο αρχικό portrait manifest), Chromium Web/file Client σε 390×844↔844×390, 320×667↔667×320, 800×1280↔1280×800. Πέρασαν dashboard/βάρδιες/πρόγραμμα/εργαζόμενοι/τιμολόγια/Fleet/καρτέλα/νέο service, πλάτος, κύλιση, κουμπιά διαλόγων και διατήρηση ανοικτής φόρμας κατά rotation. Client test APK build success· compiled manifest χωρίς portrait, mask 0xda0.
+- **Εικόνες:** browser baseline/after στο docs/issue-3-landscape και πλήρη screenshots/results στο CI artifact. Οι baseline browser εικόνες δεν δείχνουν native Android letterboxing· η native αλλαγή τεκμηριώνεται με manifest/αρνητικό regression/compiled APK.
+- **Περιορισμοί:** Chromium/file Client δεν είναι Android WebView. Δεν υπάρχει emulator/φυσική συσκευή, δεν επιβεβαιώθηκε εγκατάσταση ή παραγωγικό backup. Test signing μόνο, metadata αμετάβλητη βάσει ειδικής οδηγίας· ο συντονιστής αυξάνει Client versionCode πριν παραγωγή.
+- **Επόμενο:** πλήρες GitHub PR CI, τελική επιθεώρηση και ready for review. Παραμένει draft έως επιβεβαίωση CI.
