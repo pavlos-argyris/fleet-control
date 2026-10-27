@@ -59,7 +59,10 @@ export async function commitInvoiceReview(env, options) {
     }
     for (const bike of bikes.values()) for (const [field,value] of Object.entries(bike.patch)) {
       if (!/^[a-zA-Z]+$/.test(field)) throw new Error('Invalid review field');
-      paths.push('?,json(?)'); values.push(bike.path+'.'+field,JSON.stringify(value));
+      if(field==='updatedAt'){
+        paths.push("?,json_quote(max(COALESCE(json_extract(data,?),''),?))");
+        values.push(bike.path+'.'+field,bike.path+'.'+field,String(value));
+      }else{paths.push('?,json(?)');values.push(bike.path+'.'+field,JSON.stringify(value));}
     }
     statements.push(env.DB.prepare(`UPDATE fleet_snapshot SET data=json_set(data,${paths.join(',')}),
       version=version+1,source=?,updated_at=? WHERE id=1 AND ${marker}`).bind(...values,source,now,...markerArgs));
@@ -69,11 +72,12 @@ export async function commitInvoiceReview(env, options) {
         FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? AND ${marker}
         ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,odometer=excluded.odometer,
         version=vehicle_registry.version+1,updated_at=excluded.updated_at`).bind(bikeId,now,bikeId,...markerArgs));
-      // Serialize only affected bikes inside D1; no complete fleet round trip.
+      // Serialize affected bikes inside D1. Queue by DB commit time (rowid
+      // breaks timestamp ties), not by the earlier request start time.
       statements.push(env.DB.prepare(`INSERT INTO fleet_operations(id,source,type,payload,status,created_at)
-        SELECT ?,'authenticated-client','snapshot_replace_bike',json_object('bike',json(b.value)),'pending',?
+        SELECT ?,'authenticated-client','snapshot_replace_bike',json_object('bike',json(b.value)),'pending',strftime('%Y-%m-%dT%H:%M:%fZ','now')
         FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? AND ${marker}`)
-        .bind(bike.operationId,now,bikeId,...markerArgs));
+        .bind(bike.operationId,bikeId,...markerArgs));
     }
     if(audit!==false)statements.push(env.DB.prepare(`INSERT INTO audit_log
       (id,timestamp,user_id,user_name,role,action,object_type,object_id,old_value,new_value,reason,ip_address,device_id,admin_pin_used)

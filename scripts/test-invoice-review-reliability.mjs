@@ -52,7 +52,7 @@ ok(await review({...body,invoiceData:{...body.invoiceData,totalAmount:'99'}}),40
 record=await detail();const noOp=ok(await review(payload(record)));assert.equal(noOp.unchanged,true);assert.equal(noOp.serviceChanged,false);assert.deepEqual(snapshot(),afterSave);assert.equal(counters().audit,counts.audit);assert.equal(counters().outbox,counts.outbox);
 
 const originalBatch=db.batch.bind(db);let race=null;
-db.batch=async statements=>{if(race&&statements.some(s=>s.sql.includes('INSERT INTO idempotency_keys'))){const hook=race;race=null;hook();}return originalBatch(statements);};
+db.batch=async statements=>{if(race&&statements.some(s=>s.sql.includes('INSERT INTO idempotency_keys'))){const hook=race;race=null;await hook();}return originalBatch(statements);};
 function mutate(bikeId,entryId,change){const root=JSON.parse(snapshot().data),bike=root.bikes.find(b=>b.id===bikeId);change(bike.history.find(e=>e.id===entryId));sql.prepare('UPDATE fleet_snapshot SET data=?,version=version+1 WHERE id=1').run(JSON.stringify(root));}
 // Unrelated fleet progress does not create a global-version conflict.
 seed();record=await detail();race=()=>mutate('target','other',e=>{e.notes='Concurrent real update';e.updatedAt='2026-10-27T20:00:00Z';});ok(await review(payload(record)));assert.equal((await readServiceEntry(env,'target','other')).entry.notes,'Concurrent real update');
@@ -63,6 +63,17 @@ seed();record=await detail();counts=counters();race=()=>mutate('source','service
 
 // Mileage correction recomputes only affected metrics and preserves other history.
 seed();record=await detail();const unrelated=JSON.parse(snapshot().data).bikes[1];saved=ok(await review(payload(record,{updateServiceKm:true,mileageDecision:'apply',expectedServiceKm:9000,invoiceData:{odometerKm:'9500',totalAmount:'59'}})));assert.equal(saved.document.serviceKm,9500);assert.equal(saved.serviceChanged,true);const root=JSON.parse(snapshot().data);assert.equal(root.bikes[0].lastServiceKm,10000);assert.equal(root.bikes[0].currentKm,10000);assert.deepEqual(root.bikes[1],unrelated);
+
+// Reviews can start in one order and commit in the opposite order. Server
+// replacement payloads must be delivered in commit order, never request time.
+seed();const pairRoot=JSON.parse(snapshot().data),thirdKey='service-documents/source/oil/three.pdf';pairRoot.bikes[0].history.find(e=>e.id==='oil').attachments=[{...file('three',thirdKey),ocr:{plate:'BTO-756',odometerKm:'10000',totalAmount:'59'}}];sql.prepare('UPDATE fleet_snapshot SET data=? WHERE id=1').run(JSON.stringify(pairRoot));
+record=await detail();const otherRecord=await detail('source','oil',thirdKey),firstBody=payload(record),secondBody=payload(otherRecord,{invoiceData:{plate:'BTO-756',odometerKm:'10000',totalAmount:'61'}});
+const NativeDate=Date;let reviewClock=NativeDate.now();globalThis.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[reviewClock]));}static now(){return reviewClock;}};
+let secondSave;try{race=async()=>{reviewClock+=1000;secondSave=ok(await review(secondBody));};saved=ok(await review(firstBody));}finally{globalThis.Date=NativeDate;}
+const pair=ok(await call('/api/server/pending?queue=sync&limit=100',{server:true})).operations.filter(o=>[saved.operationId,secondSave.operationId].includes(o.id)),latestBike=pair.at(-1).payload.bike;assert.equal(pair.length,2);
+assert.equal(latestBike.history.find(e=>e.id==='service').attachments[0].ocr.totalAmount,'60','The last Server replacement must include both concurrently saved invoice reviews');
+assert.equal(latestBike.history.find(e=>e.id==='oil').attachments[0].ocr.totalAmount,'61');
+assert.ok(Date.parse(JSON.parse(snapshot().data).bikes[0].updatedAt)>=reviewClock,'A delayed commit cannot move the bike stamp backwards');
 
 // A transfer's second outbox failure also rolls back its source and destination.
 seed();record=await detail();body=payload(record,{keepOnCurrent:false,moveToBikeId:'target',moveToEntryId:'destination',invoiceData:{plate:'BTO-757',odometerKm:'9000',totalAmount:'50'}});

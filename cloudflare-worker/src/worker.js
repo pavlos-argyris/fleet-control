@@ -3128,7 +3128,7 @@ async function serverPending(request, env) {
   const compatibility=new URL(request.url).searchParams.get("local")==="1"?"":" AND json_extract(payload,'$.documentKey') IS NULL";
   const filter = queue === "invoices" ? " AND type IN ('service_document_render','service_document_reprocess_batch') AND NOT (type='service_document_reprocess_batch' AND COALESCE((SELECT json_extract(value,'$.status') FROM fleet_settings WHERE key='service_invoice_reprocess_batch'),'')='paused')"
     : queue === "sync" ? " AND type NOT IN ('service_document_render','service_document_reprocess_batch')" : "";
-  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending'" + filter + compatibility + " AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY CASE WHEN type='service_document_render' THEN 0 WHEN type='service_document_reprocess_batch' THEN 2 ELSE 1 END,created_at LIMIT ?")
+  const result = await env.DB.prepare("SELECT id, source, type, payload, created_at FROM fleet_operations WHERE status = 'pending'" + filter + compatibility + " AND (json_extract(payload, '$.nextAttemptAt') IS NULL OR json_extract(payload, '$.nextAttemptAt') <= ?) ORDER BY CASE WHEN type='service_document_render' THEN 0 WHEN type='service_document_reprocess_batch' THEN 2 ELSE 1 END,created_at,rowid LIMIT ?")
     .bind(new Date().toISOString(), limit).all();
   const operations = (result.results || []).map((row) => {
     let payload = {};
