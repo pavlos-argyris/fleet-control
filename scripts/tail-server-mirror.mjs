@@ -7,13 +7,13 @@ const probe=crypto.randomUUID(),report={readOnly:true,checkedAt:new Date().toISO
 const save=()=>fs.writeFileSync('verification/mirror-probe/tail-report.json',JSON.stringify(report,null,2)+'\n');
 const sanitize=s=>String(s).replaceAll(key,'[REDACTED]').replaceAll(token,'[REDACTED]').replace(/wss?:\/\/\S+/g,'[TAIL URL REDACTED]').slice(0,1200);
 const child=spawn(process.execPath,[path.resolve('cloudflare-worker/node_modules/wrangler/bin/wrangler.js'),'tail',worker,'--config',path.resolve('.build/mirror-tail.json'),'--format','json','--header','X-Fleet-Probe:'+probe],{env:{...process.env,WRANGLER_SEND_METRICS:'false'},stdio:['ignore','pipe','pipe']});
-let connected=false,buffer='',depth=0,inString=false,escaped=false,started=false,exitCode=null;
-child.on('exit',code=>exitCode=code);child.on('error',()=>{exitCode=-1;});child.stderr.on('data',()=>{});
-function event(value){const request=value?.event?.request;if(!request)return;const url=new URL(request.url);if(url.pathname!=='/api/server/system-export/delta'||url.searchParams.get('diagnostic')!==probe)return;
+let connected=false,buffer='',depth=0,inString=false,escaped=false,started=false,exitCode=null;report.tailShapes=[];report.stdoutBytes=0;report.stderrBytes=0;
+child.on('exit',code=>exitCode=code);child.on('error',()=>{exitCode=-1;});child.stderr.on('data',chunk=>{report.stderrBytes+=chunk.length;const text=chunk.toString();if(/Connected to|waiting for logs/i.test(text))connected=true;if(/403|not authorized|Authentication error|permission/i.test(text))report.tailPermissionError=true;});
+function event(value){if(report.tailShapes.length<4){report.tailShapes.push({keys:Object.keys(value||{}).slice(0,20),eventKeys:Object.keys(value?.event||{}).slice(0,12),dataKeys:Object.keys(value?.data||{}).slice(0,12)});save();}const request=value?.event?.request||value?.data?.event?.request;if(!request)return;const url=new URL(request.url);if(url.pathname!=='/api/server/system-export/delta')return;
  const row={path:url.pathname,outcome:value.outcome,status:value.event.response?.status,cpuTimeMs:value.cpuTime,exceptions:(value.exceptions||[]).map(e=>sanitize(e.message)),logs:(value.logs||[]).filter(l=>l.level==='error').map(l=>({level:l.level,message:(l.message||[]).map(sanitize)}))};
  report.events.push(row);save();console.log(JSON.stringify(row));
 }
-child.stdout.on('data',chunk=>{const text=chunk.toString();if(/Connected to|waiting for logs/i.test(text))connected=true;
+child.stdout.on('data',chunk=>{report.stdoutBytes+=chunk.length;const text=chunk.toString();if(/Connected to|waiting for logs/i.test(text))connected=true;
  for(const char of text){if(!started){if(char!=='{')continue;started=true;depth=0;buffer='';inString=false;escaped=false;}buffer+=char;if(inString){if(escaped)escaped=false;else if(char==='\\')escaped=true;else if(char==='"')inString=false;}else if(char==='"')inString=true;else if(char==='{')depth++;else if(char==='}')depth--;
   if(depth===0&&!inString){try{event(JSON.parse(buffer));}catch{}started=false;buffer='';}if(buffer.length>2000000){started=false;buffer='';}}
 });
@@ -27,5 +27,5 @@ try{
   if(!report.events.length&&exitCode===null){await get(relative);await wait(5000);}
  }
 }finally{
- child.kill('SIGTERM');await Promise.race([new Promise(r=>child.once('exit',r)),wait(3000)]);if(exitCode===null)child.kill('SIGKILL');report.tailExitCode=exitCode;report.complete=true;save();console.log(JSON.stringify({complete:true,tailConnected:connected,events:report.events.length,responses:report.responses,tailExitCode:exitCode}));
+ child.kill('SIGTERM');await Promise.race([new Promise(r=>child.once('exit',r)),wait(3000)]);if(exitCode===null)child.kill('SIGKILL');report.tailExitCode=exitCode;report.complete=true;save();console.log(JSON.stringify({complete:true,tailConnected:connected,events:report.events.length,responses:report.responses,tailExitCode:exitCode,tailShapes:report.tailShapes,stdoutBytes:report.stdoutBytes,stderrBytes:report.stderrBytes,permissionError:report.tailPermissionError}));
 }
