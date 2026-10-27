@@ -32,7 +32,7 @@ jobs:
         working-directory: cloudflare-worker
       - run: bash scripts/check-all.sh
       - name: Install browser for navigation verification
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
         working-directory: cloudflare-worker
       - run: node scripts/test-navigation-motion-browser.mjs
       - run: node scripts/test-next-service-browser.mjs
