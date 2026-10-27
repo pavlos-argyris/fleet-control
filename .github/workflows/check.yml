@@ -40,6 +40,7 @@ jobs:
       - run: node scripts/test-server-backup-browser.mjs
       - run: node scripts/test-staff-schedule-browser.mjs
       - run: node scripts/test-schedule-management-browser.mjs
+      - run: node scripts/test-client-landscape-browser.mjs
       - name: Save navigation verification images
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,6 +53,7 @@ jobs:
             verification/server-backup/
             verification/staff-schedule/
             verification/schedule-management/
+            verification/client-landscape/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
@@ -79,6 +81,13 @@ jobs:
           mkdir -p private/signing
           keytool -genkeypair -keystore private/signing/fleet-control-release.p12 -storetype PKCS12 -alias test -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=Fleet CI' -storepass:env FLEET_STORE_PASSWORD -keypass:env FLEET_KEY_PASSWORD
           bash scripts/build-android.sh all
+      - run: node scripts/test-client-landscape-apk.mjs
+      - name: Save packaged Client orientation verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-landscape-apk-verification
+          path: verification/client-landscape/compiled-manifest.txt
+          if-no-files-found: error
       - run: npx wrangler deploy --dry-run --config wrangler.example.jsonc --outdir ../.build/worker
         working-directory: cloudflare-worker
       - name: Prepare complete source handoff and checksums
