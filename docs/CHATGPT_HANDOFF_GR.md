@@ -8,7 +8,7 @@
 
 ## Τρέχουσα εργασία
 
-- **Το #10 ολοκληρώθηκε, συγχωνεύτηκε και δημοσιεύτηκε. Ο Codex αυτής της συνομιλίας δεν έχει άλλη ενεργή εργασία ή δημοσίευση.**
+- **Το #10 ολοκληρώθηκε, συγχωνεύτηκε και δημοσιεύτηκε. Η νεότερη εργασία αυτής της συνομιλίας είναι το #3 / PR #15, έτοιμο για ενσωμάτωση από τον συντονιστή #1 / PR #14, χωρίς merge/deploy από τον βοηθό #3.**
 - PR [#11](https://github.com/pavlos-argyris/fleet-control/pull/11): merged. Το issue #10 έκλεισε ως completed.
 - Πηγαίος κώδικας παραγωγής: [e2a760f](https://github.com/pavlos-argyris/fleet-control/commit/e2a760fa7f20ec712f6eedc9d4d59b33fdaa3efe).
 - Ακριβές main CI: [40572575880](https://github.com/pavlos-argyris/fleet-control/actions/runs/40572575880), success.
@@ -109,3 +109,14 @@
 - **Εικόνες:** browser baseline/after στο docs/issue-3-landscape και πλήρη screenshots/results στο CI artifact. Οι baseline browser εικόνες δεν δείχνουν native Android letterboxing· η native αλλαγή τεκμηριώνεται με manifest/αρνητικό regression/compiled APK.
 - **Περιορισμοί:** Chromium/file Client δεν είναι Android WebView. Δεν υπάρχει emulator/φυσική συσκευή, δεν επιβεβαιώθηκε εγκατάσταση ή παραγωγικό backup. Test signing μόνο, metadata αμετάβλητη βάσει ειδικής οδηγίας· ο συντονιστής αυξάνει Client versionCode πριν παραγωγή.
 - **Επόμενο:** πλήρες GitHub PR CI, τελική επιθεώρηση και ready for review. Παραμένει draft έως επιβεβαίωση CI.
+
+### Παράδοση #3 — έτοιμο για ενσωμάτωση από τον συντονιστή — δεν έγινε merge/deploy
+
+- **PR/branch:** [#15](https://github.com/pavlos-argyris/fleet-control/pull/15), `codex/issue-3-landscape`. Η μετατροπή ready for review ακολουθεί την επιβεβαίωση της καταγραφής. Ακριβές ελεγμένο source head: `4de5ad2e48c31722bebde72519d66da876bf802f`. Η παρούσα μεταγενέστερη ενημέρωση αλλάζει μόνο αυτό το Markdown· το τελικό PR head/CI φαίνεται στον σύνδεσμο PR και καταγράφεται και στην περιγραφή του.
+- **Πλήρες CI:** [40580699346](https://github.com/pavlos-argyris/fleet-control/actions/runs/40580699346), **success**. Πέρασαν όλη η σουίτα source/API/SQLite/D1, όλες οι υπάρχουσες browser/native δοκιμές, νέος έλεγχος landscape, κατασκευή και των δύο test APK, έλεγχος compiled Client manifest και Worker **dry-run μόνο**.
+- **Screenshots/results:** [artifact 12770176076](https://github.com/pavlos-argyris/fleet-control/actions/runs/40580699346/artifacts/12770176076), `client-landscape/after`: 84 εικόνες, 6 συνδυασμοί Web/file Client × κινητό/μικρό κινητό/tablet, 0 page errors. Υπάρχουν αντιπροσωπευτικές baseline/after εικόνες στο `docs/issue-3-landscape/`. Το baseline είναι browser, όχι native portrait screenshot.
+- **Κατασκευασμένο APK:** [manifest artifact 12769502554](https://github.com/pavlos-argyris/fleet-control/actions/runs/40580699346/artifacts/12769502554), χωρίς portrait lock, `configChanges=0xda0`. Προσωρινό test signing, όχι παραγωγική ενημέρωση.
+- **Πλήρης πηγαίος κώδικας:** [complete-source 12768818547](https://github.com/pavlos-argyris/fleet-control/actions/runs/40580699346/artifacts/12768818547), όλα τα τμήματα, SOURCE_COMMIT και SHA256SUMS. Η τελική documentation-only έκδοση και το αντίστοιχο πλήρες artifact αναφέρονται στο PR μετά το δικό της CI.
+- **Τεχνική παράδοση/όρια:** [ISSUE_3_LANDSCAPE_GR.md](ISSUE_3_LANDSCAPE_GR.md). Δεν έγινε δοκιμή σε Android WebView/emulator/φυσική συσκευή, εγκατάσταση, νέο παραγωγικό backup ή restore. Η παλιά έκδοση metadata διατηρείται αποκλειστικά για branch CI. Ο συντονιστής οριστικοποιεί εκδόσεις/versionCode/snapshots και ελέγχει το τελικό, αρχικά υπογεγραμμένο APK σε συσκευή.
+- **Συντονισμός:** το runtime diff αφορά μόνο Client manifest/MainActivity, χωρίς portal.js/CSS/backend και χωρίς παλιά versioned assets. Διατηρούνται οι προσθήκες tests/CI και οι καταγραφές και των δύο PR κατά την ενσωμάτωση. Δεν απομένει ενεργή υλοποίηση #3 από αυτόν τον βοηθό.
+- **Επόμενο βήμα — μόνο συντονιστής:** παραλαβή PR #15 μαζί με #14, τελικές εκδόσεις, έλεγχοι τελικού main, ενσωμάτωση και εξουσιοδοτημένη δημοσίευση. Το issue #3 παραμένει ανοιχτό. Ο βοηθός #3 δεν έκανε merge, publication request, tag/release ή deploy και δεν θα ξεκινήσει νέα δημοσίευση.
