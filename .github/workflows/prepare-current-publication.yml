@@ -1,3 +1,4 @@
+# QR regression samples resolve the current history row inside one browser task.
 # Prepare again only after the QR layout check uses one visible, scoped DOM snapshot.
 name: Prepare Fleet 5.51.6 publication request
 on:
