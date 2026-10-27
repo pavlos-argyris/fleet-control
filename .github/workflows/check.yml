@@ -61,6 +61,7 @@ jobs:
       - run: python3 scripts/prepare-invoice-dependencies.py .build/backup-test-deps
       - run: node scripts/test-backup-streaming-native.mjs
       - run: node scripts/test-backup-jobs-native.mjs
+      - run: node scripts/test-backup-retention-native.mjs
       - run: node scripts/test-backup-archive.mjs
       - run: node scripts/test-invoice-sources-native.mjs
       - run: node scripts/test-invoice-zip-native.mjs

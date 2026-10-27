@@ -24,9 +24,10 @@ export async function mirrorDelta(request,env,authorized){
   if(!MIRROR_TABLES.includes(table))throw new Error('Unknown mirror table');
   const columns=(await env.DB.prepare(`PRAGMA table_info(${table})`).all()).results||[];
   const fields=columns.flatMap(c=>["'"+c.name.replace(/'/g,"''")+"'",'t."'+c.name.replace(/"/g,'""')+'"']).join(',');
-  const selected=page.filter(r=>r.table_name===table),source=selected.map(()=>`SELECT ? AS row_id,? AS seq`).join(' UNION ALL ');
-  // Captured ids are independent of later coalescing in the journal.
-  const row=await env.DB.prepare(`SELECT COALESCE(json_group_array(json_object('table','${table}','rowId',c.row_id,'seq',c.seq,'row',CASE WHEN t.rowid IS NULL THEN NULL ELSE json_object(${fields}) END)),'[]') AS data FROM (${source}) c LEFT JOIN ${table} t ON t.rowid=c.row_id`).bind(...selected.flatMap(r=>[r.row_id,r.seq])).first();
+  const selected=page.filter(r=>r.table_name===table),captured=JSON.stringify(selected.map(r=>[r.row_id,r.seq]));
+  // One bound array avoids D1's compound-SELECT term limit. Captured ids and
+  // sequences remain independent of later coalescing in the journal.
+  const row=await env.DB.prepare(`SELECT COALESCE(json_group_array(json_object('table','${table}','rowId',json_extract(c.value,'$[0]'),'seq',json_extract(c.value,'$[1]'),'row',CASE WHEN t.rowid IS NULL THEN NULL ELSE json_object(${fields}) END)),'[]') AS data FROM json_each(?) c LEFT JOIN ${table} t ON t.rowid=json_extract(c.value,'$[0]')`).bind(captured).first();
   const raw=row?.data||'[]';if(raw.length>2)parts.push(raw.slice(1,-1));
  }
  const next=page.length?Number(page[page.length-1].seq):until;

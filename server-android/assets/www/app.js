@@ -272,7 +272,7 @@
     document.getElementById("backupContents").classList.toggle("backup-health-warning",!!backupInfo.fileName&&(!!backupInfo.missingDocuments||backupInfo.workforceIncluded===false));
     document.getElementById("backupVerificationStatus").textContent=verification.checkedAt ? formatDate(verification.checkedAt)+" • "+verification.fileName+" • "+verification.message : "Δεν έχει γίνει έλεγχος αναγνωσιμότητας.";
     document.getElementById("backupVerificationStatus").classList.toggle("backup-health-warning",!!verification.checkedAt&&!verification.complete);
-    el.retentionLabel.textContent = "Τα τελευταία " + (state.backupRetention || 30) + " αντίγραφα";
+    el.retentionLabel.textContent = "Τα τελευταία " + (state.backupRetention || 30) + " καταγεγραμμένα πλήρη αντίγραφα. Αρχεία παλιών εκδόσεων και ημιτελείς προσπάθειες διατηρούνται.";
 
     if (!settingsDirty) {
       el.workerUrl.value = state.workerUrl || "";

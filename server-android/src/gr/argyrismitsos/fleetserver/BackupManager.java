@@ -19,7 +19,6 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -44,6 +43,9 @@ public final class BackupManager {
     public static final String KEY_LAST_METADATA = "last_backup_metadata";
     public static final String KEY_VERIFICATION = "backup_verification";
 
+    private static final String KEY_EXPORT_LEDGER="backup_export_ledger_v1";
+    private static final Object exportLedgerLock=new Object();
+
     private BackupManager() {
     }
 
@@ -66,14 +68,25 @@ public final class BackupManager {
     }
 
     static void recordExported(Context context,JSONObject job)throws Exception {
+        synchronized(exportLedgerLock){
+        SharedPreferences preferences=context.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
+        org.json.JSONArray ledger=new org.json.JSONArray(),previous;
+        try{previous=new org.json.JSONArray(preferences.getString(KEY_EXPORT_LEDGER,"[]"));}catch(Exception malformed){previous=new org.json.JSONArray();}
+        String fileName=job.getString("fileName"),stamp=fileName.matches("FleetControl_backup_\\d{8}_\\d{6}\\.fcbackup")?fileName.substring(20,fileName.length()-9):"";
+        String folder=job.getString("targetFolder"),dataId="",docsId="";
+        try{dataId=DocumentsContract.getDocumentId(Uri.parse(job.getString("dataUri")));}catch(Exception ignored){}
+        if(job.optLong("docsBytes")>0)try{docsId=DocumentsContract.getDocumentId(Uri.parse(job.getString("docsUri")));}catch(Exception ignored){}
+        if(stamp.length()>0)ledger.put(new JSONObject().put("folder",folder).put("stamp",stamp).put("dataId",dataId).put("docsId",docsId).put("documents",job.optLong("docsBytes")>0).put("complete",job.optInt("missingDocuments")==0&&job.optBoolean("workforceIncluded")));
+        for(int i=0;i<previous.length()&&ledger.length()<512;i++){JSONObject row=previous.optJSONObject(i);if(row!=null&&!(folder.equals(row.optString("folder"))&&stamp.equals(row.optString("stamp"))))ledger.put(row);}
         JSONObject metadata=new JSONObject().put("fileName",job.getString("fileName")).put("time",isoNow())
             .put("expectedDocuments",job.optInt("expectedDocuments")).put("includedDocuments",job.optInt("includedDocuments"))
             .put("missingDocuments",job.optInt("missingDocuments")).put("workforceIncluded",job.optBoolean("workforceIncluded"));
-        context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit()
+        preferences.edit().putString(KEY_EXPORT_LEDGER,ledger.toString())
             .putString(KEY_LAST_DAY,new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(new Date()))
             .putString(KEY_LAST_TIME,isoNow()).putString(KEY_LAST_URI,job.getString("dataUri"))
             .putString(KEY_LAST_RESULT,job.optInt("missingDocuments")>0?"Αποθηκεύτηκε· λείπουν "+job.optInt("missingDocuments")+" τοπικά τιμολόγια":"Επιτυχία")
             .putString(KEY_LAST_METADATA,metadata.toString()).commit();
+        }
     }
     private static final java.util.concurrent.atomic.AtomicBoolean cleaning=new java.util.concurrent.atomic.AtomicBoolean(false);
     static void cleanupLater(final Context context,final Uri folder){
@@ -384,23 +397,22 @@ public final class BackupManager {
             Uri children=DocumentsContract.buildChildDocumentsUriUsingTree(treeUri,documentId);
             cursor=resolver.query(children,new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null);
             if(cursor==null)return;
-            java.util.Map<String,java.util.List<String>> groups=new java.util.TreeMap<String,java.util.List<String>>(Collections.reverseOrder());
-            java.util.Set<String> primary=new java.util.HashSet<String>();
-            while(cursor.moveToNext()){
-                String name=cursor.getString(1);if(name==null)continue;
-                Matcher match=Pattern.compile("FleetControl_(backup|documents)_(\\d{8}_\\d{6})\\.(fcbackup|fcdocs)").matcher(name);
-                if(!match.matches()||!("backup".equals(match.group(1))?"fcbackup":"fcdocs").equals(match.group(3)))continue;
-                String stamp=match.group(2);java.util.List<String> ids=groups.get(stamp);if(ids==null){ids=new ArrayList<String>();groups.put(stamp,ids);}ids.add(cursor.getString(0));if("backup".equals(match.group(1)))primary.add(stamp);
+            java.util.Map<String,String> ids=new java.util.HashMap<String,String>();
+            java.util.Set<String> duplicates=new java.util.HashSet<String>();
+            while(cursor.moveToNext()){String name=cursor.getString(1);if(name==null)continue;if(ids.containsKey(name))duplicates.add(name);else ids.put(name,cursor.getString(0));}
+            cursor.close();cursor=null;
+            java.util.Set<String> existing=new java.util.HashSet<String>(),seen=new java.util.HashSet<String>();
+            org.json.JSONArray ledger=new org.json.JSONArray(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(KEY_EXPORT_LEDGER,"[]"));
+            java.util.List<BackupRetention.Record> records=new ArrayList<BackupRetention.Record>();
+            for(int i=0;i<ledger.length();i++){JSONObject row=ledger.optJSONObject(i);if(row==null||!treeUri.toString().equals(row.optString("folder")))continue;String stamp=row.optString("stamp");if(!seen.add(stamp))continue;String primary="FleetControl_backup_"+stamp+".fcbackup",docs="FleetControl_documents_"+stamp+".fcdocs";if(!duplicates.contains(primary)&&row.optString("dataId").length()>0&&row.optString("dataId").equals(ids.get(primary)))existing.add(primary);if(row.optBoolean("documents")&&!duplicates.contains(docs)&&row.optString("docsId").length()>0&&row.optString("docsId").equals(ids.get(docs)))existing.add(docs);records.add(new BackupRetention.Record(stamp,row.optBoolean("documents"),row.optBoolean("complete")));}
+            // Unknown legacy files, partial attempts, incomplete coverage and
+            // pending exports never count toward the retention cutoff.
+            for(String stamp:BackupRetention.obsolete(records,existing,keep,BackupJobs.pendingStamps(context))){
+                for(String name:new String[]{"FleetControl_backup_"+stamp+".fcbackup","FleetControl_documents_"+stamp+".fcdocs"}){
+                    String id=ids.get(name);if(id!=null&&existing.contains(name)&&!duplicates.contains(name))try{DocumentsContract.deleteDocument(resolver,DocumentsContract.buildDocumentUriUsingTree(treeUri,id));}catch(Exception ignored){}
+                }
             }
-            cursor.close();cursor=null;int count=0;
-            java.util.Set<String> protectedStamps=BackupJobs.pendingStamps(context);
-            for(java.util.Map.Entry<String,java.util.List<String>> group:groups.entrySet()){
-                // Retain complete pairs as one backup; never delete unpaired files or pending exports.
-                if(!primary.contains(group.getKey()))continue;
-                count++;if(count<=keep||protectedStamps.contains(group.getKey()))continue;
-                for(String id:group.getValue())try{DocumentsContract.deleteDocument(resolver,DocumentsContract.buildDocumentUriUsingTree(treeUri,id));}catch(Exception ignored){}
-            }
-        } catch(Exception ignored){}finally{if(cursor!=null)cursor.close();}
+        }catch(Exception ignored){}finally{if(cursor!=null)cursor.close();}
     }
 
     private static String isoNow() {

@@ -1,3 +1,8 @@
+# Fleet Control 5.51.6
+
+Client/Web 5.51.6 · Server 2.2.14 · Worker 5.12.6.
+[Διόρθωση HTTP 500 αντιγράφου προσωπικού και ασφαλής διατήρηση backup](docs/MIRROR_HTTP500_5.51.6_GR.md).
+
 # Fleet Control 5.51.5
 
 Client/Web 5.51.5 · Server 2.2.13 · Worker 5.12.5.

@@ -88,6 +88,7 @@ jobs:
       - run: node scripts/test-server-snapshot-sync.mjs
       - run: node scripts/test-server-system-mirror.mjs
       - run: node scripts/test-server-offload-native.mjs
+      - run: node scripts/test-backup-retention-native.mjs
       - run: node scripts/test-backup-archive.mjs
       - run: node scripts/test-invoice-sources-native.mjs
       - run: node scripts/test-invoice-zip-native.mjs
@@ -139,6 +140,12 @@ jobs:
         env:
           FLEET_RELEASE_TOKEN: ${{ secrets.FLEET_RELEASE_TOKEN }}
         run: node scripts/publish-release.mjs
+      - name: Verify live signed APK bytes and personnel mirror reads
+        env:
+          FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
+          FLEET_VERIFY_DEPLOYED_SOURCE: ${{ needs.request.outputs.source_commit }}
+          FLEET_REQUIRE_HEALTHY_MIRROR: 'true'
+        run: node scripts/probe-server-mirror.mjs
       - name: Remove private build files
         if: always()
         run: rm -rf private

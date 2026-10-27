@@ -1,0 +1,31 @@
+name: Prepare Fleet 5.51.6 publication request
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/prepare-current-publication.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Wait for exact source CI and prepare the authorized request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/prepare-current-publication.mjs
+      - name: Save the reviewable request without committing or deploying
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-5.51.6-publication-request
+          path: .github/fleet-publish-request.json
+          include-hidden-files: true
+          retention-days: 7

@@ -43,6 +43,7 @@ node scripts/test-payroll-regressions.mjs
 node scripts/test-schedule-regressions.mjs
 node scripts/test-admin-simulations.mjs
 node scripts/test-backup-restore-local.mjs
+node scripts/test-mirror-compound-limit.mjs
 node scripts/test-offload-d1.mjs
 node scripts/test-offload-polling.mjs
 node scripts/test-shared-requests.mjs
