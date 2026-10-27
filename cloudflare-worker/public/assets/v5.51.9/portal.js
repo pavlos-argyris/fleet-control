@@ -3610,18 +3610,19 @@
     const record = invoiceDocumentById(id);
     if (!record) return;
     if (record.status === "processing" || record.status === "delayed") return;
-    const opening = Symbol("invoice-review");
+    const opening = Symbol("invoice-review"),token=state.token;
     state.invoiceReviewOpening = opening;
     if ((record.transferOptionsLazy || record.detailsLazy) && record.key) {
       try {
         const options = await api("/api/admin/service-documents/transfer-options?bikeId=" + encodeURIComponent(record.bikeId)
           + "&entryId=" + encodeURIComponent(record.entryId) + "&key=" + encodeURIComponent(record.key) + "&includeDocument=1", {forceRead:true});
+        if(state.invoiceReviewOpening!==opening||token!==state.token)return;
         if(options.document)Object.assign(record,options.document);
         record.transferOptions = Array.isArray(options.options) ? options.options : [];
         record.transferOptionsLazy = false;
-      } catch (error) { toast(error.message); return; }
+      } catch (error) { if(token===state.token)toast(error.message); return; }
     }
-    if (state.invoiceReviewOpening !== opening) return;
+    if (state.invoiceReviewOpening !== opening || token!==state.token) return;
     if(record.status==='processing'||record.status==='delayed')return void toast('Το τιμολόγιο επεξεργάζεται ξανά. Περίμενε να ολοκληρωθεί η ανάγνωση.');
     markInvoiceSeen(record);
     state.invoiceReviewDocument = record;
@@ -3780,7 +3781,8 @@
       state.invoiceDocuments = state.invoiceDocuments.filter(function (item) { return String(item.id) !== String(record.id) && String(item.key) !== String(result.movedFromKey || ""); });
       if (result.document) state.invoiceDocuments.push(result.document);
       // Every invoice on this service uses the corrected manual mileage.
-      await loadInvoices().catch(function () { toast("Αποθηκεύτηκε. Ανανέωσε τη λίστα τιμολογίων για τις υπόλοιπες αλλαγές."); });
+      await loadInvoices().catch(function () { if(token===state.token)toast("Αποθηκεύτηκε. Ανανέωσε τη λίστα τιμολογίων για τις υπόλοιπες αλλαγές."); });
+      if(token!==state.token)return;
       if(result.document && result.document.status!=='confirmed'){
         if(state.invoiceReviewDocument===record){Object.assign(record,result.document);button.disabled=false;$("invoiceReviewError").textContent='Οι διορθώσεις αποθηκεύτηκαν, αλλά παραμένουν σημεία που χρειάζονται έλεγχο.';}
         renderInvoiceQueue();toast('Αποθηκεύτηκε με εκκρεμότητες ελέγχου. Δες τις επισημάνσεις του τιμολογίου.');return;

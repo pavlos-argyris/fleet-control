@@ -41,7 +41,7 @@ ok(await review({bikeId:'source',entryId:'service',key,expectedEntryUpdatedAt:li
 // Outbox failure after snapshot/registry writes rolls everything back.
 seed();let record=await detail();assert.ok(record.invoiceData.rawText.length>10000);let body=payload(record);
 await injectedFailure(body,"CREATE TEMP TRIGGER injected_review_failure BEFORE INSERT ON fleet_operations WHEN NEW.type='snapshot_replace_bike' BEGIN SELECT RAISE(ABORT,'injected_review_failure'); END;");
-let counts=counters();let saved=ok(await review(body));assert.equal(saved.document.status,'confirmed');assert.equal(saved.invoiceChanged,true);assert.equal(saved.document.serviceKm,9000);assert.equal(saved.serviceChanged,false);
+let counts=counters();let saved=ok(await review(body));assert.equal(saved.document.status,'confirmed');assert.equal(saved.document.invoiceData.rawText,undefined);assert.ok(!sql.prepare("SELECT response FROM idempotency_keys WHERE id LIKE ?").get('%:'+body.requestId)?.response.includes('Αρχικό κείμενο παραστατικού'),'Retry receipts do not duplicate raw OCR');assert.equal(saved.invoiceChanged,true);assert.equal(saved.document.serviceKm,9000);assert.equal(saved.serviceChanged,false);
 assert.equal((await readServiceEntry(env,'source','service')).entry.notes,'Χειρόγραφη σημείωση','No-change tasks must not replace handwritten service notes');
 assert.equal(counters().outbox,counts.outbox+1);assert.equal(counters().audit,counts.audit+1);
 const afterSave=snapshot();counts=counters();const journal=(await readServiceEntry(env,'source','service')).entry.reviewJournal.length;
