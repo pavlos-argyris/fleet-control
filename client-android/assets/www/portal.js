@@ -151,6 +151,10 @@
     state.apiTimings = [];
     state.recycle = [];
     state.invoiceDocuments = [];
+    state.invoiceListSequence = 0;
+    state.invoiceListAcceptedSequence = 0;
+    state.invoiceListVersion = 0;
+    state.invoiceReviewPending = null;
     state.viewLoadedAt = {};
     state.pinResolver = null;
     state.simpleResolver = null;
@@ -3346,10 +3350,22 @@
     }
   }
 
+  function applyInvoiceDocuments(data, sequence, token) {
+    if(token!==state.token)return false;
+    if(!Array.isArray(data.documents))throw new Error('Η λίστα τιμολογίων δεν φορτώθηκε σωστά. Τα προηγούμενα δεδομένα διατηρούνται.');
+    const version=Number(data.serverVersion),previous=Number(state.invoiceListVersion||0);
+    if(Number.isFinite(version)&&version<previous)return false;
+    if(sequence<Number(state.invoiceListAcceptedSequence||0)&&(!Number.isFinite(version)||version<=previous))return false;
+    state.invoiceListAcceptedSequence=sequence;
+    if(Number.isFinite(version))state.invoiceListVersion=version;
+    state.invoiceDocuments=data.documents;
+    return true;
+  }
+
   async function loadInvoices() {
+    const sequence=state.invoiceListSequence=(state.invoiceListSequence||0)+1,token=state.token;
     const data = await api("/api/admin/service-documents");
-    state.invoiceDocuments = Array.isArray(data.documents) ? data.documents : [];
-    renderInvoiceQueue();
+    if(applyInvoiceDocuments(data,sequence,token))renderInvoiceQueue();
   }
 
   function hasLiveInvoiceJobs() {
@@ -3366,9 +3382,7 @@
     invoiceLiveRefreshRunning = true;
     try {
       if(!hasLiveInvoiceJobs())await refreshInvoiceReprocessBatch();
-      const data = await api("/api/admin/service-documents");
-      state.invoiceDocuments = Array.isArray(data.documents) ? data.documents : state.invoiceDocuments;
-      renderInvoiceQueue();
+      await loadInvoices();
     } catch (error) {
       // The local estimated progress and elapsed timer continue while the
       // next live request waits for the Worker/Server to recover.
@@ -3596,17 +3610,20 @@
     const record = invoiceDocumentById(id);
     if (!record) return;
     if (record.status === "processing" || record.status === "delayed") return;
-    const opening = Symbol("invoice-review");
+    const opening = Symbol("invoice-review"),token=state.token;
     state.invoiceReviewOpening = opening;
-    if (record.transferOptionsLazy && record.key) {
+    if ((record.transferOptionsLazy || record.detailsLazy) && record.key) {
       try {
         const options = await api("/api/admin/service-documents/transfer-options?bikeId=" + encodeURIComponent(record.bikeId)
-          + "&entryId=" + encodeURIComponent(record.entryId) + "&key=" + encodeURIComponent(record.key));
+          + "&entryId=" + encodeURIComponent(record.entryId) + "&key=" + encodeURIComponent(record.key) + "&includeDocument=1", {forceRead:true});
+        if(state.invoiceReviewOpening!==opening||token!==state.token)return;
+        if(options.document)Object.assign(record,options.document);
         record.transferOptions = Array.isArray(options.options) ? options.options : [];
         record.transferOptionsLazy = false;
-      } catch (error) { toast(error.message); return; }
+      } catch (error) { if(token===state.token)toast(error.message); return; }
     }
-    if (state.invoiceReviewOpening !== opening) return;
+    if (state.invoiceReviewOpening !== opening || token!==state.token) return;
+    if(record.status==='processing'||record.status==='delayed')return void toast('Το τιμολόγιο επεξεργάζεται ξανά. Περίμενε να ολοκληρωθεί η ανάγνωση.');
     markInvoiceSeen(record);
     state.invoiceReviewDocument = record;
     const data = record.invoiceData || {};
@@ -3735,26 +3752,47 @@
     const button = $("invoiceReviewSave");
     button.disabled = true;
     $("invoiceReviewError").textContent = "";
+    const token=state.token;
     try {
-      const result = await api("/api/admin/service-documents/review", { method: "POST", body: {
+      const payload = {
         bikeId: record.bikeId, entryId: record.entryId, key: record.key, invoiceData: invoiceData, tasks: tasks,
         keepOnCurrent: state.invoiceReviewTransferChoice === "keep",
         updateServiceKm: updateServiceKm,
         mileageDecision: mileageDecision || undefined,
         expectedServiceKm: Number(destination.serviceKm),
         expectedEntryUpdatedAt: record.serviceUpdatedAt,
+        expectedReviewRevision: record.reviewRevision || undefined,
         moveToBikeId: moveToBikeId || undefined,
-        moveToEntryId: moveToEntryId || undefined
-      } });
+        moveToEntryId: moveToEntryId || undefined,
+        compactResponse: true
+      };
+      const signature=JSON.stringify(payload);
+      let pending=state.invoiceReviewPending;
+      if(!pending||pending.signature!==signature||pending.token!==token){
+        pending={signature,token,id:window.crypto?.randomUUID?.()||'review-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)};
+        state.invoiceReviewPending=pending;
+      }
+      payload.requestId=pending.id;
+      const result = await api("/api/admin/service-documents/review", { method: "POST", body: payload });
+      if(token!==state.token)return;
+      if(state.invoiceReviewPending===pending)state.invoiceReviewPending=null;
+      state.invoiceListAcceptedSequence=state.invoiceListSequence=(state.invoiceListSequence||0)+1;
+      if(Number.isFinite(Number(result.version)))state.invoiceListVersion=Math.max(Number(state.invoiceListVersion||0),Number(result.version));
       state.invoiceDocuments = state.invoiceDocuments.filter(function (item) { return String(item.id) !== String(record.id) && String(item.key) !== String(result.movedFromKey || ""); });
       if (result.document) state.invoiceDocuments.push(result.document);
       // Every invoice on this service uses the corrected manual mileage.
-      await loadInvoices().catch(function () { toast("Αποθηκεύτηκε. Ανανέωσε τη λίστα τιμολογίων για τις υπόλοιπες αλλαγές."); });
+      await loadInvoices().catch(function () { if(token===state.token)toast("Αποθηκεύτηκε. Ανανέωσε τη λίστα τιμολογίων για τις υπόλοιπες αλλαγές."); });
+      if(token!==state.token)return;
+      if(result.document && result.document.status!=='confirmed'){
+        if(state.invoiceReviewDocument===record){Object.assign(record,result.document);button.disabled=false;$("invoiceReviewError").textContent='Οι διορθώσεις αποθηκεύτηκαν, αλλά παραμένουν σημεία που χρειάζονται έλεγχο.';}
+        renderInvoiceQueue();toast('Αποθηκεύτηκε με εκκρεμότητες ελέγχου. Δες τις επισημάνσεις του τιμολογίου.');return;
+      }
       const advanced=window.FleetSequentialReview?.saved(record.id);
       if(!advanced&&state.invoiceReviewDocument===record)$("invoiceReviewDialog").close();
       renderInvoiceQueue();
-      toast("Τα στοιχεία του τιμολογίου επιβεβαιώθηκαν και αποθηκεύτηκαν.");
+      toast(result.unchanged||result.reused?'Η επιβεβαίωση είναι ήδη αποθηκευμένη. Δεν χρειάστηκε δεύτερη καταχώριση.':"Τα στοιχεία του τιμολογίου επιβεβαιώθηκαν και αποθηκεύτηκαν.");
     } catch (error) {
+      if(token!==state.token)return;
       const message="Η αποθήκευση επιβεβαίωσης απέτυχε. "+(error.message||"Δοκίμασε ξανά.");
       if(state.invoiceReviewDocument===record){$("invoiceReviewError").textContent=message;button.disabled=false;}
       toast(message+" Οι διορθώσεις σου παραμένουν στο τρέχον τιμολόγιο.");
