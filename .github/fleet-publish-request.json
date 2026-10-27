@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-47a2ead9-d2c4-411e-be51-a261cf475e8c",
-  "sourceCommit": "2c5a54f9917412731764c433f374a0b6c2679ffd",
+  "requestId": "fleet-3f3eaf57-f2e7-4934-9b5f-76200526e209",
+  "sourceCommit": "22635ccad31573aa0095136401ae4e87a3a3e193",
   "releaseVersion": "5.51.6",
-  "requestedAt": "2026-10-27T01:08:11.038Z",
+  "requestedAt": "2026-10-27T01:43:21.694Z",
   "reason": "Εντολή χρήστη: μετά τη δημοσίευση 5.51.5 να διορθωθεί το HTTP 500 αντιγράφου προσωπικού και να δημοσιευθεί ξεχωριστή νέα έκδοση αυτόματα, με πλήρη πηγαίο κώδικα στο GitHub."
 }
