@@ -32,13 +32,14 @@ jobs:
         working-directory: cloudflare-worker
       - run: bash scripts/check-all.sh
       - name: Install browser for navigation verification
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
         working-directory: cloudflare-worker
       - run: node scripts/test-navigation-motion-browser.mjs
       - run: node scripts/test-next-service-browser.mjs
       - run: node scripts/test-ui-system-browser.mjs
       - run: node scripts/test-server-backup-browser.mjs
       - run: node scripts/test-staff-schedule-browser.mjs
+      - run: node scripts/test-schedule-management-browser.mjs
       - name: Save navigation verification images
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,6 +51,7 @@ jobs:
             verification/ui-system/
             verification/server-backup/
             verification/staff-schedule/
+            verification/schedule-management/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
@@ -79,3 +81,15 @@ jobs:
           bash scripts/build-android.sh all
       - run: npx wrangler deploy --dry-run --config wrangler.example.jsonc --outdir ../.build/worker
         working-directory: cloudflare-worker
+      - name: Prepare complete source handoff and checksums
+        run: |
+          mkdir -p verification/source
+          git archive --format=zip --output=verification/source/Fleet_Control_Source.zip HEAD
+          git rev-parse HEAD > verification/source/SOURCE_COMMIT.txt
+          sha256sum verification/source/Fleet_Control_Source.zip | tee verification/source/SHA256SUMS.txt
+      - name: Save complete source handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: complete-source
+          path: verification/source/
+          if-no-files-found: error

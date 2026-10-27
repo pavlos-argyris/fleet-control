@@ -238,8 +238,7 @@ fails(await request('/api/admin/schedule-import/commit','POST',{rows:[rows[0]],c
 const dayOff=ok(await request('/api/admin/schedule-import/preview','POST',{rows:[{date:futureWeek,employeeId:people[0].id,templateName:''}]}));assert.equal(dayOff.valid,true);assert.equal(dayOff.assignments.length,209,'day off preserves other employees and six other days');
 fails(await request('/api/admin/schedule-import/preview','POST',{rows:Array.from({length:2049},()=>rows[0])}),400,null,'oversized import rejected rather than truncated');
 // Cross-week overlap is checked against incoming rows, not only the old DB.
-ok(await request('/api/admin/shift-templates','POST',{name:'Sunday overnight',segments:[{start:'23:00',end:'10:00'}]}),201);
-const overnight=db.sqlite.prepare("SELECT id FROM shift_templates WHERE name='Sunday overnight'").get().id;
+const overnight=ok(await request('/api/admin/shift-templates','POST',{name:'Sunday overnight',segments:[{start:'23:00',end:'10:00'}]}),201).template.id;
 const crossing=ok(await request('/api/admin/schedule-import/preview','POST',{rows:[{date:'2026-12-06',employeeId:people[0].id,templateId:overnight},{date:'2026-12-07',employeeId:people[0].id,templateId:'tpl-0800-1600'}]}));assert.equal(crossing.valid,false);assert.ok(crossing.errors.some(e=>e.code==='employee_conflict'));
 fails(await request('/api/admin/employees/'+people[0].id,'DELETE',{confirm:true}),409,'employee_future_schedules','future cancellation needs explicit confirmation');
 ok(await request('/api/admin/payroll/lock','POST',{startDate:futureWeek,endDate:futureWeekEnd}));

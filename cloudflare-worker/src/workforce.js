@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS schedule_assignments (
   id TEXT PRIMARY KEY NOT NULL,
   employee_id TEXT NOT NULL,
   template_id TEXT,
+  template_detached INTEGER NOT NULL DEFAULT 0,
   work_date TEXT NOT NULL,
   vehicle_id TEXT,
   status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','cancelled')),
@@ -701,6 +702,8 @@ export async function ensureWorkforceSchema(env) {
       env.DB.prepare('CREATE INDEX deleted_records_object ON deleted_records(record_type,record_id,deleted_at DESC)')
     ]);
   }
+  await ensureColumn(env, "schedule_assignments", "template_detached", "INTEGER NOT NULL DEFAULT 0");
+  await ensureScheduleManagementGuards(env);
   await ensureColumn(env, "app_users", "uses_own_vehicle", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(env, "app_users", "login_enabled", "INTEGER NOT NULL DEFAULT 1");
   await ensureColumn(env, "app_users", "deleted_at", "TEXT");
@@ -776,6 +779,8 @@ export async function routeWorkforce(request, env, path, deps) {
     if (path === "/api/admin/schedule-import/preview" && request.method === "POST") return previewScheduleImport(request, env);
     if (path === "/api/admin/schedule-import/commit" && request.method === "POST") return commitScheduleImport(request, env, deps);
     if (path === "/api/employee/schedule-acknowledge" && request.method === "POST") return acknowledgeSchedule(request, env);
+    if (path === "/api/admin/schedule-vehicles/plan" && request.method === "POST") return manageScheduleVehicles(request,env,deps);
+    if (path === "/api/admin/schedule-draft/edit" && request.method === "POST") return editDraftSchedule(request,env);
     const scheduleEditMatch = path.match(/^\/api\/admin\/schedule-assignments\/([^/]+)\/edit$/);
     if (scheduleEditMatch && request.method === "POST") return updateScheduleAssignment(request, env, deps, scheduleEditMatch[1]);
     const scheduleDeleteMatch = path.match(/^\/api\/admin\/schedule-assignments\/([^/]+)\/delete$/);
@@ -825,6 +830,8 @@ export async function routeWorkforce(request, env, path, deps) {
       ...(error.details && typeof error.details === "object" ? error.details : {})
     }, error.status);
     const message = String(error && error.message || "");
+    if (/duplicate_shift_template/.test(message)) return wfJson({error:"Υπάρχει ήδη πρότυπο με αυτές τις ώρες. Χρησιμοποίησε το υπάρχον.",code:"duplicate_shift_template"},409);
+    if (/schedule_edit_guard|CHECK constraint failed: valid/.test(message)) return wfJson({error:"Το πρόγραμμα άλλαξε. Ανανέωσε και κάνε ξανά προεπισκόπηση.",code:"schedule_preview_stale"},409);
     if (/employee_working/.test(message)) return wfJson({error:"Ο εργαζόμενος έχει ενεργή βάρδια. Ολοκλήρωσέ την πριν τη διαγραφή.",code:"employee_working"},409);
     if (/employee_inactive/.test(message)) return wfJson({error:"Ο εργαζόμενος διαγράφηκε ή απενεργοποιήθηκε. Ανανέωσε το πρόγραμμα πριν συνεχίσεις.",code:"employee_inactive"},409);
     if (/owner_required/.test(message)) return wfJson({error:"Πρέπει να παραμείνει τουλάχιστον ένας ενεργός Owner.",code:"owner_required"},409);
@@ -2676,13 +2683,13 @@ function templateSegments(value) {
       throw new ApiError(400, "Τα τμήματα της σπαστής βάρδιας δεν πρέπει να επικαλύπτονται.", "template_segments_overlap");
     }
   }
-  return segments;
+  return segments.sort((a,b)=>a.start.localeCompare(b.start)||a.end.localeCompare(b.end));
 }
 
 function templatePublic(row) {
   return {
     id: row.id,
-    name: row.name,
+    name: templateName(templateSegments(row.segments)),
     segments: templateSegments(row.segments),
     active: bool(row.active),
     sortOrder: Number(row.sort_order || 0),
@@ -2696,7 +2703,7 @@ function templateName(segments) {
 
 function templateInput(body) {
   const segments = templateSegments(body.segments);
-  const name = text(body.name, 80) || templateName(segments);
+  const name = templateName(segments);
   const color = /^#[0-9A-F]{6}$/i.test(String(body.color || "")) ? String(body.color).toUpperCase() : "#0D8F82";
   return {
     name,
@@ -2712,12 +2719,13 @@ async function listShiftTemplates(request, env) {
   const includeInactive = new URL(request.url).searchParams.get("includeInactive") === "1" && hasPermission(actor.permissions, "schedules.manage");
   const rows = await env.DB.prepare(`SELECT * FROM shift_templates
     WHERE (?=1 OR active=1) ORDER BY active DESC,sort_order,name COLLATE NOCASE`).bind(includeInactive ? 1 : 0).all();
-  return wfJson({ templates: (rows.results || []).map(templatePublic) });
+  return wfJson({ templates: (rows.results || []).map(templatePublic).sort(compareTemplates) });
 }
 
 async function createShiftTemplate(request, env) {
   const actor = await authenticate(request, env, "schedules.manage");
   const input = templateInput(await bodyJson(request));
+  await rejectDuplicateTemplate(env, input.segments);
   const id = uuid();
   const now = nowIso();
   await env.DB.prepare(`INSERT INTO shift_templates
@@ -2729,14 +2737,30 @@ async function createShiftTemplate(request, env) {
 
 async function updateShiftTemplate(request, env, templateId) {
   const actor = await authenticate(request, env, "schedules.manage");
-  const old = await env.DB.prepare("SELECT * FROM shift_templates WHERE id=?").bind(templateId).first();
-  if (!old) throw new ApiError(404, "Το πρότυπο βάρδιας δεν βρέθηκε.");
-  const input = templateInput(await bodyJson(request));
+  const body = await bodyJson(request);
+  const plan = await templateChangePlan(env, templateId, body);
+  if (body.preview === true) return wfJson(plan.public);
+  if (plan.changed && (body.confirm !== true || body.previewToken !== plan.public.previewToken)) {
+    throw new ApiError(409, "Προεπισκόπηση και επιβεβαίωση απαιτούνται πριν αλλάξουν οι ώρες.", "template_confirmation_required", {preview:plan.public});
+  }
   const now = nowIso();
-  await env.DB.prepare(`UPDATE shift_templates SET name=?,segments=?,active=?,sort_order=?,color=?,updated_at=? WHERE id=?`)
-    .bind(input.name, JSON.stringify(input.segments), input.active ? 1 : 0, input.sortOrder, input.color, now, templateId).run();
-  await audit(env, request, actor, "shift_template_updated", "shift_template", templateId, templatePublic(old), input, "", false);
-  return wfJson({ updated: true, template: { id: templateId, ...input } });
+  const statements = [env.DB.prepare(`UPDATE shift_templates SET name=?,segments=?,active=?,sort_order=?,color=?,updated_at=? WHERE id=?`)
+    .bind(plan.input.name,JSON.stringify(plan.input.segments),plan.input.active?1:0,plan.input.sortOrder,plan.input.color,now,templateId)];
+  // Materialize the whole change with bounded SQL statements, even for a full
+  // workforce week. Cancel together before insertion so adjacent rows can move.
+  if(plan.updates.length){
+    const ids=JSON.stringify(plan.updates.map(item=>item.id));
+    const rows=plan.updates.flatMap(item=>item.intervals.map(interval=>({id:uuid(),employee:item.employee_id,vehicle:item.vehicle_id,series:item.id,start:interval.start,end:interval.end,notes:item.notes||""})));
+    statements.push(env.DB.prepare("UPDATE schedules SET status='cancelled',updated_at=? WHERE series_id IN (SELECT value FROM json_each(?)) AND status<>'cancelled'").bind(now,ids));
+    statements.push(env.DB.prepare("UPDATE schedule_assignments SET updated_at=? WHERE id IN (SELECT value FROM json_each(?))").bind(now,ids));
+    statements.push(env.DB.prepare(`INSERT INTO schedules(id,employee_id,vehicle_id,series_id,start_at,end_at,status,notes,created_by,created_at,updated_at)
+      SELECT json_extract(value,'$.id'),json_extract(value,'$.employee'),json_extract(value,'$.vehicle'),json_extract(value,'$.series'),json_extract(value,'$.start'),json_extract(value,'$.end'),'planned',json_extract(value,'$.notes'),?,?,? FROM json_each(?)`).bind(actor.user_id,now,now,JSON.stringify(rows)));
+  }
+  if (plan.draft) statements.push(env.DB.prepare("UPDATE schedule_week_drafts SET assignments=?,updated_at=? WHERE week_start=?").bind(JSON.stringify(plan.draft),now,plan.week));
+  if (plan.updates.length) statements.push(...scheduleRevisionStatements(env,actor,plan.week,now));
+  await guardedScheduleBatch(env,plan.snapshot,statements);
+  await audit(env,request,actor,"shift_template_updated","shift_template",templateId,templatePublic(plan.old),{...plan.input,changes:plan.public.changes},"Ενημέρωση προτύπου με προεπισκόπηση",false);
+  return wfJson({updated:true,template:{id:templateId,...plan.input},changes:plan.public.changes});
 }
 
 async function deleteShiftTemplate(request, env, templateId) {
@@ -2777,14 +2801,14 @@ async function loadScheduleConflictRows(env, intervals, employeeIds = [], vehicl
         u.full_name AS employee_name
       FROM schedules sc JOIN app_users u ON u.id=sc.employee_id
       WHERE sc.status NOT IN ('cancelled','completed') AND sc.start_at<? AND sc.end_at>?
-        AND sc.employee_id IN (${employeeIds.map(() => "?").join(",")})`).bind(end, start, ...employeeIds).all());
+        AND sc.employee_id IN (SELECT value FROM json_each(?))`).bind(end, start, JSON.stringify([...new Set(employeeIds)])).all());
   }
   if (vehicleIds.length) {
     queries.push(env.DB.prepare(`SELECT sc.id,sc.employee_id,sc.vehicle_id,sc.series_id,sc.start_at,sc.end_at,
         u.full_name AS employee_name
       FROM schedules sc JOIN app_users u ON u.id=sc.employee_id
       WHERE sc.status NOT IN ('cancelled','completed') AND sc.start_at<? AND sc.end_at>?
-        AND sc.vehicle_id IN (${vehicleIds.map(() => "?").join(",")})`).bind(end, start, ...vehicleIds).all());
+        AND sc.vehicle_id IN (SELECT value FROM json_each(?))`).bind(end, start, JSON.stringify([...new Set(vehicleIds)])).all());
   }
   const results = await Promise.all(queries);
   const rows = new Map();
@@ -2820,6 +2844,7 @@ function draftAssignmentInput(item, weekStart) {
     withoutVehicle: explicitNoVehicle(item),
     notes: text(item?.notes, 500),
     segments: Array.isArray(item?.segments) ? templateSegments(item.segments) : undefined,
+    templateDetached: Boolean(item?.templateDetached),
     weekStart
   };
 }
@@ -2987,7 +3012,7 @@ async function readPublishedScheduleAssignments(env, weekStart) {
   const startBoundary = scheduleInterval(weekStart, "00:00", "00:01", timeZone).start;
   const endBoundary = scheduleInterval(addCalendarDays(weekEnd, 1), "00:00", "00:01", timeZone).start;
   const [rows, legacyRows, actualRows] = await Promise.all([
-    env.DB.prepare("SELECT id,employee_id AS employeeId,template_id AS templateId, work_date AS date,vehicle_id AS vehicleId,notes FROM schedule_assignments WHERE status='planned' AND work_date BETWEEN ? AND ? ORDER BY work_date,employee_id").bind(weekStart, weekEnd).all(),
+    env.DB.prepare("SELECT id,employee_id AS employeeId,template_id AS templateId,template_detached AS templateDetached, work_date AS date,vehicle_id AS vehicleId,notes FROM schedule_assignments WHERE status='planned' AND work_date BETWEEN ? AND ? ORDER BY work_date,employee_id").bind(weekStart, weekEnd).all(),
     env.DB.prepare(`SELECT sc.id FROM schedules sc
       LEFT JOIN schedule_assignments sa ON sa.id=sc.series_id AND sa.status='planned'
       WHERE sc.start_at>=? AND sc.start_at<? AND sc.status NOT IN ('cancelled') AND sa.id IS NULL LIMIT 1`)
@@ -3002,6 +3027,7 @@ async function readPublishedScheduleAssignments(env, weekStart) {
       vehicleId: row.vehicleId || null,
       withoutVehicle: !row.vehicleId,
       notes:row.notes||"",
+      templateDetached:Boolean(row.templateDetached),
       segments:(actualRows.results||[]).filter(sc=>sc.series_id===row.id).map(sc=>({start:localClock(sc.start_at,timeZone),end:localClock(sc.end_at,timeZone)}))
     })),
     hasLegacyRows: (legacyRows.results || []).length > 0
@@ -3078,7 +3104,7 @@ async function expandDraftRows(env, draft, timeZone) {
         employee_name: employee.full_name, vehicle_name: item.vehicleId ? (vehicles.get(String(item.vehicleId))?.name || "") : (bool(employee.uses_own_vehicle) ? OWN_VEHICLE_LABEL : ""),
         assignment_id: draftAssignmentKey(item), template_id: item.templateId, assignment_date: item.date,
         assignment_notes: item.notes || "", template_name: template.name, template_color: template.color,
-        managed_assignment: true, has_shift: false, work_date: item.date,
+        managed_assignment: true, template_detached: Boolean(item.templateDetached), has_shift: false, work_date: item.date,
         start_time: segment.start, end_time: segment.end
       });
     });
@@ -3141,7 +3167,7 @@ async function scheduleTemplateData(request,env,deps) {
   const assignments=(rows.results||[]).filter(x=>!draftWeeks.has(mondayForDate(x.work_date)));
   for(const draft of drafts.results||[])for(const a of parseJson(draft.assignments,[]))if(a.date>=range.startDate&&a.date<=range.endDate)assignments.push({employee_id:a.employeeId,work_date:a.date,template_id:a.templateId,vehicle_id:a.withoutVehicle?null:a.vehicleId||catalog.employees.find(e=>e.id===a.employeeId)?.assigned_vehicle_id||null,notes:a.notes||""});
   return wfJson({...range,generatedAt:nowIso(),employees:catalog.employees.map(e=>({id:e.id,fullName:e.full_name,assignedVehicleId:e.assigned_vehicle_id,usesOwnVehicle:bool(e.uses_own_vehicle)})),
-    templates:catalog.templates.map(templatePublic),vehicles:catalog.vehicles.map(v=>({id:v.bike_id,name:v.name})),assignments});
+    templates:catalog.templates.map(templatePublic).sort(compareTemplates),vehicles:catalog.vehicles.map(v=>({id:v.bike_id,name:v.name})),assignments});
 }
 
 async function normalizeScheduleImportRows(env, rows, catalog) {
@@ -3251,7 +3277,7 @@ async function publishScheduleWeek(request, env, deps) {
     WHERE sc.start_at>=? AND sc.start_at<? LIMIT 1`).bind(startBoundary, endBoundary).first();
   if (locked) throw new ApiError(409, "Η εβδομάδα περιέχει βάρδια με πραγματικό Clock In και δεν αντικαθίσταται.", "schedule_week_locked");
   const now = nowIso(),publication=await schedulePublication(env,weekStart),revision=Number(publication?.revision||0)+1;
-  const prepared=check.assignments.map(item=>({assignmentId:uuid(),employeeId:item.employeeId,templateId:item.templateId,workDate:item.date,vehicleId:item.vehicleId||null,notes:item.notes||"",
+  const prepared=check.assignments.map(item=>({assignmentId:uuid(),employeeId:item.employeeId,templateId:item.templateId,workDate:item.date,vehicleId:item.vehicleId||null,notes:item.notes||"",templateDetached:item.templateDetached,
     intervals:templateSegments(item.segments || check.templates.get(item.templateId).segments).map(segment=>scheduleInterval(item.date,segment.start,segment.end,timeZone))}));
   // Cancelling the old plan and inserting the complete new plan are one D1
   // transaction, including publication metadata. A failed insert rolls back all.
@@ -3347,7 +3373,7 @@ async function scheduleWeek(request, env, deps) {
     env.DB.prepare(`SELECT sc.*,u.full_name AS employee_name,
       CASE WHEN u.uses_own_vehicle=1 THEN '${OWN_VEHICLE_LABEL}' ELSE v.name END AS vehicle_name,
       sa.id AS assignment_id,sa.template_id,sa.work_date AS assignment_date,
-      sa.notes AS assignment_notes,st.name AS template_name,st.color AS template_color,
+      sa.notes AS assignment_notes,sa.template_detached,st.name AS template_name,st.color AS template_color,
       EXISTS(SELECT 1 FROM shifts sh WHERE sh.schedule_id=sc.id) AS has_shift
       FROM schedules sc JOIN app_users u ON u.id=sc.employee_id
       LEFT JOIN vehicle_registry v ON v.bike_id=sc.vehicle_id
@@ -3381,7 +3407,7 @@ async function scheduleWeek(request, env, deps) {
     weekEnd: endDate,
     employees: employees.results || [],
     vehicles: vehicles.results || [],
-    templates: (templates.results || []).map(templatePublic),
+    templates: (templates.results || []).map(templatePublic).sort(compareTemplates),
     schedules: mapped,
     draft: draft ? { state: "draft", updatedAt: draft.updated_at, baseRevision: draft.baseRevision, missingVehicles } : null,
     publication: publication ? { revision: Number(publication.revision || 0), publishedAt: publication.published_at, acknowledged: Number(ackRows?.count || 0) } : null,
@@ -3391,11 +3417,11 @@ async function scheduleWeek(request, env, deps) {
 
 function scheduleMaterializationStatements(env,prepared,actor,now) {
   if(!prepared.length)return [];
-  const assignments=prepared.map(item=>({id:item.assignmentId,employee:item.employeeId,template:item.templateId,date:item.workDate,vehicle:item.vehicleId||null,notes:item.notes||""}));
+  const assignments=prepared.map(item=>({id:item.assignmentId,employee:item.employeeId,template:item.templateId,date:item.workDate,vehicle:item.vehicleId||null,detached:item.templateDetached?1:0,notes:item.notes||""}));
   const schedules=prepared.flatMap(item=>item.intervals.map(interval=>({id:uuid(),employee:item.employeeId,vehicle:item.vehicleId||null,series:item.assignmentId,start:interval.start,end:interval.end,notes:item.notes||""})));
   return [
-    env.DB.prepare(`INSERT INTO schedule_assignments(id,employee_id,template_id,work_date,vehicle_id,status,notes,created_by,created_at,updated_at)
-      SELECT json_extract(value,'$.id'),json_extract(value,'$.employee'),json_extract(value,'$.template'),json_extract(value,'$.date'),json_extract(value,'$.vehicle'),'planned',json_extract(value,'$.notes'),?,?,? FROM json_each(?)`)
+    env.DB.prepare(`INSERT INTO schedule_assignments(id,employee_id,template_id,work_date,vehicle_id,status,notes,created_by,created_at,updated_at,template_detached)
+      SELECT json_extract(value,'$.id'),json_extract(value,'$.employee'),json_extract(value,'$.template'),json_extract(value,'$.date'),json_extract(value,'$.vehicle'),'planned',json_extract(value,'$.notes'),?,?,?,json_extract(value,'$.detached') FROM json_each(?)`)
       .bind(actor.user_id,now,now,JSON.stringify(assignments)),
     env.DB.prepare(`INSERT INTO schedules(id,employee_id,vehicle_id,series_id,start_at,end_at,status,notes,created_by,created_at,updated_at)
       SELECT json_extract(value,'$.id'),json_extract(value,'$.employee'),json_extract(value,'$.vehicle'),json_extract(value,'$.series'),json_extract(value,'$.start'),json_extract(value,'$.end'),'planned',json_extract(value,'$.notes'),?,?,? FROM json_each(?)`)
@@ -3579,6 +3605,8 @@ async function editableAssignmentSchedules(env, assignmentId) {
 async function updateScheduleAssignment(request, env, deps, assignmentId) {
   const actor = await authenticate(request, env, "schedules.manage");
   const body = await bodyJson(request);
+  const guardDate = text(body.date || body.workDate,10) || localDate(Date.now(),await setting(env,"timezone",DEFAULT_TIME_ZONE));
+  const editSnapshot = await scheduleSnapshot(env,mondayForDate(guardDate),await setting(env,"timezone",DEFAULT_TIME_ZONE),assignmentId);
   const old = await env.DB.prepare("SELECT * FROM schedule_assignments WHERE id=? AND status='planned'").bind(assignmentId).first();
   if (!old) {
     // Upgrade a legacy schedule row lazily.  Older releases did not create a
@@ -3607,7 +3635,7 @@ async function updateScheduleAssignment(request, env, deps, assignmentId) {
     }
     await assertPayrollOpen(env,localDate(legacy.start_at,timeZone));
     await assertPayrollOpen(env,legacyDate);
-    const intervals = templateSegments(template.segments).map((segment) => scheduleInterval(legacyDate, segment.start, segment.end, timeZone));
+    const intervals = templateSegments(body.segments || template.segments).map((segment) => scheduleInterval(legacyDate, segment.start, segment.end, timeZone));
     for (const interval of intervals) {
       const conflict = await env.DB.prepare(`SELECT sc.id FROM schedules sc WHERE sc.id<>? AND sc.employee_id=?
         AND sc.status NOT IN ('cancelled','completed') AND sc.start_at<? AND sc.end_at>? LIMIT 1`)
@@ -3647,7 +3675,7 @@ async function updateScheduleAssignment(request, env, deps, assignmentId) {
         VALUES (?,?,?,?,?,?,'planned',?,?,?,?)`).bind(uuid(), employeeId, vehicleId, assignmentId,
         interval.start, interval.end, text(body.notes, 500), actor.user_id, now, now));
     });
-    await env.DB.batch(statements);
+    await guardedScheduleBatch(env,editSnapshot,statements);
     await audit(env, request, actor, "legacy_schedule_assignment_upgraded", "schedule_assignment", assignmentId, legacy, { employeeId, templateId, workDate: legacyDate, vehicleId }, text(body.reason, 500), false);
     return wfJson({ updated: true, legacyUpgraded: true, assignment: { id: assignmentId, employeeId, employeeName: employee.full_name, templateId, templateName: template.name, workDate: legacyDate, vehicleId, vehicleName: vehicle?.name || "", notes: text(body.notes, 500), scheduleRows: intervals.length } });
   }
@@ -3678,7 +3706,11 @@ async function updateScheduleAssignment(request, env, deps, assignmentId) {
   }
 
   const timeZone = await setting(env, "timezone", DEFAULT_TIME_ZONE);
-  const intervals = templateSegments(template.segments).map((segment) => scheduleInterval(workDate, segment.start, segment.end, timeZone));
+  const currentRows = (await env.DB.prepare("SELECT start_at,end_at FROM schedules WHERE series_id=? AND status<>'cancelled' ORDER BY start_at").bind(assignmentId).all()).results || [];
+  const storedSegments = currentRows.map(row=>({start:localClock(row.start_at,timeZone),end:localClock(row.end_at,timeZone)}));
+  const selectedSegments = body.segments ? templateSegments(body.segments) : templateId===old.template_id ? storedSegments : templateSegments(template.segments);
+  const detached = old.template_detached || (body.segments && segmentSignature(selectedSegments)!==segmentSignature(storedSegments)) ? 1 : 0;
+  const intervals = selectedSegments.map((segment) => scheduleInterval(workDate, segment.start, segment.end, timeZone));
   for (const interval of intervals) {
     const existingEmployee = await env.DB.prepare(`SELECT sc.id FROM schedules sc
       WHERE sc.employee_id=? AND sc.status NOT IN ('cancelled','completed') AND COALESCE(sc.series_id,'')<>?
@@ -3710,8 +3742,8 @@ async function updateScheduleAssignment(request, env, deps, assignmentId) {
 
   const now = nowIso();
   const statements = [
-    env.DB.prepare(`UPDATE schedule_assignments SET employee_id=?,template_id=?,work_date=?,vehicle_id=?,notes=?,updated_at=?
-      WHERE id=? AND status='planned'`).bind(employeeId, templateId, workDate, vehicleId, notes, now, assignmentId),
+    env.DB.prepare(`UPDATE schedule_assignments SET employee_id=?,template_id=?,work_date=?,vehicle_id=?,notes=?,updated_at=?,template_detached=?
+      WHERE id=? AND status='planned'`).bind(employeeId, templateId, workDate, vehicleId, notes, now, detached, assignmentId),
     env.DB.prepare("UPDATE schedules SET status='cancelled',updated_at=? WHERE series_id=? AND status IN ('planned','awaiting','absent')")
       .bind(now, assignmentId)
   ];
@@ -3721,7 +3753,7 @@ async function updateScheduleAssignment(request, env, deps, assignmentId) {
       VALUES (?,?,?,?,?,?,'planned',?,?,?,?)`).bind(uuid(), employeeId, vehicleId, assignmentId,
       interval.start, interval.end, notes, actor.user_id, now, now));
   });
-  await env.DB.batch(statements);
+  await guardedScheduleBatch(env,editSnapshot,statements);
   const next = { id: assignmentId, employee_id: employeeId, template_id: templateId, work_date: workDate, vehicle_id: vehicleId, notes, status: "planned" };
   await audit(env, request, actor, "schedule_assignment_updated", "schedule_assignment", assignmentId, old, next, text(body.reason, 500), false);
   return wfJson({ updated: true, assignment: {
@@ -5120,7 +5152,7 @@ const SHIFT_ARCHIVE_COLUMNS = [
 const VEHICLE_SEGMENT_ARCHIVE_COLUMNS = ["id","shift_id","vehicle_id","started_at","ended_at","initial_km","final_km","changed_by","reason"];
 const PAYROLL_SEGMENT_ARCHIVE_COLUMNS = ["id","shift_id","special_rate_id","label","start_at","end_at","minutes","rate_cents","amount_cents"];
 const SCHEDULE_ARCHIVE_COLUMNS = ["id","employee_id","vehicle_id","series_id","start_at","end_at","status","notes","created_by","created_at","updated_at"];
-const SCHEDULE_ASSIGNMENT_ARCHIVE_COLUMNS = ["id","employee_id","template_id","work_date","vehicle_id","status","notes","created_by","created_at","updated_at"];
+const SCHEDULE_ASSIGNMENT_ARCHIVE_COLUMNS = ["id","employee_id","template_id","work_date","vehicle_id","status","notes","created_by","created_at","updated_at","template_detached"];
 
 function archivedInsert(env, table, columns, row) {
   return env.DB.prepare(`INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`)
@@ -5150,10 +5182,10 @@ async function restoreScheduleArchive(env, payload, actor, deletedRow) {
     const existing = await env.DB.prepare("SELECT id FROM schedule_assignments WHERE id=?").bind(assignment.id).first();
     if (existing) {
       statements.push(env.DB.prepare(`UPDATE schedule_assignments SET employee_id=?,template_id=?,work_date=?,vehicle_id=?,status='planned',
-        notes=?,updated_at=? WHERE id=?`).bind(assignment.employee_id, assignment.template_id, assignment.work_date,
-        assignment.vehicle_id, assignment.notes || "", now, assignment.id));
+        notes=?,updated_at=?,template_detached=? WHERE id=?`).bind(assignment.employee_id, assignment.template_id, assignment.work_date,
+        assignment.vehicle_id, assignment.notes || "", now, assignment.template_detached || 0, assignment.id));
     } else {
-      statements.push(archivedInsert(env, "schedule_assignments", SCHEDULE_ASSIGNMENT_ARCHIVE_COLUMNS, { ...assignment, status: "planned", updated_at: now }));
+      statements.push(archivedInsert(env, "schedule_assignments", SCHEDULE_ASSIGNMENT_ARCHIVE_COLUMNS, { ...assignment, template_detached: assignment.template_detached || 0, status: "planned", updated_at: now }));
     }
   }
   for (const row of scheduleRows) {
@@ -5400,7 +5432,7 @@ function importStatement(env, table, row) {
     vehicle_registry: ["bike_id","name","odometer","status","active_shift_id","version","updated_at"],
     vehicle_archives: ["bike_id","name","odometer","original_status","snapshot_json","archived_at","archived_by","reason","active","restored_at","restored_by","restore_reason"],
     shift_templates: ["id","name","segments","active","sort_order","color","created_by","created_at","updated_at"],
-    schedule_assignments: ["id","employee_id","template_id","work_date","vehicle_id","status","notes","created_by","created_at","updated_at"],
+    schedule_assignments: ["id","employee_id","template_id","work_date","vehicle_id","status","notes","created_by","created_at","updated_at","template_detached"],
     schedule_week_drafts: ["week_start","assignments","state","base_revision","created_by","created_at","updated_at"],
     schedule_publications: ["week_start","revision","published_by","published_at"],
     schedule_acknowledgements: ["week_start","revision","employee_id","acknowledged_at"],
@@ -5502,4 +5534,201 @@ async function systemImportPreview(request,env,deps) {
   }
   const after=await restoreStateDigest(env);if(before!==after)throw new ApiError(409,'Τα δεδομένα αλλάζουν αυτή τη στιγμή. Δοκίμασε ξανά την προεπισκόπηση.');
   return wfJson({preview:true,createdAt:body.createdAt||'',tables,added,replaced,preserved,ignored,restoreGuard:{digest:after,at:Date.now()},warning:'Οι αντίστοιχες εγγραφές αντικαθίστανται από το backup. Πρόσθετες εγγραφές που δεν περιέχει διατηρούνται. Η συνολική επαναφορά συσκευής και cloud γίνεται σε στάδια.'});
+}
+
+
+// Issue #10: canonical time signatures, confirmed updates and atomic stale guards.
+function segmentSignature(segments) {
+  return JSON.stringify(templateSegments(segments));
+}
+function compareTemplates(a,b) {
+  return segmentSignature(a.segments).localeCompare(segmentSignature(b.segments)) || String(a.id).localeCompare(String(b.id));
+}
+async function rejectDuplicateTemplate(env,segments,exceptId="") {
+  const rows=(await env.DB.prepare("SELECT * FROM shift_templates WHERE id<>?").bind(exceptId).all()).results||[];
+  const existing=rows.find(row=>segmentSignature(row.segments)===segmentSignature(segments));
+  if(existing)throw new ApiError(409,"Υπάρχει ήδη πρότυπο με αυτές τις ώρες. Χρησιμοποίησε το υπάρχον.","duplicate_shift_template",{existingTemplate:templatePublic(existing)});
+}
+async function ensureScheduleManagementGuards(env) {
+  await env.DB.exec("CREATE TABLE IF NOT EXISTS schedule_edit_guard(id TEXT PRIMARY KEY,valid INTEGER NOT NULL CHECK(valid=1));");
+  // Comparing JSON values rather than raw text also covers legacy formatting and
+  // reordered split segments. Existing duplicates are retained, never merged.
+  const signature=alias=>`(SELECT group_concat(pair,'|') FROM (SELECT json_extract(value,'$.start')||'-'||json_extract(value,'$.end') AS pair FROM json_each(${alias}.segments) ORDER BY pair))`;
+  for(const event of ["INSERT","UPDATE OF segments"]){
+    const name=event.startsWith("UPDATE")?"update":"insert";
+    await env.DB.exec(d1ExecScript(`CREATE TRIGGER IF NOT EXISTS shift_template_duplicate_${name} BEFORE ${event} ON shift_templates
+      WHEN ${name==='insert'?"NOT EXISTS(SELECT 1 FROM shift_templates WHERE id=NEW.id) AND ":`${signature('NEW')}<>${signature('OLD')} AND `}EXISTS(SELECT 1 FROM shift_templates t WHERE t.id<>NEW.id AND ${signature('t')}=${signature('NEW')})
+      BEGIN SELECT RAISE(ABORT,'duplicate_shift_template'); END;`));
+  }
+  // The old guards covered INSERT only. Vehicle-only updates need the same protection.
+  for(const [kind,column] of [["employee","employee_id"],["vehicle","vehicle_id"]])await env.DB.exec(d1ExecScript(`CREATE TRIGGER IF NOT EXISTS schedule_${kind}_overlap_update_guard BEFORE UPDATE OF employee_id,vehicle_id,start_at,end_at,status ON schedules
+    WHEN NEW.status NOT IN ('cancelled','completed') AND NEW.${column} IS NOT NULL AND EXISTS(SELECT 1 FROM schedules t WHERE t.id<>NEW.id AND t.${column}=NEW.${column} AND t.status NOT IN ('cancelled','completed') AND t.start_at<NEW.end_at AND t.end_at>NEW.start_at)
+    BEGIN SELECT RAISE(ABORT,'${kind}_schedule_conflict'); END;`));
+}
+async function scheduleSnapshot(env,week,timeZone,assignmentId="") {
+  const start=scheduleInterval(week,"00:00","00:01",timeZone).start;
+  const end=scheduleInterval(addCalendarDays(week,8),"00:00","00:01",timeZone).start;
+  const tables={
+    schedules:["id","employee_id","vehicle_id","series_id","start_at","end_at","status","updated_at"],
+    schedule_assignments:["id","employee_id","template_id","template_detached","work_date","vehicle_id","status","notes","updated_at"],
+    shift_templates:["id","name","segments","active","color","updated_at"],
+    schedule_week_drafts:["week_start","assignments","base_revision","updated_at"],
+    app_users:["id","active","deleted_at","assigned_vehicle_id","uses_own_vehicle"],
+    vehicle_registry:["bike_id","status","active_shift_id","updated_at"],
+    vehicle_archives:["bike_id","active"],
+    payroll_periods:["id","start_date","end_date","status"],
+    shifts:["id","schedule_id","status"],
+    schedule_publications:["week_start","revision"]
+  };
+  const args=[];
+  const parts=Object.entries(tables).map(([table,columns])=>{
+    let where="";
+    if(table==='schedules'){where="WHERE (start_at<? AND end_at>?)"+(assignmentId?" OR series_id=? OR id=?":"");args.push(end,start,...(assignmentId?[assignmentId,assignmentId]:[]));}
+    if(table==='shifts'){where="WHERE schedule_id IN (SELECT id FROM schedules WHERE (start_at<? AND end_at>?)"+(assignmentId?" OR series_id=? OR id=?":"")+")";args.push(end,start,...(assignmentId?[assignmentId,assignmentId]:[]));}
+    if(table==='schedule_assignments'){where="WHERE work_date BETWEEN ? AND ?"+(assignmentId?" OR id=?":"");args.push(week,addCalendarDays(week,6),...(assignmentId?[assignmentId]:[]));}
+    if(table==='schedule_week_drafts'||table==='schedule_publications'){where="WHERE week_start=?";args.push(week);}
+    return `(SELECT json_group_array(json_object(${columns.map(c=>`'${c}',${c}`).join(',')})) FROM (SELECT * FROM ${table} ${where} ORDER BY ${columns[0]}))`;
+  });
+  const query=`SELECT json_array(${parts.join(',')}) AS stamp`;
+  const row=await env.DB.prepare(query).bind(...args).first();
+  return {query,args,stamp:row.stamp};
+}
+async function schedulePreviewToken(value) {
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify(value))))].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+async function guardedScheduleBatch(env,snapshot,statements) {
+  const id=uuid();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO schedule_edit_guard(id,valid) SELECT ?,CASE WHEN stamp=? THEN 1 ELSE 0 END FROM (${snapshot.query})`).bind(id,snapshot.stamp,...snapshot.args),
+    ...statements,
+    env.DB.prepare("DELETE FROM schedule_edit_guard WHERE id=?").bind(id)
+  ]);
+}
+function scheduleRevisionStatements(env,actor,week,now) {
+  return [env.DB.prepare(`INSERT INTO schedule_publications(week_start,revision,published_by,published_at) VALUES (?,1,?,?) ON CONFLICT(week_start) DO UPDATE SET revision=revision+1,published_by=excluded.published_by,published_at=excluded.published_at`).bind(week,actor.user_id,now),env.DB.prepare("DELETE FROM schedule_acknowledgements WHERE week_start=?").bind(week)];
+}
+async function templateChangePlan(env,id,body) {
+  const timeZone=await setting(env,"timezone",DEFAULT_TIME_ZONE),week=mondayForDate(localDate(Date.now(),timeZone));
+  const snapshot=await scheduleSnapshot(env,week,timeZone);
+  const old=await env.DB.prepare("SELECT * FROM shift_templates WHERE id=?").bind(id).first();
+  if(!old)throw new ApiError(404,"Το πρότυπο βάρδιας δεν βρέθηκε.");
+  const input=templateInput(body);
+  await rejectDuplicateTemplate(env,input.segments,id);
+  const changed=segmentSignature(old.segments)!==segmentSignature(input.segments);
+  const updates=[],changes=[],excluded=[];
+  let draft=null;
+  if(changed){
+    const assignments=(await env.DB.prepare(`SELECT sa.*,u.full_name FROM schedule_assignments sa JOIN app_users u ON u.id=sa.employee_id WHERE sa.template_id=? AND sa.status='planned' AND sa.work_date BETWEEN ? AND ? ORDER BY sa.work_date,sa.employee_id`).bind(id,week,addCalendarDays(week,6)).all()).results||[];
+    const rows=(await env.DB.prepare("SELECT sc.*,EXISTS(SELECT 1 FROM shifts sh WHERE sh.schedule_id=sc.id) AS has_shift FROM schedules sc WHERE series_id IN (SELECT id FROM schedule_assignments WHERE template_id=? AND work_date BETWEEN ? AND ?) AND status<>'cancelled' ORDER BY start_at").bind(id,week,addCalendarDays(week,6)).all()).results||[];
+    const locked=(await env.DB.prepare("SELECT start_date,end_date FROM payroll_periods WHERE status='locked'").all()).results||[];
+    for(const item of assignments){
+      const actual=rows.filter(row=>row.series_id===item.id),expected=templateSegments(old.segments).map(seg=>scheduleInterval(item.work_date,seg.start,seg.end,timeZone));
+      const reason=locked.some(p=>p.start_date<=item.work_date&&p.end_date>=item.work_date)?"Κλειδωμένη μισθοδοσία":actual.some(row=>row.has_shift||!["planned","awaiting","absent"].includes(row.status))?"Πραγματική καταγραφή ή ολοκληρωμένη βάρδια":item.template_detached||actual.length!==expected.length||actual.some((row,i)=>row.start_at!==expected[i].start||row.end_at!==expected[i].end)?"Ανεξάρτητα τροποποιημένες ώρες":"";
+      if(reason){excluded.push({employeeName:item.full_name,date:item.work_date,reason});continue;}
+      const intervals=input.segments.map(seg=>scheduleInterval(item.work_date,seg.start,seg.end,timeZone));
+      updates.push({...item,intervals});changes.push({employeeName:item.full_name,date:item.work_date,before:templateName(templateSegments(old.segments)),after:input.name,source:"published"});
+    }
+    const ids=new Set(updates.map(x=>x.id)),pending=[];
+    const allIntervals=updates.flatMap(x=>x.intervals);
+    const occupied=await loadScheduleConflictRows(env,allIntervals,updates.map(x=>x.employee_id),updates.map(x=>x.vehicle_id).filter(Boolean));
+    for(const item of updates)for(const interval of item.intervals){
+      const conflicts=[...occupied.filter(row=>!ids.has(row.series_id)).map(row=>({employeeId:row.employee_id,vehicleId:row.vehicle_id,start:row.start_at,end:row.end_at})),...pending];
+      if(conflicts.some(row=>schedulesOverlap(interval,row)&&(row.employeeId===item.employee_id||(item.vehicle_id&&row.vehicleId===item.vehicle_id))))throw new ApiError(409,"Οι νέες ώρες προκαλούν σύγκρουση εργαζομένου ή μηχανής. Διόρθωσε πρώτα το πρόγραμμα.","template_schedule_conflict");
+      pending.push({...interval,employeeId:item.employee_id,vehicleId:item.vehicle_id});
+    }
+    const currentDraft=await readScheduleDraft(env,week);
+    if(currentDraft){
+      const employees=(await env.DB.prepare("SELECT id,full_name FROM app_users").all()).results||[];
+      draft=currentDraft.assignments.map(item=>{
+        if(item.templateId!==id)return item;
+        const reason=locked.some(p=>p.start_date<=item.date&&p.end_date>=item.date)?"Κλειδωμένη μισθοδοσία":item.templateDetached||(item.segments&&segmentSignature(item.segments)!==segmentSignature(old.segments))?"Ανεξάρτητα τροποποιημένες ώρες":"";
+        const employeeName=employees.find(e=>e.id===item.employeeId)?.full_name||item.employeeId;
+        if(reason){excluded.push({employeeName,date:item.date,reason,source:"draft"});return item;}
+        changes.push({employeeName,date:item.date,before:templateName(templateSegments(old.segments)),after:input.name,source:"draft"});
+        return {...item,segments:input.segments};
+      });
+      const check=await validateDraftAssignments(env,draft,week);
+      if(check.errors.length)throw new ApiError(409,check.errors[0].message,"template_draft_conflict");
+    }
+  }
+  const previewToken=await schedulePreviewToken([snapshot.stamp,id,input,changes,excluded]);
+  return {old,input,changed,updates,draft,week,snapshot,public:{weekStart:week,changes,excluded,previewToken}};
+}
+async function editDraftSchedule(request,env) {
+  const actor=await authenticate(request,env,"schedules.manage"),body=await bodyJson(request),week=mondayForDate(body.weekStart);
+  const timeZone=await setting(env,"timezone",DEFAULT_TIME_ZONE),snapshot=await scheduleSnapshot(env,week,timeZone),draft=await readScheduleDraft(env,week);
+  if(!draft)throw new ApiError(404,"Το Πρόχειρο δεν βρέθηκε.");
+  const target=draft.assignments.find(item=>draftAssignmentKey(item)===body.assignmentId);
+  if(!target)throw new ApiError(404,"Η βάρδια δεν βρέθηκε στο Πρόχειρο.");
+  await assertPayrollOpen(env,target.date);await assertPayrollOpen(env,body.date||target.date);
+  const templateId=text(body.templateId||target.templateId,100);
+  const oldTemplate=await env.DB.prepare("SELECT * FROM shift_templates WHERE id=?").bind(target.templateId).first();
+  const segments=body.segments?templateSegments(body.segments):target.segments;
+  const changedHours=segments&&segmentSignature(segments)!==segmentSignature(target.segments||oldTemplate.segments);
+  const assignments=draft.assignments.map(item=>item!==target?item:{...item,templateId,date:body.date||item.date,vehicleId:body.vehicleId===undefined?item.vehicleId:requestedScheduleVehicleId(body),withoutVehicle:body.vehicleId===undefined?item.withoutVehicle:explicitNoVehicle(body),segments,templateDetached: Boolean(item.templateDetached||changedHours)});
+  const check=await validateDraftAssignments(env,assignments,week);
+  if(check.errors.length)throw new ApiError(422,check.errors[0].message,"schedule_draft_invalid",check.errors[0]);
+  await guardedScheduleBatch(env,snapshot,[env.DB.prepare("UPDATE schedule_week_drafts SET assignments=?,updated_at=? WHERE week_start=?").bind(JSON.stringify(check.assignments),nowIso(),week)]);
+  await audit(env,request,actor,"schedule_draft_assignment_updated","schedule_week",week,target,body,"Μεμονωμένη αλλαγή στο Πρόχειρο",false);
+  return wfJson({updated:true,assignment:{workDate:body.date||target.date}});
+}
+async function manageScheduleVehicles(request,env,deps) {
+  const actor=await authenticate(request,env,"schedules.manage"),body=await bodyJson(request),week=mondayForDate(body.weekStart);
+  await syncVehicleRegistry(env,deps);
+  const timeZone=await setting(env,"timezone",DEFAULT_TIME_ZONE),snapshot=await scheduleSnapshot(env,week,timeZone);
+  const headers=new Headers(request.headers);
+  const data=await (await scheduleWeek(new Request(new URL('/api/admin/schedule-week?week='+week,request.url),{headers}),env,deps)).json();
+  const draft=await readScheduleDraft(env,week),groups=new Map();
+  for(const row of data.schedules){
+    if(!groups.has(row.assignment_id))groups.set(row.assignment_id,{id:row.assignment_id,employeeId:row.employee_id,employeeName:row.employee_name,date:row.work_date,vehicleId:row.vehicle_id,intervals:[],editable:true});
+    const group=groups.get(row.assignment_id);group.intervals.push({start:row.start_at,end:row.end_at});group.editable=group.editable&&!row.has_shift&&['planned','awaiting','absent'].includes(row.status);
+  }
+  if(body.assignmentId&&(body.segments||body.date)){
+    const group=groups.get(body.assignmentId);
+    if(group)group.intervals=templateSegments(body.segments||group.intervals.map(i=>({start:localClock(i.start,timeZone),end:localClock(i.end,timeZone)}))).map(seg=>scheduleInterval(body.date||group.date,seg.start,seg.end,timeZone));
+  }
+  const start=scheduleInterval(week,'00:00','00:01',timeZone).start,end=scheduleInterval(addCalendarDays(week,8),'00:00','00:01',timeZone).start;
+  const occupied=(await env.DB.prepare("SELECT id,series_id,employee_id,vehicle_id,start_at,end_at FROM schedules WHERE status NOT IN ('cancelled','completed') AND start_at<? AND end_at>?").bind(body.assignmentId? [...groups.values()].flatMap(g=>g.intervals.map(i=>i.end)).sort().at(-1):end,body.assignmentId?[...groups.values()].flatMap(g=>g.intervals.map(i=>i.start)).sort()[0]:start).all()).results||[];
+  const pending=[...groups.values()].filter(g=>g.vehicleId).flatMap(g=>g.intervals.map(i=>({...i,vehicleId:g.vehicleId,id:g.id})));
+  const vehicles=data.vehicles.filter(v=>!['service','inactive'].includes(v.status)).sort((a,b)=>a.name.localeCompare(b.name,'el')||a.id.localeCompare(b.id));
+  const locked=(await env.DB.prepare("SELECT start_date,end_date FROM payroll_periods WHERE status='locked'").all()).results||[];
+  const proposals=[],unassigned=[];
+  const selection=body.assignmentId?[...groups.values()].filter(g=>g.id===body.assignmentId):[...groups.values()].filter(g=>!g.vehicleId);
+  if(body.assignmentId&&!selection.length)throw new ApiError(404,"Η βάρδια δεν βρέθηκε.");
+  selection.sort((a,b)=>a.intervals[0].start.localeCompare(b.intervals[0].start)||a.id.localeCompare(b.id));
+  let suggestions=[];
+  for(const group of selection){
+    const employee=data.employees.find(e=>e.id===group.employeeId);
+    if(employee?.uses_own_vehicle)continue;
+    if(!group.editable||locked.some(p=>p.start_date<=group.date&&p.end_date>=group.date)){unassigned.push({...group,reason:"Πραγματική καταγραφή ή κλειδωμένη βάρδια"});continue;}
+    const free=vehicles.filter(vehicle=>!group.intervals.some(interval=>
+      occupied.some(row=>{if(draft&&row.start_at>=start&&row.start_at<scheduleInterval(addCalendarDays(week,7),'00:00','00:01',timeZone).start)return false;
+        if(!draft&&(row.series_id===group.id||row.id===group.id))return false;
+        return row.vehicle_id===vehicle.id&&schedulesOverlap(interval,{start:row.start_at,end:row.end_at});}) ||
+      pending.some(row=>row.id!==group.id&&row.vehicleId===vehicle.id&&schedulesOverlap(interval,row))));
+    if(body.assignmentId){suggestions=free.map(v=>({id:v.id,name:v.name}));break;}
+    const vehicle=free.find(v=>v.id===employee?.assigned_vehicle_id)||free[0];
+    if(!vehicle){unassigned.push({...group,reason:"Δεν υπάρχει διαθέσιμο μηχανάκι για ολόκληρη τη βάρδια"});continue;}
+    proposals.push({...group,vehicleId:vehicle.id,vehicleName:vehicle.name});pending.push(...group.intervals.map(i=>({...i,vehicleId:vehicle.id,id:group.id})));
+  }
+  const previewToken=await schedulePreviewToken([snapshot.stamp,week,proposals]);
+  if(body.confirm===true){
+    if(body.assignmentId||body.previewToken!==previewToken)throw new ApiError(409,"Το πρόγραμμα άλλαξε. Κάνε ξανά προεπισκόπηση.","schedule_preview_stale");
+    const now=nowIso(),statements=[];
+    if(draft){
+      const assignments=draft.assignments.map(item=>{const proposal=proposals.find(p=>p.id===draftAssignmentKey(item));return proposal?{...item,vehicleId:proposal.vehicleId,withoutVehicle:false}:item;});
+      statements.push(env.DB.prepare("UPDATE schedule_week_drafts SET assignments=?,updated_at=? WHERE week_start=?").bind(JSON.stringify(assignments),now,week));
+    }else{
+      if(proposals.length){
+        const changes=JSON.stringify(proposals.map(p=>({id:p.id,vehicle:p.vehicleId})));
+        const cte="WITH changes AS (SELECT json_extract(value,'$.id') AS id,json_extract(value,'$.vehicle') AS vehicle FROM json_each(?)) ";
+        statements.push(env.DB.prepare(cte+"UPDATE schedule_assignments SET vehicle_id=(SELECT vehicle FROM changes WHERE changes.id=schedule_assignments.id),updated_at=? WHERE id IN (SELECT id FROM changes)").bind(changes,now));
+        statements.push(env.DB.prepare(cte+"UPDATE schedules SET vehicle_id=(SELECT vehicle FROM changes WHERE changes.id=schedules.series_id OR changes.id=schedules.id LIMIT 1),updated_at=? WHERE (series_id IN (SELECT id FROM changes) OR id IN (SELECT id FROM changes)) AND status IN ('planned','awaiting','absent')").bind(changes,now));
+      }
+      if(proposals.length)statements.push(...scheduleRevisionStatements(env,actor,week,now));
+    }
+    await guardedScheduleBatch(env,snapshot,statements);
+    await audit(env,request,actor,"schedule_vehicles_auto_assigned","schedule_week",week,null,proposals,"Επιβεβαιωμένη αυτόματη ανάθεση",false);
+  }
+  return wfJson({weekStart:week,proposals,unassigned,suggestedVehicles:suggestions,previewToken,applied:body.confirm===true});
 }
