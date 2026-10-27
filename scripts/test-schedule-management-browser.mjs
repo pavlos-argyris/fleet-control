@@ -41,6 +41,7 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
   const template=db.sqlite.prepare('SELECT * FROM shift_templates WHERE name=?').get(initial+' - '+end);assert.ok(template);
   assert.equal(await page.locator('[data-day-template="'+week+'"]').inputValue(),template.id);
   await page.locator('#scheduleSubmitButton').click();await page.waitForFunction(()=>!document.querySelector('#scheduleDialog').open);
+  const dayButton=page.locator('[data-ui-schedule-day="'+week+'"]');if(await dayButton.isVisible())await dayButton.click();
   await page.locator('.roster-shift-chip').filter({hasText:initial+'-'+end}).waitFor();
   await page.locator('#scheduleAutoVehicles').click();await page.locator('#simpleDialog[open]').waitFor();assert.match(await page.locator('#simpleFields').textContent(),/BTO 123/);await page.locator('#simpleSubmit').click();await page.waitForFunction(()=>!document.querySelector('#simpleDialog').open);
   await page.locator('.roster-shift-chip').filter({hasText:initial+'-'+end}).filter({hasText:'BTO 123'}).waitFor();
@@ -53,7 +54,7 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
   await page.locator('.roster-shift-chip').filter({hasText:custom+'-'+end}).waitFor();
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no page overflow '+mode);assert.deepEqual(errors,[]);
   await page.screenshot({path:path.join(output,mode+'.png'),fullPage:true});
- }finally{await context.close();}
+ }catch(error){console.error('Schedule browser failure in '+mode+': '+error.message);await page.screenshot({path:path.join(output,mode+'-FAILURE.png'),fullPage:true});throw error;}finally{await context.close();}
 }
 console.log('PASS #10 browser desktop/mobile/tablet: inline template, draft editing, confirmed template propagation, auto vehicle preview and assignment, real hours and layout.');
 }finally{await browser.close();}
