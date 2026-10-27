@@ -952,3 +952,8 @@ html.fleet-detail-mode body { overflow: hidden; }
 
 /* Personnel and schedule import use the application's existing controls. */
 .payroll-source-info{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.payroll-source-info p{margin:6px 0 0;color:var(--muted,#637b77);line-height:1.55}.import-week-summary{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.import-week-summary span{display:grid;gap:4px;padding:10px 14px;border-radius:14px;background:var(--surface-soft,#edf5f1)}.import-week-summary small{color:var(--muted,#637b77)}@media(max-width:600px){.payroll-source-info{align-items:stretch;flex-direction:column}.import-template-actions>button,.import-template-actions>label{flex:1 1 160px}}
+
+
+/* Keep the inline template action usable on phone and tablet. */
+.employee-week-row { grid-template-columns: minmax(110px,1fr) minmax(120px,1fr) auto minmax(120px,1fr); }
+@media(max-width:700px){.employee-week-row {grid-template-columns: minmax(0,1fr) auto;} .employee-week-day {grid-column:1 / -1;} .employee-week-row [data-day-vehicle] {grid-column:1 / -1;} }

@@ -245,6 +245,7 @@
       if (ray && /^[A-Za-z0-9-]{1,100}$/.test(ray)) error.message += " · Ray " + ray;
       error.code = payload.code || "";
       error.details=payload;
+      error.existingTemplate=payload.existingTemplate;
       error.status = response.status;
       error.conflict = payload.conflict || null;
       error.suggestedVehicles = Array.isArray(payload.suggestedVehicles) ? payload.suggestedVehicles : [];
@@ -1503,6 +1504,7 @@
         employeeName: item.employee_name, workDate: item.work_date, vehicleId: item.vehicle_id || "",
         vehicleName: item.vehicle_name || "", templateId: item.template_id || "", templateName: item.template_name || "",
         color: item.template_color || "#315D67", status: item.status, notes: item.notes || "",
+        templateDetached: Boolean(item.template_detached),
         managed: item.managed_assignment === true || Number(item.managed_assignment) === 1,
         hasShift: Number(item.has_shift || 0) === 1, canEdit: true, segments: []
       });
@@ -1541,6 +1543,7 @@
     $("scheduleCopyButton").classList.toggle("is-hidden", !can("schedules.manage"));
     $("scheduleImportButton").classList.toggle("is-hidden", !can("schedules.manage"));
     $("schedulePublishButton").classList.toggle("is-hidden", !can("schedules.manage") || data.scheduleState !== "draft");
+    $("scheduleAutoVehicles").classList.toggle("is-hidden", !can("schedules.manage"));
     $("schedulePdfButton").disabled = data.scheduleState !== "published";
     const status = $("schedulePublicationStatus");
     status.classList.remove("is-hidden", "draft");
@@ -1566,7 +1569,7 @@
         const entries = groups.filter(function (group) { return String(group.employeeId) === String(employee.id) && group.workDate === day.date; });
         return '<td data-ui-weekday="' + escapeHtml(day.date) + '"><div class="roster-cell">' + entries.map(function (group) {
           const hoursText = group.segments.map(function (segment) { return segment.start + "-" + segment.end + (segment.end <= segment.start ? " (επόμενη ημέρα)" : ""); }).join(" / ");
-          const editable = can("schedules.manage") && group.canEdit && data.scheduleState !== "draft";
+          const editable = can("schedules.manage") && group.canEdit;
           const tag = editable ? "button" : "article";
           const attributes = editable
             ? ' type="button" data-schedule-edit="' + escapeHtml(group.assignmentId) + '" title="Επεξεργασία ή διαγραφή βάρδιας"'
@@ -1902,7 +1905,7 @@
       const selectedTemplate = existing.length === 1 ? groupTemplateId(existing[0]) : "";
       const selectedVehicle = existing.length === 1 ? existing[0].vehicleId : preferredId;
       const unmatched = existing.length && !selectedTemplate;
-      return '<div class="employee-week-row" data-employee-day="' + escapeHtml(day.date) + '" data-existing-unmatched="' + (unmatched ? "1" : "0") + '"><span class="employee-week-day"><strong>' + escapeHtml(day.name) + '</strong><small>' + escapeHtml(isoDateLabel(day.date, false)) + (unmatched ? " • διάλεξε πρότυπο" : existing.length ? " • καταχωρημένο" : employee && employee.uses_own_vehicle ? " • ιδιόκτητο μηχανάκι" : preferred ? " • " + preferred.name : "") + '</small></span><select data-day-template="' + escapeHtml(day.date) + '">' + templateOptions(selectedTemplate, true) + '</select><select data-day-vehicle="' + escapeHtml(day.date) + '">' + vehicleOptions(selectedVehicle, preferredId, employee && employee.uses_own_vehicle) + '</select></div>';
+      return '<div class="employee-week-row" data-employee-day="' + escapeHtml(day.date) + '" data-existing-unmatched="' + (unmatched ? "1" : "0") + '"><span class="employee-week-day"><strong>' + escapeHtml(day.name) + '</strong><small>' + escapeHtml(isoDateLabel(day.date, false)) + (unmatched ? " • διάλεξε πρότυπο" : existing.length ? " • καταχωρημένο" : employee && employee.uses_own_vehicle ? " • ιδιόκτητο μηχανάκι" : preferred ? " • " + preferred.name : "") + '</small></span><select data-day-template="' + escapeHtml(day.date) + '">' + templateOptions(selectedTemplate, true) + '</select><button class="secondary-button" data-new-day-template="' + escapeHtml(day.date) + '" type="button" title="Νέο πρότυπο για αυτή την ημέρα">+ Βάρδια</button><select data-day-vehicle="' + escapeHtml(day.date) + '">' + vehicleOptions(selectedVehicle, preferredId, employee && employee.uses_own_vehicle) + '</select></div>';
     }).join("");
     $("employeeWeekRows").innerHTML = rows;
     const usedVehicles = Array.from(document.querySelectorAll('[data-day-template]')).filter(function (select) { return select.value; }).map(function (select) {
@@ -1986,7 +1989,8 @@
       const date = select.dataset.dayTemplate;
       const vehicle = document.querySelector('[data-day-vehicle="' + CSS.escape(date) + '"]');
       const selectedVehicle = (same ? masterVehicle : vehicle && vehicle.value) || "";
-      return { employeeId: employeeId, date: date, templateId: select.value, vehicleId: selectedVehicle || null, withoutVehicle: selectedVehicle === "__no_vehicle__" };
+      const existing = assignmentGroups().find(group=>String(group.employeeId)===String(employeeId)&&group.workDate===date&&String(groupTemplateId(group))===String(select.value));
+      return { employeeId: employeeId, date: date, templateId: select.value, vehicleId: selectedVehicle || null, withoutVehicle: selectedVehicle === "__no_vehicle__", segments:existing?existing.segments.map(x=>({start:x.start,end:x.end})):undefined, templateDetached:existing?existing.templateDetached:false };
     });
     if (!assignments.length) throw new Error("Διάλεξε τουλάχιστον μία βάρδια για την εβδομάδα.");
     return { assignments: assignments, replaceEmployeeId: employeeId, replaceWeekStart: state.weekData.weekStart };
@@ -2078,6 +2082,7 @@
       return '<option value="' + escapeHtml(item.id) + '" ' + (String(item.id) === String(group.employeeId) ? "selected" : "") + '>' + escapeHtml(item.full_name + (preferred ? " • " + preferred.name : "")) + '</option>';
     }).join("");
     $("scheduleEditDate").value = group.workDate;
+    renderScheduleEditSegments(group.segments);
     const resolvedTemplateId = groupTemplateId(group);
     const templateExists = (state.weekData.templates || []).some(function (item) { return String(item.id) === String(resolvedTemplateId); });
     $("scheduleEditTemplate").innerHTML = (!templateExists && resolvedTemplateId
@@ -2094,7 +2099,9 @@
     $("scheduleEditMeta").textContent = group.employeeName + " • " + isoDateLabel(group.workDate, true) + " • " + group.segments.map(function (segment) { return segment.start + "–" + segment.end; }).join(" / ");
     $("scheduleEditSuggestionBox").classList.add("is-hidden");
     $("scheduleEditError").textContent = "";
+    $("scheduleEditDelete").classList.toggle("is-hidden", state.weekData.scheduleState === "draft");
     $("scheduleEditDialog").showModal();
+    suggestScheduleEditVehicles();
   }
 
   function showScheduleEditSuggestions(error) {
@@ -2120,12 +2127,16 @@
         employeeId: $("scheduleEditEmployee").value,
         date: $("scheduleEditDate").value,
         templateId: $("scheduleEditTemplate").value,
+        segments: readScheduleEditSegments(),
+        withoutVehicle: $("scheduleEditVehicle").value === "__no_vehicle__",
         vehicleId: $("scheduleEditVehicle").value || null,
         notes: $("scheduleEditNotes").value.trim(),
         reason: "Μεμονωμένη επεξεργασία προγραμματισμένης βάρδιας"
       };
       if (!body.employeeId || !body.date || !body.templateId) throw new Error("Συμπλήρωσε διανομέα, ημερομηνία και βάρδια.");
-      const result = await api("/api/admin/schedule-assignments/" + encodeURIComponent(assignmentId) + "/edit", { method: "POST", body: body });
+      const draft = state.weekData.scheduleState === "draft";
+      if (draft) { body.assignmentId = assignmentId; body.weekStart = state.weekData.weekStart; }
+      const result = await api(draft ? "/api/admin/schedule-draft/edit" : "/api/admin/schedule-assignments/" + encodeURIComponent(assignmentId) + "/edit", { method: "POST", body: body });
       $("scheduleEditDialog").close();
       state.scheduleEditingId = null;
       $("scheduleWeekDate").value = mondayIso(result.assignment.workDate);
@@ -2155,12 +2166,65 @@
     } catch (error) { if (!/ακυρώθηκε/.test(error.message)) $("scheduleEditError").textContent = error.message; }
   }
 
+  function scheduleChangePreview(preview) {
+    return '<p>Θα αλλάξουν οι παρακάτω βάρδιες της τρέχουσας εβδομάδας:</p>' +
+      (preview.changes.length ? '<ul>' + preview.changes.map(x=>'<li>'+escapeHtml(x.employeeName+' • '+isoDateLabel(x.date,true)+' • '+x.before+' → '+x.after+(x.source==='draft'?' • Πρόχειρο':''))+'</li>').join('')+'</ul>' : '<p>Δεν υπάρχουν συνδεδεμένες βάρδιες προς ενημέρωση.</p>') +
+      (preview.excluded.length ? '<p>Θα διατηρηθούν χωρίς αλλαγή:</p><ul>'+preview.excluded.map(x=>'<li>'+escapeHtml(x.employeeName+' • '+isoDateLabel(x.date,true)+' • '+x.reason)+'</li>').join('')+'</ul>' : '') +
+      '<p>Οι παλιότερες εβδομάδες διατηρούν τις αποθηκευμένες ώρες τους.</p>';
+  }
+
+  function renderScheduleEditSegments(segments) {
+    $("scheduleEditSegments").innerHTML = segments.map(x=>'<div class="template-segment-row"><label>Έναρξη<input type="time" data-edit-start value="'+escapeHtml(x.start)+'" required></label><label>Λήξη<input type="time" data-edit-end value="'+escapeHtml(x.end)+'" required></label></div>').join('');
+  }
+  function readScheduleEditSegments() {
+    return Array.from(document.querySelectorAll('[data-edit-start]')).map((x,i)=>({start:x.value,end:document.querySelectorAll('[data-edit-end]')[i].value}));
+  }
+  let vehicleSuggestionRequest = 0;
+  async function suggestScheduleEditVehicles() {
+    const requestId=++vehicleSuggestionRequest;
+    try {
+      const result=await api('/api/admin/schedule-vehicles/plan',{method:'POST',body:{weekStart:state.weekData.weekStart,assignmentId:$("scheduleEditId").value,date:$("scheduleEditDate").value,segments:readScheduleEditSegments()}});
+      if(requestId!==vehicleSuggestionRequest||!$("scheduleEditDialog").open)return;
+      showScheduleEditSuggestions(result);
+    } catch(error) { if(requestId===vehicleSuggestionRequest&&$("scheduleEditDialog").open)$("scheduleEditError").textContent=error.message; }
+  }
+  async function autoAssignScheduleVehicles() {
+    const button=$("scheduleAutoVehicles");button.disabled=true;
+    try {
+      const body={weekStart:state.weekData.weekStart};
+      const plan=await api('/api/admin/schedule-vehicles/plan',{method:'POST',body});
+      const describe=x=>x.employeeName+' • '+isoDateLabel(x.date,true)+' • '+x.intervals.map(i=>formatDateTime(i.start)+' – '+formatDateTime(i.end)).join(' / ');
+      const html='<p>Ανάθεση μόνο στις βάρδιες χωρίς μηχανάκι της επιλεγμένης εβδομάδας.</p><ul>'+plan.proposals.map(x=>'<li>'+escapeHtml(describe(x)+' → '+x.vehicleName)+'</li>').join('')+'</ul>'+(plan.unassigned.length?'<p>Παραμένουν χωρίς μηχανάκι:</p><ul>'+plan.unassigned.map(x=>'<li>'+escapeHtml(describe(x)+' • '+x.reason)+'</li>').join('')+'</ul>':'');
+      if(!plan.proposals.length){await simpleEditor({title:'Δεν προέκυψαν αναθέσεις',submit:'Κλείσιμο',html});return;}
+      await simpleEditor({title:'Προεπισκόπηση αναθέσεων',submit:'Επιβεβαίωση αναθέσεων',wide:true,html});
+      const result=await api('/api/admin/schedule-vehicles/plan',{method:'POST',body:{...body,confirm:true,previewToken:plan.previewToken}});
+      toast('Ανατέθηκαν μηχανάκια σε '+result.proposals.length+' βάρδιες. Μπορείς να αλλάξεις κάθε ανάθεση πατώντας τη βάρδια.');
+      await loadSchedules(true);
+    } catch(error) { if(!/ακυρώθηκε/.test(error.message))toast(error.message); }
+    finally { button.disabled=false; }
+  }
+  function updateTemplateClockName() {
+    $("templateName").value=Array.from(document.querySelectorAll('[data-template-start]')).map((x,i)=>x.value+' - '+document.querySelectorAll('[data-template-end]')[i].value).join(' / ');
+  }
+  async function createDayTemplate(date) {
+    try {
+      const body=await simpleEditor({title:'Νέα βάρδια • '+isoDateLabel(date,true),submit:'Δημιουργία και επιλογή',html:'<label class="field"><span>Έναρξη</span><input id="quickShiftStart" type="time" value="09:00" required></label><label class="field"><span>Λήξη</span><input id="quickShiftEnd" type="time" value="17:00" required></label>',collect:()=>({segments:[{start:$("quickShiftStart").value,end:$("quickShiftEnd").value}]})});
+      let template;
+      try { template=(await api('/api/admin/shift-templates',{method:'POST',body})).template; }
+      catch(error){if(error.code!=='duplicate_shift_template'||!error.existingTemplate)throw error;template=error.existingTemplate;if(!template.active)throw new Error('Υπάρχει ανενεργό πρότυπο με αυτές τις ώρες. Ενεργοποίησέ το από τα Πρότυπα βαρδιών.');toast('Επιλέχθηκε το υπάρχον πρότυπο με αυτές τις ώρες.');}
+      const data=await api('/api/admin/shift-templates');state.weekData.templates=data.templates;
+      document.querySelectorAll('[data-day-template]').forEach(select=>{const selected=select.dataset.dayTemplate===date?template.id:select.value;select.innerHTML=templateOptions(selected,true);select.value=selected;});
+      toast('Η βάρδια επιλέχθηκε. Αποθήκευσε την καταχώρηση για να μπει στο Πρόχειρο.');
+    } catch(error){if(!/ακυρώθηκε/.test(error.message))$("scheduleError").textContent=error.message;}
+  }
+
   function renderTemplateSegments(segments) {
     const values = Array.isArray(segments) && segments.length ? segments : [{ start: "09:00", end: "17:00" }];
     $("templateSegments").innerHTML = values.map(function (item, index) {
       return '<div class="template-segment-row"><label>Έναρξη<input data-template-start type="time" value="' + escapeHtml(item.start) + '" required></label><label>Λήξη<input data-template-end type="time" value="' + escapeHtml(item.end) + '" required></label><button data-remove-template-segment="' + index + '" type="button" title="Αφαίρεση">×</button></div>';
     }).join("");
     document.querySelectorAll('[data-remove-template-segment]').forEach(function (button) { button.disabled = values.length === 1; });
+    updateTemplateClockName();
   }
 
   function renderTemplateManager(selectedId) {
@@ -2175,7 +2239,7 @@
     const item = (state.templateCatalog || []).find(function (entry) { return String(entry.id) === String(templateId); });
     state.templateEditingId = item ? item.id : null;
     $("templateId").value = item ? item.id : "";
-    $("templateName").value = item ? item.name : "";
+    $("templateName").value = item ? item.segments.map(x=>x.start+" - "+x.end).join(" / ") : "09:00 - 17:00";
     $("templateColor").value = item ? item.color : "#0d8f82";
     $("templateActive").checked = item ? item.active : true;
     $("deleteTemplateButton").classList.toggle("is-hidden", !item || !item.active);
@@ -2210,10 +2274,15 @@
     const body = { name: $("templateName").value.trim(), color: $("templateColor").value, active: $("templateActive").checked, segments: segments, sortOrder: current ? current.sortOrder : state.templateCatalog ? state.templateCatalog.length * 10 + 10 : 10 };
     try {
       const id = $("templateId").value;
-      await api("/api/admin/shift-templates" + (id ? "/" + encodeURIComponent(id) : ""), { method: id ? "PUT" : "POST", body: body });
+      if (id) {
+        const preview = await api("/api/admin/shift-templates/" + encodeURIComponent(id), {method:"PUT",body:{...body,preview:true}});
+        await simpleEditor({title:"Ενημέρωση προτύπου",submit:"Επιβεβαίωση αλλαγών",wide:true,html:scheduleChangePreview(preview)});
+        body.confirm = true; body.previewToken = preview.previewToken;
+      }
+      const saved = await api("/api/admin/shift-templates" + (id ? "/" + encodeURIComponent(id) : ""), { method: id ? "PUT" : "POST", body: body });
       const data = await api("/api/admin/shift-templates?includeInactive=1");
       state.templateCatalog = data.templates || [];
-      editTemplate(id || (state.templateCatalog[state.templateCatalog.length - 1] && state.templateCatalog[state.templateCatalog.length - 1].id));
+      editTemplate(id || saved.template.id);
       toast(id ? "Το πρότυπο ενημερώθηκε." : "Το πρότυπο δημιουργήθηκε.");
       await loadSchedules(true);
     } catch (error) { $("templateError").textContent = error.message; }
@@ -4414,6 +4483,7 @@
     $("simpleForm").addEventListener("submit", submitSimple);
     $("newEmployeeButton").addEventListener("click", function () { openEmployeeDialog(); });
     $("newScheduleButton").addEventListener("click", function () { openScheduleDialog("shift").catch(function (error) { toast(error.message); }); });
+    $("scheduleAutoVehicles").addEventListener("click", autoAssignScheduleVehicles);
     $("scheduleTemplatesButton").addEventListener("click", function () { openTemplateManager().catch(function (error) { toast(error.message); }); });
     $("scheduleCopyButton").addEventListener("click", copyPreviousScheduleWeek);
     $("scheduleImportButton").addEventListener("click", openScheduleImportDialog);
@@ -4434,6 +4504,14 @@
     $("sameVehicleAllWeek").addEventListener("change", applySameWeekVehicleState);
     $("sameWeekVehicle").addEventListener("change", applySameWeekVehicleState);
     $("scheduleEditEmployee").addEventListener("change", function () { refreshScheduleEditVehicle(true); });
+    $("scheduleEditTemplate").addEventListener("change", function () {
+      const template = (state.weekData.templates || []).find(x=>x.id === $("scheduleEditTemplate").value);
+      if(template) renderScheduleEditSegments(template.segments);
+      suggestScheduleEditVehicles();
+    });
+    $("scheduleEditSegments").addEventListener("change", suggestScheduleEditVehicles);
+    $("scheduleEditDate").addEventListener("change", suggestScheduleEditVehicles);
+    $("templateSegments").addEventListener("input", updateTemplateClockName);
     $("scheduleEditDelete").addEventListener("click", removeScheduleAssignment);
     $("templateForm").addEventListener("submit", saveTemplate);
     $("newTemplateButton").addEventListener("click", function () { editTemplate(null); });
@@ -4548,6 +4626,8 @@
       if (shiftAction) return void runShiftAction(shiftAction.dataset.shiftId, shiftAction.dataset.shiftAction);
       const builderMode = event.target.closest("[data-builder-mode]");
       if (builderMode) return void setScheduleBuilderMode(builderMode.dataset.builderMode);
+      const newDayTemplate = event.target.closest("[data-new-day-template]");
+      if(newDayTemplate) return void createDayTemplate(newDayTemplate.dataset.newDayTemplate);
       const scheduleEdit = event.target.closest("[data-schedule-edit]");
       if (scheduleEdit) return void openScheduleEditDialog(scheduleEdit.dataset.scheduleEdit);
       const suggestedVehicle = event.target.closest("[data-suggested-vehicle]");

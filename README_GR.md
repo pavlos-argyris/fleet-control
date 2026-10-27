@@ -1,3 +1,8 @@
+# Fleet Control 5.51.8 — Issue #10
+
+Client/Web 5.51.8 · Server 2.2.15 · Worker 5.12.8.
+[Πρότυπα βαρδιών, ώρες και αναθέσεις μηχανών](docs/SCHEDULE_MANAGEMENT_5.51.8_GR.md).
+
 # Fleet Control 5.51.7
 
 Client/Web 5.51.7 · Server 2.2.15 · Worker 5.12.7.

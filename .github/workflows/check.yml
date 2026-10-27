@@ -39,6 +39,7 @@ jobs:
       - run: node scripts/test-ui-system-browser.mjs
       - run: node scripts/test-server-backup-browser.mjs
       - run: node scripts/test-staff-schedule-browser.mjs
+      - run: node scripts/test-schedule-management-browser.mjs
       - name: Save navigation verification images
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,6 +51,7 @@ jobs:
             verification/ui-system/
             verification/server-backup/
             verification/staff-schedule/
+            verification/schedule-management/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh

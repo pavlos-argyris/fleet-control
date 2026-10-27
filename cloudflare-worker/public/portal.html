@@ -11,14 +11,14 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.51.7/portal.css">
-  <link rel="stylesheet" href="./assets/v5.51.7/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.51.7/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.51.7/client-ota.css">
-  <script src="./assets/v5.51.7/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.51.7/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.51.7/service-followup.css">
-  <link rel="stylesheet" href="./assets/v5.51.7/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.51.8/portal.css">
+  <link rel="stylesheet" href="./assets/v5.51.8/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.51.8/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.51.8/client-ota.css">
+  <script src="./assets/v5.51.8/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.51.8/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.51.8/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.51.8/ui-system.css">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -136,6 +136,7 @@
               <button id="scheduleTemplatesButton" class="secondary-button" type="button">Πρότυπα βαρδιών</button>
               <button id="scheduleCopyButton" class="secondary-button" type="button">Αντιγραφή προηγούμενης</button>
               <button id="scheduleImportButton" class="secondary-button" type="button">Εισαγωγή Excel</button>
+              <button id="scheduleAutoVehicles" class="secondary-button" type="button">Αυτόματη ανάθεση μηχανών</button>
               <button id="schedulePublishButton" class="primary-button" type="button">Δημοσίευση</button>
               <button id="schedulePdfButton" class="secondary-button pdf-button" type="button">↓ Λήψη PDF</button>
               <button id="newScheduleButton" class="primary-button" type="button">+ Καταχώρηση</button>
@@ -165,7 +166,7 @@
         <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
           <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
             <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
-              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.51.7" title="Fleet Control — διαχείριση στόλου"></iframe>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.51.8" title="Fleet Control — διαχείριση στόλου"></iframe>
           </div>
           <details class="fleet-availability-panel fleet-availability-bottom">
             <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
@@ -257,6 +258,7 @@
       <label class="field"><span>Διανομέας</span><select id="scheduleEditEmployee" required></select></label>
       <label class="field"><span>Ημερομηνία</span><input id="scheduleEditDate" type="date" required></label>
       <label class="field"><span>Βάρδια</span><select id="scheduleEditTemplate" required></select></label>
+      <div id="scheduleEditSegments"></div>
       <label class="field"><span>Μηχανάκι</span><select id="scheduleEditVehicle"></select><small id="scheduleEditVehicleHint" class="field-hint"></small></label>
     </div>
     <label class="field"><span>Σημείωση (προαιρετικά)</span><textarea id="scheduleEditNotes" rows="2"></textarea></label>
@@ -283,7 +285,7 @@
       <div><button id="newTemplateButton" class="primary-button full-button" type="button">+ Νέο πρότυπο</button><div id="templateList" class="template-list"></div></div>
       <form id="templateForm" class="template-editor" novalidate>
         <input id="templateId" type="hidden">
-        <div class="form-grid"><label class="field"><span>Όνομα</span><input id="templateName" type="text" placeholder="π.χ. Πρωινή" required></label><label class="field"><span>Χρώμα</span><input id="templateColor" type="color" value="#0d8f82"></label></div>
+        <div class="form-grid"><label class="field"><span>Όνομα</span><input id="templateName" type="text" readonly aria-label="Αυτόματο όνομα από τις ώρες"></label><label class="field"><span>Χρώμα</span><input id="templateColor" type="color" value="#0d8f82"></label></div>
         <div class="template-editor-title"><span>Τμήματα ωραρίου</span><button id="addTemplateSegment" class="text-button" type="button">+ Προσθήκη τμήματος</button></div>
         <div id="templateSegments" class="template-segments"></div>
         <label class="remember-row compact"><input id="templateActive" type="checkbox" checked><span><strong>Ενεργό πρότυπο</strong><small>Να εμφανίζεται στις νέες καταχωρήσεις.</small></span></label>
@@ -349,25 +351,25 @@
     <div id="uiInvoiceFilterOptions" class="ui-select-options" role="group" aria-label="Διαθέσιμες επιλογές"></div>
     <p id="uiInvoiceFilterEmpty" class="ui-empty" role="status" hidden>Δεν βρέθηκε πινακίδα. Δοκίμασε άλλη αναζήτηση.</p>
   </dialog>
-  <script src="./assets/v5.51.7/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.51.7"></script>
-  <script src="./assets/v5.51.7/service-model.js" defer></script>
-  <script src="./assets/v5.51.7/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.51.7/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.51.7/service-tools.js" defer></script>
-  <script src="./assets/v5.51.7/service-storage.js" defer></script>
-  <script src="./assets/v5.51.7/service-export.js" defer></script>
-  <script src="./assets/v5.51.7/shared-requests.js"></script>
-  <script src="./assets/v5.51.7/live-changes.js"></script>
-  <script src="./assets/v5.51.7/local-view-cache.js"></script>
-  <script src="./assets/v5.51.7/fleet-motion.js"></script>
-  <script src="./assets/v5.51.7/schedule-workbook.js"></script>
-  <script src="./assets/v5.51.7/portal.js"></script>
+  <script src="./assets/v5.51.8/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.51.8"></script>
+  <script src="./assets/v5.51.8/service-model.js" defer></script>
+  <script src="./assets/v5.51.8/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.51.8/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.51.8/service-tools.js" defer></script>
+  <script src="./assets/v5.51.8/service-storage.js" defer></script>
+  <script src="./assets/v5.51.8/service-export.js" defer></script>
+  <script src="./assets/v5.51.8/shared-requests.js"></script>
+  <script src="./assets/v5.51.8/live-changes.js"></script>
+  <script src="./assets/v5.51.8/local-view-cache.js"></script>
+  <script src="./assets/v5.51.8/fleet-motion.js"></script>
+  <script src="./assets/v5.51.8/schedule-workbook.js"></script>
+  <script src="./assets/v5.51.8/portal.js"></script>
   <script src="./vendor/jsQR.js"></script>
   <script src="./vendor/qrcode-generator.js"></script>
-  <script src="./assets/v5.51.7/invoice-import-ui.js"></script>
-  <script src="./assets/v5.51.7/service-followup.js" defer></script>
-  <script src="./assets/v5.51.7/fleet-operations.js" defer></script>
-  <script src="./assets/v5.51.7/sequential-review.js" defer></script>
+  <script src="./assets/v5.51.8/invoice-import-ui.js"></script>
+  <script src="./assets/v5.51.8/service-followup.js" defer></script>
+  <script src="./assets/v5.51.8/fleet-operations.js" defer></script>
+  <script src="./assets/v5.51.8/sequential-review.js" defer></script>
 </body>
 </html>
