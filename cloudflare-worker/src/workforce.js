@@ -2801,14 +2801,14 @@ async function loadScheduleConflictRows(env, intervals, employeeIds = [], vehicl
         u.full_name AS employee_name
       FROM schedules sc JOIN app_users u ON u.id=sc.employee_id
       WHERE sc.status NOT IN ('cancelled','completed') AND sc.start_at<? AND sc.end_at>?
-        AND sc.employee_id IN (${employeeIds.map(() => "?").join(",")})`).bind(end, start, ...employeeIds).all());
+        AND sc.employee_id IN (SELECT value FROM json_each(?))`).bind(end, start, JSON.stringify([...new Set(employeeIds)])).all());
   }
   if (vehicleIds.length) {
     queries.push(env.DB.prepare(`SELECT sc.id,sc.employee_id,sc.vehicle_id,sc.series_id,sc.start_at,sc.end_at,
         u.full_name AS employee_name
       FROM schedules sc JOIN app_users u ON u.id=sc.employee_id
       WHERE sc.status NOT IN ('cancelled','completed') AND sc.start_at<? AND sc.end_at>?
-        AND sc.vehicle_id IN (${vehicleIds.map(() => "?").join(",")})`).bind(end, start, ...vehicleIds).all());
+        AND sc.vehicle_id IN (SELECT value FROM json_each(?))`).bind(end, start, JSON.stringify([...new Set(vehicleIds)])).all());
   }
   const results = await Promise.all(queries);
   const rows = new Map();

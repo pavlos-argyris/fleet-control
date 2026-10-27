@@ -3,6 +3,8 @@ import {createSimulation} from './fixtures/workforce-simulation.mjs';
 import {localDate,addCalendarDays,scheduleInterval} from '../cloudflare-worker/src/workforce-core.js';
 import {ensureWorkforceSchema} from '../cloudflare-worker/src/workforce.js';
 const {db,env,call}=createSimulation();
+const prepare=env.DB.prepare.bind(env.DB);
+env.DB.prepare=sql=>{const statement=prepare(sql),bind=statement.bind.bind(statement);statement.bind=(...args)=>{assert.ok(args.length<=100,'D1 limit of 100 bound parameters: '+args.length);return bind(...args);};return statement;};
 const ok=(r,status=200)=>{assert.equal(r.status,status,JSON.stringify(r.data));return r.data;};
 const boot=ok(await call('/api/auth/bootstrap',{method:'POST',server:true,body:{fullName:'Schedule Owner',username:'scheduleowner',password:'ScheduleOwner!123'}}));
 const token=boot.token,req=(path,method='GET',body)=>call(path,{token,method,body});
