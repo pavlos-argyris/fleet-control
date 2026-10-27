@@ -81,3 +81,15 @@ jobs:
           bash scripts/build-android.sh all
       - run: npx wrangler deploy --dry-run --config wrangler.example.jsonc --outdir ../.build/worker
         working-directory: cloudflare-worker
+      - name: Prepare complete source handoff and checksums
+        run: |
+          mkdir -p verification/source
+          git archive --format=zip --output=verification/source/Fleet_Control_Source.zip HEAD
+          git rev-parse HEAD > verification/source/SOURCE_COMMIT.txt
+          sha256sum verification/source/Fleet_Control_Source.zip | tee verification/source/SHA256SUMS.txt
+      - name: Save complete source handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: complete-source
+          path: verification/source/
+          if-no-files-found: error
