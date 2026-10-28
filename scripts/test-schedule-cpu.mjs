@@ -63,6 +63,14 @@ env.DB.batch=statements=>{
 const stale=await req('/api/admin/schedule-week','POST',{draft:true,replaceEmployeeId:'cpu-e0',assignments:assignments.filter(a=>a.employeeId==='cpu-e0')});assert.equal(stale.status,409);assert.equal(stale.data.code,'schedule_draft_stale');assert.equal(JSON.parse(readDraft()).find(a=>a.employeeId==='cpu-e1').notes,'Other editor');assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action='schedule_draft_saved'").get().n,baseAudit);
 env.DB.batch=batch;
 const edit=await req('/api/admin/schedule-week','POST',{draft:true,replaceEmployeeId:'cpu-e0',assignments:assignments.filter(a=>a.employeeId==='cpu-e0').map(a=>({...a,notes:'new rider notes'}))});assert.equal(edit.status,201);assert.equal(JSON.parse(readDraft()).length,420);assert.equal(JSON.parse(readDraft()).find(a=>a.employeeId==='cpu-e1').notes,'Other editor');
+// A publication advancing during validation also invalidates the draft write.
+let publicationRace=false;
+env.DB.batch=statements=>{if(!publicationRace&&statements.some(s=>s.sql.includes('UPDATE schedule_week_drafts SET assignments='))){publicationRace=true;db.sqlite.prepare('UPDATE schedule_publications SET revision=revision+1 WHERE week_start=?').run(week);}return batch(statements);};
+const beforePublicationRace=readDraft();assert.equal((await req('/api/admin/schedule-week','POST',{draft:true,assignments})).status,409);assert.equal(readDraft(),beforePublicationRace);env.DB.batch=batch;
+// Two first-time editors must not replace the first successfully created draft.
+const absentWeek=addCalendarDays(week,14);let insertRace=false;
+env.DB.batch=statements=>{if(!insertRace&&statements.some(s=>s.sql.includes('INSERT INTO schedule_week_drafts'))){insertRace=true;db.sqlite.prepare("INSERT INTO schedule_week_drafts(week_start,assignments,state,base_revision,created_by,created_at,updated_at) VALUES(?,'[]','draft',0,?,?,?)").run(absentWeek,boot.data.user.id,stamp,stamp);}return batch(statements);};
+assert.equal((await req('/api/admin/schedule-week','POST',{draft:true,assignments:[{...assignments[0],date:absentWeek}]})).status,409);assert.equal(db.sqlite.prepare('SELECT assignments FROM schedule_week_drafts WHERE week_start=?').get(absentWeek).assignments,'[]');env.DB.batch=batch;
 // Authentication and invalid requests remain strict; failure never erases a week.
 assert.equal((await call('/api/admin/schedule-week?week='+week)).status,401);
 const preserved=readDraft();assert.equal((await req('/api/admin/schedule-week','POST',{draft:true,assignments:[{...assignments[0],templateId:'missing'}]})).status,422);assert.equal(readDraft(),preserved);

@@ -1610,7 +1610,7 @@
     try {
       const data = await api('/api/admin/schedule-week?week=' + encodeURIComponent(week));
       if (requestId !== scheduleLoadRequest || token !== state.token) return;
-      if (!data || data.weekStart !== week || !Array.isArray(data.schedules)) throw new Error('Η απόκριση του προγράμματος δεν είναι έγκυρη.');
+      if (!data || !Array.isArray(data.schedules)) throw new Error('Η απόκριση του προγράμματος δεν είναι έγκυρη.');
       state.weekData = data;
       state.schedules = data.schedules;
       $('scheduleLoadFailure').classList.add('is-hidden');
