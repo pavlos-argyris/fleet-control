@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./scroll-stability.css">
   <link rel="stylesheet" href="./ui-system.css">
+  <link rel="stylesheet" href="./ordexa-ui.css">
 </head>
 <body>
   <div class="server-shell">
@@ -212,7 +213,7 @@
           <button id="batterySettings" class="settings-row" type="button"><span><strong>Προστασία από διακοπή</strong><small>Εξαίρεση από εξοικονόμηση μπαταρίας</small></span><b>›</b></button>
           <button id="changePin" class="settings-row" type="button"><span><strong>Αλλαγή PIN</strong><small>PIN αλλαγών και λήψης APK</small></span><b>›</b></button>
         </div>
-        <p id="settingsMessage" class="action-message"></p>
+        <p id="settingsMessage" class="action-message"></p><section id="ordexaServerPanel" class="ordexa-panel" aria-label="Σύνδεση Ordexa"></section>
       </section>
     </main>
 
@@ -256,5 +257,6 @@
   </dialog>
   <script src="./app.js"></script>
   <script src="./server-diagnostics.js"></script>
+  <script src="./ordexa-server.js"></script>
 </body>
 </html>

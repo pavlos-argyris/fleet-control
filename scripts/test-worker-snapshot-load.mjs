@@ -127,7 +127,7 @@ const unchanged=await (await call('/api/snapshot?sinceVersion='+summary.version)
 assert.equal((await (await call('/api/sync?sinceVersion='+summary.version,undefined,token)).json()).unchanged,true);
 assert.equal((await worker.fetch(new Request(base+'/api/snapshot?sinceVersion='+summary.version),env)).status,401);
 // Complete bounded table pages include all records; names are allowlisted.
-const tables=await (await call('/api/server/system-export/page')).json();assert.equal(tables.tables.length,28);
+const tables=await (await call('/api/server/system-export/page')).json();assert.equal(tables.tables.length,31);
 assert.equal((await call('/api/server/system-export/page?table=fleet_snapshot')).status,400);
 const pages=[];let cursor=0;for(let page=0;page<20;page++){
  const result=await (await call('/api/server/system-export/page?table=app_users&limit=1&cursor='+cursor)).json();pages.push(...result.rows);assert.ok(result.rows.length<=1);

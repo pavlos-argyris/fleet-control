@@ -1,3 +1,5 @@
+import {ORDEXA_SCHEMA,ORDEXA_COLUMNS} from './ordexa-core.js';
+import {routeOrdexa,readOrdexaPayroll} from './ordexa.js';
 import { MIRROR_TABLES, mirrorHead } from './mirror-delta.js';
 import {
   ALL_PERMISSIONS,
@@ -50,6 +52,7 @@ export function isOwnVehicleShiftId(value) {
 const SERVER_HEARTBEAT_GRACE_MS = 7 * 60 * 1000;
 
 export const WORKFORCE_SCHEMA = `
+${ORDEXA_SCHEMA}
 CREATE TABLE IF NOT EXISTS app_users (
   id TEXT PRIMARY KEY NOT NULL,
   full_name TEXT NOT NULL,
@@ -688,6 +691,7 @@ class ApiError extends Error {
 
 export async function ensureWorkforceSchema(env) {
   await env.DB.exec(d1ExecScript(WORKFORCE_SCHEMA));
+  await env.DB.prepare("INSERT OR IGNORE INTO system_settings(key,value,updated_at) VALUES('ordexa_revision','0',datetime('now'))").run();
   const recycle = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='deleted_records'").first();
   if (recycle?.sql && !recycle.sql.includes("'employee'")) {
     // SQLite cannot extend an existing CHECK in place. Preserve every column
@@ -729,6 +733,7 @@ export async function routeWorkforce(request, env, path, deps) {
   if (!path.startsWith("/api/")) return null;
   try {
     return await (async () => {
+    const ordexa=await routeOrdexa(request,env,path,{...deps,authenticate,bodyJson,wfJson,setting,ApiError,requirePin});if(ordexa)return ordexa;
     if (path === "/api/auth/bootstrap-status" && request.method === "GET") return bootstrapStatus(env);
     if (path === "/api/auth/bootstrap" && request.method === "POST") return bootstrapOwner(request, env, deps);
     if (path === "/api/auth/user-login" && request.method === "POST") return userLogin(request, env);
@@ -4813,11 +4818,11 @@ async function ensurePayrollPeriod(env, startDate, endDate, actorId = null) {
   return env.DB.prepare("SELECT * FROM payroll_periods WHERE start_date=? AND end_date=?").bind(startDate, endDate).first();
 }
 
-async function plannedPayrollRows(env, bounds, startDate, endDate) {
+async function plannedPayrollRows(env, bounds, startDate, endDate, externalRows = null) {
   // Bounded SQL round trips for the whole period; no writes to clock records,
   // actual special-rate claims, or payroll_segments during a planned preview.
   const [schedules,rules,specials,claims,zone] = await Promise.all([
-    env.DB.prepare(`SELECT sc.*,u.full_name,u.pay_rule_id,u.employee_group FROM schedules sc JOIN app_users u ON u.id=sc.employee_id
+    externalRows ? Promise.resolve({results:externalRows}) : env.DB.prepare(`SELECT sc.*,u.full_name,u.pay_rule_id,u.employee_group FROM schedules sc JOIN app_users u ON u.id=sc.employee_id
       WHERE sc.start_at>=? AND sc.start_at<? AND sc.status<>'cancelled' ORDER BY sc.start_at,sc.employee_id,sc.id`).bind(bounds.start,bounds.end).all(),
     env.DB.prepare("SELECT * FROM pay_rules WHERE active=1 OR id='default-general'").all(),
     env.DB.prepare("SELECT * FROM special_rates WHERE active=1 ORDER BY priority DESC,id").all(),
@@ -4848,14 +4853,14 @@ async function plannedPayrollRows(env, bounds, startDate, endDate) {
       }
       return {id:r.id,label:r.label,startTime:r.start_time,endTime:r.end_time,rateCents:Number(r.rate_cents),priority:Number(r.priority),qualified};
     });
-    const cacheKey=JSON.stringify([schedule.start_at,schedule.end_at,rule,windows]);
+    const cacheKey=JSON.stringify([schedule.start_at,schedule.end_at,rule,windows,schedule.excludedIntervals||[]]);
     let pay=computed.get(cacheKey);
-    if(!pay){pay=computePayBreakdown({actualStart:schedule.start_at,actualEnd:schedule.end_at,scheduledStart:schedule.start_at,
-      hardEndAt:schedule.end_at,rule,specialWindows:windows,timeZone:zone});computed.set(cacheKey,pay);}
+    if(!pay){pay=computePayBreakdown({actualStart:schedule.start_at,actualEnd:schedule.end_at,scheduledStart:externalRows?null:schedule.start_at,
+      hardEndAt:schedule.end_at,excludedIntervals:schedule.excludedIntervals||[],rule,specialWindows:windows,timeZone:zone});computed.set(cacheKey,pay);}
     result.push({id:schedule.id,employee_id:schedule.employee_id,employee_name:schedule.full_name,
       actual_clock_in:schedule.start_at,actual_clock_out:schedule.end_at,scheduled_end:schedule.end_at,
       payable_minutes:pay.payableMinutes,shift_km:0,base_pay_cents:pay.basePayCents,special_pay_cents:pay.specialPayCents,
-      special_minutes:pay.segments.filter(p=>p.specialRateId).reduce((n,p)=>n+p.minutes,0),rule_id:row.id,rule_version:row.version});
+      special_minutes:pay.segments.filter(p=>p.specialRateId).reduce((n,p)=>n+p.minutes,0),rule_id:row.id,rule_version:row.version,...(schedule.ordexa?{sourceSessionIds:schedule.ordexa.sessions,sourceGaps:schedule.ordexa.gaps}:{} )});
   }
   return result;
 }
@@ -4869,7 +4874,13 @@ async function buildPayrollSummary(env, startDate, endDate) {
     const employees = (snapshots.results || []).map((row) => ({...parseJson(row.data, {}), hoursSource}));
     return { period, employees, hoursSource, lockedSnapshot: true };
   }
-  const shifts = hoursSource === "schedule" ? {results: await plannedPayrollRows(env,bounds,startDate,endDate)}
+  let ordexaData=null;
+  if(hoursSource==='ordexa'){
+    try{ordexaData=await readOrdexaPayroll(env,bounds,startDate,endDate,setting);}catch(e){throw new ApiError(409,e.message);}
+    const staff=(await env.DB.prepare('SELECT id,pay_rule_id,employee_group FROM app_users').all()).results||[];
+    for(const row of ordexaData.rows){const user=staff.find(u=>u.id===row.employee_id)||{};row.pay_rule_id=user.pay_rule_id;row.employee_group=user.employee_group;row.excludedIntervals=ordexaData.policy.gapTreatment==='include'?[]:row.ordexa.gaps;}
+  }
+  const shifts = hoursSource==='ordexa' ? {results:await plannedPayrollRows(env,bounds,startDate,endDate,ordexaData.rows)} : hoursSource === "schedule" ? {results: await plannedPayrollRows(env,bounds,startDate,endDate)}
     : await env.DB.prepare(`SELECT s.*,u.full_name AS employee_name,sc.end_at AS scheduled_end,
       COALESCE(ps.special_minutes,0) AS special_minutes
       FROM shifts s JOIN app_users u ON u.id=s.employee_id
@@ -4896,7 +4907,7 @@ async function buildPayrollSummary(env, startDate, endDate) {
     item.hoursSource = hoursSource;
     if (!item.sourceRows) item.sourceRows = [];
     item.sourceRows.push({id:shift.id,start:shift.actual_clock_in,end:shift.actual_clock_out || shift.scheduled_end || null,
-      ruleId:shift.rule_id || null,ruleVersion:Number(shift.rule_version || 0),payableMinutes:Number(shift.payable_minutes || 0)});
+      ruleId:shift.rule_id || null,ruleVersion:Number(shift.rule_version || 0),payableMinutes:Number(shift.payable_minutes || 0),...(shift.sourceSessionIds?{sourceSessionIds:shift.sourceSessionIds,gaps:shift.sourceGaps}: {})});
     if (shift.overtime_status === "pending") item.pendingOvertime += 1;
     if (shift.overtime_status === "approved") {
       const actualEnd = new Date(shift.actual_clock_out || "").getTime();
@@ -4932,7 +4943,7 @@ async function buildPayrollSummary(env, startDate, endDate) {
     item.finalCents = item.basePayCents + item.specialPayCents + item.bonusCents - item.deductionCents - item.advanceCents;
     return item;
   });
-  return { period, employees: employees.map(item=>({...item,hoursSource})), hoursSource, lockedSnapshot: false };
+  return { period, employees: employees.map(item=>({...item,hoursSource,...(ordexaData?{ordexaPolicy:ordexaData.policy}: {})})), hoursSource, lockedSnapshot: false, blockers:ordexaData?.blocked||[],ordexaRevision:ordexaData?.revision };
 }
 
 async function payrollSummary(request, env) {
@@ -4956,7 +4967,7 @@ async function payrollSummary(request, env) {
     approvedOvertime: acc.approvedOvertime + (item.overtimeApprovals || []).length
   }), { employees: 0, payableHours: 0, kilometers: 0, basePayCents: 0, specialPayCents: 0, bonusCents: 0, deductionCents: 0, advanceCents: 0, finalCents: 0, pendingOvertime: 0, approvedOvertime: 0 });
   totals.payableHours = Math.round(totals.payableHours * 100) / 100;
-  return wfJson({ period: { id: summary.period.id, startDate, endDate, status: summary.period.status, hoursSource: summary.hoursSource }, hoursSource: summary.hoursSource, employees: summary.employees, totals, lockedSnapshot: summary.lockedSnapshot });
+  return wfJson({ period: { id: summary.period.id, startDate, endDate, status: summary.period.status, hoursSource: summary.hoursSource }, hoursSource: summary.hoursSource, employees: summary.employees, totals, lockedSnapshot: summary.lockedSnapshot, blockers:summary.blockers||[] });
 }
 
 async function addPayrollAdjustment(request, env, deps) {
@@ -4994,9 +5005,17 @@ async function lockPayroll(request, env, deps) {
   const endDate = text(body.endDate, 10) || addCalendarDays(startDate, 6);
   const summary = await buildPayrollSummary(env, startDate, endDate);
   if (summary.period.status === "locked") return wfJson({ locked: true, unchanged: true });
+  if(summary.blockers?.length)throw new ApiError(409,"Η μισθοδοσία Ordexa έχει εκκρεμότητες. Έλεγξε αντιστοιχίσεις, παρουσίες και ημερήσιο συγχρονισμό.","ordexa_incomplete",{blockers:summary.blockers});
   const now = nowIso();
   const snapshots=summary.employees.map(item=>({id:uuid(),employee:item.employeeId,data:item}));
-  await env.DB.batch([
+  if(summary.hoursSource==='ordexa'){
+    const guard="EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_revision' AND value=?) AND EXISTS(SELECT 1 FROM payroll_periods WHERE id=? AND status='open')";
+    const committed=await env.DB.batch([
+      env.DB.prepare(`INSERT INTO payroll_snapshots(id,period_id,employee_id,data,created_at) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.employee'),json_extract(value,'$.data'),? FROM json_each(?) WHERE ${guard}`).bind(summary.period.id,now,JSON.stringify(snapshots),summary.ordexaRevision,summary.period.id),
+      env.DB.prepare(`UPDATE payroll_periods SET status='locked',locked_at=?,locked_by=?,hours_source=?,updated_at=? WHERE id=? AND status='open' AND ${guard}`).bind(now,actor.user_id,summary.hoursSource,now,summary.period.id,summary.ordexaRevision,summary.period.id)
+    ]);
+    if(!Number(committed[1]?.meta?.changes))throw new ApiError(409,'Οι παρουσίες ή η περίοδος Ordexa άλλαξαν. Κάνε ανανέωση πριν κλειδώσεις.');
+  }else   await env.DB.batch([
     env.DB.prepare(`INSERT INTO payroll_snapshots(id,period_id,employee_id,data,created_at)
       SELECT json_extract(value,'$.id'),?,json_extract(value,'$.employee'),json_extract(value,'$.data'),? FROM json_each(?)`).bind(summary.period.id,now,JSON.stringify(snapshots)),
     env.DB.prepare("UPDATE payroll_periods SET status='locked',locked_at=?,locked_by=?,hours_source=?,updated_at=? WHERE id=? AND status='open'").bind(now,actor.user_id,summary.hoursSource,now,summary.period.id)
@@ -5386,7 +5405,7 @@ async function reportData(request, env, deps) {
   }
   if (type === "payroll") {
     const summary = await buildPayrollSummary(env, from, to);
-    return wfJson({ type, from, to, columns: ["employeeName","hoursSourceLabel","payableHours","normalHours","specialHours","kilometers","basePayCents","specialPayCents","bonusCents","deductionCents","advanceCents","finalCents"], rows: summary.employees.map(item=>({...item,hoursSourceLabel:summary.hoursSource === "schedule" ? "Δημοσιευμένο πρόγραμμα" : "Πραγματικές καταγραφές"})) });
+    return wfJson({ type, from, to, columns: ["employeeName","hoursSourceLabel","payableHours","normalHours","specialHours","kilometers","basePayCents","specialPayCents","bonusCents","deductionCents","advanceCents","finalCents"], rows: summary.employees.map(item=>({...item,hoursSourceLabel:summary.hoursSource === "ordexa" ? "Ordexa — πραγματικές παρουσίες" : summary.hoursSource === "schedule" ? "Δημοσιευμένο πρόγραμμα" : "Πραγματικές καταγραφές"})) });
   }
   throw new ApiError(400, "Ο τύπος αναφοράς δεν υποστηρίζεται.");
 }
@@ -5404,7 +5423,7 @@ async function updateSystemSettings(request, env, deps) {
   const body = await bodyJson(request);
   const allowed = {
     timezone: ["Europe/Athens"],
-    payroll_hours_source: ["clock", "schedule"],
+    payroll_hours_source: ["clock", "schedule", "ordexa"],
     no_schedule_policy: ["block", "allow_warning", "allow_normal"],
     admin_session_duration: ["never", "5m", "15m", "30m", "1h", "4h"],
     safety_fallback_hour: Array.from({ length: 24 }, (_, index) => String(index))
@@ -5422,6 +5441,11 @@ async function updateSystemSettings(request, env, deps) {
     changes.unusual_distance_km = String(value);
   }
   if (!Object.keys(changes).length) throw new ApiError(400, "Δεν δόθηκαν ρυθμίσεις.");
+  if(changes.payroll_hours_source==="ordexa"){
+    const p=parseJson(await setting(env,"ordexa_policy","null"),null);
+    const ready=await env.DB.prepare("SELECT id FROM ordexa_riders WHERE employee_id IS NOT NULL LIMIT 1").first();
+    if(!p||p.gapMinutes==null||!p.gapTreatment||!ready)throw new ApiError(409,"Ρύθμισε πρώτα τη σύνδεση, τις αντιστοιχίσεις και τους κανόνες Ordexa.");
+  }
   const critical = Boolean(changes.payroll_hours_source || changes.admin_session_duration || changes.safety_fallback_hour || changes.unusual_distance_km);
   const pinUsed = critical ? await requirePin(request, env, deps, actor) : false;
   const now = nowIso();
@@ -5469,6 +5493,7 @@ async function systemExport(request, env, deps) {
 
 function importStatement(env, table, row) {
   const columnsByTable = {
+    ...ORDEXA_COLUMNS,
     app_users: ["id","full_name","username","email","phone","password_hash","password_salt","password_iterations","role","permissions","active","login_enabled","deleted_at","employee_group","pay_rule_id","assigned_vehicle_id","uses_own_vehicle","hire_date","notes","show_schedule","show_actual_clock_in","show_actual_clock_out","show_payable_hours","show_payment_amount","show_shift_kilometers","can_change_vehicle","force_logout_after","last_seen_at","created_at","updated_at"],
     registered_devices: ["id","user_id","name","platform","first_seen_at","last_seen_at","active"],
     vehicle_registry: ["bike_id","name","odometer","status","active_shift_id","version","updated_at"],
@@ -5501,7 +5526,7 @@ function importStatement(env, table, row) {
   const columns = columnsByTable[table];
   if (!columns) return null;
   const placeholders = columns.map(() => "?").join(",");
-  const updates = columns.filter((column) => !["id", "bike_id", "key", "special_rate_id", "employee_id", "date"].includes(column)).map((column) => `${column}=excluded.${column}`).join(",");
+  const updates = columns.filter((column) => !(table.startsWith("ordexa_")?["id"]:["id", "bike_id", "key", "special_rate_id", "employee_id", "date"]).includes(column)).map((column) => `${column}=excluded.${column}`).join(",");
   const sql = table === "audit_log" || table === "pay_rule_versions"
     ? `INSERT OR IGNORE INTO ${table} (${columns.join(",")}) VALUES (${placeholders})`
     : `INSERT INTO ${table} (${columns.join(",")}) VALUES (${placeholders}) ON CONFLICT DO UPDATE SET ${updates || `${columns[0]}=excluded.${columns[0]}`}`;

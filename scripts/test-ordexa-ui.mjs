@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import {createRequire} from 'node:module';
+const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{JSDOM}=require('jsdom');
+const dom=new JSDOM('<section id="ordexaPanel"></section>',{url:'https://synthetic.invalid',runScripts:'outside-only',pretendToBeVisual:true}),w=dom.window;
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(value){this.returnValue=value||'';this.open=false;this.dispatchEvent(new w.Event('close'));};
+w.eval(fs.readFileSync('cloudflare-worker/public/ordexa-ui.js','utf8'));
+let session='one',posts=[],failed=false,hold=null;const tick=()=>new Promise(r=>setTimeout(r,10));
+const base={riders:[{city_id:'c',rider_id:'r',name:'Ordexa name <img>',revision:1,employee_id:null}],employees:[{id:'fleet-uuid',full_name:'Διαφορετικό όνομα Fleet',active:1}],sessions:[],latest:[],policy:{revision:0,gapMinutes:null,gapTreatment:null},hasMore:false};
+const options={session:()=>session,toast:()=>{},escapeHtml:v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),api:async(url,opt)=>{if(opt?.method==='POST'){posts.push({url,body:opt.body});if(hold)await hold;if(failed)throw Error('Fixture failed save');return {saved:true};}return structuredClone(base);}};
+try{
+ await w.FleetOrdexaUI.mount(options);const root=w.document.getElementById('ordexaPanel');assert.equal(root.querySelector('select[data-mapping]').value,'');assert.equal(root.querySelector('[name=gapMinutes]').value,'');assert.equal(root.querySelector('img'),null,'Escape provider labels');
+ root.querySelector('select[data-mapping]').value='fleet-uuid';root.querySelector('[data-save-mapping]').click();await tick();let dialog=w.document.querySelector('dialog');assert.ok(dialog.open);assert.match(dialog.textContent,/Ordexa name/);assert.match(dialog.textContent,/Διαφορετικό όνομα Fleet/);dialog.close('cancel');await tick();assert.equal(posts.length,0);
+ root.querySelector('[data-save-mapping]').click();await tick();dialog=w.document.querySelector('dialog');dialog.querySelector('textarea').value='Explicit pair';dialog.close('save');await tick();assert.equal(posts.length,1);assert.equal(posts[0].body.employeeId,'fleet-uuid');assert.equal(posts[0].body.riderId,'r');
+ failed=true;root.querySelector('[data-save-mapping]').click();await tick();dialog=w.document.querySelector('dialog');dialog.querySelector('textarea').value='Failure';dialog.close('save');await tick();assert.match(root.querySelector('[data-result]').textContent,/Fixture failed save/);assert.equal(root.querySelector('[data-save-mapping]').disabled,false);
+ const count=posts.length;root.querySelector('[data-save-mapping]').click();await tick();session='two';w.FleetOrdexaUI.clear();await tick();assert.equal(posts.length,count,'Logout or session change cancels the old dialog with no POST');assert.equal(w.document.querySelector('dialog'),null);
+ console.log('PASS shipped Ordexa UI: explicit different-name mapping, no defaults, escaped labels, themed cancel/confirm, failed save retained and old-session dialog fenced.');
+}finally{w.close();}

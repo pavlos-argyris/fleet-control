@@ -128,6 +128,7 @@
   }
 
   function clearSession() {
+    window.FleetOrdexaUI?.clear();
     window.FleetLive?.stop();window.FleetSharedReads?.clear();
     window.FleetSequentialReview?.stop();window.FleetFollowup?.reset();window.FleetOperations?.reset();if($("invoiceReviewDialog")?.open)$("invoiceReviewDialog").close();
     if(window.FleetViewCache)window.FleetViewCache.clear();
@@ -4016,7 +4017,9 @@
     state.payroll = data;
     const scheduleSource=(data.hoursSource || data.period.hoursSource)==="schedule";
     $("payrollSourceInfo").innerHTML='<div><strong>'+ (scheduleSource?"Υπολογισμός από δημοσιευμένο πρόγραμμα":"Υπολογισμός από πραγματικές καταγραφές")+'</strong><p>'+ (data.lockedSnapshot?"Η πηγή και τα ποσά διατηρούνται όπως ήταν στο κλείδωμα της περιόδου.":scheduleSource?"Μετρούν οι δημοσιευμένες βάρδιες, χωρίς να απαιτείται clock in/out. Τα πρόχειρα δεν υπολογίζονται. Οι διορθώσεις προγράμματος ενημερώνουν αυτή την ανοικτή περίοδο.":"Μετρούν οι ολοκληρωμένες πραγματικές καταγραφές clock in/out. Το πρόγραμμα διατηρείται ανεξάρτητα.")+'</p></div>'+(can("settings.manage")?'<button class="secondary-button" type="button" data-go="settings">Ρύθμιση πηγής</button>':'');
+    if(data.hoursSource==="ordexa")$("payrollSourceInfo").innerHTML='<div><strong>Ordexa — πραγματικές παρουσίες</strong><p>Χρησιμοποιούνται αποκλειστικά οι αντιστοιχισμένες παρουσίες Ordexa και οι υπάρχοντες κανόνες πληρωμής Fleet. Οι καταγραφές Fleet clock δεν προστίθενται δεύτερη φορά.</p></div>'+(data.blockers?.length?'<p class="form-error">Εκκρεμούν '+data.blockers.length+' έλεγχοι: '+escapeHtml([...new Set(data.blockers.map(x=>x.reason))].join(" · "))+'. Έλεγξε Ordexa στις Ρυθμίσεις. Το κλείδωμα δεν επιτρέπεται ακόμη.</p>':'');
     $("payrollLockButton").classList.toggle("is-hidden", !can("payroll.lock"));
+    $("payrollLockButton").disabled=Boolean(data.blockers?.length);
     $("newAdjustmentButton").classList.toggle("is-hidden", !can("payroll.manage"));
     $("payRulesButton").classList.toggle("is-hidden", !can("payroll.manage"));
     $("specialAssignmentsButton").classList.toggle("is-hidden", !can("payroll.manage"));
@@ -4276,7 +4279,7 @@
 
   function reportValue(key, value) {
     if (value == null || value === "") return "—";
-    if (key === "hoursSource") return value === "schedule" ? "Δημοσιευμένο πρόγραμμα" : "Πραγματικές καταγραφές";
+    if (key === "hoursSource") return value === "ordexa" ? "Ordexa — πραγματικές παρουσίες" : value === "schedule" ? "Δημοσιευμένο πρόγραμμα" : "Πραγματικές καταγραφές";
     if (/_at$/.test(key)) return formatDateTime(value);
     if (/Cents$|_cents$/.test(key)) return money(value);
     if (["initial_km", "final_km", "shift_km", "distance", "km", "kilometers"].includes(key)) return km(value);
@@ -4563,6 +4566,7 @@
     $("fallbackHour").value = data.settings.safety_fallback_hour || "5";
     $("unusualDistanceKm").value = data.settings.unusual_distance_km || "300";
     $("changeAdminPin").classList.toggle("is-hidden", !can("security.manage"));
+    if(can("employees.manage"))await window.FleetOrdexaUI?.mount({api,toast,escapeHtml,requestPin,session:()=>state.token});
   }
 
   async function saveSettings(event) {

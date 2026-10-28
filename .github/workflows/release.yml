@@ -71,6 +71,7 @@ jobs:
       - run: node scripts/test-ui-system-browser.mjs
       - run: node scripts/test-invoice-retry-browser.mjs
       - run: node scripts/test-invoice-auto-browser.mjs
+      - run: node scripts/test-ordexa-browser.mjs
       - name: Save navigation verification images
         if: always()
         uses: actions/upload-artifact@v4
@@ -82,10 +83,12 @@ jobs:
             verification/ui-system/
             verification/invoice-retry/
             verification/invoice-auto/
+            verification/ordexa/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-server-large-storage-native.mjs
+      - run: node scripts/test-ordexa-native.mjs
       - run: node scripts/test-local-invoice-reader.mjs
       - run: node scripts/test-invoice-reader-accuracy.mjs
       - run: node scripts/test-invoice-reader-full.mjs
