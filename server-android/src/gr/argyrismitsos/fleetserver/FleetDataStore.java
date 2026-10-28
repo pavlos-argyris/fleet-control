@@ -5,6 +5,8 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.database.sqlite.SQLiteStatement;
+import android.database.sqlite.SQLiteDoneException;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -43,23 +45,47 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         }
     }
 
+    // A scalar statement uses SQLite's execute-for-string path, not a
+    // CursorWindow. Existing JSON cells can therefore exceed window capacity.
+    private static String readLargeText(SQLiteDatabase db, String sql, String... args) {
+        SQLiteStatement statement = db.compileStatement(sql);
+        try {
+            for (int i = 0; i < args.length; i++) statement.bindString(i + 1, args[i]);
+            return statement.simpleQueryForString();
+        } catch (SQLiteDoneException missing) {
+            return null;
+        } finally {
+            statement.close();
+        }
+    }
+
+    private static JSONObject parseStoredObject(String value, String description) {
+        try { return new JSONObject(value); }
+        catch (JSONException error) {
+            throw new IllegalStateException("Δεν διαβάστηκε " + description + ". Το αποθηκευμένο αντίγραφο διατηρήθηκε.", error);
+        }
+    }
+
+    private JSONObject readOptionalObject(String sql, String description) {
+        String value = readLargeText(getReadableDatabase(), sql);
+        return value == null ? new JSONObject() : parseStoredObject(value, description);
+    }
+
     public synchronized JSONObject getFleet() throws JSONException {
         JSONArray bikes = new JSONArray();
         SQLiteDatabase db = getReadableDatabase();
-        Cursor cursor = db.rawQuery("SELECT data FROM bikes ORDER BY id COLLATE NOCASE", null);
+        // Only small identifiers enter the cursor; read each JSON as a scalar.
+        Cursor cursor = db.rawQuery("SELECT id FROM bikes ORDER BY id COLLATE NOCASE", null);
         try {
             while (cursor.moveToNext()) {
-                try {
-                    bikes.put(new JSONObject(cursor.getString(0)));
-                } catch (JSONException ignored) {
-                }
+                JSONObject bike = readBike(db, cursor.getString(0));
+                if (bike == null) throw new IllegalStateException("Η καταχώρηση άλλαξε κατά την ανάγνωση. Δοκίμασε ξανά.");
+                bikes.put(bike);
             }
         } finally {
             cursor.close();
         }
-        JSONObject fleet = new JSONObject();
-        fleet.put("bikes", bikes);
-        return fleet;
+        return new JSONObject().put("bikes", bikes);
     }
 
     public synchronized JSONObject getStats() throws JSONException {
@@ -108,9 +134,7 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     }
 
     public synchronized JSONObject getCanonicalSnapshot() {
-        Cursor cursor=getReadableDatabase().rawQuery("SELECT value FROM system_state WHERE key='canonical_snapshot'",null);
-        try { return cursor.moveToFirst() ? new JSONObject(cursor.getString(0)) : new JSONObject(); }
-        catch (Exception error) { return new JSONObject(); } finally { cursor.close(); }
+        return readOptionalObject("SELECT value FROM system_state WHERE key='canonical_snapshot'", "το κανονικό στιγμιότυπο");
     }
     public synchronized void setCanonicalSnapshot(JSONObject value) {
         ContentValues data=new ContentValues();data.put("key","canonical_snapshot");data.put("value",value.toString());data.put("updated_at",isoNow());
@@ -118,10 +142,7 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     }
 
     public synchronized JSONObject getLocalWorkState() {
-        Cursor cursor=getReadableDatabase().rawQuery("SELECT value FROM system_state WHERE key='local_invoice_queue'",null);
-        try { return cursor.moveToFirst()?new JSONObject(cursor.getString(0)):new JSONObject(); }
-        catch(Exception e){throw new IllegalStateException("Δεν διαβάστηκε η τοπική ουρά. Το αποθηκευμένο αντίγραφο διατηρήθηκε.",e);}
-        finally {cursor.close();}
+        return readOptionalObject("SELECT value FROM system_state WHERE key='local_invoice_queue'", "η τοπική ουρά");
     }
     public synchronized void setLocalWorkState(JSONObject value) {
         ContentValues data=new ContentValues();data.put("key","local_invoice_queue");data.put("value",value.toString());data.put("updated_at",isoNow());
@@ -138,15 +159,7 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     }
 
     public synchronized JSONObject getSystemExport() {
-        Cursor cursor = getReadableDatabase().rawQuery("SELECT value FROM system_state WHERE key = 'full_export' LIMIT 1", null);
-        try {
-            if (!cursor.moveToFirst()) return new JSONObject();
-            return new JSONObject(cursor.getString(0));
-        } catch (JSONException error) {
-            return new JSONObject();
-        } finally {
-            cursor.close();
-        }
+        return readOptionalObject("SELECT value FROM system_state WHERE key='full_export' LIMIT 1", "το αντίγραφο προσωπικού/συστήματος");
     }
 
     public synchronized String getSystemUpdatedAt() {
@@ -257,15 +270,8 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     }
 
     private JSONObject readBike(SQLiteDatabase db, String id) {
-        Cursor cursor = db.rawQuery("SELECT data FROM bikes WHERE id = ? LIMIT 1", new String[]{id});
-        try {
-            if (!cursor.moveToFirst()) return null;
-            return new JSONObject(cursor.getString(0));
-        } catch (JSONException error) {
-            return null;
-        } finally {
-            cursor.close();
-        }
+        String value = readLargeText(db, "SELECT data FROM bikes WHERE id = ? LIMIT 1", id);
+        return value == null ? null : parseStoredObject(value, "το μηχανάκι");
     }
 
     private JSONObject mergeBike(JSONObject first, JSONObject second) throws JSONException {
@@ -418,12 +424,8 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     }
 
     public synchronized String getSetting(String key, String fallback) {
-        Cursor cursor = getReadableDatabase().rawQuery("SELECT value FROM settings WHERE key = ? LIMIT 1", new String[]{key});
-        try {
-            return cursor.moveToFirst() ? cursor.getString(0) : fallback;
-        } finally {
-            cursor.close();
-        }
+        String value = readLargeText(getReadableDatabase(), "SELECT value FROM settings WHERE key = ? LIMIT 1", key);
+        return value == null ? fallback : value;
     }
 
     public synchronized void setSetting(String key, String value) {

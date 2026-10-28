@@ -8,10 +8,10 @@ function element(id) {
   if (!nodes.has(id)) nodes.set(id, { value: '', checked: false, textContent: '', innerHTML: '', hidden: false, disabled: false,
     listeners: {}, attrs: {}, style: {}, dataset: {}, classList: { add() {}, remove() {}, toggle() {} },
     addEventListener(name, fn) { this.listeners[name] = fn; }, setAttribute(name, value) { this.attrs[name] = value; }, removeAttribute(name) { delete this.attrs[name]; },
-    parentElement: { setAttribute() {} }, close() {}, showModal() {}, reset() {} });
+    querySelectorAll(){return [];}, parentElement: { setAttribute() {} }, close() {}, showModal() {}, reset() {} });
   return nodes.get(id);
 }
-let data = { serverVersion: '2.1.4', syncSeconds: 30, invoiceParallelism: 4, workerUrl: 'https://simulation.invalid', serviceRunning: true, serverOnline: true, health: {} };
+let data = { settingsLoaded:true, serverVersion: '2.1.4', syncSeconds: 30, invoiceParallelism: 4, workerUrl: 'https://simulation.invalid', serviceRunning: true, serverOnline: true, health: {} };
 let saveOk = true, saved;
 const bridge = { getDashboard: () => JSON.stringify(data), saveSettings: raw => {
   saved = JSON.parse(raw); if (!saveOk) return JSON.stringify({ ok: false, message: 'error' });
