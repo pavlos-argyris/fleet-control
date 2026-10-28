@@ -4309,7 +4309,7 @@
 
   async function loadAlerts() {
     const token=state.token;
-    const data = await api("/api/admin/alerts");
+    const data = await api("/api/admin/alerts",{forceRead:true});
     if(token!==state.token)return;
     state.alerts = data.alerts || [];
     renderAlerts();
