@@ -20,6 +20,9 @@
     odometerKm: "Χιλιόμετρα",
     invoiceDate: "Ημερομηνία",
     totalAmount: "Σύνολο",
+    netAmount: "Καθαρή αξία",
+    vatAmount: "ΦΠΑ",
+    lineItems: "Πληρότητα γραμμών",
     supplier: "Προμηθευτής",
     invoiceNumber: "Αριθμός τιμολογίου",
   };

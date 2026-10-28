@@ -52,9 +52,11 @@ export function parseInvoiceText(value) {
   };
   if (!text.trim() || /^\s*[\[{]/.test(text)) return {data: {}, fields: {}, problems: [{field:'document',code:'no-document-text',message:'Δεν υπάρχει ανεξάρτητο αναγνώσιμο κείμενο του εγγράφου.'}], completeTable:false, rowCount:0, version:INVOICE_RULES_VERSION};
   if (original.length > MAX_INVOICE_TEXT) issue('document', 'text-limit', 'Το κείμενο υπερβαίνει το όριο ανάγνωσης· χρειάζεται έλεγχος του πλήρους PDF.');
-  const plates = [], kms = [], comments = [], dates = [], numbers = [], money = {netAmount:[],vatAmount:[],totalAmount:[]};
+  const plates = [], kms = [], comments = [], dates = [], numbers = [], suppliers = [], money = {netAmount:[],vatAmount:[],totalAmount:[]};
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i].replace(/\s*\|\s*/g, ' ').replace(/\s+/g, ' '), label = fold(row);
+    const supplierLabel=label.match(/^(?:προμηθευτης|εκδοτης|επωνυμια\s+εκδοτη|supplier)\s*:\s*/);
+    if(supplierLabel){const name=row.slice(supplierLabel[0].length).trim();if(name.length>2&&name.length<=240)suppliers.push(name);}
     if (/^σχολια(?=\s|:|$)/.test(label)) {
       let comment = row.replace(/^[^:]*?:\s*/, '');
       if (comment === row) comment = row.replace(/^σχ[όο]λια\s*/i, '');
@@ -68,7 +70,7 @@ export function parseInvoiceText(value) {
       for (const m of matches) {
         plates.push(invoicePlate(m[1]+m[2]));
         const tail = comment.slice(m.index + m[0].length).trim();
-        const km = tail.match(/^(?:(?:χλμ\.?|χιλι[όο]μετρα|km)\s*:?\s*)?(\d{1,10}|\d{1,3}(?:[ .]\d{3})+)\s*(?:(?:χλμ\.?|km)\b)?/i);
+        const km = tail.match(/^(?:(?:χλμ\.?|χιλι[όο]μετρα|km)\s*:?\s*)?(\d{1,3}(?:[ .]\d{3})+|\d{1,10})\s*(?:(?:χλμ\.?|km)\b)?/i);
         if (km) {
           const digits = km[1].replace(/\D/g, '');
           if (Number.isSafeInteger(Number(digits)) && Number(digits) <= 2000000000) kms.push(String(Number(digits)));
@@ -113,6 +115,7 @@ export function parseInvoiceText(value) {
   accept('odometerKm', kms, comments.join('\n'));
   accept('invoiceDate', dates, rows.filter(r=>/ημερομηνια\s+εκδοσης|issue\s+date|invoice\s+date/.test(fold(r))).join('\n'));
   accept('invoiceNumber', numbers, numbers.join(' / '));
+  accept('supplier', suppliers, suppliers.join(' / '));
   for (const field of Object.keys(money)) accept(field,money[field],money[field].join(' / '),invoiceCents);
   if (comments.length) found.comments = unique(comments).join('\n').slice(0,2000);
   const items = []; let table = false, seenTable = false, ended = false, current = '', count = 0;
@@ -131,9 +134,10 @@ export function parseInvoiceText(value) {
     description = description.replace(/\s+\d+(?:[.,]\d{1,3})?\s+(?:τεμαχια|τεμάχια|h87|pcs?|ωρες|ώρες)(?=\s|$).*$/i, '').replace(new RegExp(`\\s+${moneyToken}(?:\\s|$).*$`),'').trim();
     if (code || described || (cells.length >= 3 && /\d/.test(cells.at(-1)))) {
       flush(); count++; ended=false;
-      if (!description || description.length > 500) issue('lineItems','invalid-row','Μια περιγραφή είναι κενή ή υπερβολικά μεγάλη.');
+      if (!description || description.length > 500 || !/[A-ZΑ-Ω]/i.test(description)) issue('lineItems','invalid-row','Μια περιγραφή είναι κενή, ασαφής ή υπερβολικά μεγάλη.');
       current=description.slice(0,500);
     } else if (current && /[A-ZΑ-Ω]/i.test(description) && !/(?:αφμ|τηλεφωνο|διευθυνση|τιμολογιο|παραστατικο|ημερομηνια)/.test(lower)) {
+      if(!/^(?:συνεχεια\s+περιγραφης|yamalube|crypton|federal|mhq|\d{1,3}[a-z/\d\-])/.test(lower))issue('lineItems','uncertain-row-boundary','Μια γραμμή μπορεί να είναι συνέχεια περιγραφής ή διαφορετικό είδος· χρειάζεται έλεγχος του πίνακα.');
       if (current.length + description.length + 1 > 500) issue('lineItems','long-row','Η περιγραφή μιας γραμμής υπερβαίνει το όριο.');
       current=(current+' '+description).slice(0,500);
     } else if (!/^\d+(?:[.,\s]\d+)*$/.test(row)) issue('lineItems','unparsed-row','Μια γραμμή του πίνακα δεν αναγνωρίστηκε με βεβαιότητα.');
@@ -149,10 +153,11 @@ export function parseInvoiceText(value) {
   return {data:found, fields, problems, completeTable, rowCount:count, version:INVOICE_RULES_VERSION};
 }
 
-export function enrichInvoiceExtraction(value) {
+export function enrichInvoiceExtraction(value, proof) {
   if (!value || typeof value !== 'object') return value;
-  const parsed = parseInvoiceText(value.rawText);
+  const parsed = proof || parseInvoiceText(value.rawText);
   const data = {...value, ...parsed.data};
+  if(parsed.completeTable)data.parts=[];
   // Deterministic conflicts must never be hidden by an AI's single answer.
   for (const problem of parsed.problems) if (problem.code==='conflicting-values') delete data[problem.field];
   data.extractionChecks={version:parsed.version,completeTable:parsed.completeTable,rowCount:parsed.rowCount,problems:parsed.problems};
@@ -160,11 +165,11 @@ export function enrichInvoiceExtraction(value) {
   return data;
 }
 
-export function evaluateInvoiceConfirmation(data, {bike, entry, bikes, previous = {}, readError = ''}) {
+export function evaluateInvoiceConfirmation(data, {bike, entry, bikes, previous = {}, readError = '', proof:providedProof}) {
   const reasons = [];
   const add=(field,code,message)=>{if(!reasons.some(r=>r.field===field&&r.code===code))reasons.push({field,code,message});};
   // Recompute proof rather than accepting a previously stored/AI supplied flag.
-  const proof=parseInvoiceText(data?.rawText), actual=proof.data;
+  const proof=providedProof||parseInvoiceText(data?.rawText), actual=proof.data;
   for(const p of proof.problems)add(p.field,p.code,p.message);
   for(const field of ['plate','odometerKm','invoiceNumber','invoiceDate','netAmount','vatAmount','totalAmount']) {
     if(!actual[field])add(field,'missing-evidence','Λείπει σαφής τιμή από το αντίστοιχο πεδίο του εγγράφου.');
@@ -172,12 +177,13 @@ export function evaluateInvoiceConfirmation(data, {bike, entry, bikes, previous 
     if(actual[field] && normalize(data?.[field])!==normalize(actual[field]))add(field,'source-disagreement','Η αποθηκευμένη τιμή διαφέρει από το τεκμήριο του εγγράφου.');
   }
   const plate=invoicePlate(data?.plate),matches=(bikes||[]).filter(b=>invoicePlate(b.name)===plate);
-  if(!plate||matches.length!==1||String(matches[0].id)!==String(bike?.id))add('plate','vehicle-match','Δεν υπάρχει μοναδική συμφωνία με το συνδεδεμένο μηχανάκι.');
+  if(!data?.supplier&&!data?.qrUrl)add('invoiceNumber','issuer-identity','Λείπει η ταυτότητα εκδότη ή η μοναδική πηγή QR για έλεγχο διπλοτύπου.');
+  if(!plate||plate!==invoicePlate(bike?.name)||matches.length!==1||String(matches[0].id)!==String(bike?.id))add('plate','vehicle-match','Δεν υπάρχει μοναδική συμφωνία με το συνδεδεμένο μηχανάκι.');
   if(!/^\d{1,10}$/.test(String(data?.odometerKm||''))||Number(data.odometerKm)>2000000000||Number(data.odometerKm)!==Number(entry?.km))add('odometerKm','service-mileage','Τα χιλιόμετρα απαιτούν έλεγχο ή ρητή απόφαση χρήστη.');
   const net=invoiceCents(data?.netAmount),vat=invoiceCents(data?.vatAmount),gross=invoiceCents(data?.totalAmount);
   if(net===null||vat===null||gross===null||net<0||vat<0||gross<=0||Math.abs(net+vat-gross)>1)add('totalAmount','amounts','Καθαρή αξία, ΦΠΑ και σύνολο δεν συμφωνούν.');
   if(!proof.completeTable||JSON.stringify(data?.lineItems||[])!==JSON.stringify(actual.lineItems||[]))add('lineItems','stored-lines','Οι αποθηκευμένες γραμμές δεν συμφωνούν με τον πλήρη πίνακα.');
-  if(readError||data?.ocrFallbackError)add('document','read-error','Η τελευταία ανάγνωση δεν ολοκληρώθηκε επιτυχώς.');
+  if(readError||data?.ocrFallbackError||data?.textTruncated===true)add('document','read-error','Η τελευταία ανάγνωση δεν ολοκληρώθηκε επιτυχώς.');
   if(data?.localReadStatus==='ambiguous'||/διαφων|conflict|truncat|όριο|οριο/i.test(String(data?.ocrFallbackReason||'')))add('document','source-conflict','Η ανάγνωση αναφέρει αβεβαιότητα, διαφωνία πηγών ή όριο.');
   if(previous?.correctedByUserAt||previous?.mileageResolution||previous?.plateResolution)add('document','user-decision','Διατηρείται η προηγούμενη ρητή απόφαση χρήστη.');
   if(data?.plateAutoCorrectedFrom)add('plate','ocr-correction','Η πινακίδα διορθώθηκε με ανοχή OCR και απαιτεί επιβεβαίωση.');

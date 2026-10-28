@@ -709,12 +709,13 @@ assert.equal(batchComplete.batch.status, "completed");
     "Stale confirmation must not overwrite a newer mileage");
   assert.equal(ok(await call("/api/sync", { token: ownerToken })).version, staleVersion);
   const reread = ok(await call("/api/admin/service-documents/reprocess", { method: "POST", token: ownerToken, body: { key: document.key } }));
-  assert.equal(reread.document.status, "confirmed");
+  assert.equal(reread.document.status, "error", "A failed new read is visible while the previous confirmation is preserved");
+  assert.ok(reread.ocrWarning);assert.ok(reread.document.invoiceData.confirmedAt);
   assert.equal(reread.document.invoiceData.plateResolution, "kept-current");
   assert.equal(reread.document.serviceKm, 9100);
   assert.equal(reread.document.invoiceData.totalAmount, "50");
   const listed = ok(await call("/api/admin/service-documents", { token: ownerToken })).documents.find(item => item.key === document.key);
-  assert.equal(listed.status, "confirmed");
+  assert.equal(listed.status, "error");assert.ok(listed.error);assert.ok(listed.invoiceData.confirmedAt);
   assert.equal(listed.invoiceData.correctedByUserAt, saved.document.invoiceData.correctedByUserAt);
   // A subsequent different plate cannot reuse the previous acceptance.
   const changed = ok(await call("/api/admin/service-documents/review", { method: "POST", token: ownerToken,
