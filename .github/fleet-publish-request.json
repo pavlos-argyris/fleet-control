@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-ac89cbd0-ca9f-4445-9c94-49c3921bf8d4",
-  "sourceCommit": "0b12d07371dbfb848b31740af55f1505bc7e7fec",
-  "releaseVersion": "5.51.11",
-  "requestedAt": "2026-10-28T16:48:56.633Z",
-  "reason": "Ο χρήστης ζήτησε διόρθωση του Server CursorWindow και των ανενεργών ενδείξεων/ρυθμίσεων. Η μόνιμη εξουσιοδότηση καλύπτει την αυτόματη δημοσίευση 5.51.11 / Server 2.2.16 μετά επιτυχείς ελέγχους."
+  "requestId": "fleet-d061c350-53ae-463e-8506-e1d18039e959",
+  "sourceCommit": "805cd18dc746e97c2f7d3aea8e7d184636532c63",
+  "releaseVersion": "5.51.14",
+  "requestedAt": "2026-10-28T21:31:09.622Z",
+  "reason": "Ο χρήστης ζήτησε ολοκλήρωση και μία κοινή αυτόματη δημοσίευση των issues 4, 5 και 6 μετά τους επιτυχείς ελέγχους."
 }
