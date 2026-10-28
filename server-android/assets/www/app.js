@@ -483,7 +483,7 @@
       Object.assign(state,payload);
       const fresh=dashboard();
       if(fresh?.settingsLoaded===true){settingsDirty=false;render(fresh);el.settingsMessage.textContent="Οι ρυθμίσεις αποθηκεύτηκαν.";}
-      else{settingsDirty=true;render(fresh);el.settingsMessage.textContent="Οι ρυθμίσεις αποθηκεύτηκαν, αλλά η ανανέωση της οθόνης απέτυχε. Οι τιμές σου διατηρούνται.";}
+      else{settingsDirty=false;render(fresh);el.settingsMessage.textContent="Οι ρυθμίσεις αποθηκεύτηκαν, αλλά η ανανέωση της οθόνης απέτυχε. Οι τιμές σου διατηρούνται.";}
     }
   });
 
