@@ -1,3 +1,4 @@
+import { retryFailedInvoice } from './invoice-retry.js';
 import { routeChangeEvents, publishChanges, changedScopes } from './change-events.js';
 export { FleetEvents } from './change-events.js';
 import { MIRROR_SCHEMA, mirrorDelta, mirrorHead, trimMirrorJournal } from './mirror-delta.js';
@@ -161,6 +162,7 @@ async function route(request, env) {
   if (path === "/api/service-documents/resolve-qr" && request.method === "POST") return resolveQrServiceDocument(request, env);
   if (path === "/api/service-documents/ocr" && request.method === "POST") return ocrServiceDocument(request, env);
   if (path === "/api/admin/service-documents" && request.method === "GET") return listAdminServiceDocuments(request, env);
+  if (path === "/api/admin/service-documents/retry-failed" && request.method === "POST") return retryFailedInvoice(request,env,{json,authenticateExternal,isManagementActor,readServiceEntry,readServiceDocument,serviceRenderState,jobAttachmentMatches,restartServiceDocument,reprocessAdminServiceDocument,resolveServiceDocumentFailure,digestHex});
   if (path === "/api/admin/service-documents/transfer-options" && request.method === "GET") return invoiceTransferOptions(request, env);
   if (path === "/api/admin/service-documents/reprocess-batch" && (request.method === "GET" || request.method === "POST")) return invoiceReprocessBatch(request, env);
   if (path === "/api/admin/service-documents/seen" && request.method === "POST") return markAdminServiceDocumentSeen(request, env);
@@ -289,7 +291,7 @@ async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
     entry.updatedAt = now;
     const normalized = normalizeHistory([entry])[0];
     const version = await writeServiceEntry(env, located, normalized, "service-document-upload", now, attachment.renderJobId || "");
-    if (version) { await resolveServiceDocumentFailure(env, attachment.renderJobId); return { attached: true, version }; }
+    if (version) { if(!attachment.ocrError)await resolveServiceDocumentFailure(env, attachment.renderJobId); return { attached: true, version }; }
   }
   return { attached: false, status: 409, error: "Το service ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά την προσθήκη του τιμολογίου." };
 }
@@ -439,9 +441,12 @@ async function queueStoredAnalysis(env,key,body={}){
  const located=await readServiceDocument(env,key);if(!located||located.entry.type==='check')return json({error:'Το τιμολόγιο δεν βρέθηκε.'},404);
  const attachment=located.entry.attachments.find(a=>a.key===key),now=new Date().toISOString(),id=crypto.randomUUID();
  const payload={documentKey:key,bikeId:located.bike.id,entryId:located.entry.id,name:attachment.name,forceRead:body.forceRead===true,requestedAt:now,progress:5,progressStage:'Αναμονή τοπικής ανάγνωσης στον Server',attemptCount:0};
- await env.DB.prepare("INSERT OR IGNORE INTO fleet_operations(id,source,type,payload,status,created_at) SELECT ?,'stored-document','service_document_render',?,'pending',? WHERE NOT EXISTS(SELECT 1 FROM fleet_operations WHERE status='pending' AND type='service_document_render' AND json_extract(payload,'$.documentKey')=?)").bind(id,JSON.stringify(payload),now,key).run();
+ await env.DB.batch([
+  env.DB.prepare("INSERT OR IGNORE INTO fleet_operations(id,source,type,payload,status,created_at) SELECT ?,'stored-document','service_document_render',?,'pending',? WHERE NOT EXISTS(SELECT 1 FROM fleet_operations WHERE status='pending' AND type='service_document_render' AND json_extract(payload,'$.documentKey')=?)").bind(id,JSON.stringify(payload),now,key),
+  env.DB.prepare("UPDATE system_alerts SET object_id=(SELECT id FROM fleet_operations WHERE status='pending' AND type='service_document_render' AND json_extract(payload,'$.documentKey')=? ORDER BY created_at LIMIT 1) WHERE type='invoice_processing_failed' AND resolved=0 AND (object_id=? OR EXISTS(SELECT 1 FROM fleet_operations previous WHERE previous.id=system_alerts.object_id AND previous.type='service_document_render' AND json_extract(previous.payload,'$.documentKey')=?)) AND EXISTS(SELECT 1 FROM fleet_operations WHERE status='pending' AND type='service_document_render' AND json_extract(payload,'$.documentKey')=?)").bind(key,attachment.renderJobId||'',key,key)
+ ]);
  const row=await env.DB.prepare("SELECT id,payload FROM fleet_operations WHERE status='pending' AND type='service_document_render' AND json_extract(payload,'$.documentKey')=? ORDER BY created_at LIMIT 1").bind(key).first();
- if(!row)return json({error:'Η εργασία άλλαξε. Δοκίμασε ξανά.'},409);
+ if(!row)return json({error:'Η εργασία άλλαξε. Ανανέωσε τα τιμολόγια πριν δοκιμάσεις ξανά.'},409);
  return json({ok:true,queued:true,jobId:row.id,status:'processing',key,document:adminServiceDocumentRecord(located.bike,located.entry,attachment,{jobId:row.id,payload:JSON.parse(row.payload),operationStatus:'pending',createdAt:now})},202);
 }
 async function storedAnalysisResult(request,env){
@@ -776,6 +781,8 @@ async function notifyServiceDocumentFailure(env, payload, jobId, error, phase="p
     const attempt = String(payload.retryRequestedAt || payload.requestedAt || "initial").slice(0,40);
     const dedupe = "invoice-qr:" + jobId + ":" + attempt + ":" + phase;
     if (await env.DB.prepare("SELECT id FROM system_alerts WHERE dedupe_key=? LIMIT 1").bind(dedupe).first()) return;
+    const activeAlert=await env.DB.prepare("SELECT id,message FROM system_alerts WHERE type='invoice_processing_failed' AND object_id=? AND resolved=0 LIMIT 1").bind(jobId).first();
+    if(activeAlert){await env.DB.prepare('UPDATE system_alerts SET message=? WHERE id=? AND resolved=0').bind(String(activeAlert.message||'').split(': ')[0]+': '+cleanText(error,350)+' Η προσπάθεια απέτυχε· μπορείς να επιλέξεις Επανάληψη.',activeAlert.id).run();return;}
     const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
     if (!located || located.entry.type === "check") return;
     await env.DB.prepare("INSERT OR IGNORE INTO alert_rules(type,enabled,severity,channel,updated_at) VALUES ('invoice_processing_failed',1,'warning','both',?)").bind(new Date().toISOString()).run();
@@ -908,10 +915,10 @@ async function restartServiceDocument(request, env) {
     : env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) SELECT ?,'manual-retry','service_document_render',?,'pending',? WHERE NOT EXISTS (SELECT 1 FROM fleet_operations WHERE type='service_document_render' AND status='pending' AND json_extract(payload,'$.bikeId')=? AND json_extract(payload,'$.entryId')=? AND json_extract(payload,'$.qrUrl')=?)").bind(newId,JSON.stringify(next),now,located.bike.id,located.entry.id,qrUrl);
   const statements = [insert];
   if (row) statements.push(env.DB.prepare("UPDATE fleet_operations SET status='cancelled',applied_at=? WHERE id=? AND EXISTS (SELECT 1 FROM fleet_operations WHERE id=?)").bind(now,jobId,newId));
+  if(row)statements.push(env.DB.prepare("UPDATE system_alerts SET object_id=? WHERE type='invoice_processing_failed' AND object_id=? AND resolved=0 AND EXISTS(SELECT 1 FROM fleet_operations WHERE id=?)").bind(newId,jobId,newId));
   const results = await env.DB.batch(statements);
   if (!results[0]?.meta?.changes) return json({error:"Η εργασία άλλαξε. Ανανέωσε και δοκίμασε ξανά."},409);
   await updateServiceDocumentProcessingSnapshot(env,next,{jobId:newId,status:"processing",progress:5,stage:next.progressStage,error:"",attempts:0});
-  await resolveServiceDocumentFailure(env,jobId);
   return json({ok:true,restarted:true,jobId:newId,previousJobId:jobId,status:"processing"});
 }
 

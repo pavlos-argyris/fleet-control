@@ -5028,8 +5028,8 @@ async function unlockPayroll(request, env, deps) {
 async function listAlerts(request, env) {
   await authenticate(request, env, "alerts.view");
   const includeResolved = new URL(request.url).searchParams.get("resolved") === "1";
-  const rows = await env.DB.prepare(`SELECT a.*,COALESCE(r.channel,'in_app') AS channel
-    FROM system_alerts a LEFT JOIN alert_rules r ON r.type=a.type WHERE (?=1 OR a.resolved=0)
+  const rows = await env.DB.prepare(`SELECT a.*,COALESCE(r.channel,'in_app') AS channel,CASE WHEN a.type='invoice_processing_failed' AND op.status='pending' AND COALESCE(json_extract(op.payload,'$.lastError'),'')='' AND julianday('now')-julianday(COALESCE(json_extract(op.payload,'$.requestedAt'),op.created_at))<90.0/86400 THEN 'processing' ELSE '' END AS invoice_retry_state
+    FROM system_alerts a LEFT JOIN alert_rules r ON r.type=a.type LEFT JOIN fleet_operations op ON a.type='invoice_processing_failed' AND op.id=a.object_id WHERE (?=1 OR a.resolved=0)
     ORDER BY a.resolved, CASE a.severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, a.created_at DESC LIMIT 500`)
     .bind(includeResolved ? 1 : 0).all();
   return wfJson({ alerts: rows.results || [] });
@@ -5101,8 +5101,10 @@ async function resolveCorrection(request, env, deps, id) {
 
 async function resolveAlert(request, env, id) {
   const actor = await authenticate(request, env, "alerts.manage");
+  const invoice=await env.DB.prepare("SELECT id FROM system_alerts WHERE id=? AND type='invoice_processing_failed' AND resolved=0").bind(id).first();
+  if(invoice)throw new ApiError(409,'Το τιμολόγιο χρειάζεται επανάληψη. Η ειδοποίηση κλείνει αυτόματα μετά την επιτυχία.');
   const now = nowIso();
-  const result = await env.DB.prepare("UPDATE system_alerts SET resolved=1,resolved_by=?,resolved_at=? WHERE id=? AND resolved=0")
+  const result = await env.DB.prepare("UPDATE system_alerts SET resolved=1,resolved_by=?,resolved_at=? WHERE id=? AND resolved=0 AND type<>'invoice_processing_failed'")
     .bind(actor.user_id, now, id).run();
   if (!Number(result.meta?.changes || 0)) throw new ApiError(404, "Η ειδοποίηση δεν βρέθηκε ή έχει ήδη κλείσει.");
   await audit(env, request, actor, "alert_resolved", "alert", id, { resolved: false }, { resolved: true }, "", false);

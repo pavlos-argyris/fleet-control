@@ -34,11 +34,11 @@ const anonymous=await worker.fetch(new Request(base+'/api/service-documents/jobs
 // A normal retry gets a new identity, because an older Server may remember
 // the old ID as already applied. Existing files must remain untouched.
 const restart=await call('/api/admin/service-documents/restart',{jobId:'legacy-job'},token);assert.equal(restart.status,200);const fresh=await restart.json();assert.notEqual(fresh.jobId,'legacy-job');assert.equal(sqlite.prepare("SELECT status FROM fleet_operations WHERE id='legacy-job'").get().status,'cancelled');
-assert.equal(sqlite.prepare('SELECT resolved FROM system_alerts WHERE id=?').get(alert.id).resolved,1);
+assert.equal(sqlite.prepare('SELECT resolved FROM system_alerts WHERE id=?').get(alert.id).resolved,0,'A new request must keep the notice open until actual success');
 assert.equal((await readServiceEntry(env,'bike','service')).entry.km,9000);
 for(let i=0;i<3;i++){const result=await (await call('/api/server/operation-error',{jobId:fresh.jobId,error:'Δεν ανέβηκε το PDF'})).json();assert.equal(result.status,i===2?'error':'delayed');}
-assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM system_alerts WHERE type='invoice_processing_failed'").get().n,2);
-await call('/api/server/operation-error',{jobId:fresh.jobId,error:'Δεν ανέβηκε το PDF'});assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM system_alerts WHERE type='invoice_processing_failed'").get().n,2,'One alert per failed attempt');
+assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM system_alerts WHERE type='invoice_processing_failed'").get().n,1);
+await call('/api/server/operation-error',{jobId:fresh.jobId,error:'Δεν ανέβηκε το PDF'});assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM system_alerts WHERE type='invoice_processing_failed'").get().n,1,'One active alert follows the replacement attempt');
 // Uploading an actual PDF result commits its link and resolves the warning.
 const local={localReadStatus:'confident',ocrConfidence:95,plate:'ΤΝΗ 921',totalAmount:'59,00',invoiceDate:'2026-07-27',lineItems:['Γενικός έλεγχος']};
 const params=new URLSearchParams({bikeId:'bike',entryId:'service',jobId:fresh.jobId,qrUrl:qr,qrValue:qr,name:'invoice.pdf'});

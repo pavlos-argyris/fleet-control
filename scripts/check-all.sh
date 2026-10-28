@@ -21,6 +21,9 @@ node scripts/test-worker-snapshot-load.mjs
 node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
 node scripts/test-qr-failure-alerts.mjs
+node scripts/test-invoice-retry-actions.mjs
+node scripts/test-invoice-retry-ui.mjs
+node scripts/test-invoice-retry-d1.mjs
 node scripts/test-invoice-imports.mjs
 node scripts/test-service-model.mjs
 node scripts/test-fleet-operations-model.mjs

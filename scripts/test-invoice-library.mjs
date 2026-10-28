@@ -14,6 +14,7 @@ const state = { invoiceDocuments: records, invoiceView: 'review', invoiceCollaps
 let clock = 1000;
 class Clock extends Date { static now() { return clock; } }
 const ctx = vm.createContext({ document: { querySelector: () => ({hidden:false}), querySelectorAll: () => [] }, state, console, Map, Set, Date: Clock, encodeURIComponent,
+  invoiceRetryController:{busy:()=>false,pending:()=>false},
   $: id => fields[id], can: () => true, renderInvoiceBulkProgress: () => {}, refreshWigglyProgressRings: () => {}, syncInvoiceFilterControls: () => {},
   portalInvoiceWorkItems: () => [], formatDate: String, km: String, invoiceProgressMarkup: () => '', invoiceStatusPill: () => '', invoiceStatusLabels: {},
   escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'),
