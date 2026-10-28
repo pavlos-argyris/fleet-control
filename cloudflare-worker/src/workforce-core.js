@@ -111,8 +111,21 @@ export function coverageBucketStatus(plannedCount, actualCount, endAt, now = Dat
 }
 
 const zonedFormatters = new Map();
+// These bounded caches contain only deterministic timezone conversions, never
+// users, schedules or database state. Identical shift boundaries are shared by
+// many employees; re-running ICU for each row can exhaust the Free CPU budget.
+const zonedPartsCache = new Map();
+const zonedUtcCache = new Map();
+function rememberZoned(cache, key, value) {
+  if (cache.size >= 1024) cache.clear();
+  cache.set(key, value);
+  return value;
+}
 function zonedParts(value, timeZone) {
   const zone = timeZone || "Europe/Athens";
+  const date = new Date(value);
+  const key = zone + "|" + date.getTime();
+  if (zonedPartsCache.has(key)) return zonedPartsCache.get(key);
   let formatter = zonedFormatters.get(zone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en-CA", {
@@ -122,10 +135,10 @@ function zonedParts(value, timeZone) {
     if (zonedFormatters.size >= 8) zonedFormatters.clear();
     zonedFormatters.set(zone, formatter);
   }
-  const parts = formatter.formatToParts(new Date(value));
+  const parts = formatter.formatToParts(date);
   const result = {};
   parts.forEach((part) => { if (part.type !== "literal") result[part.type] = part.value; });
-  return result;
+  return rememberZoned(zonedPartsCache, key, result);
 }
 
 export function localDate(value, timeZone = "Europe/Athens") {
@@ -142,14 +155,18 @@ export function zonedLocalToUtc(date, time, timeZone = "Europe/Athens") {
   const dateMatch = String(date || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const timeMatch = String(time || "").match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (!dateMatch || !timeMatch) throw new Error("Μη έγκυρη ημερομηνία ή ώρα.");
+  const key = (timeZone || "Europe/Athens") + "|" + date + "|" + time;
+  if (zonedUtcCache.has(key)) return zonedUtcCache.get(key);
   const desired = Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]), Number(timeMatch[1]), Number(timeMatch[2]), Number(timeMatch[3] || 0));
   let guess = desired;
   for (let count = 0; count < 4; count += 1) {
     const p = zonedParts(guess, timeZone);
     const represented = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
-    guess += desired - represented;
+    const correction = desired - represented;
+    if (correction === 0) break;
+    guess += correction;
   }
-  return new Date(guess).toISOString();
+  return rememberZoned(zonedUtcCache, key, new Date(guess).toISOString());
 }
 
 export function addCalendarDays(date, days) {

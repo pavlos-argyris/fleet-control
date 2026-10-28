@@ -9,6 +9,7 @@ import {
   effectivePermissions,
   hasPermission,
   localDate,
+  localMinutes,
   mondayPeriod,
   normalizeRole,
   parseJson,
@@ -1108,15 +1109,19 @@ async function verifyCriticalPin(request, env, deps) {
 }
 
 async function audit(env, request, actor, action, objectType, objectId, oldValue, newValue, reason = "", pinUsed = false) {
+  await auditStatement(env, request, actor, action, objectType, objectId, oldValue, newValue, reason, pinUsed).run();
+}
+
+function auditStatement(env, request, actor, action, objectType, objectId, oldValue, newValue, reason = "", pinUsed = false, afterChange = false) {
   const userId = actor ? String(actor.user_id || actor.id || "") : null;
   const name = actor ? String(actor.full_name || actor.fullName || "System") : "System";
   const role = actor ? String(actor.role || "system") : "system";
-  await env.DB.prepare(`INSERT INTO audit_log
+  return env.DB.prepare(`INSERT INTO audit_log
     (id, timestamp, user_id, user_name, role, action, object_type, object_id, old_value, new_value, reason, ip_address, device_id, admin_pin_used)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${afterChange ? 'WHERE changes() > 0' : ''}`)
     .bind(uuid(), nowIso(), userId, name, role, action, objectType, String(objectId || ""),
       oldValue == null ? null : JSON.stringify(oldValue), newValue == null ? null : JSON.stringify(newValue),
-      text(reason, 500), requestIp(request), actor ? String(actor.device_id || "") : "", pinUsed ? 1 : 0).run();
+      text(reason, 500), requestIp(request), actor ? String(actor.device_id || "") : "", pinUsed ? 1 : 0);
 }
 
 async function archiveDeletedRecord(env, actor, recordType, recordId, label, payload, reason = "") {
@@ -2676,8 +2681,13 @@ function templateSegments(value) {
   if (segments.some((item) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.start) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.end) || item.start === item.end)) {
     throw new ApiError(400, "Έλεγξε τις ώρες του προτύπου. Η έναρξη και η λήξη πρέπει να είναι διαφορετικές.", "invalid_template_segments");
   }
-  const intervals = segments.map((item) => scheduleInterval("2026-01-12", item.start, item.end, DEFAULT_TIME_ZONE))
-    .sort((a, b) => a.start.localeCompare(b.start));
+  // Template overlap is a wall-clock rule on a fixed ordinary day, not a
+  // timezone conversion. Preserve overnight semantics without ICU per segment.
+  const minute = value => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
+  const intervals = segments.map(item => {
+    const start = minute(item.start), end = minute(item.end);
+    return { start, end: end <= start ? end + 1440 : end };
+  }).sort((a, b) => a.start - b.start);
   for (let index = 1; index < intervals.length; index += 1) {
     if (intervals[index].start < intervals[index - 1].end) {
       throw new ApiError(400, "Τα τμήματα της σπαστής βάρδιας δεν πρέπει να επικαλύπτονται.", "template_segments_overlap");
@@ -2687,10 +2697,11 @@ function templateSegments(value) {
 }
 
 function templatePublic(row) {
+  const segments = templateSegments(row.segments);
   return {
     id: row.id,
-    name: templateName(templateSegments(row.segments)),
-    segments: templateSegments(row.segments),
+    name: templateName(segments),
+    segments,
     active: bool(row.active),
     sortOrder: Number(row.sort_order || 0),
     color: /^#[0-9A-F]{6}$/i.test(String(row.color || "")) ? row.color : "#0D8F82"
@@ -2779,12 +2790,8 @@ function mondayForDate(date) {
 }
 
 function localClock(value, timeZone) {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23"
-  }).formatToParts(new Date(value));
-  const result = {};
-  parts.forEach((part) => { if (part.type !== "literal") result[part.type] = part.value; });
-  return `${result.hour}:${result.minute}`;
+  const minute = localMinutes(value, timeZone);
+  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 }
 
 function schedulesOverlap(first, second) {
@@ -2860,6 +2867,7 @@ async function readScheduleDraft(env, weekStart) {
   return {
     ...row,
     assignments: parseJson(row.assignments, []),
+    serializedAssignments: row.assignments,
     baseRevision: Number(row.base_revision || 0)
   };
 }
@@ -2908,6 +2916,19 @@ async function validateDraftAssignments(env, assignments, weekStart, options = {
   const pending = options.context?.pending || [];
   const intervalCache = options.context?.intervalCache || new Map();
   const replaceStart = options.context?.replaceStart || startBoundary, replaceEnd = options.context?.replaceEnd || endBoundary;
+  const indexRows = (rows, employeeKey, vehicleKey) => {
+    const employees = new Map(), vehicles = new Map();
+    const add = row => {
+      for (const [map, key] of [[employees, String(row[employeeKey])], [vehicles, String(row[vehicleKey] || "")]]) {
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(row);
+      }
+    };
+    rows.forEach(add);
+    return { employees, vehicles, add };
+  };
+  const existingIndex = indexRows(existing.filter(row => !(row.start_at >= replaceStart && row.start_at < replaceEnd)), "employee_id", "vehicle_id");
+  const pendingIndex = indexRows(pending, "employeeId", "vehicleId");
   const valid = [];
   for (let normalizedIndex = 0; normalizedIndex < normalized.length; normalizedIndex += 1) {
     const item = normalized[normalizedIndex];
@@ -2960,21 +2981,21 @@ async function validateDraftAssignments(env, assignments, weekStart, options = {
     }
     let rejected = false;
     for (const interval of intervals) {
-      const pendingEmployee = pending.find((entry) => String(entry.employeeId) === item.employeeId && schedulesOverlap(interval, entry));
+      const pendingEmployee = (pendingIndex.employees.get(item.employeeId) || []).find(entry => schedulesOverlap(interval, entry));
       if (pendingEmployee) {
         errors.push({ row: rowNumber, code: "employee_conflict", message: `${employees.get(item.employeeId).full_name} έχει δύο επικαλυπτόμενες βάρδιες.` });
         rejected = true;
         break;
       }
-      const dbEmployee = existing.find((entry) => String(entry.employee_id) === item.employeeId && !(entry.start_at >= replaceStart && entry.start_at < replaceEnd) && schedulesOverlap(interval, { start: entry.start_at, end: entry.end_at }));
+      const dbEmployee = (existingIndex.employees.get(item.employeeId) || []).find(entry => schedulesOverlap(interval, { start: entry.start_at, end: entry.end_at }));
       if (dbEmployee) {
         errors.push({ row: rowNumber, code: "employee_conflict", message: `${employees.get(item.employeeId).full_name} έχει ήδη επικαλυπτόμενη δημοσιευμένη βάρδια.` });
         rejected = true;
         break;
       }
       if (effectiveItem.vehicleId) {
-        const pendingVehicle = pending.find((entry) => String(entry.vehicleId || "") === effectiveItem.vehicleId && schedulesOverlap(interval, entry));
-        const dbVehicle = existing.find((entry) => String(entry.vehicle_id || "") === effectiveItem.vehicleId && !(entry.start_at >= replaceStart && entry.start_at < replaceEnd) && schedulesOverlap(interval, { start: entry.start_at, end: entry.end_at }));
+        const pendingVehicle = (pendingIndex.vehicles.get(effectiveItem.vehicleId) || []).find(entry => schedulesOverlap(interval, entry));
+        const dbVehicle = (existingIndex.vehicles.get(effectiveItem.vehicleId) || []).find(entry => schedulesOverlap(interval, { start: entry.start_at, end: entry.end_at }));
         if (pendingVehicle || dbVehicle) {
           const suggestions = options.context ? [] : await availableVehicleSuggestions(env, intervals, pending, employee.assigned_vehicle_id || "", null);
           const conflictEntry = pendingVehicle || dbVehicle;
@@ -2989,7 +3010,11 @@ async function validateDraftAssignments(env, assignments, weekStart, options = {
     }
     if (rejected) continue;
     valid.push(effectiveItem);
-    intervals.forEach((interval) => pending.push({ ...interval, employeeId: effectiveItem.employeeId, employeeName: employee.full_name, vehicleId: effectiveItem.vehicleId }));
+    intervals.forEach(interval => {
+      const entry = { ...interval, employeeId: effectiveItem.employeeId, employeeName: employee.full_name, vehicleId: effectiveItem.vehicleId };
+      pending.push(entry);
+      pendingIndex.add(entry);
+    });
   }
   const missingVehicles = valid.filter((item) => !item.vehicleId && !item.withoutVehicle).map((item) => ({
     key: draftAssignmentKey(item), employeeId: item.employeeId, employeeName: employees.get(item.employeeId)?.full_name || "", date: item.date,
@@ -3036,7 +3061,8 @@ async function readPublishedScheduleAssignments(env, weekStart) {
 
 async function saveScheduleDraft(env, actor, assignments, weekStart, options = {}) {
   const replaceEmployeeId = text(options.replaceEmployeeId, 100);
-  const existingDraft = replaceEmployeeId ? await readScheduleDraft(env, weekStart) : null;
+  const existingDraft = await readScheduleDraft(env, weekStart);
+  const publication = await schedulePublication(env, weekStart);
   const publishedSeed = replaceEmployeeId && !existingDraft
     ? await readPublishedScheduleAssignments(env, weekStart)
     : { assignments: [], hasLegacyRows: false };
@@ -3056,13 +3082,25 @@ async function saveScheduleDraft(env, actor, assignments, weekStart, options = {
     });
   }
   if (!check.assignments.length) throw new ApiError(400, "Δεν προέκυψε καμία έγκυρη ανάθεση.");
-  const publication = await schedulePublication(env, weekStart);
   const now = nowIso();
-  await env.DB.prepare(`INSERT INTO schedule_week_drafts (week_start,assignments,state,base_revision,created_by,created_at,updated_at)
-    VALUES (?,?, 'draft', ?, ?, ?, ?)
-    ON CONFLICT(week_start) DO UPDATE SET assignments=excluded.assignments,state='draft',base_revision=excluded.base_revision,updated_at=excluded.updated_at`)
-    .bind(weekStart, JSON.stringify(check.assignments), Number(publication?.revision || 0), actor.user_id, now, now).run();
-  return { weekStart, state: "draft", assignments: check.assignments, missingVehicles: check.missingVehicles, warnings: check.warnings, revision: Number(publication?.revision || 0) };
+  const revision = Number(publication?.revision || 0), serialized = JSON.stringify(check.assignments);
+  // Compare the exact draft and publication read before validation. A second
+  // editor or publication must not be overwritten by this whole-week write.
+  const write = existingDraft
+    ? env.DB.prepare(`UPDATE schedule_week_drafts SET assignments=?,state='draft',base_revision=?,updated_at=?
+        WHERE week_start=? AND assignments=? AND updated_at=?
+        AND COALESCE((SELECT revision FROM schedule_publications WHERE week_start=?),0)=?`)
+      .bind(serialized, revision, now, weekStart, existingDraft.serializedAssignments, existingDraft.updated_at, weekStart, revision)
+    : env.DB.prepare(`INSERT INTO schedule_week_drafts (week_start,assignments,state,base_revision,created_by,created_at,updated_at)
+        SELECT ?,?,'draft',?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM schedule_week_drafts WHERE week_start=?)
+        AND COALESCE((SELECT revision FROM schedule_publications WHERE week_start=?),0)=?`)
+      .bind(weekStart, serialized, revision, actor.user_id, now, now, weekStart, weekStart, revision);
+  const result = { weekStart, state: "draft", assignments: check.assignments, missingVehicles: check.missingVehicles, warnings: check.warnings, revision };
+  const statements = [write];
+  if (options.audit) statements.push(options.audit(result));
+  const saved = await env.DB.batch(statements);
+  if (!Number(saved[0]?.meta?.changes || 0)) throw new ApiError(409, "Το πρόγραμμα άλλαξε από άλλη ενέργεια. Ανανέωσε την εβδομάδα πριν αποθηκεύσεις ξανά.", "schedule_draft_stale");
+  return result;
 }
 
 async function expandDraftRows(env, draft, timeZone) {
@@ -3384,7 +3422,8 @@ async function scheduleWeek(request, env, deps) {
     readScheduleDraft(env, startDate),
     schedulePublication(env, startDate)
   ]);
-  let mapped = (schedules.results || []).map((row) => ({
+  // Published rows are not the displayed source while a draft exists.
+  let mapped = draft ? [] : (schedules.results || []).map((row) => ({
     ...row,
     managed_assignment: Boolean(row.assignment_id),
     has_shift: Boolean(row.has_shift),
@@ -3442,10 +3481,11 @@ async function createWeekAssignments(request, env, deps) {
     if (replaceEmployeeId && assignments.some((item) => text(item?.employeeId, 100) !== replaceEmployeeId)) {
       throw new ApiError(400, "Η καταχώρηση ανά διανομέα περιέχει διαφορετικούς εργαζομένους.");
     }
-    const result = await saveScheduleDraft(env, actor, assignments, weekStart, { replaceEmployeeId });
-    await audit(env, request, actor, "schedule_draft_saved", "schedule_week", weekStart, null, {
-      assignments: result.assignments.length, missingVehicles: result.missingVehicles.length
-    }, text(body.reason, 500), false);
+    const result = await saveScheduleDraft(env, actor, assignments, weekStart, { replaceEmployeeId,
+      audit: saved => auditStatement(env, request, actor, "schedule_draft_saved", "schedule_week", weekStart, null, {
+        assignments: saved.assignments.length, missingVehicles: saved.missingVehicles.length
+      }, text(body.reason, 500), false, true)
+    });
     return wfJson({ created: result.assignments.length, scheduleRows: result.assignments.length, draft: result }, 201);
   }
   await syncVehicleRegistry(env, deps);
