@@ -957,3 +957,12 @@ html.fleet-detail-mode body { overflow: hidden; }
 /* Keep the inline template action usable on phone and tablet. */
 .employee-week-row { grid-template-columns: minmax(110px,1fr) minmax(120px,1fr) auto minmax(120px,1fr); }
 @media(max-width:700px){.employee-week-row {grid-template-columns: minmax(0,1fr) auto;} .employee-week-day {grid-column:1 / -1;} .employee-week-row [data-day-vehicle] {grid-column:1 / -1;} }
+/* Retry actions share the application's existing controls and surface colors. */
+.invoice-retry-progress { margin: 14px 0; padding: 18px; border: 1px solid var(--line, #dce8e2); border-radius: 18px; background: var(--surface, #fff); }
+.invoice-retry-progress[hidden] { display: none; }
+.invoice-retry-progress p, .invoice-retry-progress small, .invoice-retry-hint { color: var(--ink-soft); line-height: 1.6; overflow-wrap: anywhere; }
+.invoice-retry-hint { display: block; margin-top: 7px; }
+.invoice-retry-progress.has-error { border-color: var(--red); }
+.invoice-retry-progress ul:empty { display: none; }
+.invoice-retry-progress ul { padding-inline-start: 20px; font-size: 12px; }
+#retryAllFailedInvoices { margin-top: 12px; max-width: 100%; }

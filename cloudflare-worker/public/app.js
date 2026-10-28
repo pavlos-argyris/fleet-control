@@ -396,15 +396,15 @@
       ? bike.history.slice(0, 500).map(function (entry) {
           const notes = String(entry.notes || "");
           const tasks = Array.isArray(entry.tasks)
-            ? entry.tasks.map(function (task) { return String(task).trim(); }).filter(Boolean).slice(0, 30)
-            : (entry.type === "check" || !notes ? [] : notes.split(/\r?\n|,|•/).map(function (task) { return task.trim(); }).filter(Boolean).slice(0, 30));
+            ? entry.tasks.map(function (task) { return String(task).trim(); }).filter(Boolean).slice(0, 5120)
+            : (entry.type === "check" || !notes ? [] : notes.split(/\r?\n|,|•/).map(function (task) { return task.trim(); }).filter(Boolean).slice(0, 5120));
           const type = entry.type === "check" ? "check" : "service";
           const majorService = type === "service" && (typeof entry.majorService === "boolean"
             ? entry.majorService
             : tasks.some(function (task) { return /μεγάλ(?:ο|ου)\s+(?:σέρβις|service)/i.test(task); }));
           if (majorService && !tasks.some(function (task) { return task === "Μεγάλο service"; })) {
             tasks.unshift("Μεγάλο service");
-            if (tasks.length > 30) tasks.pop();
+            if (tasks.length > 5120) tasks.pop();
           }
           return {
             id: entry.id || uid(),
@@ -810,16 +810,19 @@
   function normalizeInvoiceData(value) {
     if (!value || typeof value !== "object") return null;
     const result = {};
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom"].forEach(function (field) {
-      if (value[field] != null && String(value[field]).trim()) result[field] = String(value[field]).trim().slice(0, field === "rawText" ? 12000 : 2000);
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint"].forEach(function (field) {
+      if (value[field] != null && String(value[field]).trim()) result[field] = String(value[field]).trim().slice(0, ["rawText","workPerformed"].includes(field) ? 128000 : 2000);
     });
     ["analysisEngine","analysisVersion"].forEach(function(field){if(value[field])result[field]=String(value[field]).slice(0,100);});
     if(value.analysisCacheHit!=null)result.analysisCacheHit=value.analysisCacheHit===true||value.analysisCacheHit==="true";
     if(value.analysisDurationMs!=null)result.analysisDurationMs=Math.max(0,Math.min(600000,Number(value.analysisDurationMs)||0));
     if(value.analysisTimings&&typeof value.analysisTimings==="object")result.analysisTimings={...value.analysisTimings};
     if(value.fieldEvidence&&typeof value.fieldEvidence==="object")result.fieldEvidence={...value.fieldEvidence};
-    if (Array.isArray(value.parts)) result.parts = value.parts.map(function (part) { return invoiceLineText(part, 500); }).filter(Boolean).slice(0, 50);
-    if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map(function (part) { return invoiceLineText(part, 500); }).filter(Boolean).slice(0, 50);
+    if(Array.isArray(value.reviewIssues))result.reviewIssues=value.reviewIssues.slice(0,40).map(item=>({field:String(item.field||""),code:String(item.code||""),message:String(item.message||"").slice(0,400)}));
+    if(value.textTruncated!=null)result.textTruncated=value.textTruncated===true;
+    if(value.extractionChecks&&typeof value.extractionChecks==="object")result.extractionChecks=JSON.parse(JSON.stringify(value.extractionChecks));
+    if (Array.isArray(value.parts)) result.parts = value.parts.map(function (part) { return invoiceLineText(part, 500); }).filter(Boolean).slice(0, 512);
+    if (Array.isArray(value.lineItems)) result.lineItems = value.lineItems.map(function (part) { return invoiceLineText(part, 500); }).filter(Boolean).slice(0, 512);
     if (result.plate && !result.confirmedAt && !/^[ABEZHIKMNOPTYX]{3}[0-9]{3,4}$/.test(invoicePlateKey(result.plate))) delete result.plate;
     return Object.keys(result).length ? result : null;
   }
@@ -828,7 +831,7 @@
     const first = normalizeInvoiceData(primary) || {};
     const second = normalizeInvoiceData(fallback) || {};
     const merged = { ...second, ...first };
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint"].forEach(function (field) {
       if (!String(first[field] || "").trim() && String(second[field] || "").trim()) merged[field] = second[field];
     });
     if (!Array.isArray(first.parts) && Array.isArray(second.parts)) merged.parts = second.parts;
@@ -873,12 +876,12 @@
     return null;
   }
 
-  function splitImportedWork(value) {
+  function splitImportedWork(value, structured) {
     return String(value || "")
-      .split(/\r?\n|\s*[•;]+\s*|\s*,\s*/)
+      .split(structured?/\r?\n|\s*[•;]+\s*/:/\r?\n|\s*[•;]+\s*|\s*,\s*/)
       .map(function (part) { return part.trim(); })
       .filter(Boolean)
-      .slice(0, 50);
+      .slice(0, 512);
   }
 
   function cleanInvoiceWorkText(value) {
@@ -894,10 +897,12 @@
 
   function invoiceWorkItems(data) {
     const values = [];
-    values.push.apply(values, splitImportedWork(data && data.workPerformed));
+    values.push.apply(values, splitImportedWork(data && data.workPerformed,Boolean(data?.lineItems?.length)));
     if (Array.isArray(data && data.lineItems)) values.push.apply(values, data.lineItems);
     if (Array.isArray(data && data.parts)) values.push.apply(values, data.parts);
-    return values.map(function (item) { return cleanInvoiceWorkText(invoiceLineText(item, 180)); }).filter(Boolean).slice(0, 50);
+    const result=[],seen=new Set();
+    for(const item of values){const text=cleanInvoiceWorkText(invoiceLineText(item,500)),key=taskKey(text);if(!key||seen.has(key))continue;seen.add(key);result.push(text);if(result.length>=512)break;}
+    return result;
   }
 
   function taskKey(value) {
@@ -913,7 +918,8 @@
   }
 
   function mergeServiceTasks(existing, imported) {
-    const result = [];
+    const result = [], keys = new Set();
+    let oilIndex = -1;
     const oilDetail = function (value) {
       return String(value || "")
         .replace(/\b(change|changed|replacement|replace)\s+oil(s)?\b/ig, "")
@@ -925,27 +931,27 @@
         .trim();
     };
     const add = function (raw) {
-      const task = cleanInvoiceWorkText(invoiceLineText(raw, 180));
+      const task = cleanInvoiceWorkText(invoiceLineText(raw, 500));
       if (!task) return;
-      const oilIndex = result.findIndex(function (item) { return isOilTask(item); });
       if (isOilTask(task) && oilIndex >= 0) {
         const current = result[oilIndex];
         const currentDetail = oilDetail(current);
         const nextDetail = oilDetail(task);
         const detail = currentDetail.length >= nextDetail.length ? currentDetail : nextDetail;
+        keys.delete(taskKey(result[oilIndex]));
         result[oilIndex] = (detail ? "Αλλαγή λαδιών — " + detail : "Αλλαγή λαδιών").slice(0, 180);
+        keys.add(taskKey(result[oilIndex]));
         return;
       }
       const key = taskKey(task);
-      if (!key || result.some(function (item) {
-        const existingKey = taskKey(item);
-        return existingKey === key || existingKey.includes(key) || key.includes(existingKey);
-      })) return;
+      if (!key || keys.has(key)) return;
+      keys.add(key);
+      if (isOilTask(task)) oilIndex=result.length;
       result.push(task);
     };
     (Array.isArray(existing) ? existing : []).forEach(add);
     (Array.isArray(imported) ? imported : []).forEach(add);
-    return result.slice(0, 30);
+    return result.slice(0, 5120);
   }
 
   function appendInvoiceWork(entry, data) {
@@ -3160,13 +3166,13 @@
     const isService = entry.type === "service";
     const selected = isService ? Array.from(elements.historyEntryTaskInputs).filter(function (input) { return input.checked; }).map(function (input) { return input.value; }) : [];
     const custom = isService ? elements.historyEntryNotes.value.split(/\r?\n/).map(function (task) { return task.trim(); }).filter(Boolean) : [];
-    let tasks = Array.from(new Set(selected.concat(custom))).slice(0, 30);
+    let tasks = Array.from(new Set(selected.concat(custom))).slice(0, 5120);
     if (isService) {
       tasks = elements.historyEntryOilChanged.checked
-        ? ["Αλλαγή λαδιών"].concat(tasks.filter(function (task) { return task !== "Αλλαγή λαδιών"; })).slice(0, 30)
+        ? ["Αλλαγή λαδιών"].concat(tasks.filter(function (task) { return task !== "Αλλαγή λαδιών"; })).slice(0, 5120)
         : tasks.filter(function (task) { return task !== "Αλλαγή λαδιών"; });
       tasks = elements.historyEntryMajorService.checked
-        ? ["Μεγάλο service"].concat(tasks.filter(function (task) { return task !== "Μεγάλο service"; })).slice(0, 30)
+        ? ["Μεγάλο service"].concat(tasks.filter(function (task) { return task !== "Μεγάλο service"; })).slice(0, 5120)
         : tasks.filter(function (task) { return task !== "Μεγάλο service"; });
     }
     elements.historyEntryError.textContent = "";
@@ -3659,7 +3665,7 @@
     const reminderTasks = (bike.nextServiceNotes||[]).filter(n=>n.status==='pending'&&completedNotes.includes(n.id)).map(n=>n.text);
     const tasks = Array.from(new Set(selectedTasks.concat(customTasks,reminderTasks)));
     elements.serviceFormError.textContent = "";
-    if(tasks.length>30){elements.serviceFormError.textContent='Διάλεξε έως 30 εργασίες για το service, μαζί με όσες σημείωσες ότι έγιναν από τις υπενθυμίσεις.';return;}
+    if(tasks.length>5120){elements.serviceFormError.textContent='Διάλεξε έως 5.120 εργασίες για το service, μαζί με όσες σημείωσες ότι έγιναν από τις υπενθυμίσεις.';return;}
     try { window.FleetOperationsModel.changeNextServiceNotes(bike.nextServiceNotes,{text:nextNotesText,completedIds:completedNotes,uid}); }
     catch(error){elements.serviceFormError.textContent=error.message;return;}
 

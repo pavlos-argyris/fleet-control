@@ -20,6 +20,9 @@
     odometerKm: "Χιλιόμετρα",
     invoiceDate: "Ημερομηνία",
     totalAmount: "Σύνολο",
+    netAmount: "Καθαρή αξία",
+    vatAmount: "ΦΠΑ",
+    lineItems: "Πληρότητα γραμμών",
     supplier: "Προμηθευτής",
     invoiceNumber: "Αριθμός τιμολογίου",
   };
@@ -616,46 +619,7 @@
       api.toast(error.message);
     }
   });
-  $("invoiceRetryFailed")?.addEventListener("click", async () => {
-    const failed = api
-      .getDocuments()
-      .filter(
-        (r) =>
-          r.key &&
-          (r.status === "error" ||
-            r.ocrError ||
-            r.invoiceData?.ocrFallbackError),
-      );
-    if (!failed.length)
-      return api.toast(
-        "Δεν υπάρχουν αποτυχημένα τιμολόγια με διαθέσιμο αρχείο.",
-      );
-    const groups = {};
-    for (const r of failed) {
-      const text = String(
-        r.ocrError || r.invoiceData?.ocrFallbackError || r.error || "",
-      );
-      const cause = /429|502|503|504|σύνδεση|connection/i.test(text)
-        ? "Σύνδεση / υπερφόρτωση"
-        : /AI|model/i.test(text)
-          ? "Workers AI"
-          : /PDF|QR|σελίδα/i.test(text)
-            ? "PDF / QR"
-            : "Ανάγνωση";
-      groups[cause] = (groups[cause] || 0) + 1;
-    }
-    if (
-      window.confirm(
-        "Νέα ανάγνωση μόνο των " +
-          failed.length +
-          " αποτυχημένων;\n" +
-          Object.entries(groups)
-            .map(([cause, n]) => cause + ": " + n)
-            .join("\n"),
-      )
-    )
-      await api.reprocess("server-first", true, $("invoiceForceRead")?.checked);
-  });
+  $("invoiceRetryFailed")?.addEventListener("click", () => api.retryFailed());
   $("invoiceReaderRules")?.addEventListener("click", async () => {
     try {
       const result = await api.api("/api/admin/invoice-reader-rules");

@@ -19,7 +19,7 @@ import java.util.concurrent.*;
 
 /** Text first, bounded local OCR second. Originals and user confirmations stay separate. */
 public final class InvoicePipeline {
-    public static final String VERSION="reader-2.1-amounts-pdfbox-2.0.27-tess-5.5.1-fast";
+    public static final String VERSION="reader-2.2-full-invoice-pdfbox-2.0.27-tess-5.5.1-fast";
     public interface Progress { void stage(String text); }
     private static int activeOcr=0;
     private static boolean resourcesReady=false;
@@ -108,8 +108,8 @@ public final class InvoicePipeline {
             resources(c);progress.stage("Δεύτερη ανάγνωση κειμένου PDF");phase=System.nanoTime();
             try(PDDocument document=PDDocument.load(pdf)){
                 if(document.isEncrypted())throw new IOException("Κρυπτογραφημένο PDF.");
-                PDFTextStripper stripper=new PDFTextStripper();stripper.setSortByPosition(true);stripper.setEndPage(10);
-                String text=stripper.getText(document);if(text.length()>128000)text=text.substring(0,128000);
+                PDFTextStripper stripper=new PDFTextStripper();stripper.setSortByPosition(true);if(document.getNumberOfPages()>100)throw new IOException("Το PDF υπερβαίνει τις 100 σελίδες· απαιτείται έλεγχος.");stripper.setEndPage(document.getNumberOfPages());
+                String text=stripper.getText(document);
                 JSONObject candidate=LocalInvoiceReader.readText(applyLabels(text,rules));
                 if(result==null||candidate.optInt("ocrConfidence")>result.optInt("ocrConfidence")){result=candidate;evidence=text;source="pdfbox-text";}
             }catch(Exception ignored){}
@@ -145,7 +145,7 @@ public final class InvoicePipeline {
                     }
                     String raw=text.toString();if(raw.length()>128000)raw=raw.substring(0,128000);
                     JSONObject candidate=LocalInvoiceReader.readText(applyLabels(raw,rules));candidate.put("ocrEngineConfidence",pageConfidence);
-                    if(timedOut||pageConfidence<65){candidate.put("localReadStatus","ambiguous");candidate.put("ocrFallbackReason",timedOut?"Το τοπικό OCR υπερέβη το χρονικό όριο.":"Χαμηλή αξιοπιστία τοπικού OCR.");}
+                    if(timedOut||pageConfidence<65||text.length()>128000){candidate.put("localReadStatus","ambiguous");candidate.put("ocrFallbackReason",timedOut?"Το τοπικό OCR υπερέβη το χρονικό όριο.":text.length()>128000?"Το OCR υπερβαίνει το όριο πλήρους ανάγνωσης.":"Χαμηλή αξιοπιστία τοπικού OCR.");}
                     if(result==null||confident(candidate)||candidate.optInt("ocrConfidence")>result.optInt("ocrConfidence")){result=candidate;evidence=raw;source="tesseract-ell-eng";}
                 }finally{synchronized(tess){alive.set(false);tess.recycle();}}
             }catch(InterruptedException e){throw e;}catch(Exception | LinkageError | OutOfMemoryError e){if(result==null)result=new JSONObject();result.put("localReadStatus","ambiguous");result.put("ocrFallbackReason",e.getMessage()==null?"Δεν ήταν διαθέσιμος ο τοπικός αναγνώστης OCR.":e.getMessage());}
@@ -156,7 +156,7 @@ public final class InvoicePipeline {
         if(sourceConflict){result.put("localReadStatus","ambiguous");result.put("ocrConfidence",Math.min(60,result.optInt("ocrConfidence")));result.put("ocrFallbackReason","Διαφωνία σελίδας QR και PDF: απαιτείται επιπλέον έλεγχος.");}
         result.put("analysisEngine",source);result.put("analysisVersion",VERSION);result.put("analysisCacheHit",false);result.put("analysisTimings",timing);
         result.put("analysisDurationMs",(System.nanoTime()-start)/1000000);
-        JSONObject fields=new JSONObject();
+        JSONObject fields=result.optJSONObject("fieldEvidence");if(fields==null)fields=new JSONObject();
         for(String field:new String[]{"plate","odometerKm","invoiceDate","totalAmount","supplier","invoiceNumber"}){
             String value=result.optString(field);String snippet="";
             String wanted=field.equals("plate")?"πινακ|αριθμ.*κυκλο|plate":field.equals("odometerKm")?"χιλι|χλμ|km|οδόμετρ":field.equals("invoiceDate")?"ημερομ|date":field.equals("totalAmount")?"γενικ.*σύνο|πληρωτ|total":field.equals("invoiceNumber")?"παραστατ|τιμολογ|invoice": "";
@@ -164,6 +164,8 @@ public final class InvoicePipeline {
             if(offset>=0)snippet=evidence.substring(Math.max(0,offset-60),Math.min(evidence.length(),offset+value.length()+80));
             boolean label=false;
             if(value.length()>0&&wanted.length()>0)for(String line:evidence.split("\n"))if(java.util.regex.Pattern.compile(wanted,java.util.regex.Pattern.CASE_INSENSITIVE|java.util.regex.Pattern.UNICODE_CASE).matcher(line).find()){snippet=line.substring(0,Math.min(180,line.length()));label=true;break;}
+            JSONObject existing=fields.optJSONObject(field);
+            if(existing!=null&&existing.optInt("score",0)>=85&&!source.equals("tesseract-ell-eng")&&!sourceConflict)continue;
             int score=value.length()==0?0:offset>=0||label?85:55;
             if(source.equals("tesseract-ell-eng"))score=Math.min(score,result.optInt("ocrEngineConfidence",55));
             if(sourceConflict)score=Math.min(score,40);

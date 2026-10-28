@@ -67,7 +67,7 @@ public class ReaderAccuracyTest {
     for(int i=0;i<1000;i++)longText.append("\\nουδέτερο κείμενο ");
     longText.append("\\nΣχόλια BTO 1234\\n82385\\nΜ.Αρ.Κ. 999999999999999");
     JSONObject late=LocalInvoiceReader.readText(longText.toString()); equal("82385",late.optString("odometerKm"));
-    equal("BTO-1234",late.optString("plate")); check(late.optString("rawText").length()==6000,"bounded result raw text");
+    equal("BTO-1234",late.optString("plate")); check(late.optString("rawText").length()>6000,"full parse evidence retained beyond 6000 chars");
     if(args.length>1) {
       JSONObject sample=LocalInvoiceReader.read(new File(args[1]));
       equal("TNH-921",sample.optString("plate"));equal("82385",sample.optString("odometerKm"));

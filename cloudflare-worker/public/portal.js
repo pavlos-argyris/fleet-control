@@ -87,6 +87,13 @@
   let invoiceLiveRefreshRunning = false;
 
   const $ = function (id) { return document.getElementById(id); };
+  let invoiceRetryConfirmationOpen=false;
+  const invoiceRetryController=window.FleetInvoiceRetry.create({
+    context:()=>state.token,
+    submit:record=>api('/api/admin/service-documents/retry-failed',{method:'POST',body:record.alertId?{alertId:record.alertId}:record.key?{key:record.key}:{jobId:record.jobId||record.invoiceData?.qrJobId||'',bikeId:record.bikeId,entryId:record.entryId,qrUrl:record.qrUrl}}),
+    onProgress:progress=>{state.invoiceRetryProgress=progress;renderInvoiceRetryProgress();if(progress.processed===0||progress.done)renderInvoiceQueue();}
+  });
+
 
   function loadToken() {
     try {
@@ -142,6 +149,7 @@
     state.employees = [];
     state.vehicles = [];
     state.alerts = [];
+    state.invoiceRetryProgress=null;state.invoiceRetryCandidates=[];
     state.shifts = [];
     state.schedules = [];
     state.payroll = null;
@@ -426,6 +434,14 @@
     state.invoiceGroupAnimationUntil = 0;
     window.clearTimeout(state.invoiceGroupRenderTimer);
     state.invoiceGroupRenderTimer = 0;
+    // A long invoice dialog can leave the old animated list's hit regions
+    // cached after scrolling. Rebuild only on an explicit queue switch.
+    // Card actions use delegated handlers, and the filter retains focus.
+    const queueRoot = $("invoiceQueueList");
+    if (queueRoot && queueRoot.cloneNode && queueRoot.replaceWith) {
+      for (const animation of queueRoot.getAnimations ? queueRoot.getAnimations() : []) animation.cancel();
+      queueRoot.replaceWith(queueRoot.cloneNode(false));
+    }
     renderInvoiceQueue();
     const order = ['processing', 'attention', 'confirmed'];
     window.FleetMotion?.slide($("invoiceQueueList"), order.indexOf(filter) < order.indexOf(previous) ? -1 : 1);
@@ -2762,7 +2778,8 @@
   }
 
   function portalMergeInvoiceTasks(values) {
-    const result = [];
+    const result = [], keys = new Set();
+    let oilIndex = -1;
     const isOil = function (value) {
       const text = String(value || "");
       if (/^\s*φίλτρ(?:ο|ου|ων|α)?\s+λ[άα]δι(?:ού|ών|ων|α)?/iu.test(text)) return false;
@@ -2777,31 +2794,31 @@
         .replace(/[–—:;,·]+/g, " ").replace(/\s+/g, " ").trim();
     };
     (Array.isArray(values) ? values : []).forEach(function (raw) {
-      const task = cleanInvoiceWorkText(portalLineText(raw, 180));
+      const task = cleanInvoiceWorkText(portalLineText(raw, 500));
       if (!task) return;
-      const oilIndex = result.findIndex(isOil);
       if (isOil(task) && oilIndex >= 0) {
         const currentDetail = oilDetail(result[oilIndex]);
         const nextDetail = oilDetail(task);
         const detail = currentDetail.length >= nextDetail.length ? currentDetail : nextDetail;
+        keys.delete(portalTaskKey(result[oilIndex]));
         result[oilIndex] = (detail ? "Αλλαγή λαδιών — " + detail : "Αλλαγή λαδιών").slice(0, 180);
+        keys.add(portalTaskKey(result[oilIndex]));
         return;
       }
       const key = portalTaskKey(task);
-      if (!key || result.some(function (item) {
-        const existingKey = portalTaskKey(item);
-        return existingKey === key || existingKey.includes(key) || key.includes(existingKey);
-      })) return;
+      if (!key || keys.has(key)) return;
+      keys.add(key);
+      if (isOil(task)) oilIndex=result.length;
       result.push(task);
     });
-    return result.slice(0, 30);
+    return result.slice(0, 5120);
   }
 
   function portalInvoiceWorkItems(documentRecord) {
     const data = documentRecord && documentRecord.invoiceData && typeof documentRecord.invoiceData === "object" ? documentRecord.invoiceData : {};
     const values = [];
     if (Array.isArray(documentRecord && documentRecord.tasks)) values.push.apply(values, documentRecord.tasks);
-    values.push.apply(values, portalLineText(data.workPerformed, 3000).split(/\r?\n|\s*[•;]+\s*/));
+    values.push.apply(values, portalLineText(data.workPerformed, 128000).split(/\r?\n|\s*[•;]+\s*/));
     if (Array.isArray(data.lineItems)) values.push.apply(values, data.lineItems);
     if (Array.isArray(data.parts)) values.push.apply(values, data.parts);
     return portalMergeInvoiceTasks(values);
@@ -3157,6 +3174,7 @@
       return;
     }
     const filesView = state.invoiceView === "files";
+    if($("retryAllFailedInvoices"))$("retryAllFailedInvoices").hidden=true;
     if($("invoiceSequentialReview"))$("invoiceSequentialReview").hidden=filesView||!can("fleet.manage");
     if(filesView)state.invoiceVisibleDocuments=[];
     if ($("invoiceStatusFilter")) $("invoiceStatusFilter").hidden = true;
@@ -3167,7 +3185,7 @@
     const filter = String($("invoiceStatusFilter")?.value || "");
     if ($("reprocessInvoices")) {
       $("reprocessInvoices").hidden = !can("fleet.manage");
-      $("reprocessInvoices").disabled = Boolean(state.invoiceReprocessBusy || state.invoiceReprocessStarting);
+      $("reprocessInvoices").disabled = Boolean(state.invoiceReprocessBusy || state.invoiceReprocessStarting || invoiceRetryController.busy());
       const progress = state.invoiceReprocessProgress;
       const progressLabel = progress && !progress.done ? " " + Math.min(Number(progress.current || 0) + 1, Number(progress.total || 1)) + "/" + Number(progress.total || 1) : "";
       $("reprocessInvoices").textContent = state.invoiceReprocessBusy ? "↻ Νέα ανάγνωση" + progressLabel + "…" : "↻ Νέα ανάγνωση όλων";
@@ -3195,6 +3213,9 @@
       return String(item.status) === filter;
     };
     const filtered = records.filter(function (item) { return statusMatch(item) && (!plateSelect || !plateSelect.value || plateKey(item) === plateSelect.value); });
+    const retryAll=$("retryAllFailedInvoices");
+    if(retryAll){const eligible=window.FleetInvoiceRetry.candidates(filtered);retryAll.hidden=filter!=="error"||!eligible.length||!can("fleet.manage");retryAll.disabled=invoiceRetryController.busy()||invoiceRetryConfirmationOpen||state.invoiceReprocessBusy||state.invoiceReprocessStarting;retryAll.textContent="Επανάληψη όλων ("+eligible.length+")";}
+    state.invoiceRetryCandidates=window.FleetInvoiceRetry?.candidates(filtered)||[];
     state.invoiceVisibleDocuments = [];
     const counts = records.reduce(function (result, item) {
       result.total += 1;
@@ -3238,7 +3259,7 @@
       const data = item.invoiceData || {};
       const warnings = Array.isArray(item.warnings) ? item.warnings : [];
       const work = portalInvoiceWorkItems(item);
-      const taskHtml = work.length ? '<ul class="invoice-queue-tasks">' + work.map(function (task) { return '<li>' + escapeHtml(task) + '</li>'; }).join("") + '</ul>' : '<span class="invoice-queue-muted">Δεν βρέθηκαν γραμμές εργασιών.</span>';
+      const taskHtml = work.length ? '<ul class="invoice-queue-tasks">' + work.map(function (task) { return '<li>' + escapeHtml(task) + '</li>'; }).join("") + '</ul>' + (item.previewTruncated ? '<small>Προεπισκόπηση · '+Number(item.invoiceLineCount||0)+' γραμμές αποθηκευμένες. Ο πλήρης πίνακας είναι διαθέσιμος στον έλεγχο.</small>' : '') : '<span class="invoice-queue-muted">Δεν βρέθηκαν γραμμές εργασιών.</span>';
       const warningHtml = warnings.length ? '<div class="invoice-queue-warnings">' + warnings.map(function (warning) { return '<span>! ' + escapeHtml(warning.message || warning.label || "Χρειάζεται έλεγχος") + '</span>'; }).join("") + '</div>' : '';
       const hasPdf = Boolean(item.key);
       const fileLabel=String(item.contentType||"").startsWith("image/")?"φωτογραφίας":"PDF";
@@ -3246,16 +3267,17 @@
       const reviewLabel = busy ? "Αναμονή PDF" : "Έλεγχος / διόρθωση";
       const serviceMeta = [item.bikeName || "—", item.serviceDate ? formatDate(item.serviceDate + "T12:00:00Z") : "—", item.serviceKm ? km(item.serviceKm) : "Χωρίς χλμ."].join(" • ");
       const invoiceMeta = [data.supplier || "Προμηθευτής —", data.invoiceNumber || "Αρ. —", data.totalAmount || "Κόστος —"].join(" • ");
-      const showProgress = busy || item.status === "error" || (!hasPdf && item.qrUrl);
+      const showProgress = busy || (!hasPdf && item.status === "error") || (!hasPdf && item.qrUrl);
       const progressHtml = showProgress ? invoiceProgressMarkup(item) : '';
+      const confirmationBadge = data.confirmedAt ? '<span class="invoice-user-correction">✓ ' + (data.confirmationMethod === "automatic" ? "Αυτόματη επιβεβαίωση" : "Χειροκίνητη επιβεβαίωση") + '</span>' : "";
       const correctionBadge = data.correctedByUserAt ? '<span class="invoice-user-correction">✓ Διορθώθηκε από χρήστη</span>' : "";
       const newBadge = item.isNew ? '<span class="invoice-new-badge">ΝΕΟ</span>' : '';
       const retryJobId = item.jobId || data.qrJobId || '';
-      const retryHtml = (item.canRestart || retryJobId || (item.key && item.error)) && (item.canRetry || ["error", "delayed"].includes(String(item.status))) ? '<button class="secondary-button invoice-retry-button" type="button" data-invoice-retry="' + escapeHtml(retryJobId) + '" data-invoice-retry-record="' + escapeHtml(item.id) + '">' + (item.status === 'delayed' ? 'Διακοπή &amp; νέα προσπάθεια' : 'Επανάληψη') + '</button>' : '';
+      const retryHtml = (item.canRestart || retryJobId || (item.key && item.error)) && (item.canRetry || ["error", "delayed"].includes(String(item.status))) ? '<button class="secondary-button invoice-retry-button" type="button" data-invoice-retry="' + escapeHtml(retryJobId) + '" data-invoice-retry-record="' + escapeHtml(item.id) + '" ' + (invoiceRetryController.pending(item)?'disabled':'') + '>' + (item.status === 'delayed' ? 'Διακοπή &amp; νέα προσπάθεια' : 'Επανάληψη') + '</button>' : '';
       const forceAiHtml = hasPdf && can("fleet.manage") ? '<button class="secondary-button invoice-force-ai-button" type="button" data-invoice-force-ai="' + escapeHtml(item.id) + '" ' + (state.invoiceReprocessBusy ? 'disabled' : '') + '>⚡ Workers AI</button>' : '';
       const sourceActions=(item.sourcePhoto||String(item.contentType||'').startsWith('image/')?'<button class="secondary-button" type="button" data-invoice-photo="'+escapeHtml(item.id)+'">Φωτογραφία</button>':'')+(item.qrUrl?'<button class="secondary-button" type="button" data-invoice-qr="'+escapeHtml(item.id)+'">QR</button>':'');
       const deleteHtml = can("fleet.manage") ? '<button class="secondary-button invoice-delete-button" type="button" data-invoice-delete="' + escapeHtml(item.id) + '">Διαγραφή</button>' : '';
-      return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? (fileLabel==='PDF'?'PDF διαθέσιμο':'Φωτογραφία διαθέσιμη') : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα ' + fileLabel + '</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη ' + fileLabel + '</button>' + sourceActions + deleteHtml + '</div></article>';
+      return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + confirmationBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? (fileLabel==='PDF'?'PDF διαθέσιμο':'Φωτογραφία διαθέσιμη') : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || (!hasPdf && item.status === "error") ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα ' + fileLabel + '</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη ' + fileLabel + '</button>' + sourceActions + deleteHtml + '</div></article>';
     };
     $("invoiceQueueList").innerHTML = Array.from(grouped.entries()).map(function (pair) { return Object.assign({ key: pair[0] }, pair[1]); }).sort(function (a, b) { return a.label.localeCompare(b.label, "el"); }).map(function (group) {
       group.items.sort(function (left, right) {
@@ -3285,7 +3307,7 @@
     const completed = Number.isFinite(rawCompleted) ? Math.max(0, Math.min(total, Math.floor(rawCompleted))) : 0;
     const rawFailed = Number(value.failed);
     const failed = Number.isFinite(rawFailed) ? Math.max(0, Math.floor(rawFailed)) : 0;
-    const done = status !== "processing";
+    const done = !["processing","paused"].includes(status);
     const name = String(value.currentName || "Επεξεργασία τιμολογίου");
     const finalStatus = status === "error"
       ? String(value.error || "Η κοινή διαδικασία σταμάτησε.")
@@ -3298,7 +3320,7 @@
       currentStartedAt: value.currentStartedAt || value.updatedAt || value.startedAt || "",
       title: done ? (status === "error" ? "Η νέα ανάγνωση σταμάτησε" : "Η νέα ανάγνωση ολοκληρώθηκε") : value.mode === "workers-ai" ? "Νέα ανάγνωση · Workers AI" : "Νέα ανάγνωση · Server πρώτα",
       detail: completed + "/" + total + " · " + name,
-      status: finalStatus,
+      status: finalStatus + (value.automaticConfirmed!=null ? " · Αυτόματα επιβεβαιωμένα: " + (Number(value.automaticConfirmed)||0) + " · Προς έλεγχο: " + (Number(value.needsReview)||0) + " · Προηγούμενες επιβεβαιώσεις: " + (Number(value.confirmedPreserved)||0) + " · Σφάλματα: " + failed + " · Παραλείψεις: " + (Number(value.skipped)||0) : ""),
       failed: status === "error" || failed > 0,
       error: status === "error",
       done: done
@@ -3360,7 +3382,7 @@
     renderInvoiceQueue();
     loadInvoices().catch(function () {});
     toast(batch.status === "error" ? "Η κοινή νέα ανάγνωση σταμάτησε. Δες το σφάλμα στην πρόοδο." : "Η κοινή νέα ανάγνωση ολοκληρώθηκε σε όλες τις συνδέσεις.");
-    scheduleInvoiceReprocessProgressHide(Boolean(batch.failed || batch.status === "error"));
+    scheduleInvoiceReprocessProgressHide(Boolean(batch.failed || batch.needsReview || batch.status === "error"));
   }
 
   async function refreshInvoiceReprocessBatch() {
@@ -3520,30 +3542,63 @@
     }
   }
 
-  async function retryInvoiceDocument(id) {
-    const record = invoiceDocumentById(id);
-    if (!record) return;
-    if (record.key && record.error) {
-      try {
-        const result = await api("/api/admin/service-documents/reprocess", { method: "POST", body: { key: record.key } });
-        if (result.document) state.invoiceDocuments = state.invoiceDocuments.map(item => String(item.id) === String(record.id) ? result.document : item);
-        renderInvoiceQueue();
-        toast(result.queued ? "Η ανάγνωση μπήκε στην τοπική ουρά του Server." : result.ocrWarning ? "Η νέα ανάγνωση δεν ολοκληρώθηκε. Το PDF παραμένει αποθηκευμένο· δες το σφάλμα στην κάρτα." : "Η ανάγνωση του αποθηκευμένου PDF ολοκληρώθηκε.");
-      } catch (error) { toast(error.message); }
-      return;
-    }
-    const jobId = record.jobId || (record.invoiceData && record.invoiceData.qrJobId);
-    const restart = record.status === "delayed" || !jobId;
-    if (restart && !window.confirm("Να διακοπεί η παλιά προσπάθεια και να ξεκινήσει νέα; Το service και τα αποθηκευμένα PDF διατηρούνται.")) return;
-    try {
-      const result = restart
-        ? await api("/api/admin/service-documents/restart", {method:"POST",body:{jobId:jobId || "",bikeId:record.bikeId,entryId:record.entryId,qrUrl:record.qrUrl}})
-        : await api("/api/service-documents/jobs/" + encodeURIComponent(jobId) + "/retry", { method: "POST", body: {} });
-      const activeJobId = result.jobId || jobId;
-      toast("Η επεξεργασία του QR ξεκίνησε ξανά.");
-      await loadInvoices();
+  function renderInvoiceRetryProgress() {
+    const root=$("invoiceRetryProgress"),p=state.invoiceRetryProgress;
+    if(!root)return;root.hidden=!p;if(!p)return;
+    root.setAttribute('aria-busy',String(!p.done));
+    $("invoiceRetryProgressTitle").textContent=p.done?'Η υποβολή επαναλήψεων ολοκληρώθηκε':'Υποβολή επαναλήψεων · '+p.processed+'/'+p.total;
+    $("invoiceRetryProgressDetail").textContent='Σε ουρά Server: '+p.queued+' · Ήδη ολοκληρωμένα: '+p.completed+' · Παραλείφθηκαν: '+p.skipped+' · Αποτυχίες υποβολής/ανάγνωσης: '+p.failed;
+    $("invoiceRetryProgressStage").textContent=p.done?'Η αποδοχή στην ουρά δεν σημαίνει ολοκλήρωση. Η ανάλυση συνεχίζεται στον Server· τα αποτελέσματα εμφανίζονται στις κάρτες.':p.currentName||'Προετοιμασία…';
+    $("invoiceRetryFailures").innerHTML=(p.failures||[]).map(f=>'<li>'+escapeHtml(f.name)+': '+escapeHtml(f.error)+'</li>').join('');
+    root.classList.toggle('has-error',Boolean(p.failed));
+  }
 
-    } catch (error) { toast(error.message); }
+  async function retryAllFailedInvoices() {
+    if(invoiceRetryController.busy()||invoiceRetryConfirmationOpen||!can("fleet.manage"))return;
+    invoiceRetryConfirmationOpen=true;const token=state.token;
+    try{
+      const records=window.FleetInvoiceRetry.candidates(state.invoiceRetryCandidates||[]);
+      if(!records.length)return void toast('Δεν υπάρχουν αποτυχημένα τιμολόγια με διαθέσιμη επανάληψη.');
+      renderInvoiceQueue();
+      const dialog=$('simpleDialog'),cancelClosed=()=>{if(!dialog.open&&state.simpleResolver)cancelSimple();};
+      dialog.addEventListener('close',cancelClosed);
+      try{
+      await simpleEditor({overline:'ΕΠΑΝΑΛΗΨΗ ΤΙΜΟΛΟΓΙΩΝ',title:'Επανάληψη '+records.length+' αποτυχημένων;',submit:'Έναρξη επανάληψης',html:'<p>Θα υποβληθούν διαδοχικά τα αποτυχημένα τιμολόγια του τρέχοντος φίλτρου και της επιλεγμένης πινακίδας. Τα επιτυχημένα δεν θα επαναληφθούν.</p><p>Κράτησε την εφαρμογή ανοιχτή μέχρι να ολοκληρωθεί η υποβολή. Μετά η επεξεργασία συνεχίζεται στον Server. Η επανάληψη μπορεί να χρησιμοποιήσει AI όπου χρειαστεί.</p>'});
+      }finally{dialog.removeEventListener('close',cancelClosed);}
+      if(token!==state.token)return;
+      const result=await invoiceRetryController.batch(records);
+      if(token!==state.token)return;
+      toast(result.failed?'Η υποβολή ολοκληρώθηκε με '+result.failed+' αποτυχίες. Δες τις λεπτομέρειες.':'Οι διαθέσιμες επαναλήψεις υποβλήθηκαν. Η επεξεργασία συνεχίζεται στον Server.');
+      await loadInvoices().catch(()=>toast('Η υποβολή καταγράφηκε. Η λίστα δεν ανανεώθηκε· πάτησε Ανανέωση.'));
+    }catch(error){if(token===state.token&&error.message!=='Η ενέργεια ακυρώθηκε.')toast(error.message);}
+    finally{invoiceRetryConfirmationOpen=false;if(token===state.token)renderInvoiceQueue();}
+  }
+
+  async function retryInvoiceDocument(id) {
+    const record=invoiceDocumentById(id);if(!record||!can('fleet.manage'))return;
+    const token=state.token;
+    try{
+      const pending=invoiceRetryController.retry(record);renderInvoiceQueue();
+      const result=await pending;if(token!==state.token)return;
+      if(result.ocrWarning||result.document?.error||result.status==='error')throw new Error(result.ocrWarning||result.document?.error||result.error);
+      toast(result.busy?'Υποβάλλεται ήδη νέα προσπάθεια.':result.skipped?'Το τιμολόγιο έχει ήδη ολοκληρωθεί ή άλλαξε.':result.queued||result.status==='processing'?'Η επανάληψη μπήκε στην ουρά. Η ειδοποίηση θα κλείσει μετά την επιτυχία.':'Η ανάγνωση ολοκληρώθηκε.');
+      await loadInvoices().catch(()=>toast('Το αίτημα καταγράφηκε, αλλά η λίστα δεν ανανεώθηκε. Πάτησε Ανανέωση.'));
+    }catch(error){if(token===state.token)toast(error.message);}
+    finally{if(token===state.token)renderInvoiceQueue();}
+  }
+
+  async function retryInvoiceAlert(id) {
+    if(!can('fleet.manage'))return;
+    const item=state.alerts.find(a=>String(a.id)===String(id));if(!item)return;
+    const token=state.token,record={alertId:id,jobId:item.object_id};
+    if(invoiceRetryController.pending(record))return;
+    item.invoice_retry_state='processing';renderAlerts();
+    try{
+      const result=await invoiceRetryController.retry(record);if(token!==state.token)return;
+      if(result.ocrWarning||result.document?.error||result.status==='error')throw new Error(result.ocrWarning||result.document?.error||result.error);
+      toast(result.busy?'Υποβάλλεται ήδη νέα προσπάθεια.':result.queued||result.status==='processing'?'Η επανάληψη μπήκε στην ουρά. Η ειδοποίηση παραμένει μέχρι την επιτυχία.':'Ο έλεγχος ολοκληρώθηκε.');
+    }catch(error){if(token===state.token){item.invoice_retry_state='error';toast(error.message);}}
+    finally{if(token===state.token)await loadAlerts().catch(()=>{renderAlerts();toast('Δεν φορτώθηκε η νέα κατάσταση. Πάτησε Ανανέωση στις ειδοποιήσεις.');});}
   }
 
   async function forceInvoiceAiDocument(id) {
@@ -3686,6 +3741,7 @@
     $("invoiceReviewWarnings").innerHTML = warnings.length
       ? warnings.map(function (warning) { return '<div class="invoice-review-warning">! <span><strong>' + escapeHtml(warning.label || "Προειδοποίηση") + '</strong><small>' + escapeHtml(warning.message || "") + '</small></span></div>'; }).join("")
       : '<div class="invoice-review-ok">✓ Δεν βρέθηκε διαφορά πινακίδας ή χιλιομέτρων.</div>';
+    if(data.confirmedAt)$("invoiceReviewWarnings").insertAdjacentHTML("afterbegin",'<div class="invoice-review-ok">✓ '+escapeHtml(data.confirmationMethod==='automatic'?'Αυτόματη επιβεβαίωση':'Χειροκίνητη επιβεβαίωση')+' · '+escapeHtml(formatDateTime(data.confirmedAt))+'<small>'+escapeHtml(data.confirmationReason||'Προηγούμενη επιβεβαίωση χρήστη')+'</small></div>');
     const plateMismatch = warnings.some(function (warning) { return warning.type === "plate"; });
     const transferOptions = Array.isArray(record.transferOptions) ? record.transferOptions : [];
     const transferBox = $("invoiceReviewTransfer");
@@ -3753,7 +3809,7 @@
     if (!record || !record.key) return void ($("invoiceReviewError").textContent = "Το PDF δεν είναι ακόμη διαθέσιμο για επιβεβαίωση.");
     if ($("invoiceReviewSave").disabled) return;
     const data = record.invoiceData || {};
-    const tasks = String($("invoiceReviewTasks").value || "").split(/\r?\n|\s*[•;]+\s*/).map(function (item) { return item.trim(); }).filter(Boolean).slice(0, 30);
+    const tasks = String($("invoiceReviewTasks").value || "").split(/\r?\n|\s*[•;]+\s*/).map(function (item) { return item.trim(); }).filter(Boolean).slice(0, 5120);
     const invoiceData = Object.assign({}, data, {
       supplier: $("invoiceReviewSupplier").value.trim(),
       plate: $("invoiceReviewPlate").value.trim(),
@@ -4267,15 +4323,25 @@
   }
 
   async function loadAlerts() {
-    const data = await api("/api/admin/alerts");
+    const token=state.token;
+    const data = await api("/api/admin/alerts",{forceRead:true});
+    if(token!==state.token)return;
     state.alerts = data.alerts || [];
+    renderAlerts();
+  }
+
+  function renderAlerts() {
     $("alertRulesButton").classList.toggle("is-hidden", !can("alerts.manage"));
     $("notificationCount").textContent = state.alerts.length;
     $("notificationCount").classList.toggle("is-hidden", !state.alerts.length);
     $("alertList").innerHTML = state.alerts.length ? state.alerts.map(function (item) {
       const canResolve = can("alerts.manage");
       const canApproveOvertime = can("shifts.manage") || can("payroll.manage");
-      const action = item.type === "correction_request" && canResolve
+      const invoiceFailure=item.type==='invoice_processing_failed'&&item.object_type==='invoice_job';
+      const retrying=item.invoice_retry_state==='processing'||invoiceRetryController.pending({jobId:item.object_id});
+      const action = invoiceFailure
+        ? (can('fleet.manage')?'<button class="secondary-button invoice-retry-button" type="button" data-retry-invoice-alert="'+escapeHtml(item.id)+'" '+(retrying?'disabled':'')+'>'+(retrying?'Αναμονή επεξεργασίας…':'Επανάληψη')+'</button>':'')
+        : item.type === "correction_request" && canResolve
         ? '<button class="secondary-button" type="button" data-handle-correction="' + escapeHtml(item.object_id) + '">Έλεγχος</button>'
         : item.object_type === "shift" && ["overtime", "forgotten_clock_out"].includes(item.type) && canApproveOvertime
           ? '<button class="secondary-button" type="button" data-open-shift-alert="' + escapeHtml(item.object_id) + '">Άνοιγμα βάρδιας</button>'
@@ -4283,14 +4349,14 @@
             ? '<button class="secondary-button" type="button" data-resolve-alert="' + escapeHtml(item.id) + '">Ολοκληρώθηκε</button>'
             : '';
       const channel = item.channel === "both" ? "In-app + Push" : item.channel === "push" ? "Push" : "In-app";
-      return '<article class="alert-item ' + escapeHtml(item.severity) + '"><span class="alert-icon">' + (item.severity === "critical" ? "!" : item.severity === "info" ? "i" : "◷") + '</span><span><strong>' + escapeHtml(item.title) + '</strong><p>' + escapeHtml(item.message) + '</p><time>' + escapeHtml(formatDateTime(item.created_at) + " • " + channel) + '</time></span>' + action + '</article>';
+      return '<article class="alert-item ' + escapeHtml(item.severity) + '"><span class="alert-icon">' + (item.severity === "critical" ? "!" : item.severity === "info" ? "i" : "◷") + '</span><span><strong>' + escapeHtml(item.title) + '</strong><p>' + escapeHtml(item.message) + (invoiceFailure?'<small class="invoice-retry-hint">'+(retrying?'Η νέα προσπάθεια εκτελείται. Η ειδοποίηση κλείνει αυτόματα μετά την επιτυχία.':'Ζητά νέα προσπάθεια για αυτό το τιμολόγιο. Σε αποτυχία η ειδοποίηση παραμένει.')+'</small>':'') + '</p><time>' + escapeHtml(formatDateTime(item.created_at) + " • " + channel) + '</time></span>' + action + '</article>';
     }).join("") : '<div class="action-card ok"><i>✓</i><span><strong>Καμία εκκρεμότητα</strong><small>Δεν υπάρχουν ενεργές ειδοποιήσεις.</small></span></div>';
     updateNotificationControls();
     updateBulkAlertControl();
     deliverLocalAlerts(state.alerts);
   }
 
-  const alertsRequiringAction = new Set(["correction_request", "overtime", "forgotten_clock_out"]);
+  const alertsRequiringAction = new Set(["correction_request", "overtime", "forgotten_clock_out", "invoice_processing_failed"]);
 
   function bulkResolvableAlerts() {
     return (state.alerts || []).filter(function (item) {
@@ -4596,6 +4662,7 @@
     $("addTemplateSegment").addEventListener("click", addTemplateSegment);
     $("deleteTemplateButton").addEventListener("click", disableTemplate);
     $("refreshShifts").addEventListener("click",function(){window.FleetSharedReads?.invalidate();loadShifts();});
+    $("retryAllFailedInvoices")?.addEventListener("click",retryAllFailedInvoices);
     $("refreshInvoices").addEventListener("click",function(){window.FleetSharedReads?.invalidate();loadInvoices();});
     $("invoiceFileSearch").addEventListener("input", renderInvoiceQueue);
     $("invoiceStatusFilter").addEventListener("change", renderInvoiceQueue);
@@ -4746,6 +4813,8 @@
         state.viewLoadedAt.shifts = 0;
         return void goTo("shifts");
       }
+      const invoiceAlert=event.target.closest("[data-retry-invoice-alert]");
+      if(invoiceAlert)return void retryInvoiceAlert(invoiceAlert.dataset.retryInvoiceAlert);
       const alert = event.target.closest("[data-resolve-alert]");
       if (alert) return void resolveAlert(alert.dataset.resolveAlert);
       const recycleRestore = event.target.closest("[data-recycle-restore]");
@@ -4816,7 +4885,7 @@
   }
 
   bindEvents();
-  window.FleetInvoiceApi={api,can,toast,openPdf:openInvoiceDocument,refresh:loadInvoices,
+  window.FleetInvoiceApi={api,can,toast,openPdf:openInvoiceDocument,refresh:loadInvoices,retryFailed:()=>{if($("invoiceStatusFilter"))$("invoiceStatusFilter").value="error";renderInvoiceQueue();return retryAllFailedInvoices();},
     reprocess:(mode,failedOnly,forceRead)=>reprocessAllInvoiceDocuments(mode,failedOnly,forceRead),
     batchAction:action=>publishInvoiceReprocessBatch(action),getBatch:()=>({id:state.invoiceReprocessBatchId,busy:state.invoiceReprocessBusy}),
     getDocuments:()=>state.invoiceDocuments,review:openAdminInvoiceReview,reviewBusy:()=>!!state.invoiceReviewSubmitting};
@@ -4851,6 +4920,7 @@
     const view=state.view;
     try{
       if(view==='invoices'&&scopes.some(s=>s==='invoices'||s==='fleet')){await loadInvoices();await refreshInvoiceReprocessBatch();}
+      else if(view==='alerts'&&scopes.some(s=>s==='invoices'||s==='fleet'||s==='workforce'))await loadAlerts();
       else if(view==='fleet'&&scopes.includes('fleet'))await loadFleetSummary();
       else if(view==='server'&&scopes.includes('status'))await loadStatus(true);
       else if(view==='dashboard'&&scopes.some(s=>['fleet','workforce','status'].includes(s)))await loadDashboard();
@@ -4874,5 +4944,6 @@
   }, 1000);
   setInterval(function(){if(state.invoiceReprocessBusy&&!window.FleetLive?.connected())refreshInvoiceReprocessBatch();}, 5000);
   setInterval(refreshInvoiceProgressLive, 5000);
+  setInterval(function(){if(state.user&&state.view==='alerts'&&!document.hidden&&!window.FleetLive?.connected()&&(state.alerts||[]).some(a=>a.type==='invoice_processing_failed'&&a.invoice_retry_state==='processing'))loadAlerts().catch(()=>{});},15000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("./service-worker.js").catch(function () {});
 })();

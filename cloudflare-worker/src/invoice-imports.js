@@ -495,7 +495,7 @@ export async function routeInvoiceImports(request, env, deps) {
         intent.tasks ||
           data.invoiceData?.workPerformed ||
           "Καταχώρηση τιμολογίου",
-        2000,
+        128000,
       );
       bike.history = [
         ...(bike.history || []),

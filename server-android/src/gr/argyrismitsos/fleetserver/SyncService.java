@@ -488,13 +488,11 @@ public final class SyncService extends Service {
                     ? "Ανεβαίνει το PDF · η τοπική ανάγνωση ολοκληρώθηκε"
                     : "Ανεβαίνει το PDF · ελέγχεται και θα γίνει fallback αν χρειαστεί", headers);
             Map<String, String> uploadHeaders = new HashMap<String, String>(headers);
-            uploadHeaders.put("X-Fleet-Local-Ocr", encodeJsonHeader(localOcr));
             uploadHeaders.put("X-Fleet-Ocr-Source", "server-local");
             uploadHeaders.put("X-Fleet-Ocr-Confidence", String.valueOf(localConfidence));
             if (activeCancellation!=null && activeCancellation.get()) throw new java.util.concurrent.CancellationException();
-            FileInputStream input = new FileInputStream(rendered);
             long uploadStarted=System.nanoTime();
-            JSONObject result = FleetHttp.putStream(endpoint, input, rendered.length(), "application/pdf", uploadHeaders);
+            JSONObject result = FleetHttp.putInvoice(endpoint, rendered, localOcr, uploadHeaders);
             times.put("uploadMs",(System.nanoTime()-uploadStarted)/1000000);getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE).edit().putString("invoice_analysis_metrics",times.toString()).putString("invoice_reader_stage",localOcr.optString("analysisEngine")+(localOcr.optBoolean("analysisCacheHit")?" · cache":"")).apply();
             if (result.optBoolean("fallbackUsed", false)) {
                 updateNotification("Τοπική ανάγνωση αμφίβολη • χρησιμοποιήθηκε Workers AI");

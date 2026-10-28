@@ -32,7 +32,7 @@ public final class LocalInvoiceReader {
     private static final Charset UTF8 = Charset.forName("UTF-8");
     private static final Charset LATIN = Charset.forName("ISO-8859-1");
     private static final int MAX_BYTES = 15 * 1024 * 1024;
-    private static final int MAX_RAW_TEXT = 6000;
+    private static final int MAX_RAW_TEXT = 128000;
     private static final int MAX_PARSE_TEXT = 128000;
     private static final String PDF_NUMBER = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?";
     private static final Pattern TEXT_BLOCK = Pattern.compile("(?s)BT(.*?)ET");
@@ -67,23 +67,28 @@ public final class LocalInvoiceReader {
         try { if (pageText != null && pageText.trim().length() > 40) dom = readText(pageText); } catch (Exception ignored) {}
         try { embedded = read(pdf); } catch (Exception ignored) {}
         if (dom == null && embedded == null) throw new IOException("Δεν βρέθηκε αναγνώσιμο κείμενο στο τιμολόγιο.");
-        JSONObject selected = score(dom) >= score(embedded) ? dom : embedded;
+        JSONObject selected = score(dom) > score(embedded) || score(dom) == score(embedded) && itemCount(dom) >= itemCount(embedded) ? dom : embedded;
         JSONObject other = selected == dom ? embedded : dom;
         if (selected == null) selected = other;
         if (selected == null) throw new IOException("Δεν βρέθηκε αναγνώσιμο κείμενο στο τιμολόγιο.");
         if (other != null) {
             boolean conflict = false;
-            for (String field : new String[] { "plate", "odometerKm", "invoiceDate", "totalAmount" }) {
+            for (String field : new String[] { "plate", "odometerKm", "invoiceDate", "invoiceNumber", "netAmount", "vatAmount", "totalAmount" }) {
                 String left = comparableField(field, selected.optString(field, ""));
                 String right = comparableField(field, other.optString(field, ""));
                 if (left.length() > 0 && right.length() > 0 && !left.equals(right)) conflict = true;
+            }
+            if (!conflict && itemCount(other) > itemCount(selected)) { JSONObject swap=selected;selected=other;other=swap; }
+            if (selected.optString("textTruncated", "false").equals("true") || other.optString("textTruncated", "false").equals("true")) {
+                selected.put("textTruncated",true);selected.put("localReadStatus","ambiguous");
+                selected.put("ocrFallbackReason","Μια πηγή υπερβαίνει το όριο πλήρους ανάγνωσης.");
             }
             if (conflict) {
                 selected.put("localReadStatus", "ambiguous");
                 selected.put("ocrConfidence", Math.min(60, score(selected)));
                 selected.put("ocrFallbackReason", "Το κείμενο της σελίδας και το PDF διαφωνούν σε βασικά στοιχεία. Απαιτείται επιπλέον έλεγχος.");
             }
-            copyIfMissing(selected, other, "supplier", "invoiceNumber", "invoiceDate", "plate", "odometerKm", "totalAmount");
+            copyIfMissing(selected, other, "supplier", "invoiceNumber", "invoiceDate", "plate", "odometerKm", "netAmount", "vatAmount", "totalAmount");
             JSONArray work = selected.optJSONArray("workPerformed");
             JSONArray otherWork = other.optJSONArray("workPerformed");
             if ((work == null || work.length() == 0) && otherWork != null) selected.put("workPerformed", otherWork);
@@ -93,6 +98,8 @@ public final class LocalInvoiceReader {
         selected.put("ocrSource", "server-local");
         return selected;
     }
+
+    private static int itemCount(JSONObject value) { JSONArray items=value==null?null:value.optJSONArray("lineItems");return items==null?0:items.length(); }
 
     private static int score(JSONObject value) {
         return value == null ? -1 : value.optInt("ocrConfidence", 0);
@@ -544,8 +551,8 @@ public final class LocalInvoiceReader {
         String comments = findComments(text);
         String plate = findPlate(text);
         if (plate.length() == 0) plate = findPlate(comments);
-        String odometer = findNumberNear(text, "χιλιόμετρα|χιλιομετρα|χλμ\\.?|χιλ\\.?|km|odometer|mileage");
-        if (odometer.length() == 0) odometer = findCommentNumber(comments);
+        String odometer = findCommentNumber(comments);
+        if (odometer.length() == 0) odometer = findNumberNear(text, "χιλιόμετρα|χιλιομετρα|χλμ\\.?|χιλ\\.?|km|odometer|mileage");
         String date = findDate(text);
         String total = findInvoiceTotal(text);
         String supplier = findSupplier(lines);
@@ -576,17 +583,24 @@ public final class LocalInvoiceReader {
         result.put("parts", new JSONArray());
 
         int confidence = 0;
-        if (text.length() >= 80) confidence += 20;
-        if (date.length() > 0) confidence += 20;
-        if (total.length() > 0) confidence += 20;
-        if (work.size() > 0) confidence += 25;
-        if (plate.length() > 0 || odometer.length() > 0 || supplier.length() > 0 || invoiceNumber.length() > 0) confidence += 15;
-        boolean hasCoreInvoiceData = text.length() >= 80 && date.length() > 0 && total.length() > 0 && work.size() > 0;
-        boolean confident = confidence >= 70 && hasCoreInvoiceData;
+        String[] required = {"plate","odometerKm","invoiceNumber","invoiceDate","netAmount","vatAmount","totalAmount"};
+        JSONObject evidence = new JSONObject();
+        for (String field : required) {
+            String value = result.optString(field, "");
+            if (value.length() > 0) confidence += 12;
+            evidence.put(field,new JSONObject().put("score",value.length()>0?95:0).put("source","labelled-pdf-text")
+                    .put("reason",value.length()>0?"Βρέθηκε τιμή στο σχετικό πεδίο/στα Σχόλια":"Δεν βρέθηκε σαφής τιμή")
+                    .put("evidence",field.equals("plate")||field.equals("odometerKm")?comments:value));
+        }
+        if (!work.isEmpty()) confidence += 16;
+        boolean truncated = text.length() >= MAX_PARSE_TEXT;
+        boolean confident = confidence == 100 && !truncated;
+        result.put("fieldEvidence",evidence);
+        result.put("textTruncated",truncated);
         result.put("ocrConfidence", confidence);
         result.put("localReadStatus", confident ? "confident" : "ambiguous");
         result.put("ocrFallbackUsed", false);
-        result.put("ocrFallbackReason", confident ? "" : (text.length() == 0 ? "Το PDF δεν έχει αναγνώσιμο text layer." : "Η τοπική ανάγνωση δεν βρήκε αρκετά βέβαια στοιχεία."));
+        result.put("ocrFallbackReason", confident ? "" : (truncated ? "Το κείμενο υπερβαίνει το όριο πλήρους ανάγνωσης." : text.length() == 0 ? "Το PDF δεν έχει αναγνώσιμο text layer." : "Λείπουν σαφή απαραίτητα πεδία ή γραμμές. Απαιτείται επιπλέον έλεγχος."));
         return result;
     }
 
@@ -594,7 +608,7 @@ public final class LocalInvoiceReader {
         List<String> result = new ArrayList<String>();
         for (String part : String.valueOf(text == null ? "" : text).split("\\r?\\n")) {
             String line = part.replaceAll("\\s+", " ").trim();
-            if (line.length() >= 2) result.add(line);
+            if (line.length() >= 1) result.add(line);
         }
         return result;
     }
@@ -625,7 +639,7 @@ public final class LocalInvoiceReader {
             return compact.replaceAll("[^A-Z0-9]", "");
         }
         if ("odometerKm".equals(field)) return compact.replaceAll("[^0-9]", "");
-        if ("totalAmount".equals(field)) {
+        if (("totalAmount".equals(field) || "netAmount".equals(field) || "vatAmount".equals(field))) {
             compact = compact.replace(" ", "");
             if (compact.contains(",")) compact = compact.replace(".", "").replace(',', '.');
             try { return new java.math.BigDecimal(compact).stripTrailingZeros().toPlainString(); }
@@ -828,26 +842,29 @@ public final class LocalInvoiceReader {
         String cleaned = removeLeadingInvoiceCodes(cleanInvoiceWorkText(value))
                 .replaceFirst("(?iu)\\s+[0-9]+[,.][0-9]{2}\\s+(?:τεμάχια|τεμαχια|h87).*?$", "")
                 .replaceAll("\\s+", " ").trim();
-        return cleaned.length() > 150 ? cleaned.substring(0, 150).trim() : cleaned;
+        return cleaned.length() > 500 ? cleaned.substring(0, 500).trim() : cleaned;
     }
 
     /** A stricter line-item parser used for the invoice table. */
     private static List<String> findWorkAccurate(List<String> lines) {
-        Set<String> unique = new LinkedHashSet<String>();
+        List<String> unique = new ArrayList<String>();
         StringBuilder current = new StringBuilder();
         boolean inItems = false;
         for (String line : lines) {
             String normalized = line.replaceAll("^[-•*·]+\\s*", "").trim();
             String value = normalized.toLowerCase(Locale.ROOT);
-            if (normalized.length() < 3 || normalized.length() > 180) continue;
+            if (normalized.length() < 3 || normalized.length() > 2000) continue;
+            if (value.matches("(?iu)^(?:σελίδα|σελιδα|page)\\s+\\d+.*")) continue;
             boolean startsItem = startsInvoiceItem(normalized) || startsDescriptionItem(normalized);
             if (!inItems) {
                 if (value.matches("(?iu).*(?:κωδικός.*περιγραφή|κωδικος.*περιγραφη|cpv.*περιγραφή|cpv.*περιγραφη).*")) inItems = true;
                 else if (!startsItem) continue;
+                else inItems = true;
             }
+            if (value.matches("(?iu).*(?:κωδικός.*περιγραφή|κωδικος.*περιγραφη|περιγραφή.*ποσότητα|περιγραφη.*ποσοτητα).*")) continue;
             if (cleanInvoiceWorkText(normalized).length() == 0 || value.matches("(?iu).*(?:εκπτώσεις\\s*/\\s*χρεώσεις|εκπτωσεις\\s*/\\s*χρεωσεις|ανάλυση\\s+φπα|αναλυση\\s+φπα|στοιχεία\\s+πληρωμής|στοιχεια\\s+πληρωμης|σχόλια|σχολια).*")) {
                 if (current.length() > 0) unique.add(current.toString());
-                break;
+                current.setLength(0); inItems = false; continue;
             }
             if (startsItem) {
                 if (current.length() > 0) unique.add(current.toString());
@@ -860,11 +877,11 @@ public final class LocalInvoiceReader {
             }
         }
         if (current.length() > 0) unique.add(current.toString());
-        return removeRedundantWork(new ArrayList<String>(unique));
+        return unique;
     }
 
     private static boolean startsInvoiceItem(String value) {
-        return value.matches("(?iu)^\\s*(?=[A-ZΑ-Ω0-9-_/]*\\d[A-ZΑ-Ω0-9-_/]*\\s+)[A-ZΑ-Ω0-9]{8,}[-_/]?\\s+.*");
+        return value.matches("(?iu)^\\s*(?=[A-ZΑ-Ω0-9-_/]*\\d[A-ZΑ-Ω0-9-_/]*\\s+)[A-ZΑ-Ω0-9_/-]{3,}\\s+.*");
     }
 
     /** A line beginning with a known invoice description, even when its item code is absent. */
@@ -894,7 +911,7 @@ public final class LocalInvoiceReader {
         if (quantity.find() && quantity.start() > 1) cleaned = cleaned.substring(0, quantity.start()).trim();
         cleaned = cleaned.replaceFirst("(?iu)\\s+(?:τεμάχια|τεμαχια|h87)\\b.*$", "")
                 .replaceAll("\\s+", " ").trim();
-        return cleaned.length() > 150 ? cleaned.substring(0, 150).trim() : cleaned;
+        return cleaned.length() > 500 ? cleaned.substring(0, 500).trim() : cleaned;
     }
 
     private static String removeLeadingInvoiceCodes(String value) {

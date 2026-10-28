@@ -21,6 +21,9 @@ node scripts/test-worker-snapshot-load.mjs
 node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
 node scripts/test-qr-failure-alerts.mjs
+node scripts/test-invoice-retry-actions.mjs
+node scripts/test-invoice-retry-ui.mjs
+node scripts/test-invoice-retry-d1.mjs
 node scripts/test-invoice-imports.mjs
 node scripts/test-service-model.mjs
 node scripts/test-fleet-operations-model.mjs
@@ -37,6 +40,9 @@ node scripts/test-new-service-ui.mjs
 node scripts/test-view-cache.mjs
 node scripts/test-invoice-import-ui.mjs
 node scripts/test-invoice-improvements.mjs
+node scripts/test-invoice-extraction.mjs
+node scripts/test-invoice-auto-confirmation.mjs
+node scripts/test-invoice-auto-d1.mjs
 node scripts/test-invoice-library.mjs
 node scripts/test-service-order.mjs
 node scripts/test-ui-system.mjs
