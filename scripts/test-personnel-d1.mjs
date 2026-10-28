@@ -14,9 +14,9 @@ try{
  const response=await runtime.dispatchFetch('http://fixture/install');assert.equal(response.status,200,await response.text());
  assert.deepEqual((await db.prepare('SELECT rowid,* FROM deleted_records').all()).results,before.results);
  await db.prepare("INSERT INTO deleted_records(id,record_type,record_id,label,payload,deleted_at,deleted_by,deleted_by_name) VALUES ('staff','employee','employee-id','Staff','{}','now','owner','Owner')").run();
- assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger' AND name LIKE 'fleet_mirror_%'").first()).n,84);
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger' AND name LIKE 'fleet_mirror_%'").first()).n,93);
  const columns=await db.prepare('PRAGMA table_info(app_users)').all();assert.ok(columns.results.some(c=>c.name==='login_enabled'));assert.ok(columns.results.some(c=>c.name==='deleted_at'));
  assert.ok((await db.prepare('PRAGMA table_info(payroll_periods)').all()).results.some(c=>c.name==='hours_source'));
  assert.equal((await runtime.dispatchFetch('http://fixture/install')).status,200);
- console.log('PASS actual Workers/D1 migration: transactional table copy/swap, preserved archive rowid/content, new personnel archive type, additive account/payroll columns, all 84 mirror triggers and repeatable installation.');
+ console.log('PASS actual Workers/D1 migration: transactional table copy/swap, preserved archive rowid/content, new personnel archive type, additive account/payroll columns, all 93 mirror triggers and repeatable installation.');
 }finally{if(runtime)await runtime.dispose();fs.rmSync(temp,{recursive:true,force:true});}

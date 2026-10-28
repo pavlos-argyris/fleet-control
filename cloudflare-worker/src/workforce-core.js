@@ -264,10 +264,16 @@ export function computePayBreakdown(input) {
     };
   }
 
-  function appendSegment(minuteStart, minuteEnd, minutes) {
+  const excluded = (input.excludedIntervals||[]).map(x=>x.map(v=>new Date(v).getTime())).filter(x=>x.length===2&&x.every(Number.isFinite)&&x[1]>x[0]).sort((a,b)=>a[0]-b[0]);
+  function appendSegment(minuteStart, minuteEnd, minutes, filtered=false) {
+    if(!filtered&&excluded.length){
+      let cursor=minuteStart;
+      for(const [start,end] of excluded){if(end<=cursor)continue;if(start>=minuteEnd)break;if(start>cursor)appendSegment(cursor,Math.min(start,minuteEnd),(Math.min(start,minuteEnd)-cursor)/60000,true);cursor=Math.max(cursor,end);if(cursor>=minuteEnd)return;}
+      if(cursor<minuteEnd)appendSegment(cursor,minuteEnd,(minuteEnd-cursor)/60000,true);return;
+    }
     const rate = rateFor(minuteStart);
     const previous = segments[segments.length - 1];
-    if (previous && previous.key === rate.key && previous.rateCents === rate.rateCents) {
+    if (previous && previous.key === rate.key && previous.rateCents === rate.rateCents && previous.end === new Date(minuteStart).toISOString()) {
       previous.minutes += minutes;
       previous.end = new Date(minuteEnd).toISOString();
     } else {
@@ -319,6 +325,7 @@ export function computePayBreakdown(input) {
     else basePayCents += amount;
   });
 
+  if(excluded.length)durationMinutes=segments.reduce((sum,s)=>sum+s.minutes,0);
   return {
     payableStart: new Date(payableStart).toISOString(),
     payableEnd: new Date(payableEnd).toISOString(),

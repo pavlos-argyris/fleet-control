@@ -11,14 +11,15 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.51.14/portal.css">
-  <link rel="stylesheet" href="./assets/v5.51.14/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.51.14/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.51.14/client-ota.css">
-  <script src="./assets/v5.51.14/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.51.14/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.51.14/service-followup.css">
-  <link rel="stylesheet" href="./assets/v5.51.14/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.52.0/portal.css">
+  <link rel="stylesheet" href="./assets/v5.52.0/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.52.0/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.52.0/client-ota.css">
+  <script src="./assets/v5.52.0/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.52.0/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.52.0/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.52.0/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.52.0/ordexa-ui.css">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -167,7 +168,7 @@
         <section id="viewFleet" class="app-view fleet-host-view is-hidden" data-view="fleet">
           <div id="fleetModuleShell" class="fleet-module-shell" aria-busy="true">
             <div class="fleet-module-loading" role="status"><i></i><span>Άνοιγμα Fleet Control…</span></div>
-              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.51.14" title="Fleet Control — διαχείριση στόλου"></iframe>
+              <iframe id="fleetModuleFrame" class="fleet-module-frame" data-src="./index.html?embedded=1&amp;v=5.52.0" title="Fleet Control — διαχείριση στόλου"></iframe>
           </div>
           <details class="fleet-availability-panel fleet-availability-bottom">
             <summary><span><small>ΛΕΙΤΟΥΡΓΙΚΗ ΚΑΤΑΣΤΑΣΗ</small><strong>Διαθεσιμότητα μηχανών</strong></span><b>Προβολή</b></summary>
@@ -218,7 +219,7 @@
 
         <section id="viewServer" class="app-view is-hidden" data-view="server"><div class="section-toolbar"><div><span class="overline">ΥΓΕΙΑ ΣΥΣΤΗΜΑΤΟΣ</span><h2>Backup &amp; Server</h2></div></div><div id="serverWarnings" class="server-warnings is-hidden"></div><div id="serverHealth" class="health-grid"></div><section class="panel backup-panel"><div><span class="panel-icon">↥</span><span><h3>Αντίγραφο ασφαλείας</h3><p>Το αίτημα αποστέλλεται στην εφαρμογή Server και αποθηκεύεται στον επιλεγμένο φάκελο Google Drive.</p></span></div><button id="requestBackup" class="primary-button" type="button">Δημιουργία backup τώρα</button></section><section class="panel app-install-panel"><div><span class="panel-icon">↓</span><span><h3>Εφαρμογές Fleet Control</h3><p>Λήψη του Android APK ή οδηγίες εγκατάστασης της ασφαλούς web εφαρμογής σε iPhone και iPad.</p></span></div><div class="two-column-actions"><button id="portalDownloadApk" class="primary-button" type="button">Λήψη Android APK</button><button id="portalIosGuide" class="secondary-button" type="button">iPhone / Web App</button></div></section></section>
 
-        <section id="viewSettings" class="app-view is-hidden" data-view="settings"><div class="section-toolbar"><div><span class="overline">ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ</span><h2>Ρυθμίσεις &amp; Ασφάλεια</h2></div></div><form id="systemSettingsForm" class="panel settings-grid"><label><span>Πηγή ωρών μισθοδοσίας</span><select id="payrollHoursSource"><option value="clock">Πραγματικές ώρες clock in / out</option><option value="schedule">Δημοσιευμένες προγραμματισμένες βάρδιες</option></select><small class="field-hint">Επηρεάζει ανοικτές περιόδους. Τα πρόχειρα δεν υπολογίζονται. Οι πραγματικές καταγραφές και οι κλειδωμένες μισθοδοσίες διατηρούνται.</small></label><label><span>Clock In χωρίς πρόγραμμα</span><select id="noSchedulePolicy"><option value="block">Block</option><option value="allow_warning">Allow + προειδοποίηση</option><option value="allow_normal">Allow normally</option></select></label><label><span>Λήξη χωρίς «Να θυμάσαι»</span><select id="adminSessionDuration"><option value="never">Ποτέ</option><option value="5m">5 λεπτά</option><option value="15m">15 λεπτά</option><option value="30m">30 λεπτά</option><option value="1h">1 ώρα</option><option value="4h">4 ώρες</option></select></label><label><span>Safety fallback</span><select id="fallbackHour"><option value="5">05:00</option><option value="4">04:00</option><option value="6">06:00</option></select></label><label><span>Όριο ασυνήθιστης απόστασης (χλμ.)</span><input id="unusualDistanceKm" type="number" min="1" max="5000" inputmode="numeric"></label><button class="primary-button" type="submit">Αποθήκευση</button></form><section class="panel security-panel"><div><span class="panel-icon">⌾</span><span><h3>Admin PIN</h3><p>Δεύτερη επιβεβαίωση για οικονομικές και κρίσιμες αλλαγές.</p></span></div><button id="changeAdminPin" class="secondary-button" type="button">Αλλαγή PIN</button></section><section class="panel"><div class="panel-heading"><h2>Συνδεδεμένες συσκευές</h2><button id="refreshDevices" class="link-button" type="button">Ανανέωση</button></div><div id="deviceList" class="data-list"></div></section></section>
+        <section id="viewSettings" class="app-view is-hidden" data-view="settings"><div class="section-toolbar"><div><span class="overline">ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ</span><h2>Ρυθμίσεις &amp; Ασφάλεια</h2></div></div><form id="systemSettingsForm" class="panel settings-grid"><label><span>Πηγή ωρών μισθοδοσίας</span><select id="payrollHoursSource"><option value="clock">Πραγματικές ώρες clock in / out</option><option value="schedule">Δημοσιευμένες προγραμματισμένες βάρδιες</option><option value="ordexa">Ordexa — πραγματικά clock in / out</option></select><small class="field-hint">Επηρεάζει ανοικτές περιόδους. Τα πρόχειρα δεν υπολογίζονται. Οι πραγματικές καταγραφές και οι κλειδωμένες μισθοδοσίες διατηρούνται.</small></label><label><span>Clock In χωρίς πρόγραμμα</span><select id="noSchedulePolicy"><option value="block">Block</option><option value="allow_warning">Allow + προειδοποίηση</option><option value="allow_normal">Allow normally</option></select></label><label><span>Λήξη χωρίς «Να θυμάσαι»</span><select id="adminSessionDuration"><option value="never">Ποτέ</option><option value="5m">5 λεπτά</option><option value="15m">15 λεπτά</option><option value="30m">30 λεπτά</option><option value="1h">1 ώρα</option><option value="4h">4 ώρες</option></select></label><label><span>Safety fallback</span><select id="fallbackHour"><option value="5">05:00</option><option value="4">04:00</option><option value="6">06:00</option></select></label><label><span>Όριο ασυνήθιστης απόστασης (χλμ.)</span><input id="unusualDistanceKm" type="number" min="1" max="5000" inputmode="numeric"></label><button class="primary-button" type="submit">Αποθήκευση</button></form><section id="ordexaPanel" class="panel ordexa-panel" aria-label="Σύνδεση Ordexa"></section><section class="panel security-panel"><div><span class="panel-icon">⌾</span><span><h3>Admin PIN</h3><p>Δεύτερη επιβεβαίωση για οικονομικές και κρίσιμες αλλαγές.</p></span></div><button id="changeAdminPin" class="secondary-button" type="button">Αλλαγή PIN</button></section><section class="panel"><div class="panel-heading"><h2>Συνδεδεμένες συσκευές</h2><button id="refreshDevices" class="link-button" type="button">Ανανέωση</button></div><div id="deviceList" class="data-list"></div></section></section>
       </main>
     </div>
 
@@ -354,26 +355,27 @@
     <div id="uiInvoiceFilterOptions" class="ui-select-options" role="group" aria-label="Διαθέσιμες επιλογές"></div>
     <p id="uiInvoiceFilterEmpty" class="ui-empty" role="status" hidden>Δεν βρέθηκε πινακίδα. Δοκίμασε άλλη αναζήτηση.</p>
   </dialog>
-  <script src="./assets/v5.51.14/scroll-stability.js" defer></script>
-  <script src="./fleet-config.js?v=5.51.14"></script>
-  <script src="./assets/v5.51.14/service-model.js" defer></script>
-  <script src="./assets/v5.51.14/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.51.14/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.51.14/service-tools.js" defer></script>
-  <script src="./assets/v5.51.14/service-storage.js" defer></script>
-  <script src="./assets/v5.51.14/service-export.js" defer></script>
-  <script src="./assets/v5.51.14/shared-requests.js"></script>
-  <script src="./assets/v5.51.14/live-changes.js"></script>
-  <script src="./assets/v5.51.14/local-view-cache.js"></script>
-  <script src="./assets/v5.51.14/fleet-motion.js"></script>
-  <script src="./assets/v5.51.14/schedule-workbook.js"></script>
-  <script src="./assets/v5.51.14/invoice-retry.js"></script>
-  <script src="./assets/v5.51.14/portal.js"></script>
+  <script src="./assets/v5.52.0/scroll-stability.js" defer></script>
+  <script src="./fleet-config.js?v=5.52.0"></script>
+  <script src="./assets/v5.52.0/service-model.js" defer></script>
+  <script src="./assets/v5.52.0/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.52.0/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.52.0/service-tools.js" defer></script>
+  <script src="./assets/v5.52.0/service-storage.js" defer></script>
+  <script src="./assets/v5.52.0/service-export.js" defer></script>
+  <script src="./assets/v5.52.0/shared-requests.js"></script>
+  <script src="./assets/v5.52.0/live-changes.js"></script>
+  <script src="./assets/v5.52.0/local-view-cache.js"></script>
+  <script src="./assets/v5.52.0/fleet-motion.js"></script>
+  <script src="./assets/v5.52.0/schedule-workbook.js"></script>
+  <script src="./assets/v5.52.0/invoice-retry.js"></script>
+  <script src="./assets/v5.52.0/ordexa-ui.js"></script>
+  <script src="./assets/v5.52.0/portal.js"></script>
   <script src="./vendor/jsQR.js"></script>
   <script src="./vendor/qrcode-generator.js"></script>
-  <script src="./assets/v5.51.14/invoice-import-ui.js"></script>
-  <script src="./assets/v5.51.14/service-followup.js" defer></script>
-  <script src="./assets/v5.51.14/fleet-operations.js" defer></script>
-  <script src="./assets/v5.51.14/sequential-review.js" defer></script>
+  <script src="./assets/v5.52.0/invoice-import-ui.js"></script>
+  <script src="./assets/v5.52.0/service-followup.js" defer></script>
+  <script src="./assets/v5.52.0/fleet-operations.js" defer></script>
+  <script src="./assets/v5.52.0/sequential-review.js" defer></script>
 </body>
 </html>

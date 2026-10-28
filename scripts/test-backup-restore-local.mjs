@@ -790,7 +790,7 @@ const serverBackupShape = { ...savedExport, schemaVersion: 3 };
 ok(await call('/api/server/system-import/preview',{method:'POST',body:serverBackupShape}),401,'Preview requires server credentials');
 const stateBeforePreview=(await db.prepare('SELECT full_name FROM app_users WHERE id=?').bind(employeeA.id).first()).full_name;
 const preview=ok(await call('/api/server/system-import/preview',{method:'POST',server:true,headers:{'X-Admin-Pin':recoveryPin},body:serverBackupShape}));
-assert.equal(preview.tables.length,28);assert.ok(preview.preserved>=1);assert.ok(preview.replaced>=1);assert.equal((await db.prepare('SELECT full_name FROM app_users WHERE id=?').bind(employeeA.id).first()).full_name,stateBeforePreview,'Preview must not change rows');
+assert.equal(preview.tables.length,31);assert.ok(preview.preserved>=1);assert.ok(preview.replaced>=1);assert.equal((await db.prepare('SELECT full_name FROM app_users WHERE id=?').bind(employeeA.id).first()).full_name,stateBeforePreview,'Preview must not change rows');
 await db.prepare('UPDATE app_users SET full_name=? WHERE id=?').bind('Changed during preview',employeeA.id).run();
 ok(await call('/api/server/system-import',{method:'PUT',server:true,headers:{'X-Admin-Pin':recoveryPin},body:{...serverBackupShape,restoreGuard:preview.restoreGuard}}),409,'Stale preview rejected before changes');
 assert.equal((await db.prepare('SELECT full_name FROM app_users WHERE id=?').bind(employeeA.id).first()).full_name,'Changed during preview');

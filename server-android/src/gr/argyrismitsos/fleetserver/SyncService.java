@@ -40,6 +40,7 @@ public final class SyncService extends Service {
     private ScheduledExecutorService pulseExecutor;
     private ScheduledExecutorService invoiceExecutor;
     private ScheduledExecutorService mirrorExecutor;
+    private ScheduledExecutorService ordexaExecutor;
     private LocalWorkQueue workQueue;
     private volatile boolean queueValidated;
     private volatile JSONObject pendingProgress;
@@ -103,6 +104,8 @@ public final class SyncService extends Service {
         invoiceExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){invoiceSafely();}},0,3,TimeUnit.SECONDS);
         mirrorExecutor=Executors.newSingleThreadScheduledExecutor();
         mirrorExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){mirrorSafely();}},0,300,TimeUnit.SECONDS);
+        ordexaExecutor=Executors.newSingleThreadScheduledExecutor();
+        ordexaExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaSync.tick(getApplicationContext());}},30,60,TimeUnit.SECONDS);
         // Connectivity must stay live even during ten parallel local reads,
         // lengthy AI results, Drive backup or a full mirror download.
         pulseExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -752,6 +755,7 @@ public final class SyncService extends Service {
         if (pulseExecutor != null) pulseExecutor.shutdownNow();
         if (invoiceExecutor != null) invoiceExecutor.shutdownNow();
         if (mirrorExecutor != null) mirrorExecutor.shutdownNow();
+        if (ordexaExecutor != null) ordexaExecutor.shutdownNow();
         if (activeCancellation != null) activeCancellation.set(true);
         getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE).edit().putBoolean("service_running", false).apply();
         if (store != null) store.close();
