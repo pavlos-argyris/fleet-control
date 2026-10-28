@@ -1588,15 +1588,42 @@
     window.FleetUI?.scheduleDays(dates);
   }
 
+  let scheduleLoadRequest = 0;
+  function scheduleLoadControls(disabled) {
+    document.querySelectorAll('#viewSchedules .schedule-toolbar-actions button, #scheduleList button').forEach(function (button) {
+      if (disabled) {
+        if (button.dataset.scheduleLoadDisabled === undefined) button.dataset.scheduleLoadDisabled = button.disabled ? '1' : '0';
+        button.disabled = true;
+      } else if (button.dataset.scheduleLoadDisabled !== undefined) {
+        button.disabled = button.dataset.scheduleLoadDisabled === '1';
+        delete button.dataset.scheduleLoadDisabled;
+      }
+    });
+  }
+
   async function loadSchedules(force) {
-    if (!$("scheduleWeekDate").value) $("scheduleWeekDate").value = mondayIso(inputDate(0));
-    const week = mondayIso($("scheduleWeekDate").value);
-    $("scheduleWeekDate").value = week;
+    if (!$('scheduleWeekDate').value) $('scheduleWeekDate').value = mondayIso(inputDate(0));
+    const week = mondayIso($('scheduleWeekDate').value), requestId = ++scheduleLoadRequest, token = state.token;
+    $('scheduleWeekDate').value = week;
     if (force) state.viewLoadedAt.schedules = 0;
-    const data = await api("/api/admin/schedule-week?week=" + encodeURIComponent(week));
-    state.weekData = data;
-    state.schedules = data.schedules || [];
-    renderWeekPlanner();
+    scheduleLoadControls(true);
+    try {
+      const data = await api('/api/admin/schedule-week?week=' + encodeURIComponent(week));
+      if (requestId !== scheduleLoadRequest || token !== state.token) return;
+      if (!data || !Array.isArray(data.schedules)) throw new Error('Η απόκριση του προγράμματος δεν είναι έγκυρη.');
+      state.weekData = data;
+      state.schedules = data.schedules;
+      $('scheduleLoadFailure').classList.add('is-hidden');
+      scheduleLoadControls(false);
+      renderWeekPlanner();
+    } catch (error) {
+      if (requestId !== scheduleLoadRequest || token !== state.token) return;
+      $('scheduleLoadMessage').textContent = 'Δεν φορτώθηκε το πρόγραμμα της εβδομάδας ' + isoDateLabel(week, true) + '. Αυτό δεν σημαίνει ότι είναι κενό ή ότι διαγράφηκε. ' + error.message;
+      $('scheduleLoadFailure').classList.remove('is-hidden');
+      // Keep the last displayed data, but prevent edits against a stale week.
+      scheduleLoadControls(true);
+      throw error;
+    }
   }
 
   function csvRows(textValue) {
@@ -2036,6 +2063,9 @@
 
   async function saveSchedule(event) {
     event.preventDefault();
+    if ($("scheduleSubmitButton").disabled) return;
+    $("scheduleSubmitButton").disabled = true;
+    let saved = false;
     $("scheduleError").textContent = "";
     $("scheduleSuggestionBox").classList.add("is-hidden");
     try {
@@ -2043,13 +2073,22 @@
       body.draft = true;
       body.reason = "Αποθήκευση Πρόχειρου εβδομαδιαίου προγράμματος";
       const result = await api("/api/admin/schedule-week", { method: "POST", body: body });
+      saved = true;
       $("scheduleDialog").close();
       toast("Αποθηκεύτηκαν " + result.created + " αναθέσεις στο κοινό Πρόχειρο. Δημοσίευσέ το μόνο όταν ολοκληρώσεις όλους τους διανομείς.");
       state.viewLoadedAt.schedules = 0;
       await loadSchedules(true);
     } catch (error) {
-      $("scheduleError").textContent = error.message;
-      showScheduleSuggestions(error);
+      if (saved) {
+        toast('Το Πρόχειρο αποθηκεύτηκε, αλλά δεν φορτώθηκε η ενημερωμένη προβολή. Πάτησε Επανάληψη φόρτωσης.');
+      } else {
+        $("scheduleError").textContent = error.status >= 500
+          ? 'Δεν επιβεβαιώθηκε η αποθήκευση. Οι επιλογές σου παραμένουν εδώ. Έλεγξε την εβδομάδα πριν υποβάλεις ξανά. ' + error.message
+          : error.message;
+        showScheduleSuggestions(error);
+      }
+    } finally {
+      $("scheduleSubmitButton").disabled = false;
     }
   }
 
@@ -4534,6 +4573,7 @@
     $("previousScheduleWeek").addEventListener("click", function () { moveScheduleWeek(-7); });
     $("nextScheduleWeek").addEventListener("click", function () { moveScheduleWeek(7); });
     $("currentScheduleWeek").addEventListener("click", function () { $("scheduleWeekDate").value = mondayIso(inputDate(0)); loadSchedules(true).catch(function (error) { toast(error.message); }); });
+    $("scheduleLoadRetry").addEventListener("click", function () { loadSchedules(true).catch(function (error) { toast(error.message); }); });
     $("scheduleWeekDate").addEventListener("change", function () { loadSchedules(true).catch(function (error) { toast(error.message); }); });
     $("bulkVehicleMode").addEventListener("change", renderBulkVehicleAssignments);
     $("bulkScheduleDays").addEventListener("change", renderBulkVehicleAssignments);

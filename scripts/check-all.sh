@@ -62,3 +62,6 @@ node scripts/test-personnel-d1.mjs
 node scripts/test-schedule-excel-roundtrip.mjs
 
 node scripts/test-schedule-management.mjs
+
+node scripts/test-schedule-cpu.mjs
+node scripts/test-schedule-cpu-d1.mjs

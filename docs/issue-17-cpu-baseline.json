@@ -1,0 +1,44 @@
+[
+  {
+    "name": "save",
+    "status": 201,
+    "formats": 3432,
+    "constructs": 0,
+    "cpuMs": 57.688,
+    "wallMs": 44.753833000000014
+  },
+  {
+    "name": "load",
+    "status": 200,
+    "formats": 14592,
+    "constructs": 0,
+    "cpuMs": 139.794,
+    "wallMs": 130.35903699999997,
+    "rows": 420
+  },
+  {
+    "name": "replace-one",
+    "status": 201,
+    "formats": 6736,
+    "constructs": 0,
+    "cpuMs": 76.938,
+    "wallMs": 64.00291099999998
+  },
+  {
+    "name": "publish",
+    "status": 200,
+    "formats": 13529,
+    "constructs": 0,
+    "cpuMs": 125.929,
+    "wallMs": 112.89439799999997
+  },
+  {
+    "name": "published-load",
+    "status": 200,
+    "formats": 1920,
+    "constructs": 840,
+    "cpuMs": 93.093,
+    "wallMs": 96.58632999999998,
+    "rows": 420
+  }
+]
