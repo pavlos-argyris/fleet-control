@@ -19,6 +19,12 @@
 - Νέο lifecycle test: τεχνητή αλλαγή revision/πηγής πριν atomic lock απορρίπτεται χωρίς snapshots, επιτυχής retry,31-table export/preview/restore με ακριβή Ordexa raw/mapping/decision roundtrip και delta mirror. Νέο migration test ελέγχει old28/84 →31/93 και restart. Πρόκειται αποκλειστικά για συνθετικές βάσεις, όχι backup παραγωγής.
 - Διορθώθηκε η διάρκεια ζωής DB fixture του browser test και προστέθηκαν full Server UI μικρού/μεγάλου πλάτους με συνθετικό native bridge. Τα νέα v5.52.0 assets συγχρονίστηκαν. Ο τοπικός Chromium αποκλείεται από OS permissions: πλήρεις visual/APK/Worker έλεγχοι θα επαληθευτούν στο CI πριν merge/publish. Τρέχον full check-all επαναλαμβάνεται μετά τη διόρθωση του migration persistence fixture. Καμία παραγωγική εισαγωγή ή εγκατάσταση ως δοκιμή.
 
+## Έλεγχος Android SDK και τελική επανάληψη — 29/10/2026
+
+- Πλήρης τοπικός `bash scripts/check-all.sh` πέρασε στο runtime checkpoint `c430c324e175f1cb6d65e7f5efc2c7e2df425188`, μαζί με migration/restart και2000event όρια. Worker dry-run πέρασε. Client5.52.0 test-signed compile πέρασε.
+- Ο πλήρης Server compile βρήκε host-vendor JSON μέθοδο που δεν είναι δημόσια στο Android SDK. Αντικαταστάθηκε από ισοδύναμη κανονική σειριοποίηση JSONArray. Οι native δοκιμές περνούν και πλέον κάνουν επιπλέον compile του πραγματικού OrdexaClient αποκλειστικά με Android23 SDK, ώστε να ανιχνεύεται τέτοια ασυμβατότητα. Επαναλαμβάνεται ο πλήρης Server compile και το υποχρεωτικό CI. Δεν παραδίδονται δοκιμαστικά υπογεγραμμένα APK για εγκατάσταση.
+- Ο οδηγός εγκατάστασης ενημερώθηκε από την ιστορική παύση στη νεότερη συνέχιση. Exact CI/ενεργοποίηση θα καταγραφούν μετά την ολοκλήρωση. Παραμένουν οι ρητές εκκρεμότητες native login/πραγματικού σχήματος/φυσικής συσκευής και ανοικτά τα #28/#29/#30.
+
 ## ΠΑΥΣΗ ΚΑΙ ΠΑΡΑΔΟΣΗ ORDEXA ΣΕ ΑΛΛΗ ΣΥΝΟΜΙΛΙΑ — 29/10/2026
 
 - **Νεότερη ρητή οδηγία χρήστη:** «σταμάτα την υλοποίηση, ανέβασέ τα όλα στο github ώστε να συνεχίσει το άλλο chatgpt από εκεί που έμεινες». Η παρούσα συνομιλία σταματά τις αλλαγές λειτουργίας. Αποθηκεύει όλη την υποψήφια πηγή στον `codex/ordexa-integration` και παραδίδει draft PR. **Δεν κάνει merge, request-publish ή deploy.** Η 5.52.0 δεν είναι ολοκληρωμένη ή δημοσιευμένη έκδοση.

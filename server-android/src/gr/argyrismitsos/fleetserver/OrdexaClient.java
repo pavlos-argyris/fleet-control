@@ -54,7 +54,9 @@ public final class OrdexaClient {
     private static String canonical(Object value)throws Exception{
         if(value instanceof JSONObject){JSONObject object=(JSONObject)value;List<String> keys=new ArrayList<String>();Iterator<String> iterator=object.keys();while(iterator.hasNext()){String k=iterator.next();if(!"capturedAt".equals(k))keys.add(k);}Collections.sort(keys);StringBuilder result=new StringBuilder("{");for(String k:keys){if(result.length()>1)result.append(',');result.append(JSONObject.quote(k)).append(':').append(canonical(object.get(k)));}return result.append('}').toString();}
         if(value instanceof JSONArray){JSONArray array=(JSONArray)value;List<String> rows=new ArrayList<String>();for(int i=0;i<array.length();i++)rows.add(canonical(array.get(i)));Collections.sort(rows);StringBuilder result=new StringBuilder("[");for(String row:rows){if(result.length()>1)result.append(',');result.append(row);}return result.append(']').toString();}
-        return value==null||value==JSONObject.NULL?"null":value instanceof String?JSONObject.quote((String)value):JSONObject.valueToString(value);
+        // Android does not expose JSONObject.valueToString publicly. A
+        // one-element array applies JSON escaping using public SDK methods.
+        String wrapped=new JSONArray().put(value).toString();return wrapped.substring(1,wrapped.length()-1);
     }
     static String digest(JSONObject report)throws Exception{
         byte[] bytes=MessageDigest.getInstance("SHA-256").digest(canonical(report).getBytes(UTF8));StringBuilder result=new StringBuilder();for(byte b:bytes)result.append(String.format(Locale.US,"%02x",b&255));return result.toString();

@@ -53,6 +53,8 @@ public class OrdexaTest {
  System.out.println("PASS actual native OrdexaSync: login/configure/preview/sync are mutually exclusive before storage/network and every failed operation releases its own gate.");}}
  `);
  const android=path.join(root,'.android-toolchain/usr/share/java/com.android.android-23.jar'),classpath=[dir,jar,android].join(path.delimiter);
+ // Compile against Android's own org.json API as well as the host test jar.
+ execFileSync('java',['-jar',path.join(root,'.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',android,'-d',path.join(dir,'android-api'),'server-android/src/gr/argyrismitsos/fleetserver/OrdexaClient.java'],{stdio:'inherit'});
  execFileSync('java',['-jar',path.join(root,'.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',classpath,'-d',dir,'server-android/src/gr/argyrismitsos/fleetserver/OrdexaSync.java',...Object.keys(stubs).map(name=>path.join(dir,name+'.java')),path.join(dir,'OrdexaGateTest.java')],{stdio:'inherit'});
  execFileSync('java',['-cp',classpath,'gr.argyrismitsos.fleetserver.OrdexaGateTest'],{stdio:'inherit',timeout:20000});
 }finally{fs.rmSync(dir,{recursive:true,force:true});}
