@@ -426,6 +426,14 @@
     state.invoiceGroupAnimationUntil = 0;
     window.clearTimeout(state.invoiceGroupRenderTimer);
     state.invoiceGroupRenderTimer = 0;
+    // A long invoice dialog can leave the old animated list's hit regions
+    // cached after scrolling. Rebuild only on an explicit queue switch.
+    // Card actions use delegated handlers, and the filter retains focus.
+    const queueRoot = $("invoiceQueueList");
+    if (queueRoot && queueRoot.cloneNode && queueRoot.replaceWith) {
+      for (const animation of queueRoot.getAnimations ? queueRoot.getAnimations() : []) animation.cancel();
+      queueRoot.replaceWith(queueRoot.cloneNode(false));
+    }
     renderInvoiceQueue();
     const order = ['processing', 'attention', 'confirmed'];
     window.FleetMotion?.slide($("invoiceQueueList"), order.indexOf(filter) < order.indexOf(previous) ? -1 : 1);

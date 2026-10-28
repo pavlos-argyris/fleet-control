@@ -293,7 +293,7 @@ async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
       const decision = await decideInvoiceRead(env, bike, entry, attachment, extracted, names, {}, attachment.ocrError || '',proof);
       attachment.ocr = normalizeServiceDocumentOcr(decision.data);
       if (!attachment.ocrError) {
-        entry.tasks = mergeInvoiceTasks(entry.tasks, invoiceWorkItems(attachment.ocr));
+        if(decision.tasks)entry.tasks = decision.tasks;
         if (!entry.notes || entry.notes === oldTasks) entry.notes = entry.tasks.join('\n');
         if (attachment.ocr.supplier && !entry.workshop) entry.workshop = attachment.ocr.supplier;
         entry.invoiceData = attachment.ocr;
@@ -1239,11 +1239,13 @@ async function decideInvoiceRead(env, bike, entry, attachment, data, names, prev
     const duplicates=await invoiceDuplicates(env,{qrUrl:attachment.qrUrl||data.qrUrl||'',supplier:data.supplier||'',invoiceNumber:data.invoiceNumber||'',excludeKey:attachment.key});
     if(duplicates.length) {decision.eligible=false;decision.reasons.push({field:'invoiceNumber',code:'duplicate-invoice',message:'Το ίδιο παραστατικό είναι ήδη συνδεδεμένο με άλλη καταχώρηση. Χρειάζεται έλεγχος.'});}
   }
+  const tasks=mergeInvoiceTasks(entry.tasks,invoiceWorkItems(data),5121),tasksFit=tasks.length<=5120;
+  if(!tasksFit){decision.eligible=false;decision.reasons.push({field:'lineItems',code:'service-task-limit',message:'Το service υπερβαίνει τις 5.120 εργασίες. Όλες οι γραμμές διατηρούνται στο παραστατικό· οι προηγούμενες εργασίες δεν αντικαταστάθηκαν.'});}
   const result={...data,lastReadFingerprint:fingerprint,reviewIssues:decision.reasons,ocrConfidence:String(decision.score),confirmationRuleVersion:decision.version};
   delete result.confirmedAt;delete result.reviewedBy;delete result.confirmationMethod;delete result.confirmationReason;
   if(decision.eligible)Object.assign(result,{confirmedAt:now,reviewedBy:'Fleet Control · αυτόματος έλεγχος',reviewStatus:'confirmed',confirmationMethod:'automatic',confirmationReason:'Μοναδική πινακίδα, συμφωνία χιλιομέτρων, σαφής αριθμός/ημερομηνία, πλήρης πίνακας και συμφωνία καθαρής αξίας + ΦΠΑ = συνόλου.'});
   else result.reviewStatus='needs_review';
-  return {data:result,automatic:decision.eligible,preserved:false};
+  return {data:result,automatic:decision.eligible,preserved:false,tasks:tasksFit?tasks:null};
 }
 
 async function applyServiceDocumentReprocess(env, request, actor, snapshot, fleet, originalBike, originalEntry, originalAttachment, previous, extracted, ocrWarning, options = {}) {
@@ -1285,9 +1287,9 @@ async function applyServiceDocumentReprocess(env, request, actor, snapshot, flee
     }
     if(!ocrWarning&&!outcome.preserved){
       attachment.name=uniqueInvoiceDisplayName(buildInvoiceDisplayName(bike.name,data.invoiceDate,entry.date,attachment.name),entry.attachments,attachment.key);
-      const tasks=mergeInvoiceTasks(entry.tasks,invoiceWorkItems(confirmed?current:fresh).concat(invoiceWorkItems(attachment.ocr)));
-      if(stableReviewJson(tasks)!==stableReviewJson(entry.tasks)){const notesWereTasks=!entry.notes||entry.notes===entry.tasks.join('\n');entry.tasks=tasks;if(notesWereTasks)entry.notes=tasks.join('\n');}
-      if(attachment.ocr.supplier&&attachment.ocr.supplier!==current.supplier)entry.workshop=attachment.ocr.supplier;
+      const tasks=outcome.tasks;
+      if(tasks&&stableReviewJson(tasks)!==stableReviewJson(entry.tasks)){const notesWereTasks=!entry.notes||entry.notes===entry.tasks.join('\n');entry.tasks=tasks;if(notesWereTasks)entry.notes=tasks.join('\n');}
+      if(attachment.ocr.supplier&&attachment.ocr.supplier!==current.supplier&&(!entry.workshop||entry.workshop===current.supplier))entry.workshop=attachment.ocr.supplier;
     }
     if(!ocrWarning)entry.invoiceData=attachment.ocr;
     if(outcome.automatic)ServiceModel.decision(entry,attachment.key,ServiceModel.state(JSON.parse(located.entryJson),current),attachment.ocr,'Αυτόματος έλεγχος · '+INVOICE_RULES_VERSION,now,false);
@@ -2095,10 +2097,11 @@ function isOilTask(value) {
   return /\b(?:ladi|oil|yamalube)\b|λ[άα]δι(?:ού|ών|ων|α)?|λιπαντικ/i.test(text);
 }
 
-function splitInvoiceWork(value) {
-  return invoiceLineText(value, 3000)
-    .split(/\r?\n|\s*[•;]+\s*|\s*,\s*/)
-    .map((part) => cleanText(part, 180))
+function splitInvoiceWork(value, structured = false) {
+  const text=typeof value==='string'||typeof value==='number'?cleanText(String(value),MAX_INVOICE_TEXT):invoiceLineText(value,500);
+  return text
+    .split(structured?/\r?\n|\s*[•;]+\s*/:/\r?\n|\s*[•;]+\s*|\s*,\s*/)
+    .map((part) => invoiceLineText(part, 500))
     .filter(Boolean)
     .slice(0, MAX_INVOICE_ITEMS);
 }
@@ -2116,10 +2119,12 @@ function cleanInvoiceWorkText(value) {
 
 function invoiceWorkItems(data) {
   const values = [];
-  values.push(...splitInvoiceWork(data?.workPerformed));
+  values.push(...splitInvoiceWork(data?.workPerformed,Boolean(data?.lineItems?.length)));
   values.push(...(Array.isArray(data?.lineItems) ? data.lineItems : []));
   values.push(...(Array.isArray(data?.parts) ? data.parts : []));
-  return values.map((item) => cleanInvoiceWorkText(invoiceLineText(item, 500))).filter(Boolean).slice(0, MAX_INVOICE_ITEMS);
+  const result=[],seen=new Set();
+  for(const item of values){const text=cleanInvoiceWorkText(invoiceLineText(item,500)),key=normalizedTaskKey(text);if(!key||seen.has(key))continue;seen.add(key);result.push(text);if(result.length>=MAX_INVOICE_ITEMS)break;}
+  return result;
 }
 
 function stripInvoicePartCode(value) {
@@ -2148,7 +2153,7 @@ function invoiceLineText(value, limit = 500) {
   return cleanText(stripInvoicePartCode(String(value).replace(/\[object Object\]/g, "")), limit);
 }
 
-function mergeInvoiceTasks(existing, imported) {
+function mergeInvoiceTasks(existing, imported, limit = 5120) {
   const result = [], keys = new Set();
   let oilIndex = -1;
   const oilDetail = (value) => String(value || "")
@@ -2177,7 +2182,7 @@ function mergeInvoiceTasks(existing, imported) {
   };
   (Array.isArray(existing) ? existing : []).forEach(add);
   (Array.isArray(imported) ? imported : []).forEach(add);
-  return result.slice(0, 5120);
+  return result.slice(0, limit);
 }
 
 function invoiceOdometer(value) {
@@ -2254,9 +2259,9 @@ function serviceDocumentWarnings(bike, entry, data) {
   return warnings;
 }
 
-function normalizeInvoiceWorkPerformed(value, limit = MAX_INVOICE_TEXT) {
+function normalizeInvoiceWorkPerformed(value, limit = MAX_INVOICE_TEXT, structured = false) {
   const source = Array.isArray(value) ? value : [value];
-  const items = source.flatMap((item) => splitInvoiceWork(item))
+  const items = source.flatMap((item) => splitInvoiceWork(item,structured))
     .map((item) => cleanInvoiceWorkText(invoiceLineText(item, 500)))
     .filter(Boolean)
     .slice(0, MAX_INVOICE_ITEMS);
@@ -2273,7 +2278,7 @@ function normalizeServiceInvoiceData(value) {
       continue;
     }
     if (field === "workPerformed") {
-      const work = normalizeInvoiceWorkPerformed(value[field]);
+      const work = normalizeInvoiceWorkPerformed(value[field],MAX_INVOICE_TEXT,Boolean(value.lineItems?.length));
       if (work) result[field] = work;
       continue;
     }
@@ -2331,7 +2336,7 @@ function normalizeServiceDocumentOcr(value) {
       continue;
     }
     if (field === "workPerformed") {
-      const work = normalizeInvoiceWorkPerformed(value[field]);
+      const work = normalizeInvoiceWorkPerformed(value[field],MAX_INVOICE_TEXT,Boolean(value.lineItems?.length));
       if (work) result[field] = work;
       continue;
     }
@@ -3463,6 +3468,9 @@ async function uploadServerRenderedServiceDocument(request, env) {
   }
 
   if (await renderJobCancelled(env, jobId)) return json({ error: "Η παλιά προσπάθεια διακόπηκε.", cancelled: true }, 410);
+  // Drafts need the same complete deterministic fields in their preview.
+  // Confirmation still waits for the manager's explicit service selection.
+  if(draft&&extracted)extracted=normalizeServiceDocumentOcr(enrichInvoiceExtraction(extracted));
   const displayName = buildInvoiceDisplayName(bike.name, extracted?.invoiceDate || "", entry.date, originalName);
   const key = `service-documents/${encodeURIComponent(bikeId)}/${encodeURIComponent(entryId)}/${crypto.randomUUID()}-${originalName}`;
   await bucket.put(key, new Blob([bytes], { type: "application/pdf" }), {

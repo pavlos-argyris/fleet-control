@@ -876,9 +876,9 @@
     return null;
   }
 
-  function splitImportedWork(value) {
+  function splitImportedWork(value, structured) {
     return String(value || "")
-      .split(/\r?\n|\s*[•;]+\s*|\s*,\s*/)
+      .split(structured?/\r?\n|\s*[•;]+\s*/:/\r?\n|\s*[•;]+\s*|\s*,\s*/)
       .map(function (part) { return part.trim(); })
       .filter(Boolean)
       .slice(0, 512);
@@ -897,10 +897,12 @@
 
   function invoiceWorkItems(data) {
     const values = [];
-    values.push.apply(values, splitImportedWork(data && data.workPerformed));
+    values.push.apply(values, splitImportedWork(data && data.workPerformed,Boolean(data?.lineItems?.length)));
     if (Array.isArray(data && data.lineItems)) values.push.apply(values, data.lineItems);
     if (Array.isArray(data && data.parts)) values.push.apply(values, data.parts);
-    return values.map(function (item) { return cleanInvoiceWorkText(invoiceLineText(item, 180)); }).filter(Boolean).slice(0, 512);
+    const result=[],seen=new Set();
+    for(const item of values){const text=cleanInvoiceWorkText(invoiceLineText(item,500)),key=taskKey(text);if(!key||seen.has(key))continue;seen.add(key);result.push(text);if(result.length>=512)break;}
+    return result;
   }
 
   function taskKey(value) {

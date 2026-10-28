@@ -21,6 +21,13 @@ for(const [text,field] of [
   [JSON.stringify({plate:'BTO-756',ocrConfidence:100}),'document']
 ]) {const result=evaluate(enrichInvoiceExtraction({rawText:text,ocrConfidence:100}));assert.equal(result.eligible,false);assert.ok(result.reasons.some(r=>r.field===field),JSON.stringify(result));}
 const data=enrichInvoiceExtraction({rawText:invoiceText(),ocrConfidence:0});
+assert.equal(evaluate(enrichInvoiceExtraction({rawText:invoiceText({vat:'0,00',total:'100,00'})})).eligible,true,'zero VAT is valid evidence, not a missing value');
+const markdown=invoiceText().replace('Κωδικός Περιγραφή Ποσότητα Τιμή Αξία','| Κωδικός | Περιγραφή | Ποσότητα | Τιμή | Αξία |\n|---|---|---|---|---|')
+ .replace(/^(L\d+) (Εργασία \d+) 1,00 Τεμάχια 8,07/gm,'| $1 | $2 | 1,00 | Τεμάχια | 8,07 |')
+ .replace('Τιμολόγιο ΤΔΑ0000123 28/10/2026','| Τιμολόγιο | ΤΔΑ0000123 | 28/10/2026 |')
+ .replace('Σχόλια\nΒΤΟ 756\n9000\nΜ.Αρ.Κ. 999999999999999','| Σχόλια | ΒΤΟ 756 | 9000 |\n| Μ.Αρ.Κ. 999999999999999 |');
+assert.equal(evaluate(enrichInvoiceExtraction({rawText:markdown})).eligible,true,'Markdown table columns preserve contextual fields and rows');
+for(const text of [invoiceText().replace('Σύνολο γραμμών 4','Σύνολο γραμμών 0'),invoiceText().replace('Συνέχεια περιγραφής ανταλλακτικού','Κορμός πεταλούδας'),invoiceText().replace('L0000000001 Εργασία 1 1,00 Τεμάχια 8,07','100 8,07')])assert.equal(evaluate(enrichInvoiceExtraction({rawText:text})).eligible,false);
 assert.equal(evaluate({...data,ocrConfidence:100,localReadStatus:'ambiguous'}).eligible,false);
 assert.equal(evaluate(data,{bikes:[bike,{id:'duplicate',name:'ΒΤΟ 756'}]}).eligible,false);
 assert.equal(evaluate(data,{previous:{correctedByUserAt:'2026-10-27'}}).eligible,false);

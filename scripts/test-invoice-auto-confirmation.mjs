@@ -88,9 +88,25 @@ env.AI={toMarkdown:async value=>({data:invoiceText({number:value.name.includes('
 batch=await batchStart(['8']);response=ok(await batchResult(batch,'8',{localReadStatus:'failed'}));assert.equal(response.batch.automaticConfirmed,1);assert.equal(llmCalls,0,'deterministic complete text does not need an LLM');
 batch=await batchStart(['9'],'workers-ai');response=ok(await batchResult(batch,'9',{localReadStatus:'failed'}));assert.equal(response.batch.automaticConfirmed,1);assert.equal(llmCalls,1,'forced Workers AI mode remains available');delete env.AI;
 
+// At the bounded service-task capacity, preserve every previous task and
+// the full invoice. Never auto-confirm a silently truncated task merge.
+const priorTasks=Array.from({length:5120},(_,i)=>'Προηγούμενη εργασία '+i);
+seed([entry('10',{}, {tasks:priorTasks,workshop:'Χειροκίνητο συνεργείο'})]);batch=await batchStart(['10']);response=ok(await batchResult(batch,'10',local('10')));assert.equal(response.batch.needsReview,1);saved=await stored('10');assert.deepEqual(saved.tasks,priorTasks);assert.equal(saved.attachments[0].ocr.lineItems.length,60);assert.ok(saved.attachments[0].ocr.reviewIssues.some(r=>r.code==='service-task-limit'));assert.equal(saved.workshop,'Χειροκίνητο συνεργείο');
+
+// The QR-library draft path also reaches the same confirmation rules after
+// the user explicitly chooses/creates its service. No 2000-char task fragment.
+seed([]);const draftQr=qr+'/draft-512';
+const scan=ok(await call('/api/admin/invoice-imports',{token,method:'POST',body:{action:'scan',value:draftQr}}),202);
+const draftForm=new FormData();draftForm.set('analysis',JSON.stringify(local('512',{rawText:invoiceText({count:512,number:'INV512'})})));draftForm.set('file',new Blob(['%PDF-1.4 synthetic'],{type:'application/pdf'}),'draft.pdf');
+ok(await callRaw('/api/server/service-documents/rendered?'+new URLSearchParams({bikeId:'draft-'+scan.draftId,entryId:'draft',jobId:scan.jobId,qrUrl:draftQr,qrValue:draftQr,name:'draft.pdf'}),{server:true,method:'PUT',body:draftForm}),201);
+const imported=ok(await call('/api/admin/invoice-imports',{token,method:'POST',body:{action:'commit',id:scan.draftId,bikeId:'b',date:'2026-10-10',km:9000}}));
+saved=await stored(imported.entryId);assert.equal(saved.tasks.length,512);assert.ok(saved.tasks.at(-1).includes('Εργασία 512'));assert.equal(saved.attachments[0].ocr.lineItems.length,512);assert.equal(saved.attachments[0].ocr.confirmationMethod,'automatic');
+
 // No batch or retroactive AI runs on startup; starting twice has one owner.
 seed([entry('7')]);assert.equal(ok(await call('/api/admin/service-documents/reprocess-batch',{token})).batch,null);
-const [one,two]=await Promise.all([batchStart(['7']),call('/api/admin/service-documents/reprocess-batch',{token,method:'POST',body:{action:'start',mode:'server-first',items:[{key:key('7')}],batchId:'other-start'}})]);
-assert.equal(two.status,200,JSON.stringify(two.data));assert.equal(two.data.started,false);assert.equal(two.data.batch.id,one.id);
+const starts=await Promise.all(['first-start','other-start'].map(batchId=>call('/api/admin/service-documents/reprocess-batch',{token,method:'POST',body:{action:'start',mode:'server-first',items:[{key:key('7')}],batchId}})));
+assert.equal(starts.filter(r=>r.status===201&&r.data.started===true).length,1);
+assert.equal(starts.filter(r=>r.status===200&&r.data.started===false).length,1);
+assert.equal(starts[0].data.batch.id,starts[1].data.batch.id,'Both callers observe the one winner, whichever request won');
 assert.equal((await call('/api/admin/service-documents/reprocess-batch',{method:'POST',body:{action:'start',items:[{key:key('7')}]}})).status,401);
 console.log('PASS full Worker/SQLite automatic invoices: new multipart PDF, 60 complete tasks, retroactive mixed summary, manual protection/new differences, rollback, interrupted progress/retry, no duplicates, concurrent starts, authorization and no unsolicited batch. Synthetic only.');

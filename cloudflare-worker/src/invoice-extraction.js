@@ -4,7 +4,8 @@ export const INVOICE_RULES_VERSION = 'invoice-layout-v1';
 export const MAX_INVOICE_TEXT = 128000;
 export const MAX_INVOICE_ITEMS = 512;
 const fold = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-const unique = values => [...new Set(values.filter(Boolean))];
+const unique = values => [...new Set(values.filter(value=>value!==undefined&&value!==null&&value!==''))];
+const plainRow = row => row.includes('|')?row.replaceAll('|',' ').replace(/\s+/g,' ').trim():row;
 const plateLetters = 'ABEZHIKMNOPTYXΑΒΕΖΗΙΚΜΝΟΡΤΥΧ';
 const platePattern = `(?<![A-ZΑ-Ω0-9])([${plateLetters}]{3})[ \\t-]*(\\d{3,4})(?![A-ZΑ-Ω0-9])`;
 export function invoicePlate(value) {
@@ -35,6 +36,8 @@ function isoDate(value) {
 }
 const dateTokens = text => [...text.matchAll(/\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})\b/g)].map(m => isoDate(m[0]));
 const moneyToken = '-?\\d+(?:[.,]\\d{3})*[.,]\\d{2}';
+const itemCode = /^(?:\d{1,3}\s+)?((?=[A-ZΑ-Ω0-9_\-/]*\d)[A-ZΑ-Ω0-9_\-/]{3,})\s+(.+)$/i;
+const moneyColumns = new RegExp(`\\s+${moneyToken}(?:\\s|$).*$`);
 const sectionEnd = /^(?:εκπτωσεις\s*\/\s*χρεωσεις|αναλυση\s+φ\.?\s*π\.?\s*α|συνολο|συνολικη\s+αξια|γενικο\s+συνολο|καθαρη\s+αξια|πληρωτεο|subtotal|total|net\s+amount|στοιχεια\s+πληρωμης|σχολια|οροι\s+πληρωμης)/;
 const pageHeader = /^(?:σελιδα\s+\d|page\s+\d|μεταφορα\s+(?:απο|σε)|εκ\s+μεταφορας|συνεχεια\s+(?:απο|σε))/;
 const tableHeader = /(?:κωδικος.*περιγραφη|περιγραφη.*ποσοτητα|description.*(?:quantity|qty)|code.*description)/;
@@ -42,7 +45,7 @@ const tableHeader = /(?:κωδικος.*περιγραφη|περιγραφη.*�
 export function parseInvoiceText(value) {
   const original = String(value || '');
   const text = original.slice(0, MAX_INVOICE_TEXT).replace(/\r\n?/g, '\n').replace(/\u0000/g, ' ').replace(/[\t\u00a0]+/g, ' ');
-  const rows = text.split('\n').map(s => s.replace(/^\s*[#>*]+\s*/, '').replace(/\s*\|\s*/g, ' | ').trim()).filter(Boolean);
+  const rows = text.split('\n').map(s => s.replace(/^\s*[#>*]+\s*/, '').trim()).filter(Boolean);
   const found = {}, problems = [], fields = {};
   const issue = (field, code, message) => { if (!problems.some(p => p.field === field && p.code === code)) problems.push({field, code, message}); };
   const accept = (field, candidates, evidence, comparable = v => v) => {
@@ -52,16 +55,22 @@ export function parseInvoiceText(value) {
   };
   if (!text.trim() || /^\s*[\[{]/.test(text)) return {data: {}, fields: {}, problems: [{field:'document',code:'no-document-text',message:'Δεν υπάρχει ανεξάρτητο αναγνώσιμο κείμενο του εγγράφου.'}], completeTable:false, rowCount:0, version:INVOICE_RULES_VERSION};
   if (original.length > MAX_INVOICE_TEXT) issue('document', 'text-limit', 'Το κείμενο υπερβαίνει το όριο ανάγνωσης· χρειάζεται έλεγχος του πλήρους PDF.');
-  const plates = [], kms = [], comments = [], dates = [], numbers = [], suppliers = [], money = {netAmount:[],vatAmount:[],totalAmount:[]};
+  const plates = [], kms = [], comments = [], dates = [], dateEvidence = [], declaredCounts = [], numbers = [], suppliers = [], money = {netAmount:[],vatAmount:[],totalAmount:[]};
   for (let i = 0; i < rows.length; i++) {
-    const row = rows[i].replace(/\s*\|\s*/g, ' ').replace(/\s+/g, ' '), label = fold(row);
+    // Label/date/money rules do not apply to item-code rows. Avoid repeated
+    // Unicode normalization and header regexes for hundreds of invoice items.
+    const row = plainRow(rows[i]);
+    if(itemCode.test(row))continue;
+    const label = fold(row);
+    const declaredCount=label.match(/^(?:συνολο\s+γραμμων|πληθος\s+(?:γραμμων|ειδων)|total\s+lines)\s*:?\s*(\d+)$/);
+    if(declaredCount)declaredCounts.push(Number(declaredCount[1]));
     const supplierLabel=label.match(/^(?:προμηθευτης|εκδοτης|επωνυμια\s+εκδοτη|supplier)\s*:\s*/);
     if(supplierLabel){const name=row.slice(supplierLabel[0].length).trim();if(name.length>2&&name.length<=240)suppliers.push(name);}
     if (/^σχολια(?=\s|:|$)/.test(label)) {
       let comment = row.replace(/^[^:]*?:\s*/, '');
       if (comment === row) comment = row.replace(/^σχ[όο]λια\s*/i, '');
       for (let j = i + 1; j < rows.length && j <= i + 5; j++) {
-        const next = rows[j], n = fold(next);
+        const next = plainRow(rows[j]), n = fold(next);
         if (/^(?:μ\.?\s*αρ\.?\s*κ|mark|υπογραφ|https?:|στοιχεια|αδειοδοτ|συνολ|καθαρη|φ\.?π\.?α)/.test(n) || tableHeader.test(n)) break;
         comment += ' ' + next;
       }
@@ -86,13 +95,14 @@ export function parseInvoiceText(value) {
       if (/^(?:\d{1,10}|\d{1,3}(?:[ .]\d{3})+)\s*(?:χλμ\.?|km)?$/i.test(v)) kms.push(String(Number(v.replace(/\D/g,''))));
     }
     if (/(?:ημερομηνια\s+εκδοσης|issue\s+date|invoice\s+date)/.test(label)) {
+      dateEvidence.push(row);
       const own = dateTokens(row); dates.push(...own);
       if (!own.length && rows[i+1]) dates.push(...dateTokens(rows[i+1]));
       if (/\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}/.test(row) && own.some(v=>!v)) issue('invoiceDate','invalid-date','Η ημερομηνία έκδοσης δεν είναι έγκυρη.');
     }
     if (/^(?:αριθμος\s+(?:τιμολογιου|παραστατικου)|αρ\.?\s*τιμολογιου|invoice\s+(?:no\.?|number))(?=\s|:|$)/.test(label)) {
       const tail = row.replace(/^(?:αριθμ[όο]ς\s+(?:τιμολογ[ίι]ου|παραστατικο[ύυ])|αρ\.?\s*τιμολογ[ίι]ου|invoice\s+(?:no\.?|number))\s*[:#]?\s*/i, '').trim();
-      const token = tail || rows[i+1] || '';
+      const token = tail || plainRow(rows[i+1] || '');
       if (/^[A-ZΑ-Ω0-9][A-ZΑ-Ω0-9\-/]{1,79}$/i.test(token) && /\d/.test(token)) numbers.push(token.toUpperCase());
     }
     if (/(?:ειδος\s+παραστατικου|αριθμος.*ημερομηνια\s+εκδοσης)/.test(label)) {
@@ -113,7 +123,7 @@ export function parseInvoiceText(value) {
   accept('plate', plates, comments.join('\n'), invoicePlate);
   if (found.plate) found.plate = found.plate.slice(0,3)+'-'+found.plate.slice(3);
   accept('odometerKm', kms, comments.join('\n'));
-  accept('invoiceDate', dates, rows.filter(r=>/ημερομηνια\s+εκδοσης|issue\s+date|invoice\s+date/.test(fold(r))).join('\n'));
+  accept('invoiceDate', dates, dateEvidence.join('\n'));
   accept('invoiceNumber', numbers, numbers.join(' / '));
   accept('supplier', suppliers, suppliers.join(' / '));
   for (const field of Object.keys(money)) accept(field,money[field],money[field].join(' / '),invoiceCents);
@@ -121,17 +131,16 @@ export function parseInvoiceText(value) {
   const items = []; let table = false, seenTable = false, ended = false, current = '', count = 0;
   const flush = () => { if (current.trim()) { items.push(current.trim()); current = ''; } };
   for (const raw of rows) {
-    const cells = raw.split(/\s*\|\s*/).map(v=>v.trim()).filter(Boolean);
-    const row = cells.join(' ').replace(/\s+/g,' ').trim(), lower = fold(row);
+    const cells = raw.split('|').map(v=>v.trim()).filter(Boolean);
+    const row = cells.join(' ').replace(/\s+/g,' ').trim(), code = itemCode.exec(row), lower = code?'':fold(row);
     if (tableHeader.test(lower)) { seenTable=true;table=true;continue; }
     if (/^[-:| ]+$/.test(raw) || pageHeader.test(lower)) continue;
     if (sectionEnd.test(lower)) { if (table) {flush();ended=true;} table=false;continue; }
     if (!table) continue;
-    const code = row.match(/^(?:\d{1,3}\s+)?((?=[A-ZΑ-Ω0-9_\-/]*\d)[A-ZΑ-Ω0-9_\-/]{3,})\s+(.+)$/i);
     const described = /^(?:λαδι|λαδια|oil|φιλτρ|εργασ|service|αλλαγ|ανταλλακ|τακακ|αλυσιδ|μπουζ|ελαστικ|επισκευ)/.test(lower);
     let description = code ? code[2] : row;
     // Quantity starts the numeric columns. Codes and prices are not tasks.
-    description = description.replace(/\s+\d+(?:[.,]\d{1,3})?\s+(?:τεμαχια|τεμάχια|h87|pcs?|ωρες|ώρες)(?=\s|$).*$/i, '').replace(new RegExp(`\\s+${moneyToken}(?:\\s|$).*$`),'').trim();
+    description = description.replace(/\s+\d+(?:[.,]\d{1,3})?\s+(?:τεμαχια|τεμάχια|h87|pcs?|ωρες|ώρες)(?=\s|$).*$/i, '').replace(moneyColumns,'').trim();
     if (code || described || (cells.length >= 3 && /\d/.test(cells.at(-1)))) {
       flush(); count++; ended=false;
       if (!description || description.length > 500 || !/[A-ZΑ-Ω]/i.test(description)) issue('lineItems','invalid-row','Μια περιγραφή είναι κενή, ασαφής ή υπερβολικά μεγάλη.');
@@ -144,7 +153,7 @@ export function parseInvoiceText(value) {
     if (count > MAX_INVOICE_ITEMS) { issue('lineItems','item-limit','Το παραστατικό υπερβαίνει τις 512 γραμμές· απαιτείται έλεγχος.'); break; }
   }
   flush();
-  const declared = unique(rows.flatMap(row=>{const m=fold(row).match(/^(?:συνολο\s+γραμμων|πληθος\s+(?:γραμμων|ειδων)|total\s+lines)\s*:?\s*(\d+)$/);return m?[Number(m[1])]:[];}));
+  const declared = unique(declaredCounts);
   if (declared.length && (declared.length!==1 || declared[0]!==count)) issue('lineItems','row-count','Το πλήθος γραμμών δεν συμφωνεί με την ένδειξη του εγγράφου.');
   const completeTable = seenTable && ended && count > 0 && count === items.length && !problems.some(p=>['lineItems','document'].includes(p.field));
   if (!completeTable) issue('lineItems','incomplete-table','Δεν τεκμηριώθηκε η πλήρης ανάγνωση του πίνακα εργασιών/ανταλλακτικών.');
