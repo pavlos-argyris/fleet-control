@@ -2,7 +2,15 @@
 
 Αυτό είναι το κοινό σημείο ενημέρωσης όλων των ChatGPT/βοηθών. Διάβασέ το πριν ξεκινήσεις και ενημέρωσέ το όταν αναλαμβάνεις εργασία, σε σημαντικά ορόσημα και πριν σταματήσεις. Οι καταγραφές διασταυρώνονται πάντα με GitHub branches/commits/PR/Actions και την ενεργή έκδοση.
 
-## Νεότερη επιβεβαιωμένη παράδοση — 5.51.9, 27/10/2026
+
+## Νεότερη δημοσίευση — #17 / 5.51.10, 28/10/2026
+
+- **Η διόρθωση #17 δημοσιεύτηκε και ενεργοποιήθηκε.** Client/Web 5.51.10 / Client code 82, Worker 5.12.10, Server 2.2.15 / code 41. [Release](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.51.10), [Publish 40716251431](https://github.com/pavlos-argyris/fleet-control/actions/runs/40716251431) success. Ενεργοποίηση 28/10/2026 **17:35:37 Ελλάδας**.
+- Το **#17 παραμένει ανοιχτό μόνο για τελική επιβεβαίωση χρήστη στην πραγματική εβδομάδα 26/10–1/11**. Δεν γνωρίζουμε αν η αρχική αποθήκευση πριν τη διόρθωση είχε ολοκληρωθεί. Δεν έγινε διαγραφή/αναδημιουργία/τυφλή επανυποβολή εβδομάδας.
+- Η υλοποίηση/δημοσίευση αυτής της συνομιλίας ολοκληρώθηκε. Δεν υπάρχει άλλο ενεργό publish από αυτή τη συνομιλία. Μην επαναδημοσιεύσεις την 5.51.10. Πλήρεις λεπτομέρειες στην τελική καταγραφή #17 παρακάτω και στο issue.
+- Οι #1/#3 παραμένουν κλειστοί μετά επιβεβαίωση χρήστη. Οι #4/#5/#6/#8 δεν υλοποιήθηκαν σε αυτή την εργασία. Η απαίτηση #6 για αυτόματη/αναδρομική επιβεβαίωση έχει ήδη καταγραφεί.
+
+## Προηγούμενη επιβεβαιωμένη παράδοση — 5.51.9, 27/10/2026
 
 - **Τα #1 και #3 υλοποιήθηκαν, συγχωνεύτηκαν και δημοσιεύτηκαν από τον συντονιστή.** Client/Web **5.51.9** (Client code **81**), Worker **5.12.9**, συμβατός Server **2.2.15 / code 41**.
 - Runtime/source **99e750cdcff06bb34c93a3948a218b516b996573** · [main CI 40588872031](https://github.com/pavlos-argyris/fleet-control/actions/runs/40588872031) success · request-only **857a1c5f3b1fed968596e636cc3941975c6785eb**.
@@ -227,3 +235,20 @@
 - **Πραγματικά μέχρι στιγμής:** πλήρες τοπικό check-all success, 378 independent timezone/DST parity + 1.100 cache eviction cases, 420 αναθέσεις, rollback/stale-write/auth regressions, πλήρης πραγματικός τοπικός Workerd/D1 save/load/replace/publish/compiled audit συμπεριφορά. Browser tests Web/mobile/file Client πέρασαν (GET 503/read retry, POST 503 διατήρηση φόρμας, επιτυχής εγγραφή με αποτυχία GET, χωρίς replay mutation, παλιές αποκρίσεις). Δεν έχει ακόμη γίνει merge/deploy ή παραγωγική επαλήθευση #17.
 - **Υποψήφιες εκδόσεις:** Client/Web 5.51.10 / code 82, Worker 5.12.10, Server αμετάβλητος 2.2.15 / code 41. Νέα snapshots, παλιά immutable assets αμετάβλητα. Οδηγός `docs/SCHEDULE_CPU_5.51.10_GR.md` και baseline JSON. Κανένα νέο production backup/restore ή πραγματική μεταβολή εβδομάδας.
 - **Επόμενο:** ακριβές PR CI, επιθεώρηση, main CI, κανονικό request publish και επιβεβαίωση ενεργοποίησης. Το #17 θα μείνει ανοιχτό για τελική επιβεβαίωση χρήστη της πραγματικής εβδομάδας· δεν θα κλείσει μόνο από CI.
+
+
+## Ολοκλήρωση υλοποίησης/δημοσίευσης #17 — 28/10/2026
+
+
+## Υλοποίηση και επιβεβαιωμένη δημοσίευση — 28/10/2026, 5.51.10
+
+- **Παράδοση:** [PR #18](https://github.com/pavlos-argyris/fleet-control/pull/18), feature head `9b2574bd8b119f572732823dc79bc67e2106ffef`, [PR CI 40697651285](https://github.com/pavlos-argyris/fleet-control/actions/runs/40697651285) success. Merge/runtime source `40e34ddc7956839774d2291ec33900786082b45a`, [ακριβές main CI 40699054279](https://github.com/pavlos-argyris/fleet-control/actions/runs/40699054279) success.
+- **Δημοσίευση:** κανονικό request script από καθαρό ακριβές source → request-only `d507f2705f020966dbdfa79dced4f55a5ea59789`. [Publish 40716251431](https://github.com/pavlos-argyris/fleet-control/actions/runs/40716251431) **success**, `activated: true` για `v5.51.10-40e34ddc7956` στις **28/10/2026 17:35:37 ώρα Ελλάδας**.
+- **Εκδόσεις:** Client/Web **5.51.10**, Client code **82**, Worker **5.12.10**. Server παραμένει **2.2.15 / code 41**. Αρχικά signing certificates επαληθεύτηκαν και για τα δύο APK.
+- **Πλήρης κώδικας και αρχεία:** [fleet-v5.51.10](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.51.10), APK, source όλων των τμημάτων, Web/Worker/build inputs, manifest και SHA256SUMS. Source ZIP SHA-256 `094d8891dd9c414dac82fa0f27e4ac4e6f1bde85a2be14761882897550c91deb`.
+- **Διόρθωση:** επαναλαμβανόμενες μετατροπές ICU/timezone και formatter ανά ώρα, περιττό published mapping όταν υπάρχει draft και full-list conflict scans. Bounded caches καθαρών μετατροπών, λεπτά για validation τμημάτων, index ανά εργαζόμενο/μηχανή. Draft/audit σε μία D1 συναλλαγή, stale-write guards, σαφή GET failure/read retry και διατήρηση φόρμας σε POST failure.
+- **Επαλήθευση:** πλήρες check-all, 378 independent timezone/DST parity + 1.100 eviction cases, 420 αναθέσεις, αποτυχία αρχικού κώδικα στο νέο ICU-work regression, rollback/stale editor/publication/first-insert races, πραγματικό Workerd/D1, browser Web desktop/mobile και file Client tablet, υπάρχοντα payroll/personnel/invoice/schedule/migration/backup και native tests, δύο APK και Worker dry-run. Στο production workflow: HTTP 200 και σωστά hash/μέγεθος των live APK, σωστά Web bytes και personnel mirror reads, `failedRequests: []`, `downloadsVerified: true`.
+- **Περιορισμοί:** δεν λήφθηκε νέο production CPU profile ή authenticated admin schedule GET από τον βοηθό. Τοπικά timings/operation budget δεν ισοδυναμούν με production CPU. Δεν έγινε επανυποβολή, διαγραφή ή αναδημιουργία της πραγματικής εβδομάδας, νέο παραγωγικό backup/restore ή επιβεβαίωση εγκατάστασης σε φυσική συσκευή. Το αποτέλεσμα του αρχικού POST παραμένει άγνωστο μέχρι να το δει ο χρήστης.
+
+### Απομένει τελική επιβεβαίωση χρήστη — issue ανοιχτό
+Πρώτα ανανέωση Web ή Client update 5.51.10 και άνοιγμα της εβδομάδας **26/10–1/11** για έλεγχο ήδη αποθηκευμένων δεδομένων. Μετά κανονική αλλαγή/αποθήκευση και εκ νέου φόρτωση. Αν επανέλθει 503, συλλογή ώρας/endpoint/ray/outcome/CPU. **Το #17 παραμένει ανοιχτό έως αυτή την επιβεβαίωση.** Δεν απαιτείται δεύτερο publish της ίδιας έκδοσης μόνο για καταγραφή ή κλείσιμο.
