@@ -6,6 +6,8 @@
   let state = {};
   let toastTimer = null;
   let settingsDirty = false;
+  let settingsReady = false;
+  let settingsReadFailed = false;
   let otaManualUntil = 0;
 
   const el = {};
@@ -17,7 +19,7 @@
 
   function dashboard() {
     if (!bridge) return {
-      bikes: 29, historyEntries: 148, lastAppliedCount: 0, serviceRunning: true, serverOnline: true,
+      settingsLoaded: true, bikes: 29, historyEntries: 148, lastAppliedCount: 0, serviceRunning: true, serverOnline: true,
       lastSyncTime: new Date().toISOString(), workerUrl: "https://fleet-control.pavlosargyris.workers.dev",
       backupFolderSelected: true, automaticBackup: true, backupHour: 3, backupRetention: 30, backupFrequency: "daily",
       lastBackupTime: new Date().toISOString(), lastBackupResult: "Επιτυχία", syncSeconds: 30, invoiceParallelism: 4, automaticStart: true,
@@ -28,7 +30,8 @@
         ignoringBatteryOptimizations: true, thermalStatus: "none", networkConnected: true,
         networkType: "MOBILE • LTE", androidVersion: "16", deviceModel: "Samsung Galaxy S24 Ultra", uptimeSeconds: 172800 }
     };
-    return parse(bridge.getDashboard(), {});
+    try { return parse(bridge.getDashboard(), {settingsLoaded:false,dashboardError:"Δεν φορτώθηκαν τα στοιχεία του Server."}); }
+    catch(error) { return {settingsLoaded:false,dashboardError:error.message||"Δεν φορτώθηκαν τα στοιχεία του Server."}; }
   }
 
   function formatDate(value) {
@@ -190,8 +193,41 @@
     el.installServerUpdate.textContent = stage === "confirmation" ? "Επιβεβαίωση στο Android" : stage === "permission" ? "Άδεια εγκατάστασης" : "Εγκατάσταση ενημέρωσης";
   }
 
+  function setSettingsReady(ready) {
+    settingsReady = ready;
+    document.getElementById("settingsForm").querySelectorAll("input,select,button").forEach(function(input){input.disabled=!ready;});
+    el.serverToggle.disabled=!ready;
+    el.automaticOta.disabled=!ready;
+    document.getElementById("chooseFolder").disabled=!ready;
+    document.getElementById("restoreBackup").disabled=!ready;
+  }
+
   function render(next) {
-    state = next || dashboard();
+    const incoming = next || dashboard();
+    if (!incoming || incoming.settingsLoaded !== true) {
+      setSettingsReady(false);
+      settingsReadFailed = true;
+      el.systemBadge.className="state-badge warn";
+      const error = incoming?.dashboardError || "Δεν φορτώθηκαν οι αποθηκευμένες ρυθμίσεις. Περίμενε την επανάληψη φόρτωσης.";
+      el.statusError.textContent = error;
+      el.settingsMessage.textContent = error + " Η αποθήκευση παραμένει κλειδωμένη.";
+      if (!state.settingsLoaded) {
+        el.heroStatus.textContent="Δεν φορτώθηκαν τα στοιχεία του Server";
+        el.heroDetail.textContent="Η κατάσταση λειτουργίας και αντιγράφων δεν είναι διαθέσιμη ακόμη.";
+        el.publicUrl.textContent="Δεν φορτώθηκε";
+        el.driveBadge.textContent="Δεν φορτώθηκε";
+        el.autoBackupState.textContent="Δεν φορτώθηκε";
+        el.backupSchedule.textContent="Δεν φορτώθηκε";
+        el.systemBadge.textContent="Σφάλμα φόρτωσης";
+        [el.metricBikes,el.metricUsers,el.metricShifts,el.metricAlerts,el.metricHistory,el.metricPending].forEach(function(node){node.textContent="—";});
+      }
+      document.getElementById("backupNow").disabled=true;
+      return;
+    }
+    state = incoming;
+    setSettingsReady(true);
+    if(settingsReadFailed&&!settingsDirty)el.settingsMessage.textContent="Οι αποθηκευμένες ρυθμίσεις φορτώθηκαν.";
+    settingsReadFailed=false;
     renderOta(state.ota || {});
     renderBackup(state.backupProgress || state.ota?.backupProgress);
     const sync=state.syncDiagnostics || {};
@@ -257,7 +293,7 @@
     el.deviceUptime.textContent = formatUptime(health.uptimeSeconds);
     el.serverToggle.textContent = running ? "Διακοπή server" : "Εκκίνηση server";
     el.serverToggle.className = "primary-action" + (running ? " stop" : "");
-    el.statusError.textContent = state.lastError || state.connectionError || "";
+    el.statusError.textContent = state.dataReadError || state.lastError || state.connectionError || "";
     renderInvoiceProcessing(state.invoiceReprocess);
 
     el.driveBadge.textContent = state.backupFolderSelected ? "Drive έτοιμο" : "Δεν έχει οριστεί";
@@ -273,6 +309,13 @@
     document.getElementById("backupVerificationStatus").textContent=verification.checkedAt ? formatDate(verification.checkedAt)+" • "+verification.fileName+" • "+verification.message : "Δεν έχει γίνει έλεγχος αναγνωσιμότητας.";
     document.getElementById("backupVerificationStatus").classList.toggle("backup-health-warning",!!verification.checkedAt&&!verification.complete);
     el.retentionLabel.textContent = "Τα τελευταία " + (state.backupRetention || 30) + " καταγεγραμμένα πλήρη αντίγραφα. Αρχεία παλιών εκδόσεων και ημιτελείς προσπάθειες διατηρούνται.";
+
+    if(state.statsUnavailable){
+      [el.metricBikes,el.metricUsers,el.metricShifts,el.metricAlerts,el.metricHistory].forEach(function(node){node.textContent="—";});
+      el.systemBadge.textContent="Τα τοπικά δεδομένα δεν φορτώθηκαν";
+      el.systemBadge.className="state-badge warn";
+      document.getElementById("backupNow").disabled=true;
+    }
 
     if (!settingsDirty) {
       el.workerUrl.value = state.workerUrl || "";
@@ -426,7 +469,9 @@
   document.getElementById("settingsForm").addEventListener("submit", function (event) {
     event.preventDefault();
     if (!bridge) return;
+    if (!settingsReady) { el.settingsMessage.textContent="Οι αποθηκευμένες ρυθμίσεις δεν έχουν φορτωθεί. Δεν έγινε καμία αλλαγή."; return; }
     const payload = {
+      settingsLoaded: true,
       workerUrl: el.workerUrl.value.trim(), syncSeconds: Number(el.syncSeconds.value), invoiceParallelism: Number(el.invoiceParallelism.value), ocrParallelism:Number(el.ocrParallelism.value),
       backupFrequency: el.backupFrequency.value,
       backupHour: Number(el.backupHour.value), backupRetention: Number(el.backupRetention.value),
@@ -434,8 +479,12 @@
     };
     const result = parse(bridge.saveSettings(JSON.stringify(payload)), { ok: false, message: "Η αποθήκευση απέτυχε." });
     el.settingsMessage.textContent = result.ok ? "Οι ρυθμίσεις αποθηκεύτηκαν." : result.message;
-    if (result.ok) settingsDirty = false;
-    render(result.ok ? result : dashboard());
+    if (result.ok) {
+      Object.assign(state,payload);
+      const fresh=dashboard();
+      if(fresh?.settingsLoaded===true){settingsDirty=false;render(fresh);el.settingsMessage.textContent="Οι ρυθμίσεις αποθηκεύτηκαν.";}
+      else{settingsDirty=true;render(fresh);el.settingsMessage.textContent="Οι ρυθμίσεις αποθηκεύτηκαν, αλλά η ανανέωση της οθόνης απέτυχε. Οι τιμές σου διατηρούνται.";}
+    }
   });
 
   el.pinForm.addEventListener("submit", function (event) {

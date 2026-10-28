@@ -37,6 +37,7 @@ public final class MainActivity extends Activity {
     private WebView webView;
     private FleetDataStore store;
     private SharedPreferences preferences;
+    private volatile boolean dashboardSettingsLoaded;
     private ExecutorService executor;
     private String pendingRestorePin = "";
     private Uri pendingRestoreUri;
@@ -149,7 +150,15 @@ public final class MainActivity extends Activity {
     }
 
     private JSONObject dashboard() throws Exception {
-        JSONObject result = store.getStats();
+        JSONObject result;
+        String dataReadError = "";
+        try { result = store.getStats(); }
+        catch (Exception error) {
+            result = new JSONObject();
+            dataReadError = "Δεν φορτώθηκαν τα τοπικά δεδομένα. Οι αποθηκευμένες ρυθμίσεις διατηρούνται. " + String.valueOf(error.getMessage());
+            result.put("statsUnavailable", true);
+            result.put("dataReadError", dataReadError);
+        }
         result.put("serverVersion", ServerConfig.SERVER_VERSION);
         result.put("ota", OtaManager.state(getApplicationContext()));
         result.put("workerUrl", preferences.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL));
@@ -186,7 +195,7 @@ public final class MainActivity extends Activity {
         result.put("backupProgress",BackupStatus.get(this));
         result.put("backupVerification",new JSONObject(preferences.getString(BackupManager.KEY_VERIFICATION,"{}")));
         result.put("canVerifyLastBackup",preferences.getString(BackupManager.KEY_LAST_URI,"").length()>0);
-        result.put("databaseOk", preferences.getBoolean("database_ok", false));
+        result.put("databaseOk", dataReadError.length() == 0 && preferences.getBoolean("database_ok", false));
         result.put("storageOk", preferences.getBoolean("storage_ok", false));
         result.put("fleetControlOk", preferences.getBoolean("fleet_control_ok", false));
         result.put("watchdogActive", preferences.getBoolean("watchdog_active", false));
@@ -203,6 +212,7 @@ public final class MainActivity extends Activity {
             result.put("invoiceReprocess", JSONObject.NULL);
         }
         result.put("health", DeviceHealth.collect(getApplicationContext()));
+        result.put("settingsLoaded", true);
         return result;
     }
 
@@ -248,7 +258,15 @@ public final class MainActivity extends Activity {
     public final class ServerBridge {
         @JavascriptInterface
         public String getDashboard() {
-            try { return dashboard().toString(); } catch (Exception error) { return "{}"; }
+            try {
+                JSONObject value = dashboard();
+                dashboardSettingsLoaded = true;
+                return value.toString();
+            } catch (Exception error) {
+                dashboardSettingsLoaded = false;
+                try { return new JSONObject().put("settingsLoaded", false).put("dashboardError", "Δεν φορτώθηκαν τα στοιχεία του Server. " + String.valueOf(error.getMessage())).toString(); }
+                catch (Exception ignored) { return "{\"settingsLoaded\":false,\"dashboardError\":\"Δεν φορτώθηκαν τα στοιχεία του Server.\"}"; }
+            }
         }
 
         @JavascriptInterface
@@ -265,11 +283,12 @@ public final class MainActivity extends Activity {
         public String saveSettings(String json) {
             try {
                 JSONObject input = new JSONObject(json);
+                if (!dashboardSettingsLoaded || !input.optBoolean("settingsLoaded", false)) throw new IllegalStateException("Οι αποθηκευμένες ρυθμίσεις δεν έχουν φορτωθεί. Δοκίμασε ξανά χωρίς αλλαγή τιμών.");
                 String workerUrl = input.optString("workerUrl", ServerConfig.DEFAULT_WORKER_URL).trim().replaceAll("/+$", "");
                 if (!workerUrl.matches("^https://[^\\s/]+(?:/.*)?$")) throw new IllegalArgumentException("Η διεύθυνση πρέπει να αρχίζει με https://");
                 String backupFrequency = input.optString("backupFrequency", "daily");
                 if (!"weekdays".equals(backupFrequency) && !"weekly".equals(backupFrequency)) backupFrequency = "daily";
-                preferences.edit()
+                boolean saved = preferences.edit()
                         .putString("worker_url", workerUrl)
                         .putInt("sync_seconds", Math.max(10, Math.min(60, input.optInt("syncSeconds", 30))))
                         .putInt("invoice_parallelism", Math.max(1, Math.min(10, input.optInt("invoiceParallelism", 4))))
@@ -279,10 +298,9 @@ public final class MainActivity extends Activity {
                         .putString(BackupManager.KEY_FREQUENCY, backupFrequency)
                         .putBoolean("automatic_start", input.optBoolean("automaticStart", true))
                         .putBoolean("automatic_backup", input.optBoolean("automaticBackup", true))
-                        .apply();
-                JSONObject result = dashboard();
-                result.put("ok", true);
-                return result.toString();
+                        .commit();
+                if (!saved) throw new IllegalStateException("Δεν επιβεβαιώθηκε η εγγραφή των ρυθμίσεων στη συσκευή. Δοκίμασε ξανά.");
+                return new JSONObject().put("ok", true).put("settingsSaved", true).toString();
             } catch (Exception error) {
                 try { return new JSONObject().put("ok", false).put("message", error.getMessage()).toString(); }
                 catch (Exception ignored) { return "{\"ok\":false}"; }

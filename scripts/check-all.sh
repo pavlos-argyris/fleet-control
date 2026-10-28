@@ -9,6 +9,7 @@ node scripts/test-web-release-inventory.mjs
 node scripts/check-web-assets.mjs cloudflare-worker/public client-android/assets/www
 node --check server-android/assets/www/app.js
 node scripts/test-server-update-ui.mjs
+node scripts/test-server-settings-recovery.mjs
 node scripts/test-client-ota-ui.mjs
 node scripts/test-client-landscape.mjs
 node scripts/test-ota-setup.mjs
