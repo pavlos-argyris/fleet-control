@@ -17,6 +17,7 @@ documents=[row('one','BTO-756'),row('two','ΤΝΗ-921'),row('orphan','BTO-756',{
 $('invoiceStatusFilter').value='attention';f.renderInvoiceQueue();assert.equal($('retryAllFailedInvoices').hidden,true);
 $('invoiceStatusFilter').value='error';f.renderInvoiceQueue();assert.equal($('retryAllFailedInvoices').hidden,false);assert.match($('retryAllFailedInvoices').textContent,/3/);
 $('invoicePlateFilter').value='BTO756';f.renderInvoiceQueue();assert.match($('retryAllFailedInvoices').textContent,/2/);
+const cancelled=f.retryAllFailedInvoices();assert.equal($('simpleDialog').open,true);$('simpleDialog').close();await cancelled;assert.equal(requests.length,0);assert.equal($('retryAllFailedInvoices').disabled,false,'Back/Escape/native close must release the confirmation guard');
 let release;hold=new Promise(r=>release=r);const batch=f.retryAllFailedInvoices(),double=f.retryAllFailedInvoices();await double;
 assert.equal($('simpleDialog').open,true);assert.match($('simpleFields').textContent,/διαδοχικά/);assert.equal(requests.length,0);
 $('simpleForm').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await tick();assert.equal(requests.length,1);assert.equal($('retryAllFailedInvoices').disabled,true);

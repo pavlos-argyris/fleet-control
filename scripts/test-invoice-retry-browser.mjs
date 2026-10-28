@@ -35,6 +35,7 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
   await page.locator('#uiInvoiceExtraPicker').click();await page.locator('[data-ui-select-value="error"]').click();
   await page.locator('#invoicePlatePicker').click();await page.locator('[data-ui-select-value="BTO756"]').click();
   await page.locator('#retryAllFailedInvoices').waitFor();assert.match(await page.locator('#retryAllFailedInvoices').textContent(),/2/);
+  await page.locator('#retryAllFailedInvoices').click();await page.locator('#simpleDialog[open]').waitFor();await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('#simpleDialog').open&&!document.querySelector('#retryAllFailedInvoices').disabled);assert.equal(posts.length,0,'Closing confirmation must not submit or lock later retries');
   await page.locator('#retryAllFailedInvoices').click();assert.equal(posts.length,0);await page.locator('#simpleDialog[open]').waitFor();await shot('confirmation');await page.locator('#simpleSubmit').click();
   await page.waitForFunction(()=>document.querySelector('#invoiceRetryProgress').getAttribute('aria-busy')==='false');assert.equal(posts.length,2,'One request per selected failed invoice; no replay of HTTP 503');
   assert.equal(posts.some(p=>p.key?.includes('/other/')||p.key?.includes('/ok/')),false);

@@ -3550,7 +3550,11 @@
       const records=window.FleetInvoiceRetry.candidates(state.invoiceRetryCandidates||[]);
       if(!records.length)return void toast('Δεν υπάρχουν αποτυχημένα τιμολόγια με διαθέσιμη επανάληψη.');
       renderInvoiceQueue();
+      const dialog=$('simpleDialog'),cancelClosed=()=>{if(!dialog.open&&state.simpleResolver)cancelSimple();};
+      dialog.addEventListener('close',cancelClosed);
+      try{
       await simpleEditor({overline:'ΕΠΑΝΑΛΗΨΗ ΤΙΜΟΛΟΓΙΩΝ',title:'Επανάληψη '+records.length+' αποτυχημένων;',submit:'Έναρξη επανάληψης',html:'<p>Θα υποβληθούν διαδοχικά τα αποτυχημένα τιμολόγια του τρέχοντος φίλτρου και της επιλεγμένης πινακίδας. Τα επιτυχημένα δεν θα επαναληφθούν.</p><p>Κράτησε την εφαρμογή ανοιχτή μέχρι να ολοκληρωθεί η υποβολή. Μετά η επεξεργασία συνεχίζεται στον Server. Η επανάληψη μπορεί να χρησιμοποιήσει AI όπου χρειαστεί.</p>'});
+      }finally{dialog.removeEventListener('close',cancelClosed);}
       if(token!==state.token)return;
       const result=await invoiceRetryController.batch(records);
       if(token!==state.token)return;
