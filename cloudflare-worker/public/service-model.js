@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
   const clone = v => JSON.parse(JSON.stringify(v));
-  const fields = ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','confirmedAt','reviewStatus','reviewedBy','correctedByUserAt','serviceKmBeforeCorrection','serviceKmAfterCorrection','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead'];
+  const fields = ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','confirmedAt','reviewStatus','reviewedBy','correctedByUserAt','serviceKmBeforeCorrection','serviceKmAfterCorrection','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','confirmationMethod','confirmationRuleVersion','confirmationReason','lastReadFingerprint','acknowledgedReadFingerprint'];
   function cents(value) {
     if (value == null || String(value).trim() === '') return null;
     let s = String(value).replace(/EUR|ευρώ|[€\s\u00a0]/gi,'');
@@ -66,9 +66,10 @@
     });return {rows,cents:total,missing,pending,duplicates};
   }
   function state(entry,data) {
-    const invoiceData={};for(const k of fields)if(data?.[k]!=null&&String(data[k]).trim())invoiceData[k]=String(data[k]).slice(0,k==='workPerformed'?2000:500);
-    for(const k of ['lineItems','parts'])if(Array.isArray(data?.[k]))invoiceData[k]=data[k].map(v=>String(v).slice(0,500)).slice(0,50);
-    return {km:Number(entry.km)||0,tasks:(entry.tasks||[]).map(v=>String(v).trim().slice(0,120)).filter(Boolean).slice(0,30),notes:String(entry.notes||'').slice(0,500),workshop:String(entry.workshop||'').slice(0,120),oilChanged:!!entry.oilChanged,majorService:!!entry.majorService,majorServiceMilestoneKm:Number(entry.majorServiceMilestoneKm)||0,invoiceData};
+    const invoiceData={};for(const k of fields)if(data?.[k]!=null&&String(data[k]).trim())invoiceData[k]=String(data[k]).slice(0,k==='workPerformed'?128000:500);
+    for(const k of ['lineItems','parts'])if(Array.isArray(data?.[k]))invoiceData[k]=data[k].map(v=>String(v).slice(0,500)).slice(0,512);
+    if(Array.isArray(data?.reviewIssues))invoiceData.reviewIssues=clone(data.reviewIssues).slice(0,40);
+    return {km:Number(entry.km)||0,tasks:(entry.tasks||[]).map(v=>String(v).trim().slice(0,500)).filter(Boolean).slice(0,5120),notes:String(entry.notes||'').slice(0,128000),workshop:String(entry.workshop||'').slice(0,120),oilChanged:!!entry.oilChanged,majorService:!!entry.majorService,majorServiceMilestoneKm:Number(entry.majorServiceMilestoneKm)||0,invoiceData};
   }
   function journal(value) {return Array.isArray(value)?value.filter(v=>v&&v.id&&v.key&&v.before&&v.after).slice(-12).map(v=>({id:String(v.id).slice(0,100),key:String(v.key).slice(0,500),actor:String(v.actor||'').slice(0,120),at:String(v.at||'').slice(0,40),afterUpdatedAt:String(v.afterUpdatedAt||'').slice(0,40),before:state(v.before,v.before.invoiceData),after:state(v.after,v.after.invoiceData),transfer:!!v.transfer,undoneAt:String(v.undoneAt||'').slice(0,40),undoneBy:String(v.undoneBy||'').slice(0,120)})):[];}
   function decision(entry,key,before,data,actor,at,transfer) {
@@ -78,7 +79,7 @@
   function canUndo(entry,data,r) {return !!r&&!r.undoneAt&&!r.transfer&&entry.updatedAt===r.afterUpdatedAt&&JSON.stringify(state(entry,data))===JSON.stringify(r.after);}
   function undo(entry,data,r) {
     if(!canUndo(entry,data,r))return null;
-    const restored=Object.assign({},data);for(const k of fields.concat(['lineItems','parts']))delete restored[k];Object.assign(restored,r.before.invoiceData);
+    const restored=Object.assign({},data);for(const k of fields.concat(['lineItems','parts','reviewIssues']))delete restored[k];Object.assign(restored,r.before.invoiceData);
     for(const k of ['km','tasks','notes','workshop','oilChanged','majorService','majorServiceMilestoneKm'])entry[k]=clone(r.before[k]);
     return restored;
   }

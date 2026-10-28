@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {createSimulation} from './fixtures/workforce-simulation.mjs';
+import {invoiceText} from './fixtures/invoice-layout.mjs';
 import {normalizeFleet} from '../cloudflare-worker/src/worker.js';
 import {readServiceEntry} from '../cloudflare-worker/src/snapshot-store.js';
 
@@ -61,8 +62,9 @@ const nextJob=response.data.jobId;assert.notEqual(nextJob,storedJob);
 sql.exec("CREATE TRIGGER injected_retry_save_failure BEFORE UPDATE ON fleet_snapshot BEGIN SELECT RAISE(ABORT,'injected_retry_save_failure'); END");
 const originalError=console.error;console.error=()=>{};const badSave=await request('/api/server/service-documents/analysis-result',{jobId:nextJob,localOcr:{localReadStatus:'confident',ocrConfidence:95,plate:'BTO-756',odometerKm:'9000'}},true);console.error=originalError;
 assert.equal(badSave.status,500);assert.equal(sql.prepare('SELECT resolved FROM system_alerts WHERE id=?').get('stored-alert').resolved,0,'A failed result save cannot resolve the alert');sql.exec('DROP TRIGGER injected_retry_save_failure');
-result=await request('/api/server/service-documents/analysis-result',{jobId:nextJob,localOcr:{localReadStatus:'confident',ocrConfidence:95,plate:'BTO-756',odometerKm:'9000',totalAmount:'59',invoiceDate:'2026-10-10',invoiceNumber:'FIXTURE-123',lineItems:['Έλεγχος']}},true);
+result=await request('/api/server/service-documents/analysis-result',{jobId:nextJob,localOcr:{rawText:invoiceText({count:4,number:'INV123',date:'10/10/2026',net:'47,58',vat:'11,42',total:'59,00'}),localReadStatus:'confident',ocrConfidence:95,plate:'BTO-756',odometerKm:'9000',totalAmount:'59',invoiceDate:'2026-10-10',invoiceNumber:'INV123',lineItems:['Έλεγχος']}},true);
 assert.equal(result.status,200,JSON.stringify(result.data));assert.equal(result.data.ocrWarning,'');
+assert.equal(result.data.automaticConfirmed,true,JSON.stringify(result.data.document.invoiceData));assert.equal(result.data.document.status,'confirmed');assert.equal((await readServiceEntry({DB:db},'b','stored')).entry.attachments[0].ocr.lineItems.length,4,'Retry preserves every extracted invoice row');
 assert.equal(sql.prepare('SELECT resolved FROM system_alerts WHERE id=?').get('stored-alert').resolved,1,'Only a saved successful analysis closes its alert');
 assert.equal((await request('/api/admin/alerts')).data.alerts.some(a=>a.id==='stored-alert'),false);
 assert.equal((await retry({alertId:'stored-alert'})).data.skipped,true);

@@ -434,6 +434,14 @@
     state.invoiceGroupAnimationUntil = 0;
     window.clearTimeout(state.invoiceGroupRenderTimer);
     state.invoiceGroupRenderTimer = 0;
+    // A long invoice dialog can leave the old animated list's hit regions
+    // cached after scrolling. Rebuild only on an explicit queue switch.
+    // Card actions use delegated handlers, and the filter retains focus.
+    const queueRoot = $("invoiceQueueList");
+    if (queueRoot && queueRoot.cloneNode && queueRoot.replaceWith) {
+      for (const animation of queueRoot.getAnimations ? queueRoot.getAnimations() : []) animation.cancel();
+      queueRoot.replaceWith(queueRoot.cloneNode(false));
+    }
     renderInvoiceQueue();
     const order = ['processing', 'attention', 'confirmed'];
     window.FleetMotion?.slide($("invoiceQueueList"), order.indexOf(filter) < order.indexOf(previous) ? -1 : 1);
@@ -2770,7 +2778,8 @@
   }
 
   function portalMergeInvoiceTasks(values) {
-    const result = [];
+    const result = [], keys = new Set();
+    let oilIndex = -1;
     const isOil = function (value) {
       const text = String(value || "");
       if (/^\s*φίλτρ(?:ο|ου|ων|α)?\s+λ[άα]δι(?:ού|ών|ων|α)?/iu.test(text)) return false;
@@ -2785,31 +2794,31 @@
         .replace(/[–—:;,·]+/g, " ").replace(/\s+/g, " ").trim();
     };
     (Array.isArray(values) ? values : []).forEach(function (raw) {
-      const task = cleanInvoiceWorkText(portalLineText(raw, 180));
+      const task = cleanInvoiceWorkText(portalLineText(raw, 500));
       if (!task) return;
-      const oilIndex = result.findIndex(isOil);
       if (isOil(task) && oilIndex >= 0) {
         const currentDetail = oilDetail(result[oilIndex]);
         const nextDetail = oilDetail(task);
         const detail = currentDetail.length >= nextDetail.length ? currentDetail : nextDetail;
+        keys.delete(portalTaskKey(result[oilIndex]));
         result[oilIndex] = (detail ? "Αλλαγή λαδιών — " + detail : "Αλλαγή λαδιών").slice(0, 180);
+        keys.add(portalTaskKey(result[oilIndex]));
         return;
       }
       const key = portalTaskKey(task);
-      if (!key || result.some(function (item) {
-        const existingKey = portalTaskKey(item);
-        return existingKey === key || existingKey.includes(key) || key.includes(existingKey);
-      })) return;
+      if (!key || keys.has(key)) return;
+      keys.add(key);
+      if (isOil(task)) oilIndex=result.length;
       result.push(task);
     });
-    return result.slice(0, 30);
+    return result.slice(0, 5120);
   }
 
   function portalInvoiceWorkItems(documentRecord) {
     const data = documentRecord && documentRecord.invoiceData && typeof documentRecord.invoiceData === "object" ? documentRecord.invoiceData : {};
     const values = [];
     if (Array.isArray(documentRecord && documentRecord.tasks)) values.push.apply(values, documentRecord.tasks);
-    values.push.apply(values, portalLineText(data.workPerformed, 3000).split(/\r?\n|\s*[•;]+\s*/));
+    values.push.apply(values, portalLineText(data.workPerformed, 128000).split(/\r?\n|\s*[•;]+\s*/));
     if (Array.isArray(data.lineItems)) values.push.apply(values, data.lineItems);
     if (Array.isArray(data.parts)) values.push.apply(values, data.parts);
     return portalMergeInvoiceTasks(values);
@@ -3250,7 +3259,7 @@
       const data = item.invoiceData || {};
       const warnings = Array.isArray(item.warnings) ? item.warnings : [];
       const work = portalInvoiceWorkItems(item);
-      const taskHtml = work.length ? '<ul class="invoice-queue-tasks">' + work.map(function (task) { return '<li>' + escapeHtml(task) + '</li>'; }).join("") + '</ul>' : '<span class="invoice-queue-muted">Δεν βρέθηκαν γραμμές εργασιών.</span>';
+      const taskHtml = work.length ? '<ul class="invoice-queue-tasks">' + work.map(function (task) { return '<li>' + escapeHtml(task) + '</li>'; }).join("") + '</ul>' + (item.previewTruncated ? '<small>Προεπισκόπηση · '+Number(item.invoiceLineCount||0)+' γραμμές αποθηκευμένες. Ο πλήρης πίνακας είναι διαθέσιμος στον έλεγχο.</small>' : '') : '<span class="invoice-queue-muted">Δεν βρέθηκαν γραμμές εργασιών.</span>';
       const warningHtml = warnings.length ? '<div class="invoice-queue-warnings">' + warnings.map(function (warning) { return '<span>! ' + escapeHtml(warning.message || warning.label || "Χρειάζεται έλεγχος") + '</span>'; }).join("") + '</div>' : '';
       const hasPdf = Boolean(item.key);
       const fileLabel=String(item.contentType||"").startsWith("image/")?"φωτογραφίας":"PDF";
@@ -3258,8 +3267,9 @@
       const reviewLabel = busy ? "Αναμονή PDF" : "Έλεγχος / διόρθωση";
       const serviceMeta = [item.bikeName || "—", item.serviceDate ? formatDate(item.serviceDate + "T12:00:00Z") : "—", item.serviceKm ? km(item.serviceKm) : "Χωρίς χλμ."].join(" • ");
       const invoiceMeta = [data.supplier || "Προμηθευτής —", data.invoiceNumber || "Αρ. —", data.totalAmount || "Κόστος —"].join(" • ");
-      const showProgress = busy || item.status === "error" || (!hasPdf && item.qrUrl);
+      const showProgress = busy || (!hasPdf && item.status === "error") || (!hasPdf && item.qrUrl);
       const progressHtml = showProgress ? invoiceProgressMarkup(item) : '';
+      const confirmationBadge = data.confirmedAt ? '<span class="invoice-user-correction">✓ ' + (data.confirmationMethod === "automatic" ? "Αυτόματη επιβεβαίωση" : "Χειροκίνητη επιβεβαίωση") + '</span>' : "";
       const correctionBadge = data.correctedByUserAt ? '<span class="invoice-user-correction">✓ Διορθώθηκε από χρήστη</span>' : "";
       const newBadge = item.isNew ? '<span class="invoice-new-badge">ΝΕΟ</span>' : '';
       const retryJobId = item.jobId || data.qrJobId || '';
@@ -3267,7 +3277,7 @@
       const forceAiHtml = hasPdf && can("fleet.manage") ? '<button class="secondary-button invoice-force-ai-button" type="button" data-invoice-force-ai="' + escapeHtml(item.id) + '" ' + (state.invoiceReprocessBusy ? 'disabled' : '') + '>⚡ Workers AI</button>' : '';
       const sourceActions=(item.sourcePhoto||String(item.contentType||'').startsWith('image/')?'<button class="secondary-button" type="button" data-invoice-photo="'+escapeHtml(item.id)+'">Φωτογραφία</button>':'')+(item.qrUrl?'<button class="secondary-button" type="button" data-invoice-qr="'+escapeHtml(item.id)+'">QR</button>':'');
       const deleteHtml = can("fleet.manage") ? '<button class="secondary-button invoice-delete-button" type="button" data-invoice-delete="' + escapeHtml(item.id) + '">Διαγραφή</button>' : '';
-      return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? (fileLabel==='PDF'?'PDF διαθέσιμο':'Φωτογραφία διαθέσιμη') : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || item.status === "error" ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα ' + fileLabel + '</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη ' + fileLabel + '</button>' + sourceActions + deleteHtml + '</div></article>';
+      return '<article class="invoice-queue-card ' + (warnings.length ? 'has-warning ' : '') + (item.isNew ? 'is-new ' : '') + escapeHtml(item.status || "uploaded") + '" data-invoice-card="' + escapeHtml(item.id) + '"><div class="invoice-queue-head"><span class="invoice-queue-icon">▤</span><div><span class="overline">' + escapeHtml(invoiceStatusLabels[item.status] || "ΤΙΜΟΛΟΓΙΟ") + ' ' + newBadge + confirmationBadge + correctionBadge + '</span><h3>' + escapeHtml(item.name || "Τιμολόγιο service") + '</h3><p>' + escapeHtml(serviceMeta) + '</p></div><div>' + invoiceStatusPill(item.status) + '</div></div>' + progressHtml + '<div class="invoice-queue-facts"><span><small>Στοιχεία τιμολογίου</small><strong>' + escapeHtml(invoiceMeta) + '</strong></span><span><small>Πινακίδα / χιλιόμετρα</small><strong>' + escapeHtml((data.plate || "—") + " • " + (data.odometerKm ? km(data.odometerKm) : "—")) + '</strong></span><span><small>QR / PDF</small><strong>' + (item.qrUrl ? 'QR αποθηκευμένο' : '—') + ' • ' + (hasPdf ? (fileLabel==='PDF'?'PDF διαθέσιμο':'Φωτογραφία διαθέσιμη') : 'Σε αναμονή') + '</strong></span></div><div class="invoice-queue-work"><small>Εργασίες / ανταλλακτικά</small>' + taskHtml + '</div>' + warningHtml + '<div class="invoice-queue-actions">' + retryHtml + forceAiHtml + '<button class="primary-button" type="button" data-invoice-review="' + escapeHtml(item.id) + '" ' + (busy || (!hasPdf && item.status === "error") ? 'disabled' : '') + '>' + reviewLabel + '</button><button class="secondary-button" type="button" data-invoice-open="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Άνοιγμα ' + fileLabel + '</button><button class="secondary-button" type="button" data-invoice-download="' + escapeHtml(item.id) + '" ' + (hasPdf ? '' : 'disabled') + '>Λήψη ' + fileLabel + '</button>' + sourceActions + deleteHtml + '</div></article>';
     };
     $("invoiceQueueList").innerHTML = Array.from(grouped.entries()).map(function (pair) { return Object.assign({ key: pair[0] }, pair[1]); }).sort(function (a, b) { return a.label.localeCompare(b.label, "el"); }).map(function (group) {
       group.items.sort(function (left, right) {
@@ -3297,7 +3307,7 @@
     const completed = Number.isFinite(rawCompleted) ? Math.max(0, Math.min(total, Math.floor(rawCompleted))) : 0;
     const rawFailed = Number(value.failed);
     const failed = Number.isFinite(rawFailed) ? Math.max(0, Math.floor(rawFailed)) : 0;
-    const done = status !== "processing";
+    const done = !["processing","paused"].includes(status);
     const name = String(value.currentName || "Επεξεργασία τιμολογίου");
     const finalStatus = status === "error"
       ? String(value.error || "Η κοινή διαδικασία σταμάτησε.")
@@ -3310,7 +3320,7 @@
       currentStartedAt: value.currentStartedAt || value.updatedAt || value.startedAt || "",
       title: done ? (status === "error" ? "Η νέα ανάγνωση σταμάτησε" : "Η νέα ανάγνωση ολοκληρώθηκε") : value.mode === "workers-ai" ? "Νέα ανάγνωση · Workers AI" : "Νέα ανάγνωση · Server πρώτα",
       detail: completed + "/" + total + " · " + name,
-      status: finalStatus,
+      status: finalStatus + (value.automaticConfirmed!=null ? " · Αυτόματα επιβεβαιωμένα: " + (Number(value.automaticConfirmed)||0) + " · Προς έλεγχο: " + (Number(value.needsReview)||0) + " · Προηγούμενες επιβεβαιώσεις: " + (Number(value.confirmedPreserved)||0) + " · Σφάλματα: " + failed + " · Παραλείψεις: " + (Number(value.skipped)||0) : ""),
       failed: status === "error" || failed > 0,
       error: status === "error",
       done: done
@@ -3372,7 +3382,7 @@
     renderInvoiceQueue();
     loadInvoices().catch(function () {});
     toast(batch.status === "error" ? "Η κοινή νέα ανάγνωση σταμάτησε. Δες το σφάλμα στην πρόοδο." : "Η κοινή νέα ανάγνωση ολοκληρώθηκε σε όλες τις συνδέσεις.");
-    scheduleInvoiceReprocessProgressHide(Boolean(batch.failed || batch.status === "error"));
+    scheduleInvoiceReprocessProgressHide(Boolean(batch.failed || batch.needsReview || batch.status === "error"));
   }
 
   async function refreshInvoiceReprocessBatch() {
@@ -3731,6 +3741,7 @@
     $("invoiceReviewWarnings").innerHTML = warnings.length
       ? warnings.map(function (warning) { return '<div class="invoice-review-warning">! <span><strong>' + escapeHtml(warning.label || "Προειδοποίηση") + '</strong><small>' + escapeHtml(warning.message || "") + '</small></span></div>'; }).join("")
       : '<div class="invoice-review-ok">✓ Δεν βρέθηκε διαφορά πινακίδας ή χιλιομέτρων.</div>';
+    if(data.confirmedAt)$("invoiceReviewWarnings").insertAdjacentHTML("afterbegin",'<div class="invoice-review-ok">✓ '+escapeHtml(data.confirmationMethod==='automatic'?'Αυτόματη επιβεβαίωση':'Χειροκίνητη επιβεβαίωση')+' · '+escapeHtml(formatDateTime(data.confirmedAt))+'<small>'+escapeHtml(data.confirmationReason||'Προηγούμενη επιβεβαίωση χρήστη')+'</small></div>');
     const plateMismatch = warnings.some(function (warning) { return warning.type === "plate"; });
     const transferOptions = Array.isArray(record.transferOptions) ? record.transferOptions : [];
     const transferBox = $("invoiceReviewTransfer");
@@ -3798,7 +3809,7 @@
     if (!record || !record.key) return void ($("invoiceReviewError").textContent = "Το PDF δεν είναι ακόμη διαθέσιμο για επιβεβαίωση.");
     if ($("invoiceReviewSave").disabled) return;
     const data = record.invoiceData || {};
-    const tasks = String($("invoiceReviewTasks").value || "").split(/\r?\n|\s*[•;]+\s*/).map(function (item) { return item.trim(); }).filter(Boolean).slice(0, 30);
+    const tasks = String($("invoiceReviewTasks").value || "").split(/\r?\n|\s*[•;]+\s*/).map(function (item) { return item.trim(); }).filter(Boolean).slice(0, 5120);
     const invoiceData = Object.assign({}, data, {
       supplier: $("invoiceReviewSupplier").value.trim(),
       plate: $("invoiceReviewPlate").value.trim(),

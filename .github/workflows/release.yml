@@ -70,6 +70,7 @@ jobs:
       - run: node scripts/test-next-service-browser.mjs
       - run: node scripts/test-ui-system-browser.mjs
       - run: node scripts/test-invoice-retry-browser.mjs
+      - run: node scripts/test-invoice-auto-browser.mjs
       - name: Save navigation verification images
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,12 +81,15 @@ jobs:
             verification/next-service/
             verification/ui-system/
             verification/invoice-retry/
+            verification/invoice-auto/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-server-large-storage-native.mjs
       - run: node scripts/test-local-invoice-reader.mjs
       - run: node scripts/test-invoice-reader-accuracy.mjs
+      - run: node scripts/test-invoice-reader-full.mjs
+      - run: node scripts/test-invoice-transport.mjs
       - run: node scripts/test-server-ota-policy.mjs
       - run: node scripts/test-server-http.mjs
       - run: node scripts/test-server-snapshot-sync.mjs
