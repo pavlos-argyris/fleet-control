@@ -5009,7 +5009,7 @@ async function lockPayroll(request, env, deps) {
   const now = nowIso();
   const snapshots=summary.employees.map(item=>({id:uuid(),employee:item.employeeId,data:item}));
   if(summary.hoursSource==='ordexa'){
-    const guard="EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_revision' AND value=?) AND EXISTS(SELECT 1 FROM payroll_periods WHERE id=? AND status='open')";
+    const guard="EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_revision' AND value=?) AND EXISTS(SELECT 1 FROM payroll_periods WHERE id=? AND status='open') AND EXISTS(SELECT 1 FROM system_settings WHERE key='payroll_hours_source' AND value='ordexa')";
     const committed=await env.DB.batch([
       env.DB.prepare(`INSERT INTO payroll_snapshots(id,period_id,employee_id,data,created_at) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.employee'),json_extract(value,'$.data'),? FROM json_each(?) WHERE ${guard}`).bind(summary.period.id,now,JSON.stringify(snapshots),summary.ordexaRevision,summary.period.id),
       env.DB.prepare(`UPDATE payroll_periods SET status='locked',locked_at=?,locked_by=?,hours_source=?,updated_at=? WHERE id=? AND status='open' AND ${guard}`).bind(now,actor.user_id,summary.hoursSource,now,summary.period.id,summary.ordexaRevision,summary.period.id)

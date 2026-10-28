@@ -133,3 +133,14 @@ Server **2.3.0** code44, Worker **5.13.0**. Αυξήθηκαν manifests/config/
 test-signed APK και συνθετικά logs. Δεν χρειάζονται ως build inputs και δεν
 μεταφέρονται ιδιωτικά κλειδιά στο Git. Η ασφαλής browser συνεδρία δεν αποτελεί
 παραγωγική σύνδεση του Server ούτε μεταφέρεται στη νέα συνομιλία.
+
+## Συνέχιση 29/10/2026 — νεότερη από το ιστορικό checkpoint
+
+Η νεότερη εντολή χρήστη συνεχίζει στο ίδιο PR35. Οι διορθώσεις/στοχευμένοι
+έλεγχοι των ευρημάτων1–7 καταγράφονται στο νεότερο ορόσημο του
+CHATGPT_HANDOFF_GR.md. Υπάρχει επιπλέον test-ordexa-server-ui.mjs,
+test-ordexa-lifecycle.mjs και test-ordexa-migration.mjs. Το full browser
+test περιλαμβάνει πλέον και Server μικρού/μεγάλου πλάτους. Απαιτείται τελικό
+CI/επιθεώρηση synthetic screenshots και exact main CI πριν request-publish.
+Τα πραγματικά native API/schema/device/rate-limit ερωτήματα παραμένουν
+προς επιβεβαίωση από τον χρήστη χωρίς παραγωγικό import ως δοκιμή.

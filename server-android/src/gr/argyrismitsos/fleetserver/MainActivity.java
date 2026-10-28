@@ -238,6 +238,10 @@ public final class MainActivity extends Activity {
     }
 
     private void runTask(final String event, final Task task) {
+        runTask(event, "", task);
+    }
+
+    private void runTask(final String event, final String requestId, final Task task) {
         executor.submit(new Runnable() {
             @Override
             public void run() {
@@ -247,20 +251,27 @@ public final class MainActivity extends Activity {
                 try {
                     JSONObject payload = task.run();
                     payload.put("ok", true);
+                    if (!requestId.isEmpty()) payload.put("requestId", requestId);
                     emit(event, payload);
                 } catch (Exception error) {
-                    emitError(event, error.getMessage());
+                    if (requestId.isEmpty()) emitError(event, error.getMessage());
+                    else try { emit(event, new JSONObject().put("ok", false).put("requestId", requestId).put("message", error.getMessage()==null?"Η ενέργεια Ordexa απέτυχε.":error.getMessage())); } catch (Exception ignored) {}
                 }finally{if(critical)ServerWorkTracker.finish(lane);}
             }
         });
     }
 
+    private static String ordexaRequestId(String value) {
+        try { String id=new JSONObject(value).optString("requestId", "");return id.matches("[A-Za-z0-9._-]{1,100}")?id:""; }
+        catch (Exception ignored) { return ""; }
+    }
+
     public final class ServerBridge {
         @JavascriptInterface public String getOrdexaStatus(){try{return OrdexaSync.status(getApplicationContext()).toString();}catch(Exception e){return "{\"configured\":false,\"error\":\"Η σύνδεση Ordexa χρειάζεται έλεγχο.\"}";}}
-        @JavascriptInterface public void ordexaLogin(final String value){runTask("ordexaLogin",new Task(){public JSONObject run()throws Exception{return OrdexaSync.login(getApplicationContext(),new JSONObject(value));}});}
-        @JavascriptInterface public void ordexaConfigure(final String value){runTask("ordexaConfigure",new Task(){public JSONObject run()throws Exception{return OrdexaSync.configure(getApplicationContext(),new JSONObject(value));}});}
-        @JavascriptInterface public void ordexaPreview(final String value){runTask("ordexaPreview",new Task(){public JSONObject run()throws Exception{return OrdexaSync.preview(getApplicationContext(),new JSONObject(value));}});}
-        @JavascriptInterface public void ordexaSync(final String value){runTask("ordexaSync",new Task(){public JSONObject run()throws Exception{return OrdexaSync.sync(getApplicationContext(),new JSONObject(value));}});}
+        @JavascriptInterface public void ordexaLogin(final String value){runTask("ordexaLogin",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return OrdexaSync.login(getApplicationContext(),new JSONObject(value));}});}
+        @JavascriptInterface public void ordexaConfigure(final String value){runTask("ordexaConfigure",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return OrdexaSync.configure(getApplicationContext(),new JSONObject(value));}});}
+        @JavascriptInterface public void ordexaPreview(final String value){runTask("ordexaPreview",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return OrdexaSync.preview(getApplicationContext(),new JSONObject(value));}});}
+        @JavascriptInterface public void ordexaSync(final String value){runTask("ordexaSync",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return OrdexaSync.sync(getApplicationContext(),new JSONObject(value));}});}
         @JavascriptInterface
         public String getDashboard() {
             try {

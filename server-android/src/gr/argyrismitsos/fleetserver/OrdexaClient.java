@@ -7,6 +7,9 @@ import java.net.URL;
 import java.io.*;
 import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
+import java.security.MessageDigest;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.*;
 
 /** Fixed, read-only provider protocol. No arbitrary path, method or redirects. */
@@ -34,7 +37,27 @@ public final class OrdexaClient {
     }
     static void day(String day)throws Exception{
         if(day==null||!day.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}"))throw new IllegalArgumentException("Μη έγκυρη ημερομηνία.");
-        SimpleDateFormat f=new SimpleDateFormat("yyyy-MM-dd",Locale.US);f.setLenient(false);if(!f.format(f.parse(day)).equals(day))throw new IllegalArgumentException("Μη έγκυρη ημερομηνία.");
+        SimpleDateFormat f=new SimpleDateFormat("yyyy-MM-dd",Locale.US);f.setTimeZone(TimeZone.getTimeZone("UTC"));f.setLenient(false);if(!f.format(f.parse(day)).equals(day))throw new IllegalArgumentException("Μη έγκυρη ημερομηνία.");
+    }
+    private static String identifier(Object value)throws Exception{
+        if(value instanceof Number){double n=((Number)value).doubleValue();if(Double.isNaN(n)||Double.isInfinite(n)||n<0||n>9007199254740991d||n!=Math.floor(n))throw new IOException("Μη έγκυρο αναγνωριστικό Ordexa.");return new java.math.BigDecimal(value.toString()).stripTrailingZeros().toPlainString();}
+        if(!(value instanceof String)||((String)value).trim().length()==0||((String)value).length()>100)throw new IOException("Μη έγκυρο αναγνωριστικό Ordexa.");return (String)value;
+    }
+    private static long instant(String value)throws Exception{
+        Matcher match=Pattern.compile("^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})(?:\\.(\\d{1,3}))?(Z|[+-]\\d{2}:\\d{2})$").matcher(value);
+        if(!match.matches()||Integer.parseInt(value.substring(11,13))>23)throw new IOException("Η ώρα Ordexa πρέπει να έχει πλήρη ημερομηνία και ζώνη ώρας.");
+        String fraction=match.group(2)==null?"":match.group(2);while(fraction.length()<3)fraction+="0";
+        String zone="Z".equals(match.group(3))?"+0000":match.group(3).replace(":","");SimpleDateFormat format=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ",Locale.US);format.setLenient(false);return format.parse(match.group(1)+"."+fraction+zone).getTime();
+    }
+    // Array ordering and JSONObject iteration order are not provider revisions.
+    // Only normalized, credential-free report data is fingerprinted locally.
+    private static String canonical(Object value)throws Exception{
+        if(value instanceof JSONObject){JSONObject object=(JSONObject)value;List<String> keys=new ArrayList<String>();Iterator<String> iterator=object.keys();while(iterator.hasNext()){String k=iterator.next();if(!"capturedAt".equals(k))keys.add(k);}Collections.sort(keys);StringBuilder result=new StringBuilder("{");for(String k:keys){if(result.length()>1)result.append(',');result.append(JSONObject.quote(k)).append(':').append(canonical(object.get(k)));}return result.append('}').toString();}
+        if(value instanceof JSONArray){JSONArray array=(JSONArray)value;List<String> rows=new ArrayList<String>();for(int i=0;i<array.length();i++)rows.add(canonical(array.get(i)));Collections.sort(rows);StringBuilder result=new StringBuilder("[");for(String row:rows){if(result.length()>1)result.append(',');result.append(row);}return result.append(']').toString();}
+        return value==null||value==JSONObject.NULL?"null":value instanceof String?JSONObject.quote((String)value):JSONObject.valueToString(value);
+    }
+    static String digest(JSONObject report)throws Exception{
+        byte[] bytes=MessageDigest.getInstance("SHA-256").digest(canonical(report).getBytes(UTF8));StringBuilder result=new StringBuilder();for(byte b:bytes)result.append(String.format(Locale.US,"%02x",b&255));return result.toString();
     }
     private JSONObject call(Action action,JSONObject body,String city,String from,String to)throws Exception{
         String path=path(action,city,from,to);
@@ -45,25 +68,31 @@ public final class OrdexaClient {
     public String login(String username,String password)throws Exception{
         if(username==null||username.trim().length()==0||username.length()>200||password==null||password.length()==0||password.length()>1000)throw new IllegalArgumentException("Συμπλήρωσε όνομα χρήστη και κωδικό.");
         JSONObject result=call(Action.LOGIN,new JSONObject().put("username",username).put("password",password),null,null,null);
-        String value=result.optString("token","");if(value.length()<8||value.length()>16384||value.contains("\n")||value.contains("\r"))throw new IOException("Το Ordexa δεν επέστρεψε έγκυρη συνεδρία.");
+        Object rawToken=result.opt("token");if(!(rawToken instanceof String))throw new IOException("Το Ordexa δεν επέστρεψε έγκυρη συνεδρία.");String value=(String)rawToken;if(value.length()<8||value.length()>16384||value.contains("\n")||value.contains("\r"))throw new IOException("Το Ordexa δεν επέστρεψε έγκυρη συνεδρία.");
         token=value;return value;
     }
     public JSONArray cities()throws Exception{
         JSONArray source=call(Action.CITIES,null,null,null,null).optJSONArray("cities");if(source==null||source.length()>200)throw new IOException("Άγνωστο σχήμα πόλεων Ordexa.");
-        JSONArray result=new JSONArray();for(int i=0;i<source.length();i++){JSONObject row=source.getJSONObject(i);String id=String.valueOf(row.get("id"));path(Action.REPORT,id,"2026-01-01","2026-01-01");result.put(new JSONObject().put("id",id).put("name",row.optString("name",id)));}return result;
+        JSONArray result=new JSONArray();Set<String> seen=new HashSet<String>();for(int i=0;i<source.length();i++){JSONObject row=source.getJSONObject(i);String id=identifier(row.get("id"));if(!seen.add(id))throw new IOException("Διπλή πόλη Ordexa.");path(Action.REPORT,id,"2026-01-01","2026-01-01");result.put(new JSONObject().put("id",id).put("name",row.optString("name",id)));}return result;
     }
     static String isoNow(){SimpleDateFormat f=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",Locale.US);f.setTimeZone(TimeZone.getTimeZone("UTC"));return f.format(new Date());}
     public JSONObject report(String city,String day)throws Exception{
         String capturedAt=isoNow();JSONObject result=call(Action.REPORT,null,city,day,day);
         JSONObject report=result.optJSONObject("report");JSONArray riders=report==null?null:report.optJSONArray("riders");
-        if(riders==null||riders.length()>200||result.optBoolean("hasMore")||report.optBoolean("hasMore")||result.has("next")&&!result.isNull("next"))throw new IOException("Άγνωστη ή μη πλήρης αναφορά Ordexa.");
-        JSONArray clean=new JSONArray();int count=0;
+        if(riders==null||riders.length()>200||result.optBoolean("hasMore")||report.optBoolean("hasMore")||result.has("next")&&!result.isNull("next")||report.has("next")&&!report.isNull("next"))throw new IOException("Άγνωστη ή μη πλήρης αναφορά Ordexa.");
+        JSONArray clean=new JSONArray();Set<String> riderIds=new HashSet<String>();int count=0;
         for(int i=0;i<riders.length();i++){
             JSONObject rider=riders.getJSONObject(i);JSONArray sessions=rider.optJSONArray("sessions");
             if(sessions==null)throw new IOException("Η αναφορά δεν έχει αναλυτικά clock in/out.");
-            JSONArray rows=new JSONArray();for(int j=0;j<sessions.length();j++){
+            String riderId=identifier(rider.get("riderId")),name=rider.getString("name");if(!riderIds.add(riderId)||name.trim().length()==0||name.length()>200)throw new IOException("Μη έγκυρα στοιχεία διανομέα Ordexa.");
+            JSONArray rows=new JSONArray();Set<String> sessionIds=new HashSet<String>();for(int j=0;j<sessions.length();j++){
                 if(++count>2000)throw new IOException("Υπέρβαση ημερήσιου ορίου παρουσιών. Δεν αποκόπηκε η αναφορά.");
                 JSONObject source=sessions.getJSONObject(j),row=new JSONObject();
+                if(!day.equals(source.getString("day")))throw new IOException("Η αναφορά Ordexa περιέχει άλλη ημέρα.");
+                long start=instant(source.getString("inAt"));boolean closed=source.has("outAt")&&!source.isNull("outAt")&&!"".equals(source.get("outAt"));
+                if(closed&&instant(source.getString("outAt"))<start)throw new IOException("Η έξοδος Ordexa προηγείται της εισόδου.");
+                for(String flag:new String[]{"unclosed","forgotten","long"})if(source.has(flag)&&!source.isNull(flag)&&!(source.get(flag) instanceof Boolean))throw new IOException("Άγνωστο σχήμα ενδείξεων παρουσίας Ordexa.");
+                String identity=source.has("id")&&!source.isNull("id")?"id:"+identifier(source.get("id")):"in:"+start;if(!sessionIds.add(identity))throw new IOException("Διπλή παρουσία στην αναφορά Ordexa.");
                 for(String key:new String[]{"id","day","inAt","outAt","unclosed","forgotten","long","choice","shift"})if(source.has(key))row.put(key,source.get(key));
                 rows.put(row);
             }

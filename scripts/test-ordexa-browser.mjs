@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
 import worker from '../cloudflare-worker/src/worker.js';import {createSimulation} from './fixtures/workforce-simulation.mjs';
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{chromium}=require('playwright');
-const output=path.resolve('verification/ordexa');fs.mkdirSync(output,{recursive:true});const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']});
-try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],['client-landscape',1024,768]]){
- const {db,env,call}=createSimulation();const boot=await call('/api/auth/bootstrap',{server:true,method:'POST',body:{fullName:'Fleet διαφορετικό όνομα',username:'ordexaui',password:'SyntheticOrdexaUI!7'}});assert.equal(boot.status,200);const {token,user}=boot.data;
+const output=path.resolve('verification/ordexa');fs.mkdirSync(output,{recursive:true});const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined,args:['--no-sandbox','--allow-file-access-from-files']});
+// One Worker isolate owns one DB binding. Reuse the initialized fixture across
+// viewports instead of pairing its cached schema with a new empty database.
+const {db,env,call}=createSimulation();const boot=await call('/api/auth/bootstrap',{server:true,method:'POST',body:{fullName:'Fleet διαφορετικό όνομα',username:'ordexaui',password:'SyntheticOrdexaUI!7'}});assert.equal(boot.status,200);const {token,user}=boot.data;
  assert.equal((await call('/api/server/ordexa/import',{server:true,method:'POST',body:{cityId:'city-1',day:'2026-10-19',capturedAt:'2026-10-19T23:00:00Z',report:{riders:[{riderId:17,name:'Όνομα Ordexa Α',sessions:[{id:'s1',day:'2026-10-19',inAt:'2026-10-19T08:00:00+03:00',outAt:'2026-10-19T16:00:00+03:00'}]}]}}})).status,200);
+try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],['client-landscape',1024,768]]){
+ const prior=db.sqlite.prepare('SELECT * FROM ordexa_riders').get();if(prior.employee_id)assert.equal((await call('/api/admin/ordexa/mapping',{token,method:'POST',body:{cityId:prior.city_id,riderId:prior.rider_id,employeeId:null,revision:prior.revision,reason:'Reset synthetic viewport fixture'}})).status,200);
  const context=await browser.newContext({viewport:{width,height},locale:'el-GR',serviceWorkers:'block'}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await context.addInitScript(({token,user})=>{localStorage.setItem('fleet-control-auth-token',token);localStorage.setItem('fleet-control-user-cache',JSON.stringify(user));},{token,user});
  const root=path.resolve('cloudflare-worker/public');let writes=0;
@@ -20,4 +23,27 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
   await panel.locator('[data-mapping]').selectOption(user.id);await panel.locator('[data-save-mapping]').click();const dialog=page.locator('dialog[data-ordexa-dialog][open]');await dialog.waitFor();assert.match(await dialog.textContent(),/Όνομα Ordexa Α/);assert.match(await dialog.textContent(),/Fleet διαφορετικό όνομα/);await page.screenshot({path:path.join(output,mode+'-confirm-pair.png')});await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});assert.equal(writes,0);
   await panel.locator('[data-save-mapping]').click();await dialog.waitFor();await dialog.locator('textarea').fill('Επιβεβαίωση διαφορετικών ονομάτων');const response=page.waitForResponse(r=>r.url().includes('/api/admin/ordexa/mapping')&&r.request().method()==='POST');await dialog.getByRole('button',{name:'Επιβεβαίωση',exact:true}).click();assert.equal((await response).status(),200);await page.waitForFunction(()=>!document.querySelector('#ordexaPanel [data-save-mapping]')?.disabled);assert.equal(writes,1);assert.equal(db.sqlite.prepare('SELECT employee_id FROM ordexa_riders').get().employee_id,user.id);assert.deepEqual(errors,[]);console.log('PASS Ordexa browser '+mode+': full Portal/Client wiring, different-name selection, themed Back/Escape, explicit atomic mapping and responsive layout.');
  }finally{await context.close();}
-}}finally{await browser.close();}
+}
+for(const width of [390,1100]){
+ const context=await browser.newContext({viewport:{width,height:900},locale:'el-GR',serviceWorkers:'block'}),page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await context.addInitScript(()=>{
+  window.serverFixture={commands:[],failSync:false,state:{configured:false,cityId:'',cities:[],enabled:false,stage:''}};
+  const result=(name,input,extra={})=>setTimeout(()=>window.FleetServer.onNativeEvent(name,{ok:true,requestId:input.requestId,...extra}),25);
+  const bridge={getDashboard:()=>JSON.stringify({settingsLoaded:true,workerUrl:'https://fixture.invalid',automaticBackup:false,automaticStart:false,serverVersion:'2.3.0',serviceRunning:false,serverOnline:false,health:{},ota:{}}),getOrdexaStatus:()=>JSON.stringify(window.serverFixture.state)};
+  bridge.ordexaLogin=value=>{const input=JSON.parse(value);window.serverFixture.commands.push({name:'login',input});Object.assign(window.serverFixture.state,{configured:true,account:input.username,cities:[{id:'7',name:'Synthetic city'}],cityId:'',enabled:false});result('ordexaLogin',input);};
+  bridge.ordexaConfigure=value=>{const input=JSON.parse(value);window.serverFixture.commands.push({name:'configure',input});Object.assign(window.serverFixture.state,{cityId:input.cityId,enabled:input.enabled});result('ordexaConfigure',input);};
+  bridge.ordexaPreview=value=>{const input=JSON.parse(value);window.serverFixture.commands.push({name:'preview',input});result('ordexaPreview',input,{sessions:2,riders:[{name:'Synthetic rider',sessions:2}]});};
+  bridge.ordexaSync=value=>{const input=JSON.parse(value);window.serverFixture.commands.push({name:'sync',input});result('ordexaSync',input,window.serverFixture.failSync?{ok:false,message:'Synthetic failed save'}:{savedDays:1,unchangedDays:0});};
+  window.AndroidServer=new Proxy(bridge,{get:(object,key)=>key in object?object[key]:()=>{}});
+ });
+ try{
+  await page.goto('file://'+path.resolve('server-android/assets/www/index.html'));await page.locator('#headerSettings').click();const panel=page.locator('#ordexaServerPanel');await panel.locator('details').first().locator('summary').click();
+  await panel.locator('[name=username]').fill('synthetic-user');await panel.locator('[name=password]').fill('synthetic-password');await panel.locator('[data-login] button').click();await page.waitForFunction(()=>document.querySelector('#ordexaServerPanel [data-message]').textContent.includes('επιβεβαιώθηκε'));
+  assert.equal(await panel.locator('[name=password]').inputValue(),'');await panel.locator('[name=cityId]').selectOption('7');await panel.locator('[name=enabled]').check();await panel.locator('[data-config] button').click();await page.waitForFunction(()=>document.querySelector('#ordexaServerPanel [data-message]').textContent.includes('ρύθμιση αποθηκεύτηκε'));
+  await panel.locator('details').last().locator('summary').click();await panel.locator('[name=from]').fill('2026-10-19');await panel.locator('[name=to]').fill('2026-10-19');await panel.locator('[data-preview]').click();await page.waitForFunction(()=>document.querySelector('#ordexaServerPanel [data-message]').textContent.includes('Δεν έγινε αποθήκευση'));
+  assert.equal(await page.evaluate(()=>window.serverFixture.commands.some(command=>command.name==='sync')),false,'Preview must not trigger an import');await panel.scrollIntoViewIfNeeded();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Server '+width+' overflow');await page.screenshot({path:path.join(output,'server-'+width+'-preview.png')});
+  await panel.locator('[data-sync]').click();await page.waitForFunction(()=>document.querySelector('#ordexaServerPanel [data-message]').textContent.includes('Ολοκληρώθηκε'));await page.evaluate(()=>{window.serverFixture.failSync=true;});await panel.locator('[data-sync]').click();await page.waitForFunction(()=>document.querySelector('#ordexaServerPanel [data-message]').textContent.includes('Synthetic failed save'));assert.equal(await panel.locator('[data-sync]').isEnabled(),true);assert.deepEqual(errors,[]);await page.screenshot({path:path.join(output,'server-'+width+'-failed-save.png')});
+  console.log('PASS full Server Ordexa UI '+width+': local credentials, city/automatic settings, preview without import, explicit sync and visible failed save. Synthetic native bridge only.');
+ }finally{await context.close();}
+}
+}finally{await browser.close();}

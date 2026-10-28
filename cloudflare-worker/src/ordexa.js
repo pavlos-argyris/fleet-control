@@ -47,9 +47,13 @@ export async function routeOrdexa(request,env,path,D){
   return D.wfJson({saved:true,accepted:!!saved?.accepted,rows:data.rows.length,riders:data.riders.length});
  }
  if(!server&&path==='/api/admin/ordexa'&&method==='GET'){
-  const url=new URL(request.url),from=ordexaDay(url.searchParams.get('from')||now().slice(0,10)),to=ordexaDay(url.searchParams.get('to')||from);
-  if(to<from||Date.parse(to)-Date.parse(from)>31*86400000)bad(D,'Επίλεξε περίοδο έως 31 ημέρες.');
-  const page=Math.max(0,Math.min(10000,Number(url.searchParams.get('page'))||0));
+  const url=new URL(request.url);let from,to;
+  for(const key of ['from','to','page'])if(url.searchParams.getAll(key).length>1)bad(D,'Η παράμετρος '+key+' δόθηκε περισσότερες από μία φορές.');
+  try{from=ordexaDay(url.searchParams.has('from')?url.searchParams.get('from'):now().slice(0,10));to=ordexaDay(url.searchParams.has('to')?url.searchParams.get('to'):from);}catch(e){bad(D,e.message);}
+  if(to<from||Date.parse(to)-Date.parse(from)>=31*86400000)bad(D,'Επίλεξε περίοδο έως 31 ημέρες.');
+  const pageValue=url.searchParams.has('page')?url.searchParams.get('page'):'0';
+  if(!/^(0|[1-9]\d{0,4})$/.test(pageValue)||Number(pageValue)>10000)bad(D,'Η σελίδα πρέπει να είναι ακέραιος από 0 έως 10000.');
+  const page=Number(pageValue);
   const [riders,employees,sessions,latest,p,coverage]=await Promise.all([
    env.DB.prepare(`SELECT r.*,u.full_name AS employee_name,u.active AS employee_active FROM ordexa_riders r LEFT JOIN app_users u ON u.id=r.employee_id ORDER BY r.city_id,r.name`).all(),
    env.DB.prepare(`SELECT id,full_name,active FROM app_users WHERE deleted_at IS NULL ORDER BY full_name`).all(),
@@ -109,7 +113,12 @@ export async function readOrdexaPayroll(env,bounds,startDate,endDate,setting){
   env.DB.prepare('SELECT DISTINCT city_id,day FROM ordexa_imports WHERE accepted=1 AND day BETWEEN ? AND ?').bind(startDate,endDate).all(),
   env.DB.prepare('SELECT DISTINCT city_id FROM ordexa_riders WHERE employee_id IS NOT NULL').all()
  ]);
- const grouped=groupOrdexaSessions(records(sessions),p),coverageSet=new Set(records(coverage).map(r=>r.city_id+'|'+r.day));
+ // Provider dates can be corrected independently of timestamps. A session
+ // already included in another locked period must never become payable twice.
+ const sourceRows=records(sessions),paid=sourceRows.length?records(await env.DB.prepare(`SELECT DISTINCT si.value AS session_id FROM payroll_snapshots ps JOIN payroll_periods pp ON pp.id=ps.period_id,json_each(ps.data,'$.sourceRows') sr,json_each(sr.value,'$.sourceSessionIds') si WHERE pp.status='locked' AND (pp.start_date<>? OR pp.end_date<>?) AND si.value IN (SELECT value FROM json_each(?))`).bind(startDate,endDate,JSON.stringify(sourceRows.map(r=>r.id))).all()):[];
+ const paidIds=new Set(paid.map(r=>r.session_id));
+ const grouped=groupOrdexaSessions(sourceRows.filter(r=>!paidIds.has(r.id)),p),coverageSet=new Set(records(coverage).map(r=>r.city_id+'|'+r.day));
+ for(const row of sourceRows)if(paidIds.has(row.id)&&(!Number(row.ignored)||Number(row.review)))grouped.blocked.push({id:row.id,reason:'Η παρουσία έχει ήδη προσμετρηθεί σε άλλη κλειδωμένη μισθοδοσία.'});
  for(const city of records(cities))for(let d=Date.parse(startDate+'T00:00:00Z');d<=Date.parse(endDate+'T00:00:00Z');d+=86400000){const day=new Date(d).toISOString().slice(0,10);if(!coverageSet.has(city.city_id+'|'+day))grouped.blocked.push({id:city.city_id+'|'+day,reason:'Λείπει ημερήσιος συγχρονισμός'});}
  if(!records(cities).length)grouped.blocked.push({reason:'Δεν υπάρχουν αντιστοιχισμένοι εργαζόμενοι Ordexa.'});
  if(revision!==await setting(env,'ordexa_revision','0'))throw new Error('Οι παρουσίες Ordexa άλλαξαν στη διάρκεια του υπολογισμού. Κάνε ανανέωση.');
