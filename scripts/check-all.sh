@@ -32,6 +32,7 @@ node scripts/test-ordexa-pay-ui.mjs
 node scripts/test-ordexa-server-engine.mjs
 node scripts/test-ordexa-server-api.mjs
 node scripts/test-ordexa-day-fixes.mjs
+node scripts/test-ordexa-edit-anytime.mjs
 node scripts/test-ordexa-server-d1.mjs
 node scripts/test-ordexa-pay-d1.mjs
 node scripts/test-ordexa-migration.mjs

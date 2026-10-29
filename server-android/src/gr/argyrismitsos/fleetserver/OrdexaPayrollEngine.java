@@ -8,7 +8,7 @@ import java.util.*;
 
 /** Pure, deterministic payroll computation. No network, database or provider writes. */
 public final class OrdexaPayrollEngine {
-    public static final int VERSION=2;
+    public static final int VERSION=3;
     private static final long MINUTE=60000L, HALF=30*MINUTE, DAY=24*60*MINUTE;
     private static final Map<String,Long> TIMES=new LinkedHashMap<String,Long>(256,0.75f,true){protected boolean removeEldestEntry(Map.Entry<String,Long> entry){return size()>8192;}};
     private final SimpleDateFormat dayFormat=new SimpleDateFormat("yyyy-MM-dd",Locale.US);
@@ -97,6 +97,13 @@ public final class OrdexaPayrollEngine {
         if(g.plan!=null)value.append('\n').append(g.plan.optString("id")).append('|').append(g.plan.optString("start_at")).append('|').append(g.plan.optString("end_at")).append('|').append(g.plan.optString("vehicle_id"));
         value.append('\n').append(zone.getID()).append('|').append(gap).append('|').append(startCutoff).append('|').append(endMiddle).append('|').append(endNext).append('|').append(lateMinutes).append('|').append(earlyMinutes).append('|').append(endDeviation).append('|').append(lateMode).append("|rates:600,1000,1500|v1");return hash(value.toString());
     }
+    // A manual interval is captured against immutable source identities, not
+    // a possibly stale payroll projection or its schedule/policy version.
+    private String directFingerprint(Group g)throws Exception{
+        StringBuilder value=new StringBuilder(g.id).append('\n').append(g.employeeId);
+        for(JSONObject e:g.events)value.append('\n').append(e.optString("id")).append('|').append(e.optInt("revision",1)).append('|').append(e.optString("in_at")).append('|').append(e.isNull("out_at")?"":e.optString("out_at")).append('|').append(e.optInt("ignored",0)).append('|').append(e.optInt("review",0)).append('|').append(e.isNull("missing_since")?"":e.optString("missing_since")).append('|').append(e.isNull("review_reason")?"":e.optString("review_reason"));
+        return "direct-v1:"+hash(value.append('\n').append(zone.getID()).toString());
+    }
     private void resolve(Group g)throws Exception{
         selectPlan(g);g.workDate=day(g.start);g.fingerprint=fingerprint(g);g.startFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.start+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("start_at"))+"|"+startCutoff+"|"+zone.getID());g.endFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.end+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("end_at"))+"|"+endMiddle+"|"+endNext+"|"+zone.getID());g.edit=edits.get(g.id);g.editRevision=g.edit==null?0:g.edit.optInt("revision",0);if(g.edit!=null&&!g.employeeId.equals(g.edit.optString("employee_id"))){g.reason("Άλλαξε η αντιστοίχιση εργαζομένου · η προηγούμενη διόρθωση δεν μεταφέρεται");g.edit=null;}g.paidStart=round(g.start,true);
         // A working day is open 08:00 through 02:00 the following morning.
@@ -113,13 +120,18 @@ public final class OrdexaPayrollEngine {
         if(g.paidEnd-g.paidStart>DAY){g.reason("Παρουσία χωρίς ασφαλή τελική έξοδο πάνω από 24 ώρες");g.skip=true;}
         if(g.end>now){g.reason("Η αρχική έξοδος είναι στο μέλλον");g.paidEnd=floorHalf(now);}
         if(g.edit!=null){
-            g.adjusted=true;g.accepted=g.fingerprint.equals(g.edit.optString("source_fingerprint"))&&g.edit.optInt("acknowledged",0)==1;
-            g.startApproved=g.startFingerprint.equals(g.edit.optString("start_fingerprint"));g.endApproved=g.endFingerprint.equals(g.edit.optString("end_fingerprint"));
+            boolean direct=g.edit.optString("source_fingerprint").startsWith("direct-v1:"),currentDirect=direct&&directFingerprint(g).equals(g.edit.optString("source_fingerprint"));
+            g.adjusted=true;g.accepted=(g.fingerprint.equals(g.edit.optString("source_fingerprint"))||currentDirect)&&g.edit.optInt("acknowledged",0)==1;
+            g.startApproved=currentDirect||g.startFingerprint.equals(g.edit.optString("start_fingerprint"));g.endApproved=currentDirect||g.endFingerprint.equals(g.edit.optString("end_fingerprint"));
+            if(direct&&!currentDirect){g.reason("Άλλαξαν οι αρχικές καταγραφές της χειροκίνητης διόρθωσης · χρειάζεται επανέλεγχος βάρδιας");g.skip=true;}
+            else{
             if(!g.edit.isNull("paid_start"))g.paidStart=time(g.edit.optString("paid_start"));if(!g.edit.isNull("paid_end"))g.paidEnd=time(g.edit.optString("paid_end"));
             g.night0=g.edit.optString("night_00_mode","auto");g.night1=g.edit.optString("night_01_mode","auto");
             if(g.accepted){g.reasons.clear();if(!g.edit.isNull("paid_end")&&g.paidEnd<=now)g.sourcePending=false;if(!g.excluded&&g.paidEnd>=g.paidStart&&g.paidEnd-g.paidStart<=36*60*MINUTE&&g.start<=now)g.skip=false;}
             else{if(!g.edit.isNull("paid_start")&&!g.startApproved)g.reason("Η διόρθωση έναρξης χρειάζεται επανέλεγχο με τα νέα δεδομένα");if(!g.edit.isNull("paid_end")&&!g.endApproved)g.reason("Η διόρθωση λήξης χρειάζεται επανέλεγχο με τα νέα δεδομένα");}
+            }
         }
+        for(JSONObject event:g.events){JSONObject other=edits.get("ordexa:"+event.optString("id"));if(other!=null&&other!=g.edit&&other.optString("source_fingerprint").startsWith("direct-v1:")&&(!g.accepted||g.edit==null||g.edit.optString("updated_at").compareTo(other.optString("updated_at"))<0)){g.reason("Υπάρχει διόρθωση επιμέρους παρουσίας · επιβεβαίωσε τις πληρωτέες ώρες της ενιαίας βάρδιας");g.skip=true;}}
         // The closing boundary is authoritative even over an older manual edit.
         // Closed payroll snapshots are displayed separately and never rewritten.
         g.paidStart=Math.max(g.operatingStart,Math.min(g.operatingEnd,g.paidStart));g.paidEnd=Math.max(g.operatingStart,Math.min(g.operatingEnd,g.paidEnd));
