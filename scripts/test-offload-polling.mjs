@@ -24,3 +24,12 @@ assert.equal(state.invoiceDocuments[0].id,'fresh');
 assert.throws(()=>context.applyInvoiceDocuments({serverVersion:22},7,'current'),/δεν φορτώθηκε σωστά/);
 assert.equal(state.invoiceDocuments[0].id,'fresh','Invalid responses preserve the last valid list');
 console.log('PASS invoice list response ordering, newer snapshot acceptance, login isolation and invalid response retention.');
+
+// Real Fleet live callback coalesces a burst without delaying explicit saves.
+let liveNow=10000,liveReads=0;const timers=[];const liveWindow={};liveWindow.parent=liveWindow;
+const liveContext=vm.createContext({window:liveWindow,document:{hidden:false},Date:{now:()=>liveNow},webToken:'first',currentUser:{id:'owner'},fleetLastPoll:0,fleetLiveTimer:0,syncNow(){liveReads++;},setTimeout(fn,ms){timers.push({fn,ms});return timers.length;}});
+vm.runInContext(['fleetScreenActive','queueFleetLiveChanges'].map(name=>declaration(app,name)).join('\n'),liveContext);
+liveContext.queueFleetLiveChanges(['fleet']);assert.equal(timers[0].ms,0);timers[0].fn();assert.equal(liveReads,1);
+liveNow=10100;for(let i=0;i<20;i++)liveContext.queueFleetLiveChanges(['fleet','invoices']);assert.equal(timers.length,2);assert.equal(timers[1].ms,4900);liveNow=15000;timers[1].fn();assert.equal(liveReads,2,'twenty live results require one new snapshot read');
+liveNow=15100;liveContext.queueFleetLiveChanges(['fleet']);liveContext.document.hidden=true;timers[2].fn();assert.equal(liveReads,2,'hidden tab never flushes a pending live read');liveContext.document.hidden=false;liveNow=20000;liveContext.queueFleetLiveChanges(['fleet']);liveContext.webToken='second';timers[3].fn();assert.equal(liveReads,2,'old login cannot flush into a new session');
+console.log('PASS #37 Fleet live burst: twenty results/one read, maximum five-second coalescing, hidden and session fences; direct syncNow mutation path unchanged.');

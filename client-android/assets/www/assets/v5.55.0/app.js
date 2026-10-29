@@ -4431,10 +4431,16 @@
   window.addEventListener("offline", function () {
     setSyncState("offline", "Χωρίς σύνδεση");
   });
-  let fleetLastPoll=0;
+  let fleetLastPoll=0,fleetLiveTimer=0;
+  function queueFleetLiveChanges(scopes){
+    if(!webToken||!currentUser||!fleetScreenActive()||!scopes.some(s=>s==='fleet'||s==='invoices')||fleetLiveTimer)return;
+    const token=webToken;
+    fleetLiveTimer=setTimeout(function(){fleetLiveTimer=0;if(token!==webToken||!currentUser||!fleetScreenActive())return;fleetLastPoll=Date.now();syncNow();},Math.max(0,5000-(Date.now()-fleetLastPoll)));
+  }
   function startFleetLiveChanges(){
+    clearTimeout(fleetLiveTimer);fleetLiveTimer=0;
     if(!webToken||!currentUser)return;
-    window.FleetLive?.start({apiBase,token:webToken,user:currentUser,isActive:fleetScreenActive,onChange:function(scopes){if(fleetScreenActive()&&scopes.some(s=>s==='fleet'||s==='invoices')){fleetLastPoll=Date.now();syncNow();}}});
+    window.FleetLive?.start({apiBase,token:webToken,user:currentUser,isActive:fleetScreenActive,onChange:queueFleetLiveChanges});
   }
   function fleetScreenActive(){
     if(document.hidden)return false;
