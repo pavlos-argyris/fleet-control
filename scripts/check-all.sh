@@ -21,6 +21,9 @@ node scripts/test-worker-snapshot-load.mjs
 node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
 node scripts/test-qr-failure-alerts.mjs
+node scripts/test-store-billing-api.mjs
+node scripts/test-store-billing-ui.mjs
+node scripts/test-store-billing-d1.mjs
 node scripts/test-ordexa-ui.mjs
 node scripts/test-ordexa-server-ui.mjs
 node scripts/test-ordexa-core.mjs

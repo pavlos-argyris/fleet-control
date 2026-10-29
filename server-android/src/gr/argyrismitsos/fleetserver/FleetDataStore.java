@@ -186,6 +186,8 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         result.put("createdAt", isoNow());
         result.put("application", "Fleet Control Server");
         result.put("fleet", getFleet());
+        try{result.put("storeBilling",new JSONObject().put("schemaVersion",1).put("cutoffHour",5).put("records",new StoreBillingStore(this).exportRows()));}
+        catch(Exception e){throw new JSONException("Δεν ολοκληρώθηκε η ανάγνωση αρχείου καταστημάτων για backup.");}
         if (result.optJSONObject("workforce") == null) result.put("workforce", new JSONObject());
         return result;
     }

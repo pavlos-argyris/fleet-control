@@ -66,6 +66,7 @@ jobs:
       - name: Install browser for navigation verification
         run: npx playwright install chromium
         working-directory: cloudflare-worker
+      - run: node scripts/test-store-billing-browser.mjs
       - run: node scripts/test-navigation-motion-browser.mjs
       - run: node scripts/test-next-service-browser.mjs
       - run: node scripts/test-ui-system-browser.mjs
@@ -84,12 +85,15 @@ jobs:
             verification/ui-system/
             verification/invoice-retry
             verification/invoice-recovery/
+            verification/store-billing/
             verification/invoice-auto/
             verification/ordexa/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-server-large-storage-native.mjs
+      - run: node scripts/test-store-billing-native.mjs
+      - run: node scripts/test-store-billing-pipeline.mjs
       - run: node scripts/test-ordexa-native.mjs
       - run: node scripts/test-local-invoice-reader.mjs
       - run: node scripts/test-invoice-reader-accuracy.mjs

@@ -3,7 +3,7 @@ export const ROLE_PERMISSIONS = Object.freeze({
   manager: [
     "dashboard.view", "employees.view", "employees.manage", "shifts.view", "shifts.manage",
     "shifts.vehicle.change", "schedules.view", "schedules.manage", "fleet.view", "fleet.manage",
-    "service.manage", "payroll.view", "reports.view", "alerts.view", "alerts.manage"
+    "service.manage", "payroll.view", "reports.view", "alerts.view", "alerts.manage", "stores.view", "stores.manage"
   ],
   payroll_manager: [
     "dashboard.view", "employees.view", "shifts.view", "schedules.view", "payroll.view",
@@ -23,7 +23,7 @@ export const ALL_PERMISSIONS = Object.freeze([
   "schedules.view", "schedules.manage", "fleet.view", "fleet.manage", "service.manage",
   "payroll.view", "payroll.manage", "payroll.lock", "reports.view", "alerts.view",
   "alerts.manage", "audit.view", "backup.manage", "server.manage", "settings.manage",
-  "security.manage"
+  "security.manage", "stores.view", "stores.manage"
 ]);
 
 // Employee accounts may only receive permissions that are scoped to their own

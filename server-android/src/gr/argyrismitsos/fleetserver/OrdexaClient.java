@@ -39,11 +39,11 @@ public final class OrdexaClient {
         if(day==null||!day.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}"))throw new IllegalArgumentException("Μη έγκυρη ημερομηνία.");
         SimpleDateFormat f=new SimpleDateFormat("yyyy-MM-dd",Locale.US);f.setTimeZone(TimeZone.getTimeZone("UTC"));f.setLenient(false);if(!f.format(f.parse(day)).equals(day))throw new IllegalArgumentException("Μη έγκυρη ημερομηνία.");
     }
-    private static String identifier(Object value)throws Exception{
+    static String identifier(Object value)throws Exception{
         if(value instanceof Number){double n=((Number)value).doubleValue();if(Double.isNaN(n)||Double.isInfinite(n)||n<0||n>9007199254740991d||n!=Math.floor(n))throw new IOException("Μη έγκυρο αναγνωριστικό Ordexa.");return new java.math.BigDecimal(value.toString()).stripTrailingZeros().toPlainString();}
         if(!(value instanceof String)||((String)value).trim().length()==0||((String)value).length()>100)throw new IOException("Μη έγκυρο αναγνωριστικό Ordexa.");return (String)value;
     }
-    private static long instant(String value)throws Exception{
+    static long instant(String value)throws Exception{
         Matcher match=Pattern.compile("^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})(?:\\.(\\d{1,3}))?(Z|[+-]\\d{2}:\\d{2})$").matcher(value);
         if(!match.matches()||Integer.parseInt(value.substring(11,13))>23)throw new IOException("Η ώρα Ordexa πρέπει να έχει πλήρη ημερομηνία και ζώνη ώρας.");
         String fraction=match.group(2)==null?"":match.group(2);while(fraction.length()<3)fraction+="0";
@@ -102,12 +102,26 @@ public final class OrdexaClient {
         }
         return new JSONObject().put("cityId",city).put("day",day).put("capturedAt",capturedAt).put("report",new JSONObject().put("riders",clean));
     }
+    private JSONObject storeRead(String city,String suffix)throws Exception{
+        path(Action.REPORT,city,"2026-01-01","2026-01-01");
+        if(token.length()==0)throw new IOException("Συνδέσου πρώτα στο Ordexa από τις ρυθμίσεις Server.");
+        return transport.send(ORIGIN+"/api/cities/"+city+suffix,"GET",null,token);
+    }
+    public JSONObject storesSetup(String city)throws Exception{return storeRead(city,"/setup");}
+    public JSONObject storesOrders(String city,String from,String to,int page,String shop)throws Exception{
+        day(from);day(to);if(from.compareTo(to)>0||page<1||page>10000)throw new IllegalArgumentException("Μη έγκυρη σελίδα παραγγελιών Ordexa.");
+        if(shop!=null&&!shop.matches("[A-Za-z0-9_-]{1,100}"))throw new IllegalArgumentException("Μη έγκυρο κατάστημα Ordexa.");
+        return storeRead(city,"/orders?from="+from+"&to="+to+"&page="+page+"&sort=at&dir=asc"+(shop==null?"":"&shopId="+shop));
+    }
     static final class HttpsTransport implements Transport {
         public JSONObject send(String url,String method,JSONObject body,String token)throws Exception{
             // Plans are generated above; keep an independent final transport fence.
             URL target=new URL(url);String path=target.getPath();
             boolean login="POST".equals(method)&&"/api/login".equals(path)&&target.getQuery()==null;
             boolean read="GET".equals(method)&&body==null&&(("/api/me".equals(path)||"/api/cities".equals(path))&&target.getQuery()==null||path.matches("/api/cities/[A-Za-z0-9_-]{1,100}/report")&&target.getQuery()!=null&&target.getQuery().matches("from=[0-9]{4}-[0-9]{2}-[0-9]{2}&to=[0-9]{4}-[0-9]{2}-[0-9]{2}"));
+            read=read||("GET".equals(method)&&body==null&&(
+                path.matches("/api/cities/[A-Za-z0-9_-]{1,100}/setup")&&target.getQuery()==null||
+                path.matches("/api/cities/[A-Za-z0-9_-]{1,100}/orders")&&target.getQuery()!=null&&target.getQuery().matches("from=[0-9]{4}-[0-9]{2}-[0-9]{2}&to=[0-9]{4}-[0-9]{2}-[0-9]{2}&page=[1-9][0-9]{0,4}&sort=at&dir=asc(?:&shopId=[A-Za-z0-9_-]{1,100})?")));
             if(!"https".equals(target.getProtocol())||!"api.ordexa.gr".equals(target.getHost())||target.getPort()!=-1||target.getUserInfo()!=null||target.getRef()!=null||(!login&&!read))throw new IOException("Η ενέργεια Ordexa αποκλείστηκε πριν αποσταλεί.");
             HttpsURLConnection connection=(HttpsURLConnection)target.openConnection();connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(20000);connection.setReadTimeout(30000);connection.setRequestMethod(method);connection.setRequestProperty("Accept","application/json");
             if(token.length()>0)connection.setRequestProperty("Authorization","Bearer "+token);

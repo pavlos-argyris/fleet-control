@@ -9,6 +9,7 @@ import android.provider.DocumentsContract;
 import android.util.Base64;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -233,6 +234,7 @@ public final class BackupManager {
 
     public static synchronized JSONObject restorePreparedBackup(Context context, FleetDataStore store, Uri uri, JSONObject prepared) throws Exception {
         JSONObject root = new JSONObject(prepared.toString());
+        if(root.has("storeBilling")){JSONObject billing=root.getJSONObject("storeBilling");if(billing.getInt("schemaVersion")!=1||billing.getInt("cutoffHour")!=5)throw new IllegalArgumentException("Μη συμβατό αρχείο καταστημάτων στο backup.");StoreBillingStore.validateBackup(billing.getJSONArray("records"));}
         JSONObject fleet = root.getJSONObject("fleet");
         SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         createPreRestoreBackup(context, store);
@@ -255,6 +257,7 @@ public final class BackupManager {
         root.put("documentRestore", documentRestore);
         store.mergeFleet(fleet);
         store.setSystemExport(root);
+        new StoreBillingStore(store).restore(root.optJSONObject("storeBilling")==null?new JSONArray():root.getJSONObject("storeBilling").getJSONArray("records"));StoreBillingSync.wake(store);
         return root;
     }
 

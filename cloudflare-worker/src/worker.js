@@ -44,7 +44,7 @@ const SERVICE_RENDER_MAX_ATTEMPTS = 3;
 const INVOICE_REPROCESS_BATCH_SETTING = "service_invoice_reprocess_batch";
 const INVOICE_REPROCESS_BATCH_STALE_MS = 20 * 60 * 1000;
 const INVOICE_REPROCESS_BATCH_RESULT_TTL_MS = 30 * 1000;
-const RUNTIME_SCHEMA_VERSION = "ordexa-server-payroll-v3";
+const RUNTIME_SCHEMA_VERSION = "store-billing-v1";
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fleet_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'canonical', updated_at TEXT NOT NULL);

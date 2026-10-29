@@ -31,6 +31,17 @@ public final class OrdexaSync {
         JSONObject data=new JSONObject(saved);Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Base64.decode(data.getString("iv"),Base64.NO_WRAP)));return new String(cipher.doFinal(Base64.decode(data.getString("value"),Base64.NO_WRAP)),"UTF-8");
     }
     private static OrdexaClient client(Context c)throws Exception{OrdexaClient client=new OrdexaClient();client.token(token(c));return client;}
+    static JSONObject storesContext(Context c)throws Exception{
+        SharedPreferences p=prefs(c),main=c.getSharedPreferences(BackupManager.PREFS,Context.MODE_PRIVATE);String city=p.getString("city",""),worker=workerBase(main);
+        String scope=OrdexaClient.digest(new JSONObject().put("account",p.getString("account","").trim().toLowerCase(Locale.ROOT)).put("city",city).put("worker",worker));
+        return new JSONObject().put("scope",scope).put("cityId",city).put("worker",worker).put("generation",p.getString("generation","legacy")).put("generationAt",p.getLong("generation_at",1)).put("configured",p.contains("session")&&city.length()>0).put("enabled",p.getBoolean("enabled",false)&&p.contains("session")&&city.length()>0);
+    }
+    static JSONObject storesRead(Context c,JSONObject expected,boolean setup,String from,String to,int page,String shop)throws Exception{
+        begin();try{
+            JSONObject current=storesContext(c);if(!current.getString("scope").equals(expected.getString("scope"))||!current.getString("generation").equals(expected.getString("generation")))throw new Exception("Η σύνδεση Ordexa άλλαξε. Επανάλαβε.");
+            OrdexaClient client=client(c);return setup?client.storesSetup(current.getString("cityId")):client.storesOrders(current.getString("cityId"),from,to,page,shop);
+        }finally{running.set(false);}
+    }
     public static JSONObject status(Context c)throws Exception{
         SharedPreferences p=prefs(c),main=c.getSharedPreferences(BackupManager.PREFS,Context.MODE_PRIVATE);return new JSONObject().put("configured",p.contains("session")).put("account",p.getString("account","")).put("cityId",p.getString("city","")).put("enabled",p.getBoolean("enabled",false)).put("busy",running.get()).put("lastSuccess",p.getString("last_success","")).put("payrollLastSuccess",main.getString("ordexa_payroll_success","")).put("payrollError",main.getString("ordexa_payroll_error","")).put("stage",p.getString("stage","")).put("error",p.getString("error","")).put("cities",new JSONArray(p.getString("cities","[]")));
     }
@@ -39,7 +50,7 @@ public final class OrdexaSync {
             OrdexaClient client=new OrdexaClient();String value=client.login(input.optString("username"),input.optString("password"));JSONArray cities=client.cities();String encrypted=encryptedToken(value);
             // Publish a complete new device session in one commit. Old city,
             // automatic mode and receipt caches cannot leak across accounts.
-            if(!prefs(c).edit().clear().putString("session",encrypted).putString("cities",cities.toString()).putString("account",input.optString("username")).putString("generation",UUID.randomUUID().toString()).putBoolean("enabled",false).putString("stage","Σύνδεση επιβεβαιωμένη · επίλεξε πόλη").commit())throw new Exception("Δεν αποθηκεύτηκε η προστατευμένη συνεδρία Ordexa.");
+            if(!prefs(c).edit().clear().putString("session",encrypted).putString("cities",cities.toString()).putString("account",input.optString("username")).putString("generation",UUID.randomUUID().toString()).putLong("generation_at",System.currentTimeMillis()).putBoolean("enabled",false).putString("stage","Σύνδεση επιβεβαιωμένη · επίλεξε πόλη").commit())throw new Exception("Δεν αποθηκεύτηκε η προστατευμένη συνεδρία Ordexa.");
             return status(c);
         }finally{running.set(false);}
     }

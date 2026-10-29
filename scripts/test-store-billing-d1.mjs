@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
+const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-stores-d1-'));let runtime;
+try{
+ await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+ runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'stores-fixture'},bindings:{SERVER_KEY:'stores-fixture',PIN_PEPPER:'stores-pepper'}}));
+ const db=await runtime.getD1Database('DB');
+ const call=async(url,body,token)=>{const response=await runtime.dispatchFetch('https://fixture'+url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{'X-Fleet-Server-Key':'stores-fixture'})},body:body?JSON.stringify(body):undefined});return {status:response.status,data:await response.json()};};
+ const ok=(r,status=200)=>{assert.equal(r.status,status,JSON.stringify(r.data));return r.data;};
+ const token=ok(await call('/api/auth/bootstrap',{fullName:'Stores D1 Fixture',username:'storesd1',password:'StoresFixture!123'})).token;
+ const post=(action,body)=>call('/api/server/store-billing/'+action,body),bulk=body=>call('/api/admin/store-billing/bulk',body,token);
+ const control=ok(await post('control',{scope:'source',generation:'g1',generationAt:1,cityId:'7',from:'2026-10-26',to:'2026-10-26'}));
+ const ctx={scope:'source',generation:'g1',epoch:control.epoch,operationId:control.job.id,lease:control.job.lease},day='2026-10-26',sourceAt='2026-10-27T04:00:00Z';
+ ok(await post('catalogue',{...ctx,complete:true,catalogueHash:'a'.repeat(64),stores:[1,2].map(id=>({id:'shop:'+id,sourceShopId:String(id),name:'Synthetic '+id,blocked:false,sourceTerms:[{effectiveDay:'',supported:true,unitPriceCents:200,dailyMinimumCents:0,chargeOnZero:false}]}))}));
+ const stores=(await db.prepare("SELECT * FROM store_billing_records WHERE kind='store' ORDER BY id").all()).results;assert.ok(stores.every(s=>JSON.parse(s.data).retainOrders===false));
+ const term=(await db.prepare("SELECT id,store_id FROM store_billing_records WHERE kind='terms'").all()).results;
+ const row=(id,count,revision,retentionUsed=false)=>({storeId:'shop:'+id,businessDay:day,storeRevision:revision,retentionUsed,termsId:term.find(t=>t.store_id==='shop:'+id).id,orderCount:count,orderChargeCents:count*200,minimumTopUpCents:0,totalChargeCents:count*200,engineVersion:1,cutoffHour:5,timeZone:'Europe/Athens',retainedOrders:retentionUsed?count:0,reviewCount:0});
+ const records=Array.from({length:32},(_,i)=>{const storeId='shop:'+(i===31?2:1),id='order:'+i;return {id,kind:'order',storeId,day,data:{id,storeId,businessDay:day,sourceOrderId:String(i),sourceShopId:i===31?'2':'1',at:day+'T10:00:00Z',active:true}};});
+ ok(await post('archive',{...ctx,records}));
+ const stage=(runId,rows,removals=[])=>post('stage',{...ctx,runId,day,rows,removals}),publish=(runId,removalCount=0)=>post('publish',{...ctx,runId,day,count:2,sourceAt,removalCount,finalPass:runId+':p2'});
+ ok(await stage('initial',[row(1,31,1),row(2,1,1)]));ok(await publish('initial'));
+ ok(await stage('stale',[row(1,0,1),row(2,0,1)],records.map(r=>({orderId:r.id,storeId:r.storeId}))));
+ ok(await bulk({operationId:'protect',effectiveDay:day,stores:[{id:'shop:2',revision:1}],patch:{retainOrders:true}}));
+ ok(await publish('stale',32),409);
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM store_billing_records WHERE kind='order' AND json_extract(data,'$.active')=1").first()).n,32,'retention race rolls back all deletions');
+ assert.equal((await db.prepare("SELECT json_extract(data,'$.activeRun') r FROM store_billing_records WHERE kind='publication'").first()).r,'initial','previous complete publication survives failed CAS');
+ ok(await stage('final',[row(1,0,1),row(2,1,2,true)],records.slice(0,31).map(r=>({orderId:r.id,storeId:r.storeId}))));ok(await publish('final',31));
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM store_billing_records WHERE kind='order' AND json_extract(data,'$.active')=1").first()).n,1);
+ const visible=ok(await call('/api/admin/store-billing?from='+day+'&to='+day,undefined,token));assert.equal(visible.totals.orderCount,1);assert.equal(visible.totals.totalChargeCents,200);assert.equal(visible.rows.find(r=>r.id==='shop:2').retainedOrders,1);
+ // A durable acknowledgement survives lease expiry; changing the same receipt is rejected.
+ await db.prepare("UPDATE store_billing_records SET updated_at='2000-01-01T00:00:00Z' WHERE id=?").bind(ctx.operationId).run();
+ assert.equal(ok(await publish('final',31)).replayed,true);
+ ok(await post('publish',{...ctx,runId:'final',day,count:2,sourceAt,removalCount:31,finalPass:'different'}),409);
+ const concurrent=await Promise.all([250,300].map((unitPriceCents,i)=>bulk({operationId:'competing:'+i,effectiveDay:day,stores:[{id:'shop:1',revision:1}],patch:{unitPriceCents}})));
+ assert.deepEqual(concurrent.map(r=>r.status).sort(),[200,409]);
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='store_billing_terms'").first()).n,2,'one retention decision and one atomic price winner');
+ assert.equal((await db.prepare('SELECT COUNT(*) n FROM store_billing_guards').first()).n,0);
+ await db.prepare("INSERT OR REPLACE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_restore_active','fixture',?)").bind(sourceAt).run();ok(await publish('final',31),409);
+ console.log('PASS actual Workerd/D1 stores:32-row archive, default OFF, atomic retention-race rollback, complete publication, selected exception, lost-ACK receipt after lease expiry, changed-receipt rejection, concurrent price CAS/audit and restore fence. Synthetic only.');
+}finally{if(runtime)await runtime.dispose();fs.rmSync(dir,{recursive:true,force:true});}

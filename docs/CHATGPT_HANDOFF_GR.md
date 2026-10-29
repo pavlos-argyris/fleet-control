@@ -2,6 +2,58 @@
 
 Αυτό είναι το κοινό σημείο ενημέρωσης όλων των ChatGPT/βοηθών. Διάβασέ το πριν ξεκινήσεις και ενημέρωσέ το όταν αναλαμβάνεις εργασία, σε σημαντικά ορόσημα και πριν σταματήσεις. Οι καταγραφές διασταυρώνονται πάντα με GitHub branches/commits/PR/Actions και την ενεργή έκδοση.
 
+## #44 — τελική mobile πλοήγηση και ευανάγνωστες ημερομηνίες
+
+- Η ανάκτηση ολοκληρώθηκε byte-exact: ολόκληρο το τοπικό Git tree για τοa475acaba0b60e447d0978393abce85a94a4d9f7 είναι **80f48dcef120b0d571f5c416760ab32b7562c276**, ίδιο με GitHub. Δεν ανακατασκευάστηκε η ήδη ολοκληρωμένη υλοποίηση.
+- Το [CI40966756103](https://github.com/pavlos-argyris/fleet-control/actions/runs/40966756103) πέρασε το νέο stores browser σε desktop/mobile/Client landscape και συνέχισε τις παλιές browser/native/backup σουίτες. Η αρχική αστοχία ήταν επιλογή εκτός viewport sideNav· διορθώθηκε με χρήση του πραγματικού «Περισσότερα».
+- Η οπτική επιθεώρηση του verified UI artifact12938897012 έδειξε αποκομμένο έτος στα στενά mobile πεδία ημερομηνίας. Τα πεδία στοιχίζονται πλέον κατακόρυφα σε πλάτος έως480px, κρατώντας τα βελάκια και τα κουμπιά εντός οθόνης. Προστέθηκε πραγματικός browser έλεγχος ελάχιστου διαθέσιμου πλάτους ημερομηνίας, χωρίς force-click ή χαλάρωση παλιών assertions. Οι νέες5.57.0 CSS snapshots/Client mirrors συγχρονίστηκαν· παλιές δημοσιευμένες εκδόσεις δεν άλλαξαν.
+- Στην παρούσα συνέχεια πέρασαν actual Java42engine/protocol, actual Java/SQLite/Worker pipeline, actual Workerd/D1 atomic retention-race/rollback/receipt/CAS και shipped UI/JSDOM/settings regressions. Το τοπικό Chromium download επέστρεφε truncated ZIP· η πραγματική browser εκτέλεση και οπτική επιθεώρηση γίνονται από το κανονικό CI, όχι από υποτιθέμενο τοπικό browser.
+- Οι τελικοί συνδυασμένοι έλεγχοι απαιτούνται στο νεότερο head που περιέχει τη μικρή διόρθωση ημερομηνιών. Υποψήφια5.57.0 / Server2.6.0 / Worker5.16.0, ημέρα05:00, retention ανά κατάστημα defaultOFF, βάρδιες08:00–02:00 και5λεπτος κύκλος διατηρημένα. Δεν έγινε ακόμη merge/request/publish.
+
+## Συνέχιση #44 από τελευταίο πραγματικό checkpoint — 30/10/2026
+
+- Νέα ρητή εντολή χρήστη: ολοκλήρωση από το τελευταίο αποθηκευμένο σημείο χωρίς επανάληψη ολοκληρωμένων εργασιών. Προτεραιότητα ημέρα05:00–05:00 και προαιρετική διατήρηση ανά κατάστημα με defaultOFF.
+- Συνεχίζεται το ίδιο branch `codex/issue-44-ordexa-stores` / PR#48, ακριβές αρχικό head `d77f6973c22336214ca5c214b0066054be6ca3dd`. Main `09ae41972ca71b8956799b9b2fff971ce64a2b8a`, ενεργή5.56.1 ήδη δημοσιευμένη. Διαβάστηκαν #44, PR#47/#48, AGENTS και τα νεότερα main/branch handoff. Δεν γίνεται ανακατασκευή από το παλιό foundation413e2d0.
+- Επαληθεύτηκε [CI40962111163](https://github.com/pavlos-argyris/fleet-control/actions/runs/40962111163), job123765335952: full check-all success· νέο stores browser test περνά desktop αλλά αποτυγχάνει στο mobile click του εκτός viewport sideNav. Η mobile ροή πρέπει να χρησιμοποιεί το πραγματικό «Περισσότερα»· θα ελεγχθεί χωρίς force-click/παράκαμψη. Όλα τα επόμενα Chromium/native/build βήματα του συγκεκριμένου CI ήταν skipped, όχι επιτυχή.
+- Τα υφιστάμενα Server/Worker/UI/backup/engine/protocol και tests είναι αποθηκευμένα. Επόμενο: διόρθωση του συγκεκριμένου ελέγχου/τυχόν πραγματικών ευρημάτων, ουσιαστική επανεξέταση τελικού checkpoint, επιτυχές exact PR/main CI και μία κανονική δημοσίευση5.57.0. Καμία νέα παραγωγική εισαγωγή/οικονομική δοκιμή ή backup/restore.
+
+## #44 — πλήρες local check-all επιτυχές, GitHub CI σε εξέλιξη
+
+- Το πλήρες check-all ολοκληρώθηκε με exit0. Native large-storage regression προσαρμόστηκε με πραγματικό νέο StoreBillingStore, όχι stub.42Java engine/protocol assertions πέρασαν. Actual Workerd/D1 και ο διευρυμένος actual native/SQLite/Worker pipeline πέρασαν, με lostACK/rehydration/futureterms/ακριβές validated backup restore και απόρριψη ασυμφωνίας συνολικού πλήθους pagination πριν αποδοχή. Ο έλεγχος source σελίδων συγκρίνει total/pages μεταξύ σελίδων και το τελικό πραγματικό πλήθος με το δηλωμένο.
+- Προστέθηκε μία σταθερή global ειδοποίηση ανά νέο κατάστημα μετά το bootstrap· δεν διπλασιάζεται με source refresh και ολοκληρώνεται μαζί με τον ορισμό τιμής. Νέα stores παραμένουν default retentionOFF.
+- Ενσωματωμένη πηγή/main parent09ae419 στο **c0c6a8019b85812293d1d2257fd8d74900efeb55**. [Πρώτο CI40961014157](https://github.com/pavlos-argyris/fleet-control/actions/runs/40961014157): full check-all πέρασε, Chromium checks εκτελούνται. Το τελικό head με τα τελευταία pagination/notification regressions χρειάζεται δικό του επιτυχές CI πριν merge. Δεν υπάρχει παραγωγική δημοσίευση της5.57.0 ακόμη.
+
+## #44 — υποψήφια5.57.0, ανάκτηση και έλεγχοι σε εξέλιξη
+
+- Όλος ο ανακτημένος runtime κώδικας αποθηκεύτηκε επιβεβαιωμένα στο **689dd702878d95bded6da159683b5bd1a43487c2**, PR#48. Η προσωρινή διακοπή περιβάλλοντος λύθηκε· οι παλιότερες σημειώσεις ανάκτησης παρακάτω είναι ιστορικές.
+- Υποψήφιες εκδόσεις5.57.0/Client92/Server2.6.0(50)/Worker5.16.0. Native durable sync, δύο πλήρεις source passes, ατομικές αφαιρέσεις defaultOFF/ρητές εξαιρέσεις, ανεξάρτητοι όροι/μαζικές αλλαγές, small Worker projections και ενσωματωμένη καρτέλα Web/Client. Οδηγός ISSUE_44_STORES_GR.md. Ημέρα05:00–05:00, shifts08:00–02:00 αμετάβλητα.
+- Πέρασαν local API57stores, shipped UI/JSDOM, actual Workerd/D1 retention-race rollback/32rowbatch/receipt/expiredlease/concurrentCAS/restorefence, actual Java/SQLite/Worker pipeline60orders/filteredfallback/lostACK/source503/noresurrection/reappearance/rehydration/futureterms/nativebackupvalidation. Οι εκκρεμότητες static/native fixtures προσαρμόζονται για34mirroredtables/102triggers, χωρίς αφαίρεση παλιών ελέγχων. Τα native regressions backup/invoices/sync πέρασαν· bothAPK build πέρασε με δοκιμαστικό κλειδί, πριν τελευταίο μικρό sync patch. Επανάληψη των τελικών ελέγχων απαιτείται.
+- Προστασία: definite HTTP4xx δεν κρατά ατέρμονα αβέβαιο publish. LostACK επαναλαμβάνει durable exactreceipt. Μετά archive hydration μια reprice εργασία επαληθεύει ξανά πηγή πριν διαγραφές. Native restore επικυρώνει και αντικαθιστά canonical archive/παλιόjournal. Μελλοντικοί όροι δεν τιμολογούν μελλοντικές ημέρες.
+- Δεν έγινε ακόμη τελικό exact-head CI/Chromium/merge/publish. Chromium δεν κατέβηκε τοπικά· μπήκε πραγματικό Portal test desktop/mobile/Client landscape στο CI. Επόμενο: συνδυασμός main09ae419 με πρόσθετο parent, πλήρεις έλεγχοι, PR CI, κανονικό publish και επαλήθευση ενεργοποίησης. Η helper prepare-current-publication προσαρμόζεται μόνο σε5.57.0 και παράγει artifact από το κανονικό script μετά exact-main CI· δεν δημοσιεύει από μόνη της. Η παραγωγική5.56.1 και όλες οι άλλες αλλαγές διατηρούνται.
+
+## Περιβάλλον διαθέσιμο ξανά
+
+Το περιβάλλον επανήλθε στην ίδια συνέχεια· επιβεβαιώθηκαν ο τοπικός φάκελος και όλες οι νεότερες αλλαγές. Οι δοκιμές Worker/SQLite API και shipped UI/JSDOM επαναλήφθηκαν επιτυχώς. Συνεχίζονται WIP source push και οι εκκρεμείς συνολικοί έλεγχοι. Η προηγούμενη διακοπή παρακάτω είναι ιστορική και δεν αποτελεί πλέον ενεργό blocker.
+
+## #44 — Διακοπή περιβάλλοντος, επαληθευμένο remote checkpoint
+
+Το περιβάλλον εκτέλεσης έγινε unavailable στις29/10/2026. Remote source checkpoint **413e2d0a66a983dd90916008972131146acb4dbc** στο PR#48: foundation μόνο, όχι ολόκληρη η νεότερη τοπική υλοποίηση. Οι νεότερες Server/Worker/UI/test αλλαγές παραμένουν μη προσβάσιμες στον τοπικό φάκελο μέχρι να ανακτηθεί. Δεν έγινε merge/publish της5.57.0. [Αναλυτικό τεχνικό σημείωμα ανάκτησης και ακριβή επόμενα βήματα](ISSUE_44_IMPLEMENTATION_CHECKPOINT_GR.md). Η οδηγία retention defaultOFF και cutoff05:00 ισχύει. Πριν συνέχεια: ανάκτηση τοπικών αρχείων και WIP push, ή ανακατασκευή από foundation, και πλήρεις νέοι έλεγχοι. Η ενεργή5.56.1/main09ae419 επιβεβαιώθηκε· οι καταγραφές του άλλου agent παρακάτω διατηρούνται.
+
+## #44 — αλλαγές ημέρας και πολιτικής διαγραφών, ενεργή υλοποίηση
+
+- Νεότερη εντολή χρήστη: ημέρα Καταστημάτων05:00–05:00, όχι08:00–02:00. Οι βάρδιες δεν αλλάζουν.
+- Νεότερη εντολή: προαιρετική ανά κατάστημα διατήρηση παραγγελιών με default κλειστή. Πλήρης επιτυχημένη συμφιλίωση αφαιρεί ενεργές παραγγελίες που λείπουν, εκτός ρητής εξαίρεσης. Partial/error δεν διαγράφει. Οι παλιές παράγραφοι γενικής διατήρησης είναι ιστορικές.
+- PR48/branchcodex/issue-44-ordexa-stores. Αρχική πηγήdf870b6 με όλη την άλλη εργασία5.56.1. Πέρασαν41actual Java engine/protocol tests για05:00/DST/εβδομάδα, ακριβή cents/ελάχιστο/ιστορικές τιμές και αυστηρό read-only/pagination/ID gate, καθώς και Android23API compile. Δεν έχει ακόμη ολοκληρωθεί end-to-end υλοποίηση ή publication. Δεν έγινε live JSON/native import/παραγωγική μεταβολή ως δοκιμή.
+
+
+## Ανάληψη υλοποίησης #44 — Καταστήματα Ordexa — 29/10/2026
+
+- Νεότερη ρητή εντολή χρήστη «ξεκίνα την υλοποίηση του issue #44». Αντικαθιστά την προηγούμενη αναμονή/σχεδιασμό. Αναλαμβάνεται ολόκληρο P0–P3, χωρίς εκκίνηση άλλου agent, στο `codex/issue-44-ordexa-stores`, βάση `df870b6ea472e3b0a153d340ff2f49c94234e9a1`.
+- Διαβάστηκαν AGENTS/main/handoff, το ενημερωμένο #44 και το πλήρες σχέδιο PR#47/head11462f3. Το σχέδιο μεταφέρεται αυτούσιο στον κλάδο υλοποίησης· οι παλιές ενδείξεις μόνο σχεδιασμού είναι ιστορικές. Η παράλληλη εργασία editor#40/PR46 διατηρείται ολόκληρη. Η5.56.0 έχει επιβεβαιωμένα ενεργοποιηθεί· η5.56.1 ανήκει στην άλλη συνομιλία και δεν γίνεται ανταγωνιστικό deploy.
+- Πρώτο βήμα P0: αυστηρή read-only επέκταση setup/orders, πραγματική αντιστοίχιση order→shopId, χρόνος/πλήρης pagination, χωρίς εξαγωγή browser token ή παραγωγικό import. Μετά Server archive/engine/hourly-sync και Worker/UI με small projections/commands, μέλλοντα τοπικά terms και ιστορικό διαγραφών.
+- Τρέχον ορόσημο: claim/ανάγνωση, όχι ολοκληρωμένη υλοποίηση ή νέος έλεγχος. Καμία παραγωγική μεταβολή/backup/restore/χρέωση. Επόμενο: P0 και τεκμηριωμένα schema fixtures πριν πραγματικό native ingest. Πριν final merge/publish θα ελεγχθεί/συνδυαστεί ξανά η τότε νεότερη πηγή/έκδοση άλλης συνομιλίας.
+
+
 ## Επιβεβαιωμένη δημοσίευση 5.56.1 — επεξεργασία χωρίς αναμονή Server — 29/10/2026
 
 - **Ενεργή έκδοση:** Client/Web **5.56.1 (code 91)**, Server **2.5.3 (code 49)**, Worker **5.15.3**, engineVersion **3**. [Release με αρχικά υπογεγραμμένα APK, πλήρη πηγή όλων των τμημάτων και SHA256SUMS](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.56.1). Δημοσιευμένη πηγή [**`df870b6ea472e3b0a153d340ff2f49c94234e9a1`**](https://github.com/pavlos-argyris/fleet-control/commit/df870b6ea472e3b0a153d340ff2f49c94234e9a1), tree `5c461ef57b9406feb96a497b02f70b0694fd1a7a`, [PR #46](https://github.com/pavlos-argyris/fleet-control/pull/46). Η αναφορά του χρήστη ότι η5.56.0 εξακολουθούσε να μπλοκάρει τον editor καταγράφηκε και δεν θεωρήθηκε επιβεβαιωμένη επίλυση.

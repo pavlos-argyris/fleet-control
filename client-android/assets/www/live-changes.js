@@ -6,7 +6,7 @@
   if(current===identity)return controller;stop();current=identity;
   let disposed=false,leader=false,connected=false,ws=null,bus=null,timer=null,ping=null,retry=null,release=null,locking=false,failures=0,realm='',retryAt=0,scopeTimer=null,scopes=new Set(),lastState=0,lastMessage=Date.now();
   const id=root.crypto?.randomUUID?.()||Math.random().toString(36).slice(2),active=()=>!disposed&&!document.hidden&&(!config.isActive||config.isActive());
-  function deliver(values){for(const s of values||[])if(['fleet','invoices','workforce','status'].includes(s))scopes.add(s);if(!scopeTimer)scopeTimer=setTimeout(()=>{scopeTimer=null;const list=[...scopes];scopes.clear();root.FleetSharedReads?.invalidate(list);config.onChange?.(list);},450);}
+  function deliver(values){for(const s of values||[])if(['fleet','invoices','workforce','status','stores'].includes(s))scopes.add(s);if(!scopeTimer)scopeTimer=setTimeout(()=>{scopeTimer=null;const list=[...scopes];scopes.clear();root.FleetSharedReads?.invalidate(list);config.onChange?.(list);},450);}
   function state(value){connected=value;lastState=Date.now();if(leader)bus?.postMessage({type:'state',connected:value});}
   function closeSocket(){clearInterval(ping);ping=null;if(ws){ws.onclose=null;ws.onmessage=null;ws.onerror=null;ws.close();ws=null;}state(false);}
   async function connect(){

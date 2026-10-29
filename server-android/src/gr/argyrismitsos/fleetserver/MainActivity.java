@@ -267,6 +267,8 @@ public final class MainActivity extends Activity {
     }
 
     public final class ServerBridge {
+        @JavascriptInterface public String getStoreBillingStatus(){try{return StoreBillingSync.status(store).toString();}catch(Exception e){return "{\"error\":\"Δεν φορτώθηκε η κατάσταση καταστημάτων.\"}";}}
+        @JavascriptInterface public void ordexaStoresRequest(final String value){runTask("ordexaStoresRequest",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{JSONObject b=new JSONObject(value);return StoreBillingSync.request(getApplicationContext(),store,b.getString("from"),b.getString("to"));}});}
         @JavascriptInterface public String getOrdexaStatus(){try{return OrdexaSync.status(getApplicationContext()).toString();}catch(Exception e){return "{\"configured\":false,\"error\":\"Η σύνδεση Ordexa χρειάζεται έλεγχο.\"}";}}
         @JavascriptInterface public void ordexaLogin(final String value){runTask("ordexaLogin",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return OrdexaSync.login(getApplicationContext(),new JSONObject(value));}});}
         @JavascriptInterface public void ordexaConfigure(final String value){runTask("ordexaConfigure",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return OrdexaSync.configure(getApplicationContext(),new JSONObject(value));}});}
