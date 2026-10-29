@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="gr.argyrismitsos.fleetserver"
-    android:versionCode="47"
-    android:versionName="2.5.1">
+    android:versionCode="48"
+    android:versionName="2.5.2">
 
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" />

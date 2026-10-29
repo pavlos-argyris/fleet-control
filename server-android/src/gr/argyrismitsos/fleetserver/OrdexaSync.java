@@ -95,7 +95,7 @@ public final class OrdexaSync {
         return oldest;
     }
     public static void tick(Context c){
-        SharedPreferences p=prefs(c);long time=System.currentTimeMillis();if(!p.getBoolean("enabled",false)||running.get()||time-p.getLong("attempt",0)<Math.min(300000L,45000L*(1L<<p.getInt("sync_failures",0)))||OtaManager.shouldYieldForUpdate(c))return;
+        SharedPreferences p=prefs(c);long time=System.currentTimeMillis();if(!p.getBoolean("enabled",false)||running.get()||time-p.getLong("attempt",0)<Math.min(1200000L,300000L*(1L<<Math.min(2,p.getInt("sync_failures",0))))||OtaManager.shouldYieldForUpdate(c))return;
         try{Calendar day=Calendar.getInstance(TimeZone.getTimeZone("Europe/Athens"));java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US);f.setTimeZone(day.getTimeZone());String to=f.format(day.getTime());boolean full=time-p.getLong("week_attempt",0)>=3600000L;day.add(Calendar.DAY_OF_MONTH,full?-6:-1);sync(c,new JSONObject().put("from",f.format(day.getTime())).put("to",to));if(full)p.edit().putLong("week_attempt",time).apply();}catch(Exception ignored){}
     }
 }

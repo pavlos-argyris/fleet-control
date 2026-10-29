@@ -8,7 +8,7 @@ import java.util.*;
 
 /** Pure, deterministic payroll computation. No network, database or provider writes. */
 public final class OrdexaPayrollEngine {
-    public static final int VERSION=1;
+    public static final int VERSION=2;
     private static final long MINUTE=60000L, HALF=30*MINUTE, DAY=24*60*MINUTE;
     private static final Map<String,Long> TIMES=new LinkedHashMap<String,Long>(256,0.75f,true){protected boolean removeEldestEntry(Map.Entry<String,Long> entry){return size()>8192;}};
     private final SimpleDateFormat dayFormat=new SimpleDateFormat("yyyy-MM-dd",Locale.US);
@@ -30,8 +30,8 @@ public final class OrdexaPayrollEngine {
 
     private static final class Group {
         String id,employeeId,name,workDate,fingerprint,startFingerprint,endFingerprint;
-        long start,end,paidStart,paidEnd,normalMinutes,specialMinutes,baseCents,specialCents;
-        boolean open,active,sourcePending,midnightCap,oneAmCap,locked,skip,excluded,adjusted,accepted,startApproved,endApproved;
+        long start,end,paidStart,paidEnd,operatingStart,operatingEnd,normalMinutes,specialMinutes,baseCents,specialCents;
+        boolean open,active,sourcePending,midnightCap,oneAmCap,twoAmCap,locked,skip,excluded,adjusted,accepted,startApproved,endApproved;
         JSONObject plan,edit,publicRow,frozenSource;
         int editRevision;
         final JSONArray legacy=new JSONArray();
@@ -98,11 +98,15 @@ public final class OrdexaPayrollEngine {
     }
     private void resolve(Group g)throws Exception{
         selectPlan(g);g.workDate=day(g.start);g.fingerprint=fingerprint(g);g.startFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.start+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("start_at"))+"|"+startCutoff+"|"+zone.getID());g.endFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.end+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("end_at"))+"|"+endMiddle+"|"+endNext+"|"+zone.getID());g.edit=edits.get(g.id);g.editRevision=g.edit==null?0:g.edit.optInt("revision",0);if(g.edit!=null&&!g.employeeId.equals(g.edit.optString("employee_id"))){g.reason("Άλλαξε η αντιστοίχιση εργαζομένου · η προηγούμενη διόρθωση δεν μεταφέρεται");g.edit=null;}g.paidStart=round(g.start,true);
+        // A working day is open 08:00 through 02:00 the following morning.
+        // A source beginning before 02:00 belongs to the preceding open window.
+        String operatingDate=hour(g.start)<2?addDays(day(g.start),-1):day(g.start);Calendar opening=calendar(localMidnight(operatingDate));opening.set(Calendar.HOUR_OF_DAY,8);g.operatingStart=opening.getTimeInMillis();Calendar closing=calendar(localMidnight(addDays(operatingDate,1)));closing.set(Calendar.HOUR_OF_DAY,2);g.operatingEnd=closing.getTimeInMillis();
         long planEnd=g.plan==null?0:time(g.plan.optString("end_at")),actualEnd=g.end;
         long planStart=g.plan==null?0:time(g.plan.optString("start_at"));if(g.plan!=null&&g.start-planStart>=lateMinutes*MINUTE&&"up".equals(lateMode)){long floor=floorHalf(g.start);g.paidStart=g.start==floor?floor:floor+HALF;}
         if(g.plan!=null&&hour(planEnd)==0&&minute(planEnd)==0&&planEnd>=g.start&&planEnd<=now&&(actualEnd==0||actualEnd>planEnd)){actualEnd=planEnd;g.midnightCap=true;}
         if(g.plan!=null&&hour(planEnd)==1&&minute(planEnd)==0&&actualEnd>planEnd&&actualEnd<planEnd+21*MINUTE){actualEnd=planEnd;g.oneAmCap=true;}
-        g.paidEnd=actualEnd>0?round(actualEnd,false):floorHalf(now);g.sourcePending=g.open&&!g.midnightCap||g.end>now;
+        if(g.operatingEnd<=now&&(actualEnd==0||actualEnd>g.operatingEnd)){actualEnd=g.operatingEnd;g.twoAmCap=true;}
+        g.paidStart=Math.max(g.operatingStart,Math.min(g.operatingEnd,g.paidStart));g.paidEnd=Math.max(g.operatingStart,Math.min(g.operatingEnd,actualEnd>0?round(actualEnd,false):floorHalf(now)));g.sourcePending=g.open&&!g.midnightCap&&!g.twoAmCap||g.end>now;
         if(g.sourcePending)g.reason("Εκκρεμεί τελικό clock out");
         if(g.start>now){g.reason("Η αρχική είσοδος είναι στο μέλλον");g.skip=true;}
         if(g.paidEnd-g.paidStart>DAY){g.reason("Παρουσία χωρίς ασφαλή τελική έξοδο πάνω από 24 ώρες");g.skip=true;}
@@ -115,18 +119,21 @@ public final class OrdexaPayrollEngine {
             if(g.accepted){g.reasons.clear();if(!g.edit.isNull("paid_end")&&g.paidEnd<=now)g.sourcePending=false;if(!g.excluded&&g.paidEnd>=g.paidStart&&g.paidEnd-g.paidStart<=36*60*MINUTE&&g.start<=now)g.skip=false;}
             else{if(!g.edit.isNull("paid_start")&&!g.startApproved)g.reason("Η διόρθωση έναρξης χρειάζεται επανέλεγχο με τα νέα δεδομένα");if(!g.edit.isNull("paid_end")&&!g.endApproved)g.reason("Η διόρθωση λήξης χρειάζεται επανέλεγχο με τα νέα δεδομένα");}
         }
-        if(g.paidEnd>now&&g.open){g.reason("Η χειροκίνητη πληρωτέα λήξη είναι στο μέλλον");g.sourcePending=true;g.paidEnd=floorHalf(now);}
+        // The closing boundary is authoritative even over an older manual edit.
+        // Closed payroll snapshots are displayed separately and never rewritten.
+        g.paidStart=Math.max(g.operatingStart,Math.min(g.operatingEnd,g.paidStart));g.paidEnd=Math.max(g.operatingStart,Math.min(g.operatingEnd,g.paidEnd));
+        if(g.paidEnd>now&&g.open&&!g.twoAmCap){g.reason("Η χειροκίνητη πληρωτέα λήξη είναι στο μέλλον");g.sourcePending=true;g.paidEnd=floorHalf(now);}
         if(g.paidEnd<g.paidStart)g.paidEnd=g.paidStart;
         if(g.sourcePending)g.reason("Εκκρεμεί τελικό clock out");
         if(g.midnightCap&&!g.accepted&&((g.end==0?now:g.end)-planEnd>=endDeviation*MINUTE))g.reason("Όριο πληρωμής 00:00 βάσει προγράμματος · επιβεβαίωσε ή διόρθωσε τη συγκεκριμένη βάρδια");
         boolean eligibleExtension=g.plan!=null&&hour(planEnd)==1&&minute(planEnd)==0&&(g.open?now:actualEnd)<planEnd+81*MINUTE;
         if(g.sourcePending&&g.plan!=null&&now>planEnd+21*MINUTE&&!eligibleExtension)g.reason("Πέρασε η προγραμματισμένη λήξη χωρίς τελικό clock out");
-        if(g.plan!=null&&!g.accepted){long deviation=g.start-planStart;if(!g.startApproved){if(deviation>=lateMinutes*MINUTE)g.reason("Καθυστερημένο clock in "+(deviation/MINUTE)+" λεπτά");else if(-deviation>=earlyMinutes*MINUTE)g.reason("Πρόωρο clock in "+(-deviation/MINUTE)+" λεπτά");}if(!g.endApproved&&g.end>0&&!g.midnightCap&&!eligibleExtension&&Math.abs(g.end-planEnd)>=endDeviation*MINUTE)g.reason("Απόκλιση clock out από πρόγραμμα "+(Math.abs(g.end-planEnd)/MINUTE)+" λεπτά");}
+        if(g.plan!=null&&!g.accepted){long deviation=g.start-planStart;if(!g.startApproved){if(deviation>=lateMinutes*MINUTE)g.reason("Καθυστερημένο clock in "+(deviation/MINUTE)+" λεπτά");else if(-deviation>=earlyMinutes*MINUTE)g.reason("Πρόωρο clock in "+(-deviation/MINUTE)+" λεπτά");}long effectiveOut=Math.min(g.end,g.operatingEnd);if(!g.endApproved&&g.end>0&&!g.midnightCap&&!eligibleExtension&&Math.abs(effectiveOut-planEnd)>=endDeviation*MINUTE)g.reason("Απόκλιση clock out από πρόγραμμα "+(Math.abs(effectiveOut-planEnd)/MINUTE)+" λεπτά");}
         // A midnight source that was never closed is an explicit exception,
         // not evidence that its rider is still working the next morning.
-        g.active=g.open&&!g.midnightCap&&g.start<=now&&now-g.start<=DAY&&!g.skip;
+        g.active=g.open&&!g.midnightCap&&!g.twoAmCap&&g.start<=now&&now-g.start<=DAY&&!g.skip&&now>=g.operatingStart&&now<g.operatingEnd;
         if(g.edit!=null&&!g.edit.isNull("paid_end")&&time(g.edit.optString("paid_end"))<=now)g.active=false;
-        if(g.midnightCap&&g.edit!=null&&!g.edit.isNull("paid_end")&&time(g.edit.optString("paid_end"))>now)g.active=true;
+        if(g.midnightCap&&!g.twoAmCap&&g.edit!=null&&!g.edit.isNull("paid_end")&&time(g.edit.optString("paid_end"))>now&&now<g.operatingEnd)g.active=true;
         for(JSONObject event:g.events){JSONObject old=legacyDecisions.get("ordexa:"+event.getString("id"));if(old!=null)g.legacy.put(old);}
         if(g.legacy.length()>0&&!g.accepted&&!g.excluded)g.reason("Προηγούμενη απόφαση προγράμματος/clock · επιβεβαίωσε τις πληρωτέες ώρες στο νέο προφίλ");
         if(g.excluded){g.active=false;g.sourcePending=false;g.paidEnd=g.paidStart;boolean reviewed=true;for(JSONObject event:g.events)reviewed=reviewed&&event.optInt("review",0)==0;if(reviewed)g.reasons.clear();}
@@ -143,7 +150,6 @@ public final class OrdexaPayrollEngine {
         for(Group g:groups){if(g.skip||g.employeeId.length()==0)continue;
             for(long t=g.paidStart;t<g.paidEnd;t+=HALF){String slotKey=g.employeeId+"/"+t;Group previous=charged.get(slotKey);if(previous!=null){previous.reason("Επικαλυπτόμενες παρουσίες του ίδιου εργαζομένου · χρειάζεται έλεγχος χωρίς διπλή χρέωση");g.reason("Επικαλυπτόμενες παρουσίες του ίδιου εργαζομένου · χρειάζεται έλεγχος χωρίς διπλή χρέωση");continue;}charged.put(slotKey,g);long duration=Math.min(HALF,g.paidEnd-t)/MINUTE;int h=hour(t);boolean premium=(h==0||h==1)&&special(g,h,t);long rate=premium?(h==0?1000:1500):600;
                 if(premium){g.specialMinutes+=duration;g.specialCents+=Math.round(rate*duration/60.0);if(!nightSlots.containsKey(t))nightSlots.put(t,new ArrayList<Group>());nightSlots.get(t).add(g);}else{g.normalMinutes+=duration;g.baseCents+=Math.round(rate*duration/60.0);}
-                if((h==0||h==1)&&g.plan==null&&!g.accepted)g.reason("Νυχτερινή παρουσία χωρίς επιβεβαιωμένο δικαιούχο προγράμματος");
             }
         }
         for(Map.Entry<Long,List<Group>> slot:nightSlots.entrySet()){List<Group> rows=slot.getValue();int limit=hour(slot.getKey())==0?3:2;if(rows.size()<=limit)continue;boolean accepted=true;for(Group g:rows)accepted=accepted&&g.accepted;if(!accepted)for(Group g:rows)g.reason("Υπέρβαση νυχτερινού ορίου "+limit+" ατόμων · χρειάζεται απόφαση για κάθε εργαζόμενο");}
@@ -153,8 +159,11 @@ public final class OrdexaPayrollEngine {
         JSONArray ids=new JSONArray(),reasons=new JSONArray();for(JSONObject e:g.events)ids.put(e.getString("id"));for(String r:g.reasons)reasons.put(r);
         String vehicleId=g.plan==null?"":g.plan.optString("vehicle_id","");if("null".equals(vehicleId))vehicleId="";JSONObject vehicle=vehicles.get(vehicleId);
         JSONObject r=new JSONObject().put("id",g.id).put("source","ordexa").put("employeeId",g.employeeId).put("employeeName",g.name).put("workDate",g.workDate).put("actualClockIn",iso(g.start)).put("actualClockOut",g.open?JSONObject.NULL:iso(g.end)).put("payableClockIn",iso(g.paidStart)).put("payableClockOut",iso(g.paidEnd)).put("payableHours",(g.normalMinutes+g.specialMinutes)/60.0).put("payableMinutes",g.normalMinutes+g.specialMinutes).put("normalMinutes",g.normalMinutes).put("specialMinutes",g.specialMinutes).put("basePayCents",g.baseCents).put("specialPayCents",g.specialCents).put("totalPayCents",g.baseCents+g.specialCents).put("sourceSessionIds",ids).put("fingerprint",g.fingerprint).put("startFingerprint",g.startFingerprint).put("endFingerprint",g.endFingerprint).put("adjustmentRevision",g.editRevision).put("adjusted",g.adjusted).put("adjustedBy",g.edit==null?"":g.edit.optString("updated_by_name")).put("adjustedAt",g.edit==null?JSONObject.NULL:g.edit.optString("updated_at")).put("night00Mode",g.night0).put("night01Mode",g.night1).put("reasons",reasons).put("sourcePending",g.sourcePending).put("midnightCap",g.midnightCap).put("oneAmCap",g.oneAmCap).put("excluded",g.excluded).put("missingClockOut",g.open).put("active",g.active).put("payrollLocked",g.locked).put("status",g.active?"active":"completed").put("vehicleId",vehicleId).put("vehicleName",vehicle==null?vehicleId:vehicle.optString("name")).put("schedule",g.plan==null?JSONObject.NULL:g.plan);
+        if(g.events.size()>1){JSONArray sessions=new JSONArray();for(JSONObject event:g.events)sessions.put(new JSONObject().put("id",event.getString("id")).put("clockIn",event.opt("in_at")).put("clockOut",event.opt("out_at")));r.put("sourceSessions",sessions);}
+        r.put("outOfSchedule",g.plan==null).put("twoAmCap",g.twoAmCap).put("operatingStart",iso(g.operatingStart)).put("operatingEnd",iso(g.operatingEnd));if(g.plan==null)r.put("scheduleNotice","Εκτός προγράμματος · οι παρουσίες είναι πληρωτέες βάσει clock. Ειδικό νυχτερινό ωρομίσθιο με απόφαση στη βάρδια.");
         if(g.legacy.length()>0)r.put("legacyDecisions",g.legacy);
         if(g.frozenSource!=null){r.put("payableHours",g.frozenSource.has("payableMinutes")?g.frozenSource.optDouble("payableMinutes",0)/60.0:JSONObject.NULL).put("payableMinutes",g.frozenSource.opt("payableMinutes")).put("payableClockIn",g.frozenSource.opt("payableStart")).put("payableClockOut",g.frozenSource.opt("payableEnd"));if(g.frozenSource.has("basePayCents")){r.put("basePayCents",g.frozenSource.optLong("basePayCents")).put("specialPayCents",g.frozenSource.optLong("specialPayCents")).put("totalPayCents",g.frozenSource.optLong("basePayCents")+g.frozenSource.optLong("specialPayCents"));}else{r.put("basePayCents",JSONObject.NULL).put("specialPayCents",JSONObject.NULL).put("totalPayCents",JSONObject.NULL);}}
+        if(g.frozenSource!=null)r.put("normalMinutes",g.frozenSource.has("normalMinutes")?g.frozenSource.get("normalMinutes"):JSONObject.NULL).put("specialMinutes",g.frozenSource.has("specialMinutes")?g.frozenSource.get("specialMinutes"):JSONObject.NULL);
         g.publicRow=r;return r;
     }
     private JSONObject employeeSummary(String id,String name)throws Exception{return new JSONObject().put("employeeId",id).put("employeeName",name).put("shifts",0).put("normalHours",0).put("specialHours",0).put("payableHours",0).put("kilometers",0).put("basePayCents",0).put("specialPayCents",0).put("bonusCents",0).put("deductionCents",0).put("advanceCents",0).put("finalCents",0).put("pendingOvertime",0).put("overtimeApprovals",new JSONArray()).put("sourceRows",new JSONArray()).put("hoursSource","ordexa");}
@@ -165,25 +174,45 @@ public final class OrdexaPayrollEngine {
     private JSONObject coverage()throws Exception{
         JSONArray days=new JSONArray();long under=0,over=0,upcoming=0,plannedTotal=0,covered=0;
         for(String date=week;date.compareTo(endDate)<=0;date=addDays(date,1)){JSONArray buckets=new JSONArray();long last=localMidnight(addDays(date,1));for(long t=localMidnight(date);t<last;t+=HALF){Set<String> scheduled=new LinkedHashSet<String>(),actual=new LinkedHashSet<String>();
-            for(List<JSONObject> list:plans.values())for(JSONObject p:list)if(time(p.optString("start_at"))<t+HALF&&time(p.optString("end_at"))>t){JSONObject person=people.get(p.optString("employee_id"));scheduled.add(person==null?p.optString("employee_id"):person.optString("full_name"));}
-            for(Group g:groups){long end=g.open?now:g.end;if((g.midnightCap||g.oneAmCap)&&g.plan!=null)end=time(g.plan.optString("end_at"));if(g.accepted&&g.edit!=null&&!g.edit.isNull("paid_end"))end=Math.min(now,time(g.edit.optString("paid_end")));if(!g.skip&&g.start<t+HALF&&end>t&&t<now)actual.add(g.name);}
+            for(List<JSONObject> list:plans.values())for(JSONObject p:list)if((hour(t)<2||hour(t)>=8)&&time(p.optString("start_at"))<t+HALF&&time(p.optString("end_at"))>t){JSONObject person=people.get(p.optString("employee_id"));scheduled.add(person==null?p.optString("employee_id"):person.optString("full_name"));}
+            for(Group g:groups){long end=g.open?now:g.end;if((g.midnightCap||g.oneAmCap)&&g.plan!=null)end=time(g.plan.optString("end_at"));if(g.accepted&&g.edit!=null&&!g.edit.isNull("paid_end"))end=Math.min(now,time(g.edit.optString("paid_end")));end=Math.min(end,g.operatingEnd);if(!g.skip&&Math.max(g.start,g.operatingStart)<t+HALF&&end>t&&t<now)actual.add(g.name);}
             String status=t>=now?"planned":actual.size()<scheduled.size()?"under":actual.size()>scheduled.size()?"over":"covered";
             if(t<now){plannedTotal+=scheduled.size();covered+=Math.min(scheduled.size(),actual.size());if("under".equals(status))under++;if("over".equals(status))over++;}else if(!scheduled.isEmpty())upcoming++;
             JSONArray p=new JSONArray(),a=new JSONArray();for(String name:scheduled)p.put(name);for(String name:actual)a.put(name);buckets.put(new JSONObject().put("time",String.format(Locale.US,"%02d:%02d",hour(t),minute(t))).put("planned",scheduled.size()).put("actual",actual.size()).put("plannedEmployees",p).put("actualEmployees",a).put("status",status));}
             days.put(new JSONObject().put("date",date).put("buckets",buckets));}
         return new JSONObject().put("days",days).put("startDate",week).put("endDate",endDate).put("summary",new JSONObject().put("coveragePercent",plannedTotal==0?100:Math.round(100.0*covered/plannedTotal)).put("undercoveredSlots",under).put("overcoveredSlots",over).put("upcomingSlots",upcoming));
     }
+    private JSONObject editContexts()throws Exception{
+        JSONObject contexts=new JSONObject();String lower=iso(localMidnight(addDays(week,-1))),upper=iso(localMidnight(addDays(week,8)));
+        for(String employee:people.keySet()){
+            JSONObject context=new JSONObject().put("version",1).put("lower",lower).put("upper",upper);
+            for(String table:new String[]{"riders","sessions","schedules","adjustments","legacyDecisions","settings"}){
+                JSONArray rows=new JSONArray(),source=array(table);
+                String[] columns="riders".equals(table)?new String[]{"city_id","rider_id","employee_id","revision"}:"sessions".equals(table)?new String[]{"id","revision","in_at","out_at","ignored","review","missing_since","review_reason"}:"schedules".equals(table)?new String[]{"id","start_at","end_at","status","vehicle_id"}:"adjustments".equals(table)?new String[]{"id","revision"}:"legacyDecisions".equals(table)?new String[]{"id","start_choice","end_choice","chosen_schedule_id","updated_at"}:new String[]{"key","value"};
+                for(int i=0;i<source.length();i++){
+                    JSONObject row=source.getJSONObject(i);boolean include;
+                    if("settings".equals(table))include=true;
+                    else if("sessions".equals(table))include=employee.equals(employee(riders.get(row.optString("city_id")+"\n"+row.optString("rider_id"))));
+                    else include=employee.equals(employee(row));
+                    if(!include)continue;JSONObject copy=new JSONObject();for(String column:columns)copy.put(column,row.has(column)?row.get(column):JSONObject.NULL);rows.put(copy);
+                }
+                context.put(table,rows);
+            }
+            contexts.put(employee,context);
+        }
+        return contexts;
+    }
     private JSONObject build()throws Exception{
         group();for(Group g:groups)resolve(g);price();
         JSONArray shifts=new JSONArray(),reviews=new JSONArray(),blockers=new JSONArray(),active=new JSONArray(),pendingOut=new JSONArray(),missing=new JSONArray(),daily=new JSONArray();
         Map<String,JSONObject> summaries=new LinkedHashMap<String,JSONObject>();Set<String> activeVehicles=new LinkedHashSet<String>(),activePeople=new LinkedHashSet<String>(),seenPlans=new HashSet<String>();
-        for(Group g:groups){JSONObject r=row(g);shifts.put(r);if(g.plan!=null&&!g.excluded&&g.start<=now&&(g.open||g.end>time(g.plan.optString("start_at"))))seenPlans.add(g.plan.optString("id"));if(g.open&&g.midnightCap)pendingOut.put(liveRow(r));
+        for(Group g:groups){JSONObject r=row(g);shifts.put(r);if(g.plan!=null&&!g.excluded&&g.start<=now&&(g.open||g.end>time(g.plan.optString("start_at"))))seenPlans.add(g.plan.optString("id"));if(g.open&&(g.midnightCap||g.twoAmCap))pendingOut.put(liveRow(r));
             if(g.active){active.put(liveRow(r));activePeople.add(g.employeeId.length()>0?g.employeeId:g.events.get(0).optString("city_id")+"/"+g.events.get(0).optString("rider_id"));String v=r.optString("vehicleId");if(v.length()>0&&!v.startsWith("__own_vehicle__:"))activeVehicles.add(v);}
             boolean inWeek=g.workDate.compareTo(week)>=0&&g.workDate.compareTo(endDate)<=0;
             if(!inWeek)continue;if((!g.locked||g.skip)&&!g.reasons.isEmpty()){boolean actionable=false;for(String reason:g.reasons){blockers.put(new JSONObject().put("id",g.id).put("reason",reason));if(!reason.equals("Εκκρεμεί τελικό clock out"))actionable=true;}if(actionable)reviews.put(reviewRow(r));}
             if(g.skip||g.employeeId.length()==0)continue;JSONObject s=summaries.get(g.employeeId);if(s==null){s=employeeSummary(g.employeeId,g.name);summaries.put(g.employeeId,s);}
             plus(s,"shifts",1);plus(s,"basePayCents",g.baseCents);plus(s,"specialPayCents",g.specialCents);s.put("normalHours",s.optDouble("normalHours",0)+g.normalMinutes/60.0).put("specialHours",s.optDouble("specialHours",0)+g.specialMinutes/60.0).put("payableHours",s.optDouble("payableHours",0)+(g.normalMinutes+g.specialMinutes)/60.0);
-            s.getJSONArray("sourceRows").put(new JSONObject().put("id",g.id).put("start",iso(g.start)).put("end",g.open?JSONObject.NULL:iso(g.end)).put("payableStart",iso(g.paidStart)).put("payableEnd",iso(g.paidEnd)).put("payableMinutes",g.normalMinutes+g.specialMinutes).put("basePayCents",g.baseCents).put("specialPayCents",g.specialCents).put("sourceSessionIds",r.getJSONArray("sourceSessionIds")).put("ordexaSchedule",g.plan==null?JSONObject.NULL:g.plan).put("ordexaTimeZone",zone.getID()).put("adjustedBy",r.optString("adjustedBy")));
+            s.getJSONArray("sourceRows").put(new JSONObject().put("id",g.id).put("start",iso(g.start)).put("end",g.open?JSONObject.NULL:iso(g.end)).put("payableStart",iso(g.paidStart)).put("payableEnd",iso(g.paidEnd)).put("payableMinutes",g.normalMinutes+g.specialMinutes).put("normalMinutes",g.normalMinutes).put("specialMinutes",g.specialMinutes).put("workDate",g.workDate).put("basePayCents",g.baseCents).put("specialPayCents",g.specialCents).put("sourceSessionIds",r.getJSONArray("sourceSessionIds")).put("ordexaSchedule",g.plan==null?JSONObject.NULL:g.plan).put("ordexaTimeZone",zone.getID()).put("adjustedBy",r.optString("adjustedBy")));
         }
         if(!gapConfigured)blockers.put(new JSONObject().put("reason","Όρισε το όριο συνέχειας αποσυνδέσεων Ordexa"));
         if(input.has("coverage")){Set<String> coverage=new HashSet<String>(),cities=new HashSet<String>();JSONArray rows=array("coverage");for(int i=0;i<rows.length();i++){JSONObject c=rows.getJSONObject(i);coverage.add(c.optString("city_id")+"/"+c.optString("day"));}for(JSONObject r:riders.values())if(employee(r).length()>0)cities.add(r.optString("city_id"));if(cities.isEmpty())blockers.put(new JSONObject().put("reason","Δεν υπάρχουν αντιστοιχισμένοι εργαζόμενοι Ordexa"));for(String city:cities)for(String date=week;date.compareTo(endDate)<=0&&date.compareTo(day(now))<=0;date=addDays(date,1))if(!coverage.contains(city+"/"+date))blockers.put(new JSONObject().put("reason","Λείπει ημερήσιος συγχρονισμός "+date+" · "+city));}
@@ -196,6 +225,6 @@ public final class OrdexaPayrollEngine {
         JSONObject payroll=new JSONObject().put("period",period).put("hoursSource","ordexa").put("employees",employees).put("totals",totals).put("blockers",blockers).put("ordexaReviews",reviews).put("serverComputed",true);
         int fleetCount=0;for(JSONObject v:vehicles.values())if(!"inactive".equals(v.optString("status")))fleetCount++;
         JSONObject dashboard=new JSONObject().put("workingNow",activePeople.size()).put("activeShifts",active).put("missingClockIns",missing).put("vehiclesInUse",bikes).put("totalVehicles",fleetCount).put("pendingClockOuts",pendingOut).put("dailySchedule",daily).put("payableHours",totals.optDouble("payableHours",0)).put("payrollCents",totals.optLong("finalCents",0)).put("reviewCount",reviews.length()).put("weekStart",week).put("weekEnd",endDate).put("coverage",coverage());
-        return new JSONObject().put("engineVersion",VERSION).put("shifts",shifts).put("payroll",payroll).put("reviews",reviews).put("dashboard",dashboard);
+        return new JSONObject().put("engineVersion",VERSION).put("editContexts",editContexts()).put("shifts",shifts).put("payroll",payroll).put("reviews",reviews).put("dashboard",dashboard);
     }
 }
