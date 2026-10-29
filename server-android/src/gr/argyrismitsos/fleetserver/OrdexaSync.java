@@ -77,7 +77,20 @@ public final class OrdexaSync {
                 if(!result.optBoolean("saved")||!result.optBoolean("accepted"))throw new Exception("Δεν επιβεβαιώθηκε η αποθήκευση της ημέρας "+day+". Επανάλαβε τον έλεγχο.");
                 if(!p.edit().putString(receipt,hash).commit())throw new Exception("Δεν αποθηκεύτηκε η τοπική επιβεβαίωση Ordexa. Η ημέρα διατηρείται στο Fleet· επανάλαβε τον έλεγχο.");saved++;
             }
-            p.edit().putString("last_success",OrdexaClient.isoNow()).putString("stage","Ολοκληρώθηκε ο συγχρονισμός Ordexa").putString("error","").commit();return new JSONObject().put("savedDays",saved).put("unchangedDays",unchanged).put("status",status(c));
+            String payrollWarning="";int payrollPending=0;
+            if(saved>0||p.getBoolean("paycheck_pending",false)){
+                p.edit().putBoolean("paycheck_pending",true).apply();
+                if(OtaManager.shouldYieldForUpdate(c))payrollWarning="Οι παρουσίες αποθηκεύτηκαν. Ο έλεγχος μισθοδοσίας θα επαναληφθεί μετά την ενημέρωση.";
+                else try{
+                    if(!base.equals(workerBase(main))||!scope.equals(receiptScope(p,main,base)))throw new Exception("Η σύνδεση Server άλλαξε.");
+                    p.edit().putString("stage","Έλεγχος μισθοδοσίας μετά την ολοκλήρωση όλων των ημερών").apply();ServerWorkTracker.stage("ordexa","Συγχρονισμός Ordexa","Σύγκριση παρουσιών και προγράμματος");
+                    JSONObject checked=FleetHttp.sendJson(base+"/api/server/ordexa/pay-check","POST",new JSONObject().put("from",from).put("to",to),SyncService.serverHeaders());
+                    if(!checked.optBoolean("checked"))throw new Exception("Δεν επιβεβαιώθηκε ο έλεγχος.");
+                    payrollPending=checked.optInt("pending",0);p.edit().putBoolean("paycheck_pending",false).apply();
+                    if(checked.optBoolean("needsGapPolicy"))payrollWarning="Οι παρουσίες αποθηκεύτηκαν. Όρισε αντιστοιχίσεις και κανόνες συνέχειας στις Ρυθμίσεις για έλεγχο μισθοδοσίας.";
+                }catch(Exception checkError){payrollWarning="Οι παρουσίες αποθηκεύτηκαν. Εκκρεμεί έλεγχος μισθοδοσίας· άνοιξε τη μισθοδοσία στο Client/Web ή επανάλαβε τον συγχρονισμό.";}
+            }
+            p.edit().putString("last_success",OrdexaClient.isoNow()).putString("stage",payrollPending>0?"Ολοκληρώθηκε ο συγχρονισμός · "+payrollPending+" βάρδιες προς απόφαση μισθοδοσίας":"Ολοκληρώθηκε ο συγχρονισμός Ordexa").putString("error",payrollWarning).commit();return new JSONObject().put("savedDays",saved).put("unchangedDays",unchanged).put("payrollWarning",payrollWarning).put("payrollPending",payrollPending).put("status",status(c));
         }catch(Exception e){if(p!=null)p.edit().putString("error",safeError(e)).putString("stage","Χρειάζεται έλεγχος Ordexa").commit();throw new Exception(safeError(e));}
         finally{if(tracked)ServerWorkTracker.finish("ordexa");running.set(false);}
     }

@@ -15,8 +15,9 @@
     alerts: 30000, audit: 60000, recycle: 30000, server: 30000, settings: 300000
   };
   const numberFormat = new Intl.NumberFormat("el-GR");
-  let shiftsLoadSequence=0;
+  let shiftsLoadSequence=0,payrollLoadSequence=0;
   const moneyFormat = new Intl.NumberFormat("el-GR", { style: "currency", currency: "EUR" });
+  const shiftDateTimeFormat = new Intl.DateTimeFormat("el-GR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" });
   const dateTimeFormat = new Intl.DateTimeFormat("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const dateFormat = new Intl.DateTimeFormat("el-GR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const timeFormat = new Intl.DateTimeFormat("el-GR", { hour: "2-digit", minute: "2-digit" });
@@ -28,7 +29,7 @@
     service_conflict: "Σύγκρουση service", service_due: "Service που πλησιάζει", major_service_due: "Μεγάλο service", payroll_correction: "Διόρθωση μισθοδοσίας",
     correction_request: "Αίτημα διόρθωσης", backup_failed: "Αποτυχία backup", db_problem: "Πρόβλημα βάσης",
     server_offline: "Server offline", server_restart: "Επανεκκίνηση Server",
-    invoice_processing_failed: "Αποτυχία τιμολογίου",
+    invoice_processing_failed: "Αποτυχία τιμολογίου",ordexa_pay_review:"Έλεγχος μισθοδοσίας Ordexa",
     server_temperature: "Θερμοκρασία Server", server_storage: "Χώρος Server",
     server_battery: "Μπαταρία Server", server_restriction: "Περιορισμός Android"
   };
@@ -340,7 +341,7 @@
   }
 
   function showAuth() {
-    shiftsLoadSequence++;state.shifts=[];$("shiftsTable").replaceChildren();
+    payrollLoadSequence++;state.payroll=null;window.FleetOrdexaPayUI?.clear();shiftsLoadSequence++;state.shifts=[];$("shiftsTable").replaceChildren();
     window.FleetMotion?.finish();
     window.FleetLive?.stop();
     setFleetDetailMode(false);
@@ -2518,7 +2519,7 @@
   }
 
   function shiftActions(item) {
-    if(item.source==='ordexa')return '<span class="empty-copy">Από Ordexa · μόνο προβολή</span>';
+    if(item.source==='ordexa')return item.payReviewId&&can('payroll.manage')?'<button class="secondary-button" type="button" data-review-ordexa-pay="'+escapeHtml(item.payReviewId)+'">Έλεγχος μισθοδοσίας</button>':'<span class="empty-copy">Από Ordexa · μόνο προβολή</span>';
     const buttons = [];
     if (item.status === "active" && can("shifts.manage")) buttons.push('<button data-shift-action="close" data-shift-id="' + escapeHtml(item.id) + '" type="button">Κλείσιμο</button>');
     if (item.status === "active" && !item.ownVehicle && can("shifts.vehicle.change")) buttons.push('<button data-shift-action="vehicle" data-shift-id="' + escapeHtml(item.id) + '" type="button">Αλλαγή μηχανής</button>');
@@ -2552,7 +2553,7 @@
     state.shifts = data.shifts || [];
     if($("shiftSourceInfo"))$("shiftSourceInfo").textContent=(data.source==='fleet'?'':'Οι παρουσίες Ordexa εμφανίζονται χωρίς αλλαγή των αρχικών ωρών. Οι νυχτερινές βάρδιες διατηρούν την έξοδο της επόμενης ημερομηνίας. Οι πληρωτέες ώρες Ordexa είναι προεπισκόπηση των κανόνων· η μισθοδοσία χρησιμοποιεί την επιλεγμένη πηγή, χωρίς άθροιση Fleet και Ordexa. ')+(data.ordexaInfo&&!data.ordexaInfo.policyConfigured?'Όρισε πρώτα αντιστοιχίσεις και κανόνες κενών στις Ρυθμίσεις για υπολογισμό πληρωτέων ωρών. ':'')+(data.hasMore?'Υπάρχουν περισσότερες βάρδιες. Μίκρυνε το διάστημα για πλήρη προβολή.':'');
     $("shiftsTable").innerHTML = state.shifts.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος / Πηγή</th><th>Μηχανάκι</th><th>Clock In</th><th>Clock Out</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead><tbody>' + state.shifts.map(function (item) {
-      return '<tr data-shift-source="'+escapeHtml(item.source||'fleet')+'"><td><strong>' + escapeHtml(item.employeeName) + '</strong><br><small>'+escapeHtml(item.source==='ordexa'?'Ordexa · '+item.sourceSessionCount+' καταγραφές':'Fleet clock')+'</small>'+(item.source==='ordexa'&&item.providerName!==item.employeeName?'<br><small>'+escapeHtml(item.providerName)+'</small>':'')+'</td><td>' + escapeHtml(item.vehicleName || "—") + '</td><td>' + escapeHtml(formatDateTime(item.actualClockIn)) + (item.outOfSchedule ? '<br><small>Εκτός προγράμματος</small>' : '') + '</td><td>' + escapeHtml(item.actualClockOut ? formatDateTime(item.actualClockOut) : "—") + '</td><td>' + escapeHtml(item.payableHours == null ? (item.source==='ordexa'?(item.payrollLocked?'Κλειδωμένη περίοδος':'Εκκρεμεί υπολογισμός'):"—") : hours(item.payableHours))+(item.payablePreview?'<br><small>Προεπισκόπηση κανόνων</small>':'') + '</td><td>' + escapeHtml(item.shiftKm == null ? "—" : km(item.shiftKm)) + '</td><td>' + statusPill(item.status)+(item.sourceNotes?.length?'<br><small>'+escapeHtml(item.sourceNotes.join(' · '))+'</small>':'') + '</td><td>' + shiftActions(item) + '</td></tr>';
+      return '<tr data-shift-source="'+escapeHtml(item.source||'fleet')+'"><td><strong>' + escapeHtml(item.employeeName) + '</strong><br><small>'+escapeHtml(item.source==='ordexa'?'Ordexa · '+item.sourceSessionCount+' καταγραφές':'Fleet clock')+'</small>'+(item.source==='ordexa'&&item.providerName!==item.employeeName?'<br><small>'+escapeHtml(item.providerName)+'</small>':'')+'</td><td>' + escapeHtml(item.vehicleName || "—") + '</td><td>' + escapeHtml(shiftDateTimeFormat.format(new Date(item.actualClockIn))) + (item.outOfSchedule ? '<br><small>Εκτός προγράμματος</small>' : '') + '</td><td>' + escapeHtml(item.actualClockOut ? shiftDateTimeFormat.format(new Date(item.actualClockOut)) : "—") + '</td><td>' + escapeHtml(item.payableHours == null ? (item.source==='ordexa'?(item.payrollLocked?'Κλειδωμένη περίοδος':'Εκκρεμεί υπολογισμός'):"—") : hours(item.payableHours))+(item.payablePreview?'<br><small>Προεπισκόπηση κανόνων</small>':'') + '</td><td>' + escapeHtml(item.shiftKm == null ? "—" : km(item.shiftKm)) + '</td><td>' + statusPill(item.status)+(item.sourceNotes?.length?'<br><small>'+escapeHtml(item.sourceNotes.join(' · '))+'</small>':'') + '</td><td>' + shiftActions(item) + '</td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν βρέθηκαν βάρδιες.</p>';
   }
 
@@ -4022,14 +4023,18 @@
   }
 
   async function loadPayroll() {
+    const sequence=++payrollLoadSequence,token=state.token;
     if (!$("payrollStart").value) $("payrollStart").value = mondayDate();
     const start = $("payrollStart").value;
     const end = datePlus(start, 6);
     const data = await api("/api/admin/payroll?start=" + start + "&end=" + end);
-    state.payroll = data;
+    if(sequence!==payrollLoadSequence||token!==state.token)return;
+    state.payroll = data;window.FleetOrdexaPayUI?.render(data);
+    $("ordexaPayPolicyButton")?.classList.toggle('is-hidden',!can('settings.manage'));
     const scheduleSource=(data.hoursSource || data.period.hoursSource)==="schedule";
     $("payrollSourceInfo").innerHTML='<div><strong>'+ (scheduleSource?"Υπολογισμός από δημοσιευμένο πρόγραμμα":"Υπολογισμός από πραγματικές καταγραφές")+'</strong><p>'+ (data.lockedSnapshot?"Η πηγή και τα ποσά διατηρούνται όπως ήταν στο κλείδωμα της περιόδου.":scheduleSource?"Μετρούν οι δημοσιευμένες βάρδιες, χωρίς να απαιτείται clock in/out. Τα πρόχειρα δεν υπολογίζονται. Οι διορθώσεις προγράμματος ενημερώνουν αυτή την ανοικτή περίοδο.":"Μετρούν οι ολοκληρωμένες πραγματικές καταγραφές clock in/out. Το πρόγραμμα διατηρείται ανεξάρτητα.")+'</p></div>'+(can("settings.manage")?'<button class="secondary-button" type="button" data-go="settings">Ρύθμιση πηγής</button>':'');
     if(data.hoursSource==="ordexa")$("payrollSourceInfo").innerHTML='<div><strong>Ordexa — πραγματικές παρουσίες</strong><p>Χρησιμοποιούνται αποκλειστικά οι αντιστοιχισμένες παρουσίες Ordexa και οι υπάρχοντες κανόνες πληρωμής Fleet. Οι καταγραφές Fleet clock δεν προστίθενται δεύτερη φορά.</p></div>'+(data.blockers?.length?'<p class="form-error">Εκκρεμούν '+data.blockers.length+' έλεγχοι: '+escapeHtml([...new Set(data.blockers.map(x=>x.reason))].join(" · "))+'. Έλεγξε Ordexa στις Ρυθμίσεις. Το κλείδωμα δεν επιτρέπεται ακόμη.</p>':'');
+    if(data.ordexaPayPolicy?.enabled)$("payrollSourceInfo").insertAdjacentHTML('beforeend','<p>Ενεργό προφίλ μισάωρου &amp; προγράμματος. Οι πληρωτέες ώρες έχουν χωριστή βάση από την πραγματική καταγραφή. Οι προειδοποιήσεις ανοίγουν άμεσο έλεγχο της συγκεκριμένης βάρδιας.</p>');
     $("payrollLockButton").classList.toggle("is-hidden", !can("payroll.lock"));
     $("payrollLockButton").disabled=Boolean(data.blockers?.length);
     $("newAdjustmentButton").classList.toggle("is-hidden", !can("payroll.manage"));
@@ -4044,7 +4049,7 @@
       metric("Τελικό ποσό", money(data.totals.finalCents), data.period.status === "locked" ? "Κλειδωμένο snapshot" : "Ανοιχτή περίοδος", "€")
     ].join("");
     $("payrollTable").innerHTML = data.employees.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Βάρδιες</th><th>Κανονικές ώρες</th><th>Ειδικές ώρες</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Βάση</th><th>Ειδική αμοιβή</th><th>Υπερωρίες / έγκριση</th><th>Bonus</th><th>Κρατήσεις</th><th>Προκαταβολές</th><th>Τελικό</th></tr></thead><tbody>' + data.employees.map(function (item) {
-      return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong></td><td>' + Number(item.shifts || 0) + '</td><td>' + escapeHtml(hours(item.normalHours)) + '</td><td>' + escapeHtml(hours(item.specialHours)) + '</td><td>' + escapeHtml(hours(item.payableHours)) + '</td><td>' + escapeHtml(km(item.kilometers)) + '</td><td>' + escapeHtml(money(item.basePayCents)) + '</td><td>' + escapeHtml(money(item.specialPayCents)) + '</td><td>' + payrollOvertimeCell(item) + '</td><td>' + escapeHtml(money(item.bonusCents)) + '</td><td>' + escapeHtml(money(item.deductionCents)) + '</td><td>' + escapeHtml(money(item.advanceCents)) + '</td><td><strong>' + escapeHtml(money(item.finalCents)) + '</strong></td></tr>';
+      return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong>'+(data.hoursSource==='ordexa'?'<br><button class="ghost-button" type="button" data-ordexa-pay-breakdown="'+escapeHtml(item.employeeId)+'">Ανάλυση βαρδιών</button>':'')+'</td><td>' + Number(item.shifts || 0) + '</td><td>' + escapeHtml(hours(item.normalHours)) + '</td><td>' + escapeHtml(hours(item.specialHours)) + '</td><td>' + escapeHtml(hours(item.payableHours)) + '</td><td>' + escapeHtml(km(item.kilometers)) + '</td><td>' + escapeHtml(money(item.basePayCents)) + '</td><td>' + escapeHtml(money(item.specialPayCents)) + '</td><td>' + payrollOvertimeCell(item) + '</td><td>' + escapeHtml(money(item.bonusCents)) + '</td><td>' + escapeHtml(money(item.deductionCents)) + '</td><td>' + escapeHtml(money(item.advanceCents)) + '</td><td><strong>' + escapeHtml(money(item.finalCents)) + '</strong></td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν υπάρχουν ολοκληρωμένες βάρδιες σε αυτή την περίοδο.</p>';
   }
 
@@ -4354,7 +4359,7 @@
       const canApproveOvertime = can("shifts.manage") || can("payroll.manage");
       const invoiceFailure=item.type==='invoice_processing_failed'&&item.object_type==='invoice_job';
       const retrying=item.invoice_retry_state==='processing'||invoiceRetryController.pending({jobId:item.object_id});
-      const action = invoiceFailure
+      const action = item.type==='ordexa_pay_review' ? (can('payroll.manage')?'<button class="secondary-button" type="button" data-review-ordexa-pay="'+escapeHtml(item.object_id)+'">Έλεγχος μισθοδοσίας</button>':'<span>Αναμονή απόφασης μισθοδοσίας</span>') : invoiceFailure
         ? (can('fleet.manage')?'<button class="secondary-button invoice-retry-button" type="button" data-retry-invoice-alert="'+escapeHtml(item.id)+'" '+(retrying?'disabled':'')+'>'+(retrying?'Αναμονή επεξεργασίας…':'Επανάληψη')+'</button>':'')
         : item.type === "correction_request" && canResolve
         ? '<button class="secondary-button" type="button" data-handle-correction="' + escapeHtml(item.object_id) + '">Έλεγχος</button>'
@@ -4371,7 +4376,7 @@
     deliverLocalAlerts(state.alerts);
   }
 
-  const alertsRequiringAction = new Set(["correction_request", "overtime", "forgotten_clock_out", "invoice_processing_failed"]);
+  const alertsRequiringAction = new Set(["correction_request", "overtime", "forgotten_clock_out", "invoice_processing_failed", "ordexa_pay_review"]);
 
   function bulkResolvableAlerts() {
     return (state.alerts || []).filter(function (item) {
@@ -4962,4 +4967,5 @@
   setInterval(refreshInvoiceProgressLive, 5000);
   setInterval(function(){if(state.user&&state.view==='alerts'&&!document.hidden&&!window.FleetLive?.connected()&&(state.alerts||[]).some(a=>a.type==='invoice_processing_failed'&&a.invoice_retry_state==='processing'))loadAlerts().catch(()=>{});},15000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("./service-worker.js").catch(function () {});
+  window.FleetOrdexaPayUI?.mount({api,can,editor:simpleEditor,pin:requestPin,session:()=>state.token,toast,money,payroll:()=>state.payroll,invalidate:()=>window.FleetSharedReads?.invalidate(),refresh:async()=>{let failed=false;try{if(state.view==='payroll')await loadPayroll();else if(state.view==='shifts')await loadShifts();}catch{failed=true;}try{if(can('alerts.view'))await loadAlerts();}catch{failed=true;}if(failed)toast('Η αποθήκευση ολοκληρώθηκε. Η προβολή χρειάζεται Ανανέωση.');}});
 })();

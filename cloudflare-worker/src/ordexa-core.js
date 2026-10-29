@@ -22,9 +22,22 @@ CREATE TABLE IF NOT EXISTS ordexa_sessions (
 );
 CREATE INDEX IF NOT EXISTS ordexa_sessions_period ON ordexa_sessions(in_at,city_id,rider_id);
 CREATE INDEX IF NOT EXISTS ordexa_sessions_day ON ordexa_sessions(city_id,provider_day);
+CREATE TABLE IF NOT EXISTS ordexa_pay_decisions (
+ id TEXT PRIMARY KEY,employee_id TEXT NOT NULL,source_session_id TEXT NOT NULL,
+ match_fingerprint TEXT NOT NULL,chosen_schedule_id TEXT NOT NULL DEFAULT '',
+ start_fingerprint TEXT NOT NULL,end_fingerprint TEXT NOT NULL,
+ start_choice TEXT NOT NULL,end_choice TEXT NOT NULL,
+ reason TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1,commit_nonce TEXT NOT NULL,
+ created_at TEXT NOT NULL,created_by TEXT NOT NULL,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ordexa_pay_decisions_source ON ordexa_pay_decisions(source_session_id);
+CREATE TRIGGER IF NOT EXISTS ordexa_pay_schedule_insert AFTER INSERT ON schedules WHEN EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_pay_policy' AND json_extract(value,'$.enabled')=1) BEGIN UPDATE system_settings SET value=CAST(value AS INTEGER)+1 WHERE key='ordexa_revision'; END;
+CREATE TRIGGER IF NOT EXISTS ordexa_pay_schedule_update AFTER UPDATE ON schedules WHEN EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_pay_policy' AND json_extract(value,'$.enabled')=1) BEGIN UPDATE system_settings SET value=CAST(value AS INTEGER)+1 WHERE key='ordexa_revision'; END;
+CREATE TRIGGER IF NOT EXISTS ordexa_pay_schedule_delete AFTER DELETE ON schedules WHEN EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_pay_policy' AND json_extract(value,'$.enabled')=1) BEGIN UPDATE system_settings SET value=CAST(value AS INTEGER)+1 WHERE key='ordexa_revision'; END;
 
 `;
 export const ORDEXA_COLUMNS = {
+ ordexa_pay_decisions:['id','employee_id','source_session_id','match_fingerprint','chosen_schedule_id','start_fingerprint','end_fingerprint','start_choice','end_choice','reason','revision','commit_nonce','created_at','created_by','updated_at','updated_by'],
  ordexa_riders:['id','city_id','rider_id','name','employee_id','revision','updated_at'],
  ordexa_imports:['id','city_id','day','captured_at','received_at','payload','accepted','commit_nonce'],
  ordexa_sessions:['id','city_id','rider_id','provider_day','in_at','out_at','source_id','raw_json','review','ignored','revision','first_seen','last_seen','missing_since','decision_reason','review_reason','previous_raw_json']
@@ -91,4 +104,15 @@ export function groupOrdexaSessions(rows,policy) {
   }else groups.push({id:'ordexa:'+row.id,employeeId:row.employee_id,employeeName:row.employee_name,start:row.in_at,end:row.out_at,sessions:[row.id],gaps:[]});
  }
  return {groups,blocked};
+}
+
+export function projectOrdexaGroups(rows,policy){
+ const byId=new Map(rows.map(row=>[row.id,row])),consumed=new Set(),projected=[];
+ for(const group of policy?groupOrdexaSessions(rows,policy).groups:[]){group.sessions.forEach(id=>consumed.add(id));projected.push({...group,raw:group.sessions.map(id=>byId.get(id)),eligible:true});}
+ if(policy)for(const row of rows)if(!consumed.has(row.id)&&row.employee_id&&!row.out_at&&!Number(row.ignored)&&!row.missing_since&&!row.review_reason){
+  const previous=projected.findLast(group=>group.employeeId===row.employee_id&&group.end&&Date.parse(row.in_at)-Date.parse(group.end)>=0&&Date.parse(row.in_at)-Date.parse(group.end)<=policy.gapMinutes*60000&&Date.parse(row.in_at)-Date.parse(group.start)<=86400000);
+  if(previous){if(row.in_at>previous.end)previous.gaps.push([previous.end,row.in_at]);previous.end=null;previous.sessions.push(row.id);previous.raw.push(row);previous.eligible=false;consumed.add(row.id);}
+ }
+ for(const row of rows)if(!consumed.has(row.id))projected.push({id:'ordexa:'+row.id,employeeId:row.employee_id,employeeName:row.employee_name,start:row.in_at,end:row.out_at,sessions:[row.id],gaps:[],raw:[row],eligible:false});
+ return projected;
 }

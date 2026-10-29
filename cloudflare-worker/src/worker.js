@@ -42,7 +42,7 @@ const SERVICE_RENDER_MAX_ATTEMPTS = 3;
 const INVOICE_REPROCESS_BATCH_SETTING = "service_invoice_reprocess_batch";
 const INVOICE_REPROCESS_BATCH_STALE_MS = 20 * 60 * 1000;
 const INVOICE_REPROCESS_BATCH_RESULT_TTL_MS = 30 * 1000;
-const RUNTIME_SCHEMA_VERSION = "ordexa-attendance-v1";
+const RUNTIME_SCHEMA_VERSION = "ordexa-attendance-payroll-v2";
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fleet_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'canonical', updated_at TEXT NOT NULL);
@@ -116,8 +116,9 @@ async function ensureSchema(env) {
     await ensureWorkforceSchema(env);
     await env.DB.exec(MIRROR_SCHEMA);
     await env.DB.batch([
-      env.DB.prepare("UPDATE fleet_mirror_state SET epoch=lower(hex(randomblob(16))) WHERE id=1 AND NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_mirror_schema_v1')"),
-      env.DB.prepare("INSERT OR IGNORE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_mirror_schema_v1','1',datetime('now'))")
+      env.DB.prepare("UPDATE fleet_mirror_state SET epoch=lower(hex(randomblob(16))) WHERE id=1 AND (NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_mirror_schema_v1') OR NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_payroll_schema_v2'))"),
+      env.DB.prepare("INSERT OR IGNORE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_mirror_schema_v1','1',datetime('now'))"),
+      env.DB.prepare("INSERT OR IGNORE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_payroll_schema_v2','1',datetime('now'))")
     ]);
     await setSetting(env, "runtime_schema_version", RUNTIME_SCHEMA_VERSION);
   })().catch((error) => {
