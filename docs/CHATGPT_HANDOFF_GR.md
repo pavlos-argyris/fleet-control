@@ -2,6 +2,12 @@
 
 Αυτό είναι το κοινό σημείο ενημέρωσης όλων των ChatGPT/βοηθών. Διάβασέ το πριν ξεκινήσεις και ενημέρωσέ το όταν αναλαμβάνεις εργασία, σε σημαντικά ορόσημα και πριν σταματήσεις. Οι καταγραφές διασταυρώνονται πάντα με GitHub branches/commits/PR/Actions και την ενεργή έκδοση.
 
+## #44 — πλήρες local check-all επιτυχές, GitHub CI σε εξέλιξη
+
+- Το πλήρες check-all ολοκληρώθηκε με exit0. Native large-storage regression προσαρμόστηκε με πραγματικό νέο StoreBillingStore, όχι stub.42Java engine/protocol assertions πέρασαν. Actual Workerd/D1 και ο διευρυμένος actual native/SQLite/Worker pipeline πέρασαν, με lostACK/rehydration/futureterms/ακριβές validated backup restore και απόρριψη ασυμφωνίας συνολικού πλήθους pagination πριν αποδοχή. Ο έλεγχος source σελίδων συγκρίνει total/pages μεταξύ σελίδων και το τελικό πραγματικό πλήθος με το δηλωμένο.
+- Προστέθηκε μία σταθερή global ειδοποίηση ανά νέο κατάστημα μετά το bootstrap· δεν διπλασιάζεται με source refresh και ολοκληρώνεται μαζί με τον ορισμό τιμής. Νέα stores παραμένουν default retentionOFF.
+- Ενσωματωμένη πηγή/main parent09ae419 στο **c0c6a8019b85812293d1d2257fd8d74900efeb55**. [Πρώτο CI40961014157](https://github.com/pavlos-argyris/fleet-control/actions/runs/40961014157): full check-all πέρασε, Chromium checks εκτελούνται. Το τελικό head με τα τελευταία pagination/notification regressions χρειάζεται δικό του επιτυχές CI πριν merge. Δεν υπάρχει παραγωγική δημοσίευση της5.57.0 ακόμη.
+
 ## #44 — υποψήφια5.57.0, ανάκτηση και έλεγχοι σε εξέλιξη
 
 - Όλος ο ανακτημένος runtime κώδικας αποθηκεύτηκε επιβεβαιωμένα στο **689dd702878d95bded6da159683b5bd1a43487c2**, PR#48. Η προσωρινή διακοπή περιβάλλοντος λύθηκε· οι παλιότερες σημειώσεις ανάκτησης παρακάτω είναι ιστορικές.

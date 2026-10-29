@@ -77,8 +77,12 @@ public final class StoreBillingSync {
             String selected=j.getString("mode").equals("filtered")?shops.getJSONObject(j.getInt("shopIndex")).getString("sourceShopId"):null;
             String day=j.getString("day");int page=j.getInt("page");JSONObject r=StoreBillingProtocol.page(OrdexaSync.storesRead(c,j,false,StoreBillingEngine.addDay(day,-1),StoreBillingEngine.addDay(day,1),page,selected),page,selected,known(shops));
             if(r.getBoolean("needsShopFilter")){j.put("mode","filtered").put("shopIndex",0).put("page",1);return "Ασφαλής αντιστοίχιση με ταυτότητα καταστήματος";}
+            if(page==1)j.put("pageTotal",r.getInt("total")).put("pagePages",r.getInt("pages")).put("pageRows",0);
+            if(r.getInt("total")!=j.getInt("pageTotal")||r.getInt("pages")!=j.getInt("pagePages"))throw new Exception("Η σελιδοποίηση Ordexa άλλαξε. Η λήψη παραμένει μη πλήρης· επανάλαβε.");
             JSONArray sourceRows=r.getJSONArray("rows");String pass=pass(j);
             s.stagePage(scope,pass,day,(selected==null?"city":selected)+":"+page,sourceRows,j.getLong("cutoffAt"));
+            j.put("pageRows",j.getInt("pageRows")+sourceRows.length());
+            if(page==r.getInt("pages")&&j.getInt("pageRows")!=j.getInt("pageTotal"))throw new Exception("Η πλήρης λήψη Ordexa δεν συμφωνεί με το πλήθος παραγγελιών. Δεν εφαρμόστηκε διαγραφή.");
             if(page<r.getInt("pages")){j.put("page",page+1);return "Ανάγνωση Ordexa · "+day+" · σελίδα "+page+"/"+r.getInt("pages");}
             if(selected!=null&&j.getInt("shopIndex")+1<shops.length()){j.put("shopIndex",j.getInt("shopIndex")+1).put("page",1);return "Έλεγχος καταστημάτων · "+day+" · "+j.getInt("shopIndex")+"/"+shops.length();}
             String digest=s.passDigest(scope,pass);if(j.getInt("pass")==1){j.put("firstDigest",digest).put("pass",2).put("page",1).put("shopIndex",0);return "Επαλήθευση πλήρους λήψης · "+day;}
