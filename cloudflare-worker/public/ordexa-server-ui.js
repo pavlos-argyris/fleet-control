@@ -38,7 +38,7 @@
  async function dashboardData(requestedWeek){
   const id=++sequences.dashboard,token=o.state.token,query=requestedWeek?'?week='+week(requestedWeek):'';
   const result=await o.api('/api/admin/ordexa-server/dashboard'+query,{forceRead:true});if(!valid(token,id,'dashboard'))return null;
-  let node=$('ordexaDashboardStatus');if(!node){node=document.createElement('div');node.id='ordexaDashboardStatus';$('dashboardMetrics').before(node);}node.innerHTML=status(result.projection);
+  if(!requestedWeek){let node=$('ordexaDashboardStatus');if(!node){node=document.createElement('div');node.id='ordexaDashboardStatus';$('dashboardMetrics').before(node);}node.innerHTML=status(result.projection);}
   if(!result.data){$('dashboardMetrics').innerHTML='<p class="empty-copy">Αναμονή επιβεβαιωμένης ζωντανής εικόνας από τον Server.</p>';$('realtimeShifts').innerHTML='<p class="empty-copy">Δεν υπάρχει ακόμη ενημερωμένη εικόνα Ordexa.</p>';return null;}
   const d=result.data;lastDashboard=d;o.state.coverage=d.coverage;
   return {serverComputed:true,projection:result.projection,today:{workingNow:d.workingNow,vehicles:{in_use:d.vehiclesInUse.length,available:Math.max(0,d.totalVehicles-d.vehiclesInUse.length)}},currentWeek:{startDate:d.weekStart,endDate:d.weekEnd,payableHours:d.payableHours,payrollCents:d.payrollCents,kilometers:0},missedClockIns:d.missingClockIns,dailySchedule:d.dailySchedule,realtime:d.activeShifts.map(r=>({...r,employee_name:r.employeeName,vehicle_name:r.vehicleName,actual_clock_in:r.actualClockIn,out_of_schedule:r.out_of_schedule})),actionCount:Number(result.alerts?.total||0),actionGroups:{service:Number(result.alerts?.service||0)},serverLive:d};

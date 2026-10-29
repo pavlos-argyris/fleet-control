@@ -33,20 +33,21 @@ const rawJson=(value,status=200)=>new Response(value,{status,headers:{'Content-T
 const fail=(D,status,message)=>{throw new D.ApiError(status,message);};
 const setting=async(env,key,fallback='')=>(await env.DB.prepare('SELECT value FROM system_settings WHERE key=?').bind(key).first())?.value??fallback;
 const monday=day=>{ordexaDay(day);return addCalendarDays(day,-((new Date(day+'T12:00:00Z').getUTCDay()+6)%7));};
-async function head(env){const [revision,epoch,zone]=await Promise.all([setting(env,'ordexa_revision','0'),env.DB.prepare('SELECT epoch FROM fleet_mirror_state WHERE id=1').first(),setting(env,'timezone','Europe/Athens')]);return {revision:String(revision),epoch:epoch?.epoch||'',timeZone:zone,serverTime:stamp(),engineVersion:ORDEXA_SERVER_VERSION};}
+async function head(env){const [revision,epoch,zone]=await Promise.all([setting(env,'ordexa_revision','0'),env.DB.prepare("SELECT epoch||':'||COALESCE((SELECT value FROM fleet_settings WHERE key='ordexa_server_generation'),'') epoch,EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_restore_active' AND value<>'') restoring FROM fleet_mirror_state WHERE id=1").first(),setting(env,'timezone','Europe/Athens')]);return {revision:String(revision),epoch:epoch?.epoch||'',restoring:!!epoch?.restoring,timeZone:zone,serverTime:stamp(),engineVersion:ORDEXA_SERVER_VERSION};}
 async function demand(env,week){await env.DB.prepare('INSERT INTO ordexa_server_views(week_start,requested_at) VALUES(?,?) ON CONFLICT(week_start) DO UPDATE SET requested_at=excluded.requested_at WHERE ordexa_server_views.requested_at<?').bind(week,stamp(),new Date(Date.now()-30000).toISOString()).run();}
-const sourceGuard="EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_revision' AND value=?) AND EXISTS(SELECT 1 FROM fleet_mirror_state WHERE id=1 AND epoch=?)";
+const sourceGuard="EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_revision' AND value=?) AND EXISTS(SELECT 1 FROM fleet_mirror_state WHERE id=1 AND epoch||':'||COALESCE((SELECT value FROM fleet_settings WHERE key='ordexa_server_generation'),'')=?) AND NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_restore_active' AND value<>'')";
 async function view(env,week,section,D){
  await demand(env,week);const meta=await head(env);
  const row=await env.DB.prepare(`SELECT input_revision,input_epoch,computed_at,source_synced_at,sequence,payload_hash,payload IS NOT NULL has_payload,CASE WHEN ?='shifts' THEN NULL ELSE json_extract(payload,?) END AS data FROM ordexa_server_views WHERE week_start=?`).bind(section,'$.'+section,week).first();
- const fresh=!!row?.has_payload&&row.input_revision===meta.revision&&row.input_epoch===meta.epoch&&Date.now()-Date.parse(row.computed_at)<180000;
- const sourceFresh=!!row?.source_synced_at&&Date.now()-Date.parse(row.source_synced_at)<180000;
+ const fresh=!meta.restoring&&!!row?.has_payload&&row.input_revision===meta.revision&&row.input_epoch===meta.epoch&&Date.now()-Date.parse(row.computed_at)<180000;
+ const sourceFresh=!meta.restoring&&!!row?.source_synced_at&&Date.now()-Date.parse(row.source_synced_at)<180000;
  const info={...meta,computedAt:row?.computed_at||null,sourceSyncedAt:row?.source_synced_at||null,sequence:Number(row?.sequence||0),fresh,sourceFresh,waiting:!fresh,readOnly:!fresh||!sourceFresh,weekStart:week};
  return {row,info,json:row?.data||null};
 }
 async function inputPage(request,env,url,D){
  const week=monday(url.searchParams.get('week')),table=url.searchParams.get('table')||'',meta=await head(env),cursor=Number(url.searchParams.get('cursor')||0);
  if(!Number.isSafeInteger(cursor)||cursor<0)fail(D,400,'Μη έγκυρη συνέχεια εισόδων.');
+ if(meta.restoring)fail(D,409,'Η επαναφορά δεδομένων Ordexa βρίσκεται σε εξέλιξη.');
  const lease=url.searchParams.get('lease')||'';
  if(!await env.DB.prepare('SELECT 1 ok FROM ordexa_server_views WHERE week_start=? AND lease_token=? AND lease_until>?').bind(week,lease,stamp()).first())fail(D,409,'Η άδεια υπολογισμού έληξε.');
  if(!table)return D.wfJson({...meta,weekStart:week,endDate:addCalendarDays(week,6),tables:['employees','riders','sessions','schedules','settings','adjustments','payrollAdjustments','vehicles','paid','coverage']});
@@ -71,6 +72,7 @@ async function inputPage(request,env,url,D){
 }
 async function control(request,env,D){
  const b=await D.bodyJson(request),week=monday(b.week),meta=await head(env);await demand(env,week);
+ if(meta.restoring)return D.wfJson({...meta,jobs:[]});
  const jobs=records(await env.DB.prepare(`SELECT week_start,computed_at,input_revision,input_epoch FROM ordexa_server_views WHERE week_start=? OR (requested_at>? AND (payload IS NULL OR input_revision<>? OR input_epoch<>? OR computed_at<? OR source_synced_at<?)) ORDER BY CASE WHEN week_start=? THEN 0 ELSE 1 END,requested_at DESC LIMIT 4`).bind(week,new Date(Date.now()-300000).toISOString(),meta.revision,meta.epoch,new Date(Date.now()-120000).toISOString(),new Date(Date.now()-120000).toISOString(),week).all());
  const result=[];for(const job of jobs){const token=crypto.randomUUID(),until=new Date(Date.now()+240000).toISOString();const saved=await env.DB.prepare('UPDATE ordexa_server_views SET lease_token=?,lease_until=? WHERE week_start=? AND (lease_until IS NULL OR lease_until<?)').bind(token,until,job.week_start,stamp()).run();if(saved.meta?.changes)result.push({weekStart:job.week_start,lease:token});}
  return D.wfJson({...meta,jobs:result});
@@ -80,7 +82,7 @@ async function publish(request,env,D){
  // the already-serialized result; it never parses/rebuilds the entire week.
  const envelope=request.headers.get('X-Fleet-Projection');if(envelope?.length>2048)fail(D,400,'Μεγάλη κεφαλίδα υπολογισμού.');
  let b;try{b=envelope?JSON.parse(envelope):await D.bodyJson(request);}catch{fail(D,400,'Μη έγκυρη κεφαλίδα υπολογισμού.');}
- const week=monday(b.weekStart),meta=await head(env),computedAt=stamp(),nonce=crypto.randomUUID();
+ const week=monday(b.weekStart),meta=await head(env),computedAt=stamp(),nonce=crypto.randomUUID();if(meta.restoring)fail(D,409,'Εκκρεμεί ολοκλήρωση επαναφοράς.');
  if(b.revision!==meta.revision||b.epoch!==meta.epoch)fail(D,409,'Οι είσοδοι άλλαξαν πριν από την αποθήκευση.');
  if(!b.lease||Number(b.engineVersion)!==ORDEXA_SERVER_VERSION)fail(D,400,'Μη συμβατή έκδοση υπολογισμού.');
  const synced=Date.parse(b.sourceSyncedAt);if(!Number.isFinite(synced)||synced>Date.now()+120000)fail(D,400,'Μη έγκυρη ώρα συγχρονισμού.');const sourceSyncedAt=new Date(synced).toISOString();
@@ -100,7 +102,7 @@ async function publish(request,env,D){
 async function adjustment(request,env,D){
  const actor=await D.authenticate(request,env,'payroll.manage'),pinUsed=await D.requirePin(request,env,D,actor);const b=await D.bodyJson(request),week=monday(b.weekStart),meta=await head(env);
  const stored=await env.DB.prepare(`SELECT v.input_revision,v.input_epoch,v.computed_at,v.source_synced_at,json_extract(g.value,'$.employeeId') employee_id,g.value data FROM ordexa_server_views v,json_each(v.payload,'$.shifts') g WHERE v.week_start=? AND json_extract(g.value,'$.id')=? LIMIT 1`).bind(week,String(b.id||'')).first();
- if(!stored||stored.input_revision!==meta.revision||stored.input_epoch!==meta.epoch||Date.now()-Date.parse(stored.computed_at)>180000||!(Date.now()-Date.parse(stored.source_synced_at)<180000))fail(D,409,'Η βάρδια χρειάζεται ενημέρωση από τον Server.');
+ if(meta.restoring||!stored||stored.input_revision!==meta.revision||stored.input_epoch!==meta.epoch||Date.now()-Date.parse(stored.computed_at)>180000||!(Date.now()-Date.parse(stored.source_synced_at)<180000))fail(D,409,'Η βάρδια χρειάζεται ενημέρωση από τον Server.');
  const group=JSON.parse(stored.data),before=await env.DB.prepare('SELECT * FROM ordexa_shift_adjustments WHERE id=?').bind(group.id).first();
  if(b.fingerprint!==group.fingerprint||Number(b.revision)!==Number(before?.revision||0))fail(D,409,'Η βάρδια ή η απόφαση άλλαξε. Άνοιξε ξανά την επεξεργασία.');
  if(!stored.employee_id)fail(D,400,'Αντιστοίχισε πρώτα τον εργαζόμενο Ordexa.');if(group.excluded)fail(D,400,'Η αρχική παρουσία έχει εξαιρεθεί. Απαιτείται πρώτα αποδοχή της στις αρχικές παρουσίες Ordexa.');
@@ -130,7 +132,7 @@ async function employeeLinks(request,env,url,D){
  if(target?.employee_id&&target.employee_id!==employee)fail(D,409,'Η εγγραφή Ordexa αντιστοιχεί ήδη σε άλλον εργαζόμενο.');
  if(String(current?.id||'')!==String(b.currentId||'')||Number(current?.revision||0)!==Number(b.currentRevision||0)||Number(target?.revision||0)!==Number(b.targetRevision||0))fail(D,409,'Η αντιστοίχιση άλλαξε. Άνοιξε ξανά τον εργαζόμενο.');
  if(current?.id===target?.id)return D.wfJson({saved:true,unchanged:true});
- const nonce=crypto.randomUUID(),at=stamp(),conditions=[],args=[];
+ const nonce=crypto.randomUUID(),at=stamp(),conditions=["NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_restore_active' AND value<>'')"],args=[];
  if(current){conditions.push('EXISTS(SELECT 1 FROM ordexa_riders WHERE id=? AND revision=? AND employee_id=?)');args.push(current.id,current.revision,employee);}else{conditions.push('NOT EXISTS(SELECT 1 FROM ordexa_riders WHERE city_id=? AND employee_id=?)');args.push(city,employee);}
  if(target){conditions.push('EXISTS(SELECT 1 FROM ordexa_riders WHERE id=? AND revision=? AND employee_id IS NULL)');args.push(target.id,target.revision);}
  const operations=[env.DB.prepare(`INSERT INTO audit_log(id,timestamp,user_id,user_name,role,action,object_type,object_id,old_value,new_value,reason,admin_pin_used) SELECT ?,?,?,?,?, 'ordexa_employee_link','employee',?,?,?,'Αντιστοίχιση Ordexa από Εργαζόμενοι',? WHERE ${conditions.join(' AND ')}`).bind(nonce,at,actor.user_id,actor.full_name||'',actor.role,employee,JSON.stringify(current),JSON.stringify(target),pinUsed?1:0,...args)];
@@ -157,7 +159,7 @@ export async function routeOrdexaServer(request,env,path,D){
  }
  if(action==='adjustment'&&request.method==='POST')return adjustment(request,env,D);
  if(action==='lock'&&request.method==='POST')return lock(request,env,D);
- if(action==='unlock'&&request.method==='POST')return D.unlockPayroll(request,env,D);
+ if(action==='unlock'&&request.method==='POST'){if((await head(env)).restoring)fail(D,409,'Εκκρεμεί ολοκλήρωση επαναφοράς.');return D.unlockPayroll(request,env,D);}
  if(request.method!=='GET')fail(D,405,'Μη επιτρεπτή ενέργεια.');
  const actor=await D.authenticate(request,env,action==='shifts'?'shifts.view':action==='dashboard'?'dashboard.view':'payroll.view');const financial=(actor.permissions||[]).some(p=>p==='*'||p==='payroll.view');
  const today=localDate(Date.now(),await setting(env,'timezone','Europe/Athens')),day=url.searchParams.get('day')||today,week=monday(url.searchParams.get('week')||day);

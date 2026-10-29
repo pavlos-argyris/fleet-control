@@ -24,6 +24,7 @@ public final class OrdexaPayrollSync {
             JSONObject state=store.getOrdexaPayrollState();if(!base.equals(state.optString("worker")))state=new JSONObject().put("worker",base).put("weeks",new JSONObject());
             JSONObject cache=state.optJSONObject("weeks");if(cache==null){cache=new JSONObject();state.put("weeks",cache);}
             JSONObject control=FleetHttp.sendJson(base+"/api/server/ordexa-server/control","POST",new JSONObject().put("week",monday(now)),SyncService.serverHeaders());
+            String sourceEpoch=control.optString("epoch","");if(sourceEpoch.length()>0&&!sourceEpoch.equals(prefs.getString("ordexa_source_epoch","")))prefs.edit().putString("ordexa_source_epoch",sourceEpoch).commit();
             JSONArray jobs=control.optJSONArray("jobs");if(jobs==null)return;boolean jobFailed=false;
             for(int j=0;j<jobs.length();j++){
                 JSONObject leaseJob=jobs.getJSONObject(j);boolean published=false;

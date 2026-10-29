@@ -16,6 +16,7 @@ export async function routeOrdexa(request,env,path,D){
  const actor=server?null:await D.authenticate(request,env,'employees.manage');
  if(!server&&method==='POST')await D.requirePin(request,env,D,actor);
  if(server&&path==='/api/server/ordexa/import'&&method==='POST'){
+  if(await env.DB.prepare("SELECT 1 active FROM fleet_settings WHERE key='ordexa_restore_active' AND value<>''").first())bad(D,'Η επαναφορά δεδομένων Ordexa βρίσκεται σε εξέλιξη. Επανάλαβε μετά την ολοκλήρωσή της.',409);
   const body=await D.bodyJson(request);let data;
   try{data=normalizeOrdexaReport(body);}catch(e){bad(D,e.message);}
   if(Date.parse(data.capturedAt)>Date.now()+300000)bad(D,'Η ώρα του Server προηγείται υπερβολικά. Έλεγξε την αυτόματη ώρα Android.');

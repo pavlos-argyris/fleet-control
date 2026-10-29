@@ -5574,6 +5574,12 @@ async function systemImport(request, env, deps) {
       if (statement) statements.push(statement);
     });
   }
+  // Restore is staged. Fence derived payroll and native provider receipts
+  // before the first stage; a failed restore remains explicitly pending.
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO fleet_settings(key,value,updated_at) VALUES('ordexa_restore_active',?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(uuid()),
+    env.DB.prepare("INSERT INTO fleet_settings(key,value,updated_at) VALUES('ordexa_server_generation',?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(uuid())
+  ]);
   for (let index = 0; index < statements.length; index += 70) await env.DB.batch(statements.slice(index, index + 70));
   if (body.fleet && Array.isArray(body.fleet.bikes)) {
     const current=await deps.readSnapshot(env);
@@ -5581,6 +5587,10 @@ async function systemImport(request, env, deps) {
     await deps.writeSnapshot(env, restored, "backup-restore", Date.now());
   }
   await audit(env, request, null, "system_backup_restored", "backup", text(body.createdAt, 40), null, { records: statements.length }, "Restore από Server APK", true);
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO fleet_settings(key,value,updated_at) VALUES('ordexa_server_generation',?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(uuid()),
+    env.DB.prepare("DELETE FROM fleet_settings WHERE key='ordexa_restore_active'")
+  ]);
   return wfJson({ restored: true, records: statements.length });
 }
 

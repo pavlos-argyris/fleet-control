@@ -85,7 +85,7 @@ public final class OrdexaSync {
         finally{if(tracked)ServerWorkTracker.finish("ordexa");running.set(false);}
     }
     private static String workerBase(SharedPreferences main){return main.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$","");}
-    private static String receiptScope(SharedPreferences p,SharedPreferences main,String base)throws Exception{return OrdexaClient.digest(new JSONObject().put("generation",p.getString("generation","legacy")).put("worker",base).put("epoch",main.getString("mirror_remote_epoch","")));}
+    private static String receiptScope(SharedPreferences p,SharedPreferences main,String base)throws Exception{return OrdexaClient.digest(new JSONObject().put("generation",p.getString("generation","legacy")).put("worker",base).put("epoch",main.getString("mirror_remote_epoch","")).put("ordexa",main.getString("ordexa_source_epoch","")));}
     private static String safeError(Exception e){String m=e.getMessage();return m!=null&&(m.contains("Ordexa")||m.contains("ημέρ")||m.contains("περίοδο")||m.contains("ενημέρωση"))?m.substring(0,Math.min(m.length(),300)):"Η σύνδεση ή ανάγνωση Ordexa απέτυχε. Έλεγξε σύνδεση και ρυθμίσεις· οι αποθηκευμένες παρουσίες διατηρούνται.";}
     /** Scoped provider checks, including unchanged reports. No credentials leave the device. */
     public static String checkedAt(Context c,String from,String to)throws Exception{

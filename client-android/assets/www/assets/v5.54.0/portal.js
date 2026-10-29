@@ -857,9 +857,9 @@
     $("dashboardMetrics").innerHTML = [
       metric("Εργαζόμενοι", String(data.today.workingNow || 0), "Σε βάρδια τώρα", "♙", "employees"),
       metric("Δεν έκαναν Clock In", String(missedClockIns.length), missedClockIns.length ? "Χρειάζεται έλεγχος" : "Όλοι στην ώρα τους", "!", "missed-clock-ins", missedClockIns.length ? "warning" : ""),
-      metric("Μηχανάκια σε χρήση", String(vehicle.in_use || 0), (vehicle.available || 0) + " διαθέσιμα", "◇", "vehicles"),
+      metric("Μηχανάκια σε χρήση", String(vehicle.in_use || 0), "Από πρόγραμμα και ενεργές παρουσίες", "◇", "vehicles"),
       metric("Πληρωτέες ώρες εβδομάδας", String(data.currentWeek.payableHours || 0), data.currentWeek.startDate + " – " + data.currentWeek.endDate, "◷", "hours"),
-      metric("Μισθοδοσία εβδομάδας", money(data.currentWeek.payrollCents), km(data.currentWeek.kilometers), "€", "payroll")
+      metric("Μισθοδοσία εβδομάδας", money(data.currentWeek.payrollCents), "Μέχρι τώρα · από Ordexa", "€", "payroll")
     ].join("");
     $("notificationCount").textContent = data.actionCount || 0;
     $("notificationCount").classList.toggle("is-hidden", !data.actionCount);
@@ -1399,7 +1399,7 @@
       loginEnabled: $("employeeLoginEnabled").checked,
       fullName: $("employeeName").value.trim(), username: $("employeeUsername").value.trim(),
       email: $("employeeEmail").value.trim(), phone: $("employeePhone").value.trim(),
-      role: role, employeeGroup: $("employeeGroup").value.trim(), payRuleId: $("employeePayRule").value || null, hireDate: $("employeeHireDate").value || null,
+      role: role, employeeGroup: $("employeeGroup").value.trim(), payRuleId: state.editingEmployee?.payRuleId || null, hireDate: $("employeeHireDate").value || null,
       assignedVehicleId: usesOwnVehicle ? null : ($("employeeVehicle").value || null),
       usesOwnVehicle: usesOwnVehicle, notes: $("employeeNotes").value.trim(),
       active: $("employeeActive").checked, showSchedule: $("showSchedule").checked,
@@ -4895,6 +4895,7 @@
     openDocument:r=>openInvoiceDocument(r,false),
     retry:async r=>{const data=r.key&&r.error?await api("/api/admin/service-documents/reprocess",{method:"POST",body:{key:r.key}}):await api("/api/admin/service-documents/restart",{method:"POST",body:{jobId:r.jobId||r.invoiceData?.qrJobId||"",bikeId:r.bikeId,entryId:r.entryId,qrUrl:r.qrUrl}});toast("Η νέα προσπάθεια καταχωρήθηκε.");await loadInvoices();return data;}
   };
+  window.FleetOrdexaServerUI?.mount({api,can,state,toast,money,pin:requestPin,shiftActions,invalidate:()=>window.FleetSharedReads?.invalidate(),refresh:async()=>{try{if(state.view==='dashboard')await loadDashboard();else if(state.view==='payroll')await loadPayroll();else if(state.view==='shifts')await loadShifts();else if(state.view==='alerts')await loadAlerts();}catch(error){toast(error.message);}}});
   initialize();
   window.addEventListener("beforeinstallprompt", function (event) {
     event.preventDefault();
@@ -4939,5 +4940,4 @@
   setInterval(refreshInvoiceProgressLive, 5000);
   setInterval(function(){if(state.user&&state.view==='alerts'&&!document.hidden&&!window.FleetLive?.connected()&&(state.alerts||[]).some(a=>a.type==='invoice_processing_failed'&&a.invoice_retry_state==='processing'))loadAlerts().catch(()=>{});},15000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("./service-worker.js").catch(function () {});
-  window.FleetOrdexaServerUI?.mount({api,can,state,toast,money,pin:requestPin,shiftActions,invalidate:()=>window.FleetSharedReads?.invalidate(),refresh:async()=>{try{if(state.view==='dashboard')await loadDashboard();else if(state.view==='payroll')await loadPayroll();else if(state.view==='shifts')await loadShifts();else if(state.view==='alerts')await loadAlerts();}catch(error){toast(error.message);}}});
 })();
