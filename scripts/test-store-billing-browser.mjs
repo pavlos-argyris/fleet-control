@@ -19,7 +19,11 @@ try{for(const [mode,width,height]of[['desktop',1440,1000],['mobile',390,844],['c
  try{
   await page.goto(mode==='client-landscape'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/portal.html');
   await page.locator('#sideNav [data-go="stores"]').waitFor({state:'attached'});
-  if(await page.locator('#sideNav [data-go="stores"]').isVisible())await page.locator('#sideNav [data-go="stores"]').click();else{await page.locator('[data-ui-more]').click();await page.locator('#uiMoreItems [data-go="stores"]').click();}
+  // The mobile drawer stays in the DOM outside the viewport, so isVisible()
+  // alone cannot choose the navigation the user can actually reach.
+  const more=page.locator('[data-ui-more]');
+  if(await more.isVisible()){await more.click();await page.locator('#uiMoreItems [data-go="stores"]').click();}
+  else await page.locator('#sideNav [data-go="stores"]').click();
   await page.locator('[data-stores-edit]').waitFor();assert.match(await page.locator('#storeBillingRoot').textContent(),/05:00–05:00/);await page.screenshot({path:path.join(output,mode+'-list.png')});
   await page.locator('[data-stores-edit]').click();const dialog=page.locator('.stores-dialog[open]');await dialog.waitFor();assert.equal(await dialog.locator('[name=retain]').isChecked(),false);await dialog.locator('[name=retain]').check();await dialog.locator('[type=submit]').click();await dialog.locator('[data-error]').filter({hasText:'Δεν αποθηκεύτηκαν'}).waitFor();assert.equal(await dialog.locator('[name=retain]').isChecked(),true);assert.equal(saves.length,1);await page.screenshot({path:path.join(output,mode+'-retention-retry.png')});
   failed=false;await dialog.locator('[type=submit]').click();await dialog.waitFor({state:'detached'});assert.equal(saves.length,2);assert.equal(saves[0].operationId,saves[1].operationId);assert.deepEqual(saves[1].patch,{retainOrders:true});await page.locator('.stores-badge.is-retained').waitFor();
