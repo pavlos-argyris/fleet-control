@@ -1,7 +1,7 @@
 // Fallback for this authorized update when the interactive build environment is unavailable.
 // It prepares an artifact only. Publishing still needs the separate request-only commit.
 import fs from 'node:fs';import {execFileSync} from 'node:child_process';
-const config=JSON.parse(fs.readFileSync('release-config.json','utf8'));if(config.releaseVersion!=='5.55.0')throw new Error('This one-time request belongs to Fleet 5.55.0');
+const config=JSON.parse(fs.readFileSync('release-config.json','utf8'));if(config.releaseVersion!=='5.57.0')throw new Error('This one-time request belongs to Fleet 5.57.0');
 const sha=process.env.GITHUB_SHA,repo=process.env.GITHUB_REPOSITORY,token=process.env.GH_TOKEN;if(!/^[a-f0-9]{40}$/.test(sha||'')||!/^pavlos-argyris\/fleet-control$/.test(repo||'')||!token)throw new Error('Unexpected request context');
 execFileSync('git',['checkout','-B','main',sha],{stdio:'inherit'});
 let passed=false;const until=Date.now()+25*60*1000;
@@ -13,7 +13,7 @@ while(Date.now()<until){
  await new Promise(r=>setTimeout(r,15000));
 }
 if(!passed)throw new Error('Source CI is still pending; no publication request created');
-execFileSync(process.execPath,['scripts/request-publish.mjs','--publish','--reason','Εντολή χρήστη 29/10/2026: υλοποίηση issue 37 σε χωριστό κλάδο και νέα δημοσίευση μετά την ολοκλήρωση Ordexa 28/29/30. Η 5.54.0 ενεργοποιήθηκε επιτυχώς. Δημοσίευση 5.55.0 μόνο μετά επιτυχές exact source CI, με πλήρη πηγή και τις υπάρχουσες υπογραφές.'],{stdio:'inherit'});
+execFileSync(process.execPath,['scripts/request-publish.mjs','--publish','--reason','Εντολή χρήστη: πλήρης υλοποίηση issue44 με ημέρα05:00, προαιρετική ανά κατάστημα διατήρηση defaultOFF και Server-owned συγχρονισμό. Δημοσίευση5.57.0 μόνο μετά επιτυχές exact-main CI, με πλήρη πηγή και τις αρχικές υπογραφές APK.'],{stdio:'inherit'});
 const file='.github/fleet-publish-request.json',content=fs.readFileSync(file,'utf8'),request=JSON.parse(content);
 if(request.sourceCommit!==sha||request.releaseVersion!==config.releaseVersion)throw new Error('Prepared request source mismatch');
 console.log('FLEET_PREPARED_REQUEST='+JSON.stringify(request));

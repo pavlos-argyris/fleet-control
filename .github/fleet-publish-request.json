@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-cb500015-fd86-4579-97c3-cfc27d7cafc1",
-  "sourceCommit": "67b70e9a1dcc722e1d15bccee853949b69279ad5",
-  "releaseVersion": "5.56.0",
-  "requestedAt": "2026-10-29T17:29:31.927Z",
-  "reason": "Εντολή χρήστη 29/10/2026: υλοποίηση #40, συγχρονισμός Ordexa κάθε 5 λεπτά και όριο πληρωμής 08:00–02:00, με διατήρηση #37. Αυτόματη δημοσίευση μετά επιτυχές ακριβές main CI, πλήρης πηγή και αρχικές υπογραφές."
+  "requestId": "fleet-da79dec2-0e68-4e1c-a988-de924216c72f",
+  "sourceCommit": "df870b6ea472e3b0a153d340ff2f49c94234e9a1",
+  "releaseVersion": "5.56.1",
+  "requestedAt": "2026-10-29T20:15:26.241Z",
+  "reason": "Εντολή χρήστη για επεξεργασία βαρδιών χωρίς αναμονή Server και πάγια εξουσιοδότηση αυτόματης δημοσίευσης μετά επιτυχείς ελέγχους. Exact-main CI40946001550 success."
 }

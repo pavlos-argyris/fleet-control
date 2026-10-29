@@ -6,8 +6,6 @@ export function storeSqliteFixture(dir){
  for(const name of ['sqlite_rpc.py','Cursor.java','SQLiteStatement.java','SQLiteDatabase.java']){
   const match=source.match(new RegExp("write\\('"+name.replaceAll('.','\\.')+"',String.raw`([\\s\\S]*?)`\\);"));if(!match)throw Error('Missing verified SQLite fixture '+name);files[name]=match[1];
  }
- files['Cursor.java']=files['Cursor.java'].replace('public void close(){','public long getLong(int i){Object v=rows.getJSONArray(at).get(i);return v==JSONObject.NULL?0:((Number)v).longValue();}public int getInt(int i){return (int)getLong(i);}public void close(){');
- files['SQLiteDatabase.java']=files['SQLiteDatabase.java'].replace('public void execSQL(String s){','public void execSQL(String s,Object[] a){query(s,new JSONArray(a));}public void execSQL(String s){');
  files['ContentValues.java']='package android.content;import java.util.*;public class ContentValues{public final Map<String,Object> values=new LinkedHashMap<String,Object>();public void put(String k,String v){values.put(k,v);}public void put(String k,Integer v){values.put(k,v);}}';
  files['Context.java']='package android.content;public class Context{}';
  files['SQLiteException.java']='package android.database.sqlite;public class SQLiteException extends RuntimeException{public SQLiteException(String s){super(s);}}';

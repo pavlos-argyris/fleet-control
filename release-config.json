@@ -15,8 +15,7 @@
     "version": "5.57.0",
     "retainedAssetVersions": [
       "5.56.1",
-      "5.56.0",
-      "5.55.0"
+      "5.56.0"
     ]
   },
   "worker": {

@@ -2,6 +2,14 @@
 
 Αυτό είναι το κοινό σημείο ενημέρωσης όλων των ChatGPT/βοηθών. Διάβασέ το πριν ξεκινήσεις και ενημέρωσέ το όταν αναλαμβάνεις εργασία, σε σημαντικά ορόσημα και πριν σταματήσεις. Οι καταγραφές διασταυρώνονται πάντα με GitHub branches/commits/PR/Actions και την ενεργή έκδοση.
 
+## #44 — υποψήφια5.57.0, ανάκτηση και έλεγχοι σε εξέλιξη
+
+- Όλος ο ανακτημένος runtime κώδικας αποθηκεύτηκε επιβεβαιωμένα στο **689dd702878d95bded6da159683b5bd1a43487c2**, PR#48. Η προσωρινή διακοπή περιβάλλοντος λύθηκε· οι παλιότερες σημειώσεις ανάκτησης παρακάτω είναι ιστορικές.
+- Υποψήφιες εκδόσεις5.57.0/Client92/Server2.6.0(50)/Worker5.16.0. Native durable sync, δύο πλήρεις source passes, ατομικές αφαιρέσεις defaultOFF/ρητές εξαιρέσεις, ανεξάρτητοι όροι/μαζικές αλλαγές, small Worker projections και ενσωματωμένη καρτέλα Web/Client. Οδηγός ISSUE_44_STORES_GR.md. Ημέρα05:00–05:00, shifts08:00–02:00 αμετάβλητα.
+- Πέρασαν local API57stores, shipped UI/JSDOM, actual Workerd/D1 retention-race rollback/32rowbatch/receipt/expiredlease/concurrentCAS/restorefence, actual Java/SQLite/Worker pipeline60orders/filteredfallback/lostACK/source503/noresurrection/reappearance/rehydration/futureterms/nativebackupvalidation. Οι εκκρεμότητες static/native fixtures προσαρμόζονται για34mirroredtables/102triggers, χωρίς αφαίρεση παλιών ελέγχων. Τα native regressions backup/invoices/sync πέρασαν· bothAPK build πέρασε με δοκιμαστικό κλειδί, πριν τελευταίο μικρό sync patch. Επανάληψη των τελικών ελέγχων απαιτείται.
+- Προστασία: definite HTTP4xx δεν κρατά ατέρμονα αβέβαιο publish. LostACK επαναλαμβάνει durable exactreceipt. Μετά archive hydration μια reprice εργασία επαληθεύει ξανά πηγή πριν διαγραφές. Native restore επικυρώνει και αντικαθιστά canonical archive/παλιόjournal. Μελλοντικοί όροι δεν τιμολογούν μελλοντικές ημέρες.
+- Δεν έγινε ακόμη τελικό exact-head CI/Chromium/merge/publish. Chromium δεν κατέβηκε τοπικά· μπήκε πραγματικό Portal test desktop/mobile/Client landscape στο CI. Επόμενο: συνδυασμός main09ae419 με πρόσθετο parent, πλήρεις έλεγχοι, PR CI, κανονικό publish και επαλήθευση ενεργοποίησης. Η helper prepare-current-publication προσαρμόζεται μόνο σε5.57.0 και παράγει artifact από το κανονικό script μετά exact-main CI· δεν δημοσιεύει από μόνη της. Η παραγωγική5.56.1 και όλες οι άλλες αλλαγές διατηρούνται.
+
 ## Περιβάλλον διαθέσιμο ξανά
 
 Το περιβάλλον επανήλθε στην ίδια συνέχεια· επιβεβαιώθηκαν ο τοπικός φάκελος και όλες οι νεότερες αλλαγές. Οι δοκιμές Worker/SQLite API και shipped UI/JSDOM επαναλήφθηκαν επιτυχώς. Συνεχίζονται WIP source push και οι εκκρεμείς συνολικοί έλεγχοι. Η προηγούμενη διακοπή παρακάτω είναι ιστορική και δεν αποτελεί πλέον ενεργό blocker.

@@ -1,6 +1,6 @@
-# Artifact-only fallback for authorized issue #37 when the interactive runtime is unavailable.
+# Artifact-only fallback for authorized issue #44 when the interactive runtime is unavailable.
 # Exact main CI is required. A separate reviewed request-only commit still triggers publication.
-name: Prepare Fleet 5.55.0 publication request
+name: Prepare Fleet 5.57.0 publication request
 on:
   workflow_dispatch:
   push:
@@ -27,7 +27,7 @@ jobs:
       - name: Save the reviewable request without committing or deploying
         uses: actions/upload-artifact@v4
         with:
-          name: fleet-5.55.0-publication-request
+          name: fleet-5.57.0-publication-request
           path: .github/fleet-publish-request.json
           include-hidden-files: true
           retention-days: 7

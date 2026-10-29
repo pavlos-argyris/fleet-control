@@ -1,5 +1,6 @@
 name: Check saved source
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -46,6 +47,7 @@ jobs:
       - run: node scripts/test-schedule-cpu-browser.mjs
       - run: node scripts/test-invoice-retry-browser.mjs
       - run: node scripts/test-invoice-recovery-browser.mjs
+      - run: node scripts/test-store-billing-browser.mjs
       - run: FLEET_CPU_PHASE=after node scripts/profile-schedule-cpu.mjs
       - name: Save navigation verification images
         if: always()
@@ -65,10 +67,13 @@ jobs:
             verification/schedule-cpu/
             verification/invoice-retry
             verification/invoice-recovery/
+            verification/store-billing/
           if-no-files-found: warn
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-server-large-storage-native.mjs
+      - run: node scripts/test-store-billing-native.mjs
+      - run: node scripts/test-store-billing-pipeline.mjs
       - run: node scripts/test-ordexa-native.mjs
       - run: node scripts/test-ordexa-server-sync-native.mjs
       - run: node scripts/test-local-invoice-reader.mjs

@@ -110,15 +110,23 @@ public final class StoreBillingStore {
     public synchronized void cleanupTemporary(String scope)throws Exception{db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND kind IN ('setup','input_stage','seen','raw_seen')",new Object[]{scope});}
     public static void validateBackup(JSONArray rows)throws Exception{
         if(rows==null)throw new IllegalArgumentException("Λείπει το αρχείο καταστημάτων στο backup.");
-        Set<String> ids=new HashSet<String>();
+        Set<String> ids=new HashSet<String>();Map<String,String> shops=new HashMap<String,String>();
         for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);for(String k:new String[]{"id","scope","storeId","day"})if(r.getString(k).length()>200)throw new IllegalArgumentException("Μη έγκυρη ταυτότητα καταστημάτων στο backup.");
-            String kind=r.getString("kind");if(!Arrays.asList("store","terms","order","observation","coverage").contains(kind)||!ids.add(r.getString("id")))throw new IllegalArgumentException("Μη έγκυρη κατηγορία ή διπλή εγγραφή καταστημάτων.");
-            if(r.getJSONObject("data").toString().getBytes("UTF-8").length>32768)throw new IllegalArgumentException("Μεγάλη εγγραφή καταστημάτων στο backup.");
+            String id=r.getString("id"),scope=r.getString("scope"),kind=r.getString("kind");JSONObject data=r.getJSONObject("data");
+            if(!id.matches("[A-Za-z0-9_:-]{1,200}")||!scope.matches("[A-Za-z0-9_:-]{1,100}")||!Arrays.asList("store","terms","order","observation","coverage").contains(kind)||!ids.add(id))throw new IllegalArgumentException("Μη έγκυρη κατηγορία ή διπλή εγγραφή καταστημάτων.");
+            if(data.toString().getBytes("UTF-8").length>32768)throw new IllegalArgumentException("Μεγάλη εγγραφή καταστημάτων στο backup.");
+            if(!r.getString("day").isEmpty())OrdexaClient.day(r.getString("day"));
+            if(kind.equals("store")){if(!data.getString("id").equals(id)||!(data.get("retainOrders") instanceof Boolean)||!data.getString("sourceShopId").matches("[A-Za-z0-9_:-]{1,100}"))throw new IllegalArgumentException("Μη έγκυρο κατάστημα στο backup.");shops.put(scope+":"+id,data.getString("sourceShopId"));}
+            else if(kind.equals("order")||kind.equals("observation")){if(!id.equals(data.getString("id"))||!r.getString("storeId").equals(data.getString("storeId"))||!r.getString("day").equals(data.getString("businessDay"))||!StoreBillingEngine.businessDay(OrdexaClient.instant(data.getString("at"))).equals(r.getString("day"))||data.getString("sourceOrderId").isEmpty()||(kind.equals("order")&&!(data.get("active") instanceof Boolean)))throw new IllegalArgumentException("Μη έγκυρη παραγγελία στο backup.");}
+            else if(kind.equals("terms")){if(!id.equals(data.getString("id"))||!r.getString("storeId").equals(data.getString("storeId"))||!r.getString("day").equals(data.getString("effectiveDay")))throw new IllegalArgumentException("Μη έγκυροι όροι στο backup.");if(data.optBoolean("supported")){StoreBillingEngine.day(r.getString("storeId"),"2026-01-01",0,data,"",0,0);}}
+            else{OrdexaClient.instant(data.getString("sourceAt"));if(data.getString("runId").isEmpty())throw new IllegalArgumentException("Μη έγκυρη κάλυψη στο backup.");}
         }
+        for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);String kind=r.getString("kind");if(kind.equals("order")||kind.equals("observation")||kind.equals("terms")){String source=shops.get(r.getString("scope")+":"+r.getString("storeId"));if(source==null||(!kind.equals("terms")&&!source.equals(r.getJSONObject("data").getString("sourceShopId"))))throw new IllegalArgumentException("Λείπει το σωστό κατάστημα από το backup.");}}
     }
+
     public synchronized void restore(JSONArray rows)throws Exception{
         // Validate every record before touching the durable archive.
         validateBackup(rows);
-        db.beginTransaction();try{for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);JSONObject data=new JSONObject(r.getJSONObject("data").toString());data.remove("pendingDeleteRun");put(r.getString("id"),r.getString("kind"),r.getString("scope"),r.getString("storeId"),r.getString("day"),data,"order".equals(r.getString("kind"))||"observation".equals(r.getString("kind")));}db.setTransactionSuccessful();}finally{db.endTransaction();}
+        db.beginTransaction();try{db.execSQL("DELETE FROM store_billing_local");for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);JSONObject data=new JSONObject(r.getJSONObject("data").toString());data.remove("pendingDeleteRun");put(r.getString("id"),r.getString("kind"),r.getString("scope"),r.getString("storeId"),r.getString("day"),data,"order".equals(r.getString("kind"))||"observation".equals(r.getString("kind")));}db.setTransactionSuccessful();}finally{db.endTransaction();}
     }
 }

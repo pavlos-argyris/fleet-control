@@ -22,6 +22,7 @@ try{
  const last=ok(await call('/api/admin/store-billing?'+new URLSearchParams({from:'2026-10-26',to:'2026-10-28',cursor:list.nextCursor}),{token}));assert.equal(last.rows.length,7);
  const bulk={operationId:'synthetic-bulk-1',effectiveDay:'2026-10-27',stores:[{id:'store:0',revision:1},{id:'store:1',revision:1}],patch:{unitPriceCents:250}};
  ok(await admin('bulk',bulk));assert.equal(ok(await admin('bulk',bulk)).replayed,true,'same action is idempotent');
+ assert.equal(ok(await call('/api/admin/store-billing?from=2026-10-26&to=2026-10-26',{token})).rows.find(r=>r.id==='store:1').pendingDays,0,'future-effective terms do not invalidate a prior day');
  const terms=ok(await call('/api/admin/store-billing/terms?storeId=store:1',{token}));assert.equal(terms.rows.at(-1).dailyMinimumCents,4000,'price-only bulk preserves different per-store minima');assert.equal(terms.rows.at(-1).unitPriceCents,250);
  assert.equal(db.sqlite.prepare("SELECT revision FROM store_billing_records WHERE id='store:2'").get().revision,1,'unselected store untouched');
  ok(await admin('bulk',{...bulk,operationId:'synthetic-stale',patch:{unitPriceCents:300}}),409);assert.equal(db.sqlite.prepare("SELECT COUNT(*) n FROM store_billing_records WHERE id='synthetic-stale'").get().n,0,'atomic conflict records nothing');
@@ -40,7 +41,7 @@ try{
  assert.equal(JSON.parse(db.sqlite.prepare("SELECT data FROM store_billing_records WHERE id='order:1'").get().data).active,false,'default deletion status can be archived without losing original identity');
  const pending=ok(await admin('sync',{from:'2026-10-26',to:'2026-10-28'}),202),same=ok(await admin('sync',{from:'2026-10-26',to:'2026-10-28'}),202);assert.equal(pending.operation.id,same.operation.id,'manual sync coalesces');
  // Old visible amounts stay readable after terms change and source becomes stale.
- list=ok(await call('/api/admin/store-billing?from=2026-10-26&to=2026-10-28',{token}));assert.equal(list.totals.totalChargeCents,1800);assert.ok(list.rows.some(r=>r.pendingDays>0));
+ list=ok(await call('/api/admin/store-billing?from=2026-10-26&to=2026-10-28',{token}));assert.equal(list.totals.totalChargeCents,1800);assert.ok(list.rows.some(r=>r.pendingDays>0));assert.ok(list.operations.every(r=>!r.lease),"viewers never receive a Server job lease");
  assert.equal(storeBusinessDay('2026-10-26T04:59:59+02:00'),'2026-10-25');assert.equal(storeBusinessDay('2026-10-26T05:00:00+02:00'),'2026-10-26');
  console.log('PASS Worker/SQLite stores:57 stores, paged inputs/results, bootstrap, explicit default-off retention, atomic partial-field price changes/replay/CAS, immutable price history, new-store alert state, staged publication and stale readable results.');
 }finally{db.sqlite.close();}

@@ -32,7 +32,7 @@ public final class StoreBillingSync {
         JSONObject r=post(c,j,"progress",new JSONObject().put("operationId",j.getString("operationId")).put("lease",j.getString("lease")).put("state",state).put("stage",stage));j.put("hasPending",r.optBoolean("hasPending",false)).put("lastProgress",System.currentTimeMillis());
     }
     private static String pass(JSONObject j)throws Exception{return j.getString("runId")+":p"+j.optInt("pass",1);}
-    private static void dayStart(JSONObject j,String day)throws Exception{j.put("day",day).put("runId",UUID.randomUUID().toString()).put("pass",1).put("page",1).put("shopIndex",0).put("mode","city").put("sourceAt",OrdexaClient.isoNow()).put("cutoffAt",System.currentTimeMillis()).put("removalCount",0).put("removalCursor",0);j.remove("firstDigest");j.put("phase",j.getString("type").equals("reprice")?"reprice":"orders");}
+    private static void dayStart(JSONObject j,String day)throws Exception{j.put("day",day).put("runId",UUID.randomUUID().toString()).put("pass",1).put("page",1).put("shopIndex",0).put("mode","city").put("sourceAt",OrdexaClient.isoNow()).put("cutoffAt",System.currentTimeMillis()).put("removalCount",0).put("removalCursor",0);j.remove("firstDigest");j.put("phase",day.compareTo(StoreBillingEngine.businessDay(System.currentTimeMillis()))>0?"future":j.getString("type").equals("reprice")?"reprice":"orders");}
     private static JSONArray stores(StoreBillingStore s,JSONObject j)throws Exception{return s.rows(j.getString("scope"),"store");}
     private static Set<String> known(JSONArray shops)throws Exception{Set<String> set=new HashSet<String>();for(int i=0;i<shops.length();i++)set.add(shops.getJSONObject(i).getString("sourceShopId"));return set;}
     private static void start(Context c,StoreBillingStore s,JSONObject m,JSONObject source)throws Exception{
@@ -46,6 +46,7 @@ public final class StoreBillingSync {
     }
     private static String step(Context c,StoreBillingStore s,JSONObject j)throws Exception{
         String scope=j.getString("scope"),op=j.getString("operationId"),phase=j.getString("phase");same(c,j);
+        if(phase.equals("future")){progress(c,j,"Αποθηκεύτηκαν οι όροι για μελλοντική ημερομηνία","completed");j.put("phase","done");return "Η μελλοντική τιμή θα χρησιμοποιηθεί από την ημερομηνία ισχύος";}
         if(phase.equals("setup")){
             JSONArray shops=StoreBillingProtocol.setup(OrdexaSync.storesRead(c,j,true,"","",1,null));String hash=OrdexaClient.digest(new JSONObject().put("shops",shops));
             if(hash.equals(j.getString("catalogueHash"))){j.put("phase","inputs");return "Ο κατάλογος καταστημάτων είναι αμετάβλητος";}
@@ -69,7 +70,7 @@ public final class StoreBillingSync {
         if(phase.equals("hydrate")){
             JSONObject r=FleetHttp.getJson(j.getString("worker")+"/api/server/store-billing/inputs?"+query(j,j.getLong("archiveCursor"),"archive"),SyncService.serverHeaders());JSONArray records=r.getJSONArray("rows");
             for(int i=0;i<records.length();i++)s.importArchive(scope,records.getJSONObject(i));long cursor=r.getLong("nextCursor");if(r.optBoolean("hasMore")&&cursor<=j.getLong("archiveCursor"))throw new Exception("Το αρχείο καταστημάτων δεν προχώρησε.");j.put("archiveCursor",cursor);
-            if(!r.optBoolean("hasMore")){j.put("hydrated",true);dayStart(j,j.getString("from"));}return "Ανάκτηση διατηρημένου αρχείου Fleet · "+cursor;
+            if(!r.optBoolean("hasMore")){j.put("hydrated",true);if(j.getString("type").equals("reprice"))j.put("type","sync");dayStart(j,j.getString("from"));}return "Ανάκτηση διατηρημένου αρχείου Fleet · "+cursor;
         }
         if(phase.equals("orders")){
             JSONArray shops=stores(s,j);if(shops.length()==0){j.put("phase","archive");j.put("finalPass",pass(j));return "Δεν υπάρχουν καταστήματα στην πηγή";}
@@ -104,7 +105,7 @@ public final class StoreBillingSync {
             JSONArray shops=stores(s,j),terms=s.rows(scope,"terms"),output=new JSONArray();int cursor=j.getInt("stageCursor"),end=Math.min(shops.length(),cursor+32);String day=j.getString("day");
             for(int i=cursor;i<end;i++){
                 JSONObject shop=shops.getJSONObject(i);String id=shop.getString("id");JSONArray own=new JSONArray();for(int n=0;n<terms.length();n++)if(id.equals(terms.getJSONObject(n).getString("storeId")))own.put(terms.getJSONObject(n));
-                JSONObject counts=s.counts(scope,day,id,j.getString("finalPass")),row=StoreBillingEngine.day(id,day,counts.getLong("count"),StoreBillingEngine.termsFor(own,day),j.getString("sourceAt"),counts.getInt("retained"),counts.getInt("reviews"));row.put("storeRevision",shop.getLong("revision"));output.put(row);
+                JSONObject counts=s.counts(scope,day,id,j.getString("finalPass")),row=StoreBillingEngine.day(id,day,counts.getLong("count"),StoreBillingEngine.termsFor(own,day),j.getString("sourceAt"),counts.getInt("retained"),counts.getInt("reviews"));row.put("storeRevision",shop.getLong("revision")).put("retentionUsed",shop.optBoolean("retainOrders",false));output.put(row);
             }
             post(c,j,"stage",new JSONObject().put("runId",j.getString("runId")).put("day",day).put("rows",output));j.put("stageCursor",end).put("resultCount",shops.length());if(end==shops.length())j.put("phase","removals");return "Υπολογισμός χρεώσεων · "+day+" · "+end+"/"+shops.length();
         }
@@ -136,7 +137,7 @@ public final class StoreBillingSync {
             if(j!=null&&(!j.getString("scope").equals(source.getString("scope"))||!j.getString("generation").equals(source.getString("generation")))){m.remove("job");j=null;}
             if(!ServerWorkTracker.begin(c,"stores","Καταστήματα Ordexa","Μικρή παρτίδα συγχρονισμού")){next=time+5000;return;}tracked=true;
             if(j==null){if(!m.optBoolean("wake")&&m.optString("historyPending","").length()==0)m.put("autoCycle",true);start(c,s,m,source);m.put("lastWakeHandled",wakeAt);if(!m.has("job")){save(s,m);next=time+1000;return;}j=m.getJSONObject("job");}else{
-                String stage=step(c,s,j);m.put("stage",stage);ServerWorkTracker.stage("stores","Καταστήματα Ordexa",stage);
+                String stage=step(c,s,j);m.put("stage",stage).put("error","");ServerWorkTracker.stage("stores","Καταστήματα Ordexa",stage);
                 if(j.optBoolean("hydrated"))m.put("archiveEpoch",j.getString("scope")+":"+j.getString("epoch")+":"+j.getString("generation"));
                 if(j.getString("phase").equals("done")){
                     m.remove("job");m.put("lastSuccess",OrdexaClient.isoNow()).put("nextDue",time+3600000).put("failures",0).put("error","").put("wake",j.optBoolean("hasPending"));
@@ -154,7 +155,8 @@ public final class StoreBillingSync {
                 if(message.contains("ήδη ενέργεια Ordexa")){if(m!=null){m.put("stage","Αναμονή ολοκλήρωσης της ανάγνωσης βαρδιών Ordexa");save(s,m);}next=time+2000;return;}
                 String safe=(message.contains("Ordexa")||message.contains("καταστημ")||message.contains("παραγγελί")||message.contains("όρο")||message.contains("Οι "))?message.substring(0,Math.min(300,message.length())):"Δεν ολοκληρώθηκε η επικοινωνία καταστημάτων. Τα προηγούμενα αποτελέσματα διατηρούνται· δοκίμασε Ανανέωση.";
                 if(m!=null){int failures=m.optInt("failures",0)+1;m.put("failures",failures).put("error",safe).put("stage",safe).put("nextDue",time+Math.min(3600000L,60000L*(1L<<Math.min(5,failures-1))));
-                    boolean uncertainPublish=j!=null&&"publish".equals(j.optString("phase"))&&!message.contains("άδεια εργασίας")&&!message.contains("άλλαξε");
+                    boolean definite=e instanceof FleetHttp.HttpStatusException&&((FleetHttp.HttpStatusException)e).statusCode>=400&&((FleetHttp.HttpStatusException)e).statusCode<500&&((FleetHttp.HttpStatusException)e).statusCode!=408&&((FleetHttp.HttpStatusException)e).statusCode!=429;
+                    boolean uncertainPublish=j!=null&&"publish".equals(j.optString("phase"))&&!definite&&!message.contains("άδεια εργασίας")&&!message.contains("άλλαξ");
                     if(!uncertainPublish){if(j!=null)try{progress(c,j,safe,"failed");}catch(Exception ignored){}m.remove("job");}
                     save(s,m);next=m.getLong("nextDue");}
             }catch(Exception ignored){next=time+60000;}

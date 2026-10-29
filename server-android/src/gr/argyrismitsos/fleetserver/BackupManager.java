@@ -9,6 +9,7 @@ import android.provider.DocumentsContract;
 import android.util.Base64;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -256,7 +257,7 @@ public final class BackupManager {
         root.put("documentRestore", documentRestore);
         store.mergeFleet(fleet);
         store.setSystemExport(root);
-        if(root.optJSONObject("storeBilling")!=null){new StoreBillingStore(store).restore(root.getJSONObject("storeBilling").getJSONArray("records"));StoreBillingSync.wake(store);}
+        new StoreBillingStore(store).restore(root.optJSONObject("storeBilling")==null?new JSONArray():root.getJSONObject("storeBilling").getJSONArray("records"));StoreBillingSync.wake(store);
         return root;
     }
 

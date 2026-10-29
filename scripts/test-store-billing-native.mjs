@@ -27,6 +27,7 @@ public class StoresTest {
   check(StoreBillingEngine.termsFor(history,"2026-10-27").getLong("unitPriceCents")==200,"old terms retained");
   check(StoreBillingEngine.termsFor(history,"2026-10-28").getLong("unitPriceCents")==250,"effective day");
   check(StoreBillingEngine.termsFor(history,"2026-10-28").getLong("dailyMinimumCents")==4000,"changing price does not alter minimum");
+  check(StoreBillingEngine.termsFor(new JSONArray().put(term(300,0,false).put("version",4)).put(term(200,0,false).put("version",2)),"2026-10-28").getLong("unitPriceCents")==300,"same-day terms use highest version regardless of ID order");
   check(StoreBillingEngine.cents("2.50")==250,"exact money");
   denied(()->StoreBillingEngine.cents("2.005"),"no hidden rounding");denied(()->StoreBillingEngine.cents(-1),"no negative price");
   JSONObject setup=new JSONObject("{\"settings\":{\"chargeFixedOnZeroDays\":false},\"shops\":[{\"id\":7,\"name\":\"Synthetic\",\"blocked\":false,\"versions\":[{\"from\":null,\"terms\":{\"method\":\"dailyMin\",\"perOrder\":2,\"minOrders\":20,\"zeroDays\":null}}]}]}");
