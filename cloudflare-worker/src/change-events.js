@@ -1,12 +1,12 @@
 // Signals contain scope names only. All data reads still pass their normal authorization.
 const encoder=new TextEncoder();
-const scopes=['fleet','invoices','workforce','status'];
+const scopes=['fleet','invoices','workforce','status','stores'];
 function base64(bytes){let s='';for(const b of bytes)s+=String.fromCharCode(b);return btoa(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');}
 function unbase64(s){return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));}
 async function key(env){const secret=env.SERVER_KEY||env.PIN_PEPPER;if(typeof secret!=='string'||secret.length<16)throw new Error('Event signing is not configured');return crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);}
 export async function makeTicket(env,actor){
  const permissions=actor.permissions||[],all=permissions.includes('*');
- const allowed=['workforce'];if(all||permissions.includes('fleet.view'))allowed.push('fleet','invoices');if(all||permissions.some(p=>['server.manage','backup.manage','dashboard.view'].includes(p)))allowed.push('status');
+ const allowed=['workforce'];if(all||permissions.includes('stores.view'))allowed.push('stores');if(all||permissions.includes('fleet.view'))allowed.push('fleet','invoices');if(all||permissions.some(p=>['server.manage','backup.manage','dashboard.view'].includes(p)))allowed.push('status');
  const now=Date.now(),payload={scopes:allowed,exp:now+60000,until:Math.min(now+900000,Number(actor.expires_at||0)*1000||now+900000),nonce:crypto.randomUUID()};
  const raw=base64(encoder.encode(JSON.stringify(payload))),signature=await crypto.subtle.sign('HMAC',await key(env),encoder.encode(raw));return raw+'.'+base64(new Uint8Array(signature));
 }
@@ -32,6 +32,8 @@ export function changedScopes(request){
  const p=new URL(request.url).pathname;
  if(!['POST','PUT','PATCH','DELETE'].includes(request.method)||!p.startsWith('/api/')||/^\/api\/(auth|events|deploy)\//.test(p))return [];
  if(/^\/api\/server\/(exchange|heartbeat|pulse|operation-progress|ack)$/.test(p)||/\/preview$|\/duplicates$|\/service-impact$|\/transfer-options$|\/resolve-qr$/.test(p))return [];
+ if(p.startsWith('/api/server/store-billing/'))return ['publish','catalogue','progress'].includes(p.split('/').at(-1))?['stores']:[];
+ if(p.startsWith('/api/admin/store-billing'))return ['stores'];
  if(p==='/api/server/ordexa/import'||p==='/api/server/ordexa/pay-check')return ['workforce','status'];
  if(p==='/api/server/ordexa-server/publish')return ['workforce','status'];
  if(p==='/api/server/operation-error')return ['fleet','invoices','workforce'];

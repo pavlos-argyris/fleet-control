@@ -42,6 +42,7 @@ public final class SyncService extends Service {
     private ScheduledExecutorService mirrorExecutor;
     private ScheduledExecutorService ordexaExecutor;
     private ScheduledExecutorService ordexaPayrollExecutor;
+    private ScheduledExecutorService storeBillingExecutor;
     private LocalWorkQueue workQueue;
     private volatile boolean queueValidated;
     private volatile JSONObject pendingProgress;
@@ -109,6 +110,8 @@ public final class SyncService extends Service {
         ordexaExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaSync.tick(getApplicationContext());}},10,10,TimeUnit.SECONDS);
         ordexaPayrollExecutor=Executors.newSingleThreadScheduledExecutor();
         ordexaPayrollExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaPayrollSync.tick(getApplicationContext(),store);}},15,10,TimeUnit.SECONDS);
+        storeBillingExecutor=Executors.newSingleThreadScheduledExecutor();
+        storeBillingExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){StoreBillingSync.tick(getApplicationContext(),store);}},20,2,TimeUnit.SECONDS);
         // Connectivity must stay live even during ten parallel local reads,
         // lengthy AI results, Drive backup or a full mirror download.
         pulseExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -255,6 +258,8 @@ public final class SyncService extends Service {
                 } else if ("backup_request".equals(type)) {
                     backupRequests.add(id);
                     continue;
+                } else if ("store_billing_wake".equals(type)) {
+                    StoreBillingSync.wake(store);
                 }
                 store.markApplied(id);
                 applied.add(id);
@@ -771,6 +776,7 @@ public final class SyncService extends Service {
         if (mirrorExecutor != null) mirrorExecutor.shutdownNow();
         if (ordexaExecutor != null) ordexaExecutor.shutdownNow();
         if (ordexaPayrollExecutor != null) ordexaPayrollExecutor.shutdownNow();
+        if (storeBillingExecutor != null) storeBillingExecutor.shutdownNow();
         if (activeCancellation != null) activeCancellation.set(true);
         getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE).edit().putBoolean("service_running", false).apply();
         if (store != null) store.close();

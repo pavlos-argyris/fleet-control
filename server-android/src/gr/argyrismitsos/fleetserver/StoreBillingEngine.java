@@ -45,8 +45,8 @@ public final class StoreBillingEngine {
         return result;
     }
     public static JSONObject termsFor(JSONArray versions,String day)throws Exception{
-        OrdexaClient.day(day);JSONObject selected=null;String last="";
-        for(int i=0;i<versions.length();i++){JSONObject v=versions.getJSONObject(i);String from=v.getString("effectiveDay");if((from.length()==0||from.compareTo(day)<=0)&&(selected==null||from.compareTo(last)>=0)){selected=v;last=from;}}
+        OrdexaClient.day(day);JSONObject selected=null;String last="";int version=-1;
+        for(int i=0;i<versions.length();i++){JSONObject v=versions.getJSONObject(i);String from=v.getString("effectiveDay");int rank=v.optInt("version",0);if((from.length()==0||from.compareTo(day)<=0)&&(selected==null||from.compareTo(last)>0||from.equals(last)&&rank>version)){selected=v;last=from;version=rank;}}
         return selected;
     }
     public static JSONObject day(String store,String businessDay,long count,JSONObject terms,String sourceAt,int retained,int reviews)throws Exception{

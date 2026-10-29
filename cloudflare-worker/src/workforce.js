@@ -1,4 +1,5 @@
 import {ORDEXA_SCHEMA,ORDEXA_COLUMNS} from './ordexa-core.js';
+import {routeStoreBilling,STORE_BILLING_SCHEMA,STORE_BILLING_COLUMNS} from './store-billing.js';
 import {routeOrdexaServer,ORDEXA_SERVER_SCHEMA,ORDEXA_SOURCE_TRIGGERS,ORDEXA_ADJUSTMENT_COLUMNS} from './ordexa-server.js';
 import {routeOrdexa,readOrdexaPayroll,readOrdexaShiftList} from './ordexa.js';
 import { MIRROR_TABLES, mirrorHead } from './mirror-delta.js';
@@ -603,6 +604,7 @@ INSERT OR IGNORE INTO alert_rules (type,enabled,severity,channel,updated_at) VAL
 INSERT OR IGNORE INTO alert_rules (type,enabled,severity,channel,updated_at) VALUES ('server_restriction',1,'warning','both',datetime('now'));
 ${ORDEXA_SCHEMA}
 ${ORDEXA_SERVER_SCHEMA}
+${STORE_BILLING_SCHEMA}
 `;
 
 // D1Database.exec treats every non-empty line as a separate query. Keep each
@@ -737,6 +739,7 @@ export async function routeWorkforce(request, env, path, deps) {
   if (!path.startsWith("/api/")) return null;
   try {
     return await (async () => {
+    const stores=await routeStoreBilling(request,env,path,{...deps,authenticate,bodyJson,wfJson,ApiError});if(stores)return stores;
     const serverView=await routeOrdexaServer(request,env,path,{...deps,authenticate,bodyJson,wfJson,setting,ApiError,requirePin,ensurePayrollPeriod,payrollSummary,unlockPayroll});if(serverView)return serverView;
     const ordexa=await routeOrdexa(request,env,path,{...deps,authenticate,bodyJson,wfJson,setting,ApiError,requirePin});if(ordexa)return ordexa;
     if (path === "/api/auth/bootstrap-status" && request.method === "GET") return bootstrapStatus(env);
@@ -5509,6 +5512,7 @@ async function systemExport(request, env, deps) {
 function importStatement(env, table, row) {
   const columnsByTable = {
     ...ORDEXA_COLUMNS,
+    store_billing_records:STORE_BILLING_COLUMNS,
     ordexa_shift_adjustments:ORDEXA_ADJUSTMENT_COLUMNS,
     app_users: ["id","full_name","username","email","phone","password_hash","password_salt","password_iterations","role","permissions","active","login_enabled","deleted_at","employee_group","pay_rule_id","assigned_vehicle_id","uses_own_vehicle","hire_date","notes","show_schedule","show_actual_clock_in","show_actual_clock_out","show_payable_hours","show_payment_amount","show_shift_kilometers","can_change_vehicle","force_logout_after","last_seen_at","created_at","updated_at"],
     registered_devices: ["id","user_id","name","platform","first_seen_at","last_seen_at","active"],
