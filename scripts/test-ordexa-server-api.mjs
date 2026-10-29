@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {createSimulation} from './fixtures/workforce-simulation.mjs';
+import {nativeOrdexaEngine} from './fixtures/native-ordexa-engine.mjs';
+import {projectOrdexaWeek} from './fixtures/ordexa-server-project.mjs';
+const native=nativeOrdexaEngine(),{call,db}=createSimulation();const ok=(r,status=200)=>{assert.equal(r.status,status,JSON.stringify(r));return r.data;};
+try{
+ const {token,user}=ok(await call('/api/auth/bootstrap',{server:true,method:'POST',body:{fullName:'Synthetic Server payroll owner',username:'serverpayroll',password:'SyntheticServerPay!7'}}));
+ const admin=(path,body,method='POST')=>call(path,{token,body,method});
+ ok(await call('/api/server/ordexa-server/control',{method:'POST',body:{week:'2026-10-19'}}),401);
+ ok(await call('/api/admin/ordexa-server/shifts?day=2026-10-19'),401);
+ db.sqlite.prepare("INSERT INTO schedules(id,employee_id,start_at,end_at,status,created_by,created_at,updated_at) VALUES('native-plan',?,'2026-10-19T15:00:00.000Z','2026-10-19T23:00:00.000Z','planned',?,'fixture','fixture')").run(user.id,user.id);
+ let capture=Date.now()-10000;
+ const send=async(day,out)=>ok(await call('/api/server/ordexa/import',{server:true,method:'POST',body:{cityId:'7',day,capturedAt:new Date(capture++).toISOString(),report:{riders:[{riderId:17,name:'Different provider label',sessions:day==='2026-10-19'?[{id:'native-row',day,inAt:'2026-10-19T18:00:00+03:00',outAt:out||'2026-10-20T02:00:00+03:00'}]:[]}]}}}));
+ for(let day=19;day<=25;day++)await send('2026-10-'+day);
+ let rider=db.sqlite.prepare('SELECT * FROM ordexa_riders').get();ok(await admin('/api/admin/ordexa-server/employee-links',{employeeId:user.id,cityId:'7',riderId:'17',currentId:'',currentRevision:0,targetRevision:rider.revision}));
+ const audit=db.sqlite.prepare("SELECT * FROM audit_log WHERE action='ordexa_employee_link'").get();assert.ok(audit);assert.match(audit.reason,/Εργαζόμενοι/,'Employee linking needs no user-entered reason, while retaining audit');
+ ok(await admin('/api/admin/ordexa/policy',{gapMinutes:15,gapTreatment:'include',revision:0,reason:'Explicit synthetic continuity policy'}));
+ let result=await projectOrdexaWeek(call,native,'2026-10-19');assert.equal(result.payload.payroll.totals.finalCents,6100);assert.equal(result.payload.payroll.blockers.length,0);
+ let summary=ok(await call('/api/admin/ordexa-server/payroll?week=2026-10-19',{token}));assert.equal(summary.projection.fresh,true);assert.equal(summary.projection.sourceFresh,true);assert.equal(summary.data.totals.finalCents,6100);
+ const prepare=db.prepare.bind(db),queries=[];db.prepare=sql=>{queries.push(sql);return prepare(sql);};let shifts=ok(await call('/api/admin/ordexa-server/shifts?day=2026-10-19',{token}));db.prepare=prepare;assert.equal(shifts.shifts.length,1);assert.equal(shifts.shifts[0].actualClockOut,'2026-10-19T23:00:00.000Z');assert.ok(queries.every(sql=>!sql.includes('FROM pay_rules')&&!sql.includes('FROM special_rates')),'Projection read must not recalculate employee rules on the Worker');
+ let row=shifts.shifts[0];ok(await admin('/api/admin/ordexa-server/adjustment',{weekStart:'2026-10-19',id:row.id,fingerprint:row.fingerprint,revision:0,paidStart:row.payableClockIn,paidEnd:'2026-10-19T22:30:00.000Z',night00Mode:'auto',night01Mode:'auto'}));
+ summary=ok(await call('/api/admin/ordexa-server/payroll?week=2026-10-19',{token}));assert.equal(summary.projection.fresh,false);assert.equal(summary.projection.readOnly,true);assert.equal(summary.data.totals.finalCents,6100,'Old calculated amount remains explicitly stale until the Server confirms the correction');
+ result=await projectOrdexaWeek(call,native,'2026-10-19');assert.equal(result.payload.payroll.totals.finalCents,5350);row=result.payload.shifts[0];assert.equal(row.adjustedBy,user.fullName);assert.equal(row.actualClockOut,'2026-10-19T23:00:00.000Z');
+ ok(await admin('/api/admin/ordexa-server/adjustment',{weekStart:'2026-10-19',id:row.id,fingerprint:row.fingerprint,revision:0,paidStart:row.payableClockIn,paidEnd:row.payableClockOut}),409);
+ ok(await admin('/api/admin/ordexa-server/lock',{startDate:'2026-10-19',reason:'Synthetic verified Server projection'}));
+ summary=ok(await call('/api/admin/ordexa-server/payroll?week=2026-10-19',{token}));assert.equal(summary.lockedSnapshot,true);assert.equal(summary.totals.finalCents,5350);
+ assert.ok(db.sqlite.prepare("SELECT id FROM audit_log WHERE action='ordexa_server_payroll_locked'").get());
+ ok(await admin('/api/admin/ordexa-server/adjustment',{weekStart:'2026-10-19',id:row.id,fingerprint:row.fingerprint,revision:1,paidStart:row.payableClockIn,paidEnd:'2026-10-19T23:00:00.000Z'}),409);
+ await send('2026-10-19','2026-10-20T02:45:00+03:00');summary=ok(await call('/api/admin/ordexa-server/payroll?week=2026-10-19',{token}));assert.equal(summary.totals.finalCents,5350,'A corrected provider out never rewrites a locked snapshot');
+ const backup=ok(await call('/api/server/system-export',{server:true}));assert.equal(Object.keys(backup.workforce).length,33);assert.equal(backup.workforce.ordexa_shift_adjustments.length,1);assert.ok(!Object.hasOwn(backup.workforce,'ordexa_server_views'),'Disposable results must not be restored as authoritative source data');
+ console.log('PASS actual Worker + native Java pipeline: paged revision/epoch inputs, explicit employee link without reason, immutable raw, Server-priced 6/10/15 views, read without Worker wage calculation, stale/corrected results, adjustment CAS/audit, locked snapshots and 33-table source backup. Synthetic only.');
+}finally{native.close();}

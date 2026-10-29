@@ -33,6 +33,7 @@ export function changedScopes(request){
  if(!['POST','PUT','PATCH','DELETE'].includes(request.method)||!p.startsWith('/api/')||/^\/api\/(auth|events|deploy)\//.test(p))return [];
  if(/^\/api\/server\/(exchange|heartbeat|pulse|operation-progress|ack)$/.test(p)||/\/preview$|\/duplicates$|\/service-impact$|\/transfer-options$|\/resolve-qr$/.test(p))return [];
  if(p==='/api/server/ordexa/import'||p==='/api/server/ordexa/pay-check')return ['workforce','status'];
+ if(p==='/api/server/ordexa-server/publish')return ['workforce','status'];
  if(p==='/api/server/operation-error')return ['fleet','invoices','workforce'];
  if(/service-document|invoice-import|invoice-reader/.test(p))return ['fleet','invoices'];
  if(/\/sync|\/snapshot|\/fleet|service-followup|service-appointments|service-trash|\/vehicles/.test(p))return ['fleet','invoices','workforce'];

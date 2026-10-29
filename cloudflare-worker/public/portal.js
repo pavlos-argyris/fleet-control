@@ -29,7 +29,7 @@
     service_conflict: "Σύγκρουση service", service_due: "Service που πλησιάζει", major_service_due: "Μεγάλο service", payroll_correction: "Διόρθωση μισθοδοσίας",
     correction_request: "Αίτημα διόρθωσης", backup_failed: "Αποτυχία backup", db_problem: "Πρόβλημα βάσης",
     server_offline: "Server offline", server_restart: "Επανεκκίνηση Server",
-    invoice_processing_failed: "Αποτυχία τιμολογίου",ordexa_pay_review:"Έλεγχος μισθοδοσίας Ordexa",
+    invoice_processing_failed: "Αποτυχία τιμολογίου",ordexa_pay_review:"Έλεγχος μισθοδοσίας Ordexa",ordexa_server_review:"Έλεγχος βάρδιας Ordexa",
     server_temperature: "Θερμοκρασία Server", server_storage: "Χώρος Server",
     server_battery: "Μπαταρία Server", server_restriction: "Περιορισμός Android"
   };
@@ -341,7 +341,7 @@
   }
 
   function showAuth() {
-    payrollLoadSequence++;state.payroll=null;window.FleetOrdexaPayUI?.clear();shiftsLoadSequence++;state.shifts=[];$("shiftsTable").replaceChildren();
+    payrollLoadSequence++;state.payroll=null;window.FleetOrdexaPayUI?.clear();window.FleetOrdexaServerUI?.clear();shiftsLoadSequence++;state.shifts=[];$("shiftsTable").replaceChildren();
     window.FleetMotion?.finish();
     window.FleetLive?.stop();
     setFleetDetailMode(false);
@@ -841,7 +841,8 @@
   }
 
   async function loadDashboard() {
-    const data = await api("/api/workforce/dashboard");
+    const data = await window.FleetOrdexaServerUI.dashboardData();
+    if(!data)return;
     state.dashboard = data;
     const missedClockIns = missedClockInGroups(data);
     $("dashboardHero").innerHTML = '<span>ΤΙ ΧΡΕΙΑΖΕΤΑΙ ΣΗΜΕΡΑ;</span><h2>'+escapeHtml(state.user.fullName||'Καλώς ήρθες')+'</h2><p>Πρώτα οι εκκρεμότητες. Μετά η συνολική εικόνα της ομάδας και του στόλου.</p>';
@@ -869,9 +870,8 @@
       return '<div class="data-row"><span><strong>' + escapeHtml(item.employee_name) + '</strong><small>' + escapeHtml(item.vehicle_name || "Χωρίς προανάθεση") + '</small></span><span><strong>' + formatDateTime(item.start_at) + '</strong><small>έως ' + formatDateTime(item.end_at) + '</small></span>' + statusPill(item.status) + '</div>';
     }).join("") : '<p class="empty-copy">Δεν υπάρχει πρόγραμμα για σήμερα.</p>';
     $("coverageTimeline").innerHTML = '<p class="empty-copy">Φόρτωση κάλυψης χωρίς καθυστέρηση του Dashboard…</p>';
-    loadCoverage().catch(function (error) {
-      $("coverageTimeline").innerHTML = '<p class="form-error">' + escapeHtml(error.message) + '</p>';
-    });
+    if(data.serverComputed){state.coverage=window.FleetOrdexaServerUI.coverageData();renderCoverage();window.FleetOrdexaServerUI.markDashboard(data);}
+    else loadCoverage().catch(function(error){$("coverageTimeline").textContent=error.message;});
   }
 
   function renderCoverage() {
@@ -903,6 +903,7 @@
   }
 
   async function loadCoverage() {
+    if(window.FleetOrdexaServerUI){const prepared=await window.FleetOrdexaServerUI.dashboardData($("coverageWeek")?.value);if(prepared){state.coverage=window.FleetOrdexaServerUI.coverageData();renderCoverage();}return;}
     const panel = document.querySelector(".coverage-panel");
     if (!can("schedules.view")) {
       if (panel) panel.classList.add("is-hidden");
@@ -1367,6 +1368,7 @@
       applyOwnVehicleEmployeeState();
       $("employeePayRule").innerHTML = '<option value="">Αυτόματη επιλογή βάσει προτεραιότητας</option>' + state.payRules.filter(function (rule) { return rule.active; }).map(function (rule) { return '<option value="' + escapeHtml(rule.id) + '">' + escapeHtml(rule.name + " • v" + rule.version) + '</option>'; }).join("");
       $("employeePayRule").value = item && item.payRuleId ? item.payRuleId : "";
+      await window.FleetOrdexaServerUI.employeeLinks(item);
       employeeSubmitButton.disabled = false;
     } catch (error) {
       $("employeeError").textContent = error.message;
@@ -1448,6 +1450,7 @@
       await api(current ? "/api/admin/employees/" + encodeURIComponent(current.id) : "/api/admin/employees", {
         method: current ? "PUT" : "POST", pin: confirmation.pin, body: payload
       });
+      if(current){try{await window.FleetOrdexaServerUI.saveEmployeeLinks(current.id);}catch(error){throw new Error("Τα στοιχεία εργαζομένου αποθηκεύτηκαν. Η αντιστοίχιση Ordexa χρειάζεται επανάληψη: "+error.message);}}
       $("employeeDialog").close();
       state.editingEmployee = null;
       toast(current ? "Τα στοιχεία ενημερώθηκαν." : "Ο εργαζόμενος δημιουργήθηκε.");
@@ -2535,27 +2538,7 @@
     return buttons.length ? '<div class="table-actions">' + buttons.join("") + '</div>' : "—";
   }
 
-  async function loadShifts() {
-    const sequence=++shiftsLoadSequence,requestToken=state.token;
-    if (!$("shiftFrom").value) $("shiftFrom").value = inputDate(-7);
-    if (!$("shiftTo").value) $("shiftTo").value = inputDate(7);
-    $("manualClockInButton").classList.toggle("is-hidden", !can("shifts.manage"));
-    const query = new URLSearchParams({ from: $("shiftFrom").value, to: $("shiftTo").value });
-    query.set('source',$("shiftSource")?.value||'all');query.set('overlap','1');
-    if ($("shiftStatus").value) query.set("status", $("shiftStatus").value);
-    let data;
-    try{data=await api("/api/admin/shifts?"+query.toString());}
-    catch(error){
-      if(sequence===shiftsLoadSequence&&requestToken===state.token){state.shifts=[];$("shiftsTable").innerHTML='<p class="form-error">'+escapeHtml(error.message)+'</p>';if($("shiftSourceInfo"))$("shiftSourceInfo").textContent='Η ανάγνωση βαρδιών απέτυχε. Πάτησε Ανανέωση για επανάληψη.';}
-      return;
-    }
-    if(sequence!==shiftsLoadSequence||requestToken!==state.token||!can('shifts.view'))return;
-    state.shifts = data.shifts || [];
-    if($("shiftSourceInfo"))$("shiftSourceInfo").textContent=(data.source==='fleet'?'':'Οι παρουσίες Ordexa εμφανίζονται χωρίς αλλαγή των αρχικών ωρών. Οι νυχτερινές βάρδιες διατηρούν την έξοδο της επόμενης ημερομηνίας. Οι πληρωτέες ώρες Ordexa είναι προεπισκόπηση των κανόνων· η μισθοδοσία χρησιμοποιεί την επιλεγμένη πηγή, χωρίς άθροιση Fleet και Ordexa. ')+(data.ordexaInfo&&!data.ordexaInfo.policyConfigured?'Όρισε πρώτα αντιστοιχίσεις και κανόνες κενών στις Ρυθμίσεις για υπολογισμό πληρωτέων ωρών. ':'')+(data.hasMore?'Υπάρχουν περισσότερες βάρδιες. Μίκρυνε το διάστημα για πλήρη προβολή.':'');
-    $("shiftsTable").innerHTML = state.shifts.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος / Πηγή</th><th>Μηχανάκι</th><th>Clock In</th><th>Clock Out</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead><tbody>' + state.shifts.map(function (item) {
-      return '<tr data-shift-source="'+escapeHtml(item.source||'fleet')+'"><td><strong>' + escapeHtml(item.employeeName) + '</strong><br><small>'+escapeHtml(item.source==='ordexa'?'Ordexa · '+item.sourceSessionCount+' καταγραφές':'Fleet clock')+'</small>'+(item.source==='ordexa'&&item.providerName!==item.employeeName?'<br><small>'+escapeHtml(item.providerName)+'</small>':'')+'</td><td>' + escapeHtml(item.vehicleName || "—") + '</td><td>' + escapeHtml(shiftDateTimeFormat.format(new Date(item.actualClockIn))) + (item.outOfSchedule ? '<br><small>Εκτός προγράμματος</small>' : '') + '</td><td>' + escapeHtml(item.actualClockOut ? shiftDateTimeFormat.format(new Date(item.actualClockOut)) : "—") + '</td><td>' + escapeHtml(item.payableHours == null ? (item.source==='ordexa'?(item.payrollLocked?'Κλειδωμένη περίοδος':'Εκκρεμεί υπολογισμός'):"—") : hours(item.payableHours))+(item.payablePreview?'<br><small>Προεπισκόπηση κανόνων</small>':'') + '</td><td>' + escapeHtml(item.shiftKm == null ? "—" : km(item.shiftKm)) + '</td><td>' + statusPill(item.status)+(item.sourceNotes?.length?'<br><small>'+escapeHtml(item.sourceNotes.join(' · '))+'</small>':'') + '</td><td>' + shiftActions(item) + '</td></tr>';
-    }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν βρέθηκαν βάρδιες.</p>';
-  }
+  async function loadShifts() { return window.FleetOrdexaServerUI.loadShifts(); }
 
   async function manualClockIn() {
     try {
@@ -4027,9 +4010,10 @@
     if (!$("payrollStart").value) $("payrollStart").value = mondayDate();
     const start = $("payrollStart").value;
     const end = datePlus(start, 6);
-    const data = await api("/api/admin/payroll?start=" + start + "&end=" + end);
+    const data = await window.FleetOrdexaServerUI.payrollData();
+    if(!data)return;
     if(sequence!==payrollLoadSequence||token!==state.token)return;
-    state.payroll = data;window.FleetOrdexaPayUI?.render(data);
+    state.payroll = data;
     $("ordexaPayPolicyButton")?.classList.toggle('is-hidden',!can('settings.manage'));
     const scheduleSource=(data.hoursSource || data.period.hoursSource)==="schedule";
     $("payrollSourceInfo").innerHTML='<div><strong>'+ (scheduleSource?"Υπολογισμός από δημοσιευμένο πρόγραμμα":"Υπολογισμός από πραγματικές καταγραφές")+'</strong><p>'+ (data.lockedSnapshot?"Η πηγή και τα ποσά διατηρούνται όπως ήταν στο κλείδωμα της περιόδου.":scheduleSource?"Μετρούν οι δημοσιευμένες βάρδιες, χωρίς να απαιτείται clock in/out. Τα πρόχειρα δεν υπολογίζονται. Οι διορθώσεις προγράμματος ενημερώνουν αυτή την ανοικτή περίοδο.":"Μετρούν οι ολοκληρωμένες πραγματικές καταγραφές clock in/out. Το πρόγραμμα διατηρείται ανεξάρτητα.")+'</p></div>'+(can("settings.manage")?'<button class="secondary-button" type="button" data-go="settings">Ρύθμιση πηγής</button>':'');
@@ -4051,6 +4035,7 @@
     $("payrollTable").innerHTML = data.employees.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Βάρδιες</th><th>Κανονικές ώρες</th><th>Ειδικές ώρες</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Βάση</th><th>Ειδική αμοιβή</th><th>Υπερωρίες / έγκριση</th><th>Bonus</th><th>Κρατήσεις</th><th>Προκαταβολές</th><th>Τελικό</th></tr></thead><tbody>' + data.employees.map(function (item) {
       return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong>'+(data.hoursSource==='ordexa'?'<br><button class="ghost-button" type="button" data-ordexa-pay-breakdown="'+escapeHtml(item.employeeId)+'">Ανάλυση βαρδιών</button>':'')+'</td><td>' + Number(item.shifts || 0) + '</td><td>' + escapeHtml(hours(item.normalHours)) + '</td><td>' + escapeHtml(hours(item.specialHours)) + '</td><td>' + escapeHtml(hours(item.payableHours)) + '</td><td>' + escapeHtml(km(item.kilometers)) + '</td><td>' + escapeHtml(money(item.basePayCents)) + '</td><td>' + escapeHtml(money(item.specialPayCents)) + '</td><td>' + payrollOvertimeCell(item) + '</td><td>' + escapeHtml(money(item.bonusCents)) + '</td><td>' + escapeHtml(money(item.deductionCents)) + '</td><td>' + escapeHtml(money(item.advanceCents)) + '</td><td><strong>' + escapeHtml(money(item.finalCents)) + '</strong></td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν υπάρχουν ολοκληρωμένες βάρδιες σε αυτή την περίοδο.</p>';
+    window.FleetOrdexaServerUI.markPayroll(data);
   }
 
   async function togglePayrollLock() {
@@ -4058,7 +4043,7 @@
     const locked = state.payroll.period.status === "locked";
     try {
       const confirmation = await requestPin(true);
-      await api(locked ? "/api/admin/payroll/unlock" : "/api/admin/payroll/lock", {
+      await api(locked ? "/api/admin/ordexa-server/unlock" : "/api/admin/ordexa-server/lock", {
         method: "POST", pin: confirmation.pin,
         body: { startDate: $("payrollStart").value, endDate: datePlus($("payrollStart").value, 6), reason: confirmation.reason }
       });
@@ -4359,7 +4344,7 @@
       const canApproveOvertime = can("shifts.manage") || can("payroll.manage");
       const invoiceFailure=item.type==='invoice_processing_failed'&&item.object_type==='invoice_job';
       const retrying=item.invoice_retry_state==='processing'||invoiceRetryController.pending({jobId:item.object_id});
-      const action = item.type==='ordexa_pay_review' ? (can('payroll.manage')?'<button class="secondary-button" type="button" data-review-ordexa-pay="'+escapeHtml(item.object_id)+'">Έλεγχος μισθοδοσίας</button>':'<span>Αναμονή απόφασης μισθοδοσίας</span>') : invoiceFailure
+      const action = item.type==='ordexa_server_review' ? (can('payroll.manage')?'<button class="secondary-button" type="button" data-server-shift-edit="'+escapeHtml(item.object_id)+'">Έλεγχος βάρδιας</button>':'<span>Αναμονή απόφασης μισθοδοσίας</span>') : item.type==='ordexa_pay_review' ? (can('payroll.manage')?'<button class="secondary-button" type="button" data-review-ordexa-pay="'+escapeHtml(item.object_id)+'">Έλεγχος μισθοδοσίας</button>':'<span>Αναμονή απόφασης μισθοδοσίας</span>') : invoiceFailure
         ? (can('fleet.manage')?'<button class="secondary-button invoice-retry-button" type="button" data-retry-invoice-alert="'+escapeHtml(item.id)+'" '+(retrying?'disabled':'')+'>'+(retrying?'Αναμονή επεξεργασίας…':'Επανάληψη')+'</button>':'')
         : item.type === "correction_request" && canResolve
         ? '<button class="secondary-button" type="button" data-handle-correction="' + escapeHtml(item.object_id) + '">Έλεγχος</button>'
@@ -4376,7 +4361,7 @@
     deliverLocalAlerts(state.alerts);
   }
 
-  const alertsRequiringAction = new Set(["correction_request", "overtime", "forgotten_clock_out", "invoice_processing_failed", "ordexa_pay_review"]);
+  const alertsRequiringAction = new Set(["correction_request", "overtime", "forgotten_clock_out", "invoice_processing_failed", "ordexa_pay_review", "ordexa_server_review"]);
 
   function bulkResolvableAlerts() {
     return (state.alerts || []).filter(function (item) {
@@ -4577,7 +4562,7 @@
   async function loadSettings() {
     const results = await Promise.all([api("/api/admin/settings"), loadDevices()]);
     const data = results[0];
-    $("payrollHoursSource").value = data.settings.payroll_hours_source || "clock";
+    $("payrollHoursSource").value = "ordexa";$("payrollHoursSource").disabled=true;
     $("noSchedulePolicy").value = data.settings.no_schedule_policy || "allow_warning";
     $("adminSessionDuration").value = data.settings.admin_session_duration || "4h";
     $("fallbackHour").value = data.settings.safety_fallback_hour || "5";
@@ -4591,7 +4576,7 @@
     try {
       const confirmation = await requestPin(true);
       await api("/api/admin/settings", { method: "PUT", pin: confirmation.pin, body: {
-        payroll_hours_source: $("payrollHoursSource").value,
+        payroll_hours_source: "ordexa",
         no_schedule_policy: $("noSchedulePolicy").value,
         admin_session_duration: $("adminSessionDuration").value,
         safety_fallback_hour: $("fallbackHour").value,
@@ -4945,7 +4930,7 @@
       else if(view==='fleet'&&scopes.includes('fleet'))await loadFleetSummary();
       else if(view==='server'&&scopes.includes('status'))await loadStatus(true);
       else if(view==='dashboard'&&scopes.some(s=>['fleet','workforce','status'].includes(s)))await loadDashboard();
-      else if(scopes.includes('workforce')){const loaders={'employee-home':loadEmployeeHome,shifts:loadShifts,schedules:loadSchedules,employees:loadEmployees,alerts:loadAlerts};if(loaders[view])await loaders[view]();}
+      else if(scopes.includes('workforce')){const loaders={'employee-home':loadEmployeeHome,shifts:loadShifts,schedules:loadSchedules,employees:loadEmployees,payroll:loadPayroll,alerts:loadAlerts};if(loaders[view])await loaders[view]();}
     }catch(error){toast(error.message);}
   }
   function resumeLiveRefresh(){clearTimeout(liveRefreshTimer);liveRefreshTimer=setTimeout(()=>{if(!pendingLiveScopes.size||document.querySelector('dialog[open]'))return;const scopes=[...pendingLiveScopes];pendingLiveScopes.clear();refreshLiveView(scopes);},500);}
@@ -4967,5 +4952,5 @@
   setInterval(refreshInvoiceProgressLive, 5000);
   setInterval(function(){if(state.user&&state.view==='alerts'&&!document.hidden&&!window.FleetLive?.connected()&&(state.alerts||[]).some(a=>a.type==='invoice_processing_failed'&&a.invoice_retry_state==='processing'))loadAlerts().catch(()=>{});},15000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("./service-worker.js").catch(function () {});
-  window.FleetOrdexaPayUI?.mount({api,can,editor:simpleEditor,pin:requestPin,session:()=>state.token,toast,money,payroll:()=>state.payroll,invalidate:()=>window.FleetSharedReads?.invalidate(),refresh:async()=>{let failed=false;try{if(state.view==='payroll')await loadPayroll();else if(state.view==='shifts')await loadShifts();}catch{failed=true;}try{if(can('alerts.view'))await loadAlerts();}catch{failed=true;}if(failed)toast('Η αποθήκευση ολοκληρώθηκε. Η προβολή χρειάζεται Ανανέωση.');}});
+  window.FleetOrdexaServerUI.mount({api,can,state,toast,money,pin:requestPin,shiftActions,invalidate:()=>window.FleetSharedReads?.invalidate(),refresh:async()=>{try{if(state.view==='dashboard')await loadDashboard();else if(state.view==='payroll')await loadPayroll();else if(state.view==='shifts')await loadShifts();else if(state.view==='alerts')await loadAlerts();}catch(error){toast(error.message);}}});
 })();

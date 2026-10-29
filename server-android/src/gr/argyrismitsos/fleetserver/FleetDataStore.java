@@ -144,6 +144,14 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     public synchronized JSONObject getLocalWorkState() {
         return readOptionalObject("SELECT value FROM system_state WHERE key='local_invoice_queue'", "η τοπική ουρά");
     }
+
+    public synchronized JSONObject getOrdexaPayrollState() {
+        return readOptionalObject("SELECT value FROM system_state WHERE key='ordexa_payroll_projection_v1'", "το τοπικό αποτέλεσμα μισθοδοσίας");
+    }
+    public synchronized void setOrdexaPayrollState(JSONObject value) {
+        ContentValues data=new ContentValues();data.put("key","ordexa_payroll_projection_v1");data.put("value",value.toString());data.put("updated_at",isoNow());
+        if(getWritableDatabase().insertWithOnConflict("system_state",null,data,SQLiteDatabase.CONFLICT_REPLACE)<0)throw new IllegalStateException("Δεν αποθηκεύτηκε το τοπικό αποτέλεσμα μισθοδοσίας.");
+    }
     public synchronized void setLocalWorkState(JSONObject value) {
         ContentValues data=new ContentValues();data.put("key","local_invoice_queue");data.put("value",value.toString());data.put("updated_at",isoNow());
         if(getWritableDatabase().insertWithOnConflict("system_state",null,data,SQLiteDatabase.CONFLICT_REPLACE)<0)throw new IllegalStateException("Δεν αποθηκεύτηκε η τοπική ουρά.");

@@ -77,19 +77,9 @@ public final class OrdexaSync {
                 if(!result.optBoolean("saved")||!result.optBoolean("accepted"))throw new Exception("Δεν επιβεβαιώθηκε η αποθήκευση της ημέρας "+day+". Επανάλαβε τον έλεγχο.");
                 if(!p.edit().putString(receipt,hash).commit())throw new Exception("Δεν αποθηκεύτηκε η τοπική επιβεβαίωση Ordexa. Η ημέρα διατηρείται στο Fleet· επανάλαβε τον έλεγχο.");saved++;
             }
+            // The native projection service computes payroll. No bulk
+            // comparison or wage calculation is requested from the Worker.
             String payrollWarning="";int payrollPending=0;
-            if(saved>0||p.getBoolean("paycheck_pending",false)){
-                p.edit().putBoolean("paycheck_pending",true).apply();
-                if(OtaManager.shouldYieldForUpdate(c))payrollWarning="Οι παρουσίες αποθηκεύτηκαν. Ο έλεγχος μισθοδοσίας θα επαναληφθεί μετά την ενημέρωση.";
-                else try{
-                    if(!base.equals(workerBase(main))||!scope.equals(receiptScope(p,main,base)))throw new Exception("Η σύνδεση Server άλλαξε.");
-                    p.edit().putString("stage","Έλεγχος μισθοδοσίας μετά την ολοκλήρωση όλων των ημερών").apply();ServerWorkTracker.stage("ordexa","Συγχρονισμός Ordexa","Σύγκριση παρουσιών και προγράμματος");
-                    JSONObject checked=FleetHttp.sendJson(base+"/api/server/ordexa/pay-check","POST",new JSONObject().put("from",from).put("to",to),SyncService.serverHeaders());
-                    if(!checked.optBoolean("checked"))throw new Exception("Δεν επιβεβαιώθηκε ο έλεγχος.");
-                    payrollPending=checked.optInt("pending",0);p.edit().putBoolean("paycheck_pending",false).apply();
-                    if(checked.optBoolean("needsGapPolicy"))payrollWarning="Οι παρουσίες αποθηκεύτηκαν. Όρισε αντιστοιχίσεις και κανόνες συνέχειας στις Ρυθμίσεις για έλεγχο μισθοδοσίας.";
-                }catch(Exception checkError){payrollWarning="Οι παρουσίες αποθηκεύτηκαν. Εκκρεμεί έλεγχος μισθοδοσίας· άνοιξε τη μισθοδοσία στο Client/Web ή επανάλαβε τον συγχρονισμό.";}
-            }
             p.edit().putString("last_success",OrdexaClient.isoNow()).putString("stage",payrollPending>0?"Ολοκληρώθηκε ο συγχρονισμός · "+payrollPending+" βάρδιες προς απόφαση μισθοδοσίας":"Ολοκληρώθηκε ο συγχρονισμός Ordexa").putString("error",payrollWarning).commit();return new JSONObject().put("savedDays",saved).put("unchangedDays",unchanged).put("payrollWarning",payrollWarning).put("payrollPending",payrollPending).put("status",status(c));
         }catch(Exception e){if(p!=null)p.edit().putString("error",safeError(e)).putString("stage","Χρειάζεται έλεγχος Ordexa").commit();throw new Exception(safeError(e));}
         finally{if(tracked)ServerWorkTracker.finish("ordexa");running.set(false);}
@@ -98,7 +88,7 @@ public final class OrdexaSync {
     private static String receiptScope(SharedPreferences p,SharedPreferences main,String base)throws Exception{return OrdexaClient.digest(new JSONObject().put("generation",p.getString("generation","legacy")).put("worker",base).put("epoch",main.getString("mirror_remote_epoch","")));}
     private static String safeError(Exception e){String m=e.getMessage();return m!=null&&(m.contains("Ordexa")||m.contains("ημέρ")||m.contains("περίοδο")||m.contains("ενημέρωση"))?m.substring(0,Math.min(m.length(),300)):"Η σύνδεση ή ανάγνωση Ordexa απέτυχε. Έλεγξε σύνδεση και ρυθμίσεις· οι αποθηκευμένες παρουσίες διατηρούνται.";}
     public static void tick(Context c){
-        SharedPreferences p=prefs(c);long time=System.currentTimeMillis();if(!p.getBoolean("enabled",false)||running.get()||time-p.getLong("attempt",0)<3600000L||OtaManager.shouldYieldForUpdate(c))return;
-        try{Calendar day=Calendar.getInstance(TimeZone.getTimeZone("Europe/Athens"));java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US);f.setTimeZone(day.getTimeZone());String to=f.format(day.getTime());day.add(Calendar.DAY_OF_MONTH,-6);sync(c,new JSONObject().put("from",f.format(day.getTime())).put("to",to));}catch(Exception ignored){}
+        SharedPreferences p=prefs(c);long time=System.currentTimeMillis();if(!p.getBoolean("enabled",false)||running.get()||time-p.getLong("attempt",0)<45000L||OtaManager.shouldYieldForUpdate(c))return;
+        try{Calendar day=Calendar.getInstance(TimeZone.getTimeZone("Europe/Athens"));java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US);f.setTimeZone(day.getTimeZone());String to=f.format(day.getTime());boolean full=time-p.getLong("week_attempt",0)>=3600000L;day.add(Calendar.DAY_OF_MONTH,full?-6:-1);sync(c,new JSONObject().put("from",f.format(day.getTime())).put("to",to));if(full)p.edit().putLong("week_attempt",time).apply();}catch(Exception ignored){}
     }
 }

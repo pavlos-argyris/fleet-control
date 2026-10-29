@@ -41,6 +41,7 @@ public final class SyncService extends Service {
     private ScheduledExecutorService invoiceExecutor;
     private ScheduledExecutorService mirrorExecutor;
     private ScheduledExecutorService ordexaExecutor;
+    private ScheduledExecutorService ordexaPayrollExecutor;
     private LocalWorkQueue workQueue;
     private volatile boolean queueValidated;
     private volatile JSONObject pendingProgress;
@@ -105,7 +106,9 @@ public final class SyncService extends Service {
         mirrorExecutor=Executors.newSingleThreadScheduledExecutor();
         mirrorExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){mirrorSafely();}},0,300,TimeUnit.SECONDS);
         ordexaExecutor=Executors.newSingleThreadScheduledExecutor();
-        ordexaExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaSync.tick(getApplicationContext());}},30,60,TimeUnit.SECONDS);
+        ordexaExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaSync.tick(getApplicationContext());}},10,10,TimeUnit.SECONDS);
+        ordexaPayrollExecutor=Executors.newSingleThreadScheduledExecutor();
+        ordexaPayrollExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaPayrollSync.tick(getApplicationContext(),store);}},15,10,TimeUnit.SECONDS);
         // Connectivity must stay live even during ten parallel local reads,
         // lengthy AI results, Drive backup or a full mirror download.
         pulseExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -756,6 +759,7 @@ public final class SyncService extends Service {
         if (invoiceExecutor != null) invoiceExecutor.shutdownNow();
         if (mirrorExecutor != null) mirrorExecutor.shutdownNow();
         if (ordexaExecutor != null) ordexaExecutor.shutdownNow();
+        if (ordexaPayrollExecutor != null) ordexaPayrollExecutor.shutdownNow();
         if (activeCancellation != null) activeCancellation.set(true);
         getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE).edit().putBoolean("service_running", false).apply();
         if (store != null) store.close();
