@@ -11,15 +11,16 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.53.0/portal.css">
-  <link rel="stylesheet" href="./assets/v5.53.0/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.53.0/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.53.0/client-ota.css">
-  <script src="./assets/v5.53.0/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.53.0/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.53.0/service-followup.css">
-  <link rel="stylesheet" href="./assets/v5.53.0/ui-system.css">
-  <link rel="stylesheet" href="./assets/v5.53.0/ordexa-ui.css">
+  <link rel="stylesheet" href="./assets/v5.54.0/portal.css">
+  <link rel="stylesheet" href="./assets/v5.54.0/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.54.0/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.54.0/client-ota.css">
+  <script src="./assets/v5.54.0/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.54.0/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.54.0/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.54.0/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.54.0/ordexa-ui.css">
+  <link rel="stylesheet" href="./assets/v5.54.0/ordexa-server-ui.css">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -126,7 +127,7 @@
         </section>
 
         <section id="viewShifts" class="app-view is-hidden" data-view="shifts">
-          <div class="section-toolbar"><div><span class="overline">ΠΡΑΓΜΑΤΙΚΟΣ ΧΡΟΝΟΣ</span><h2>Βάρδιες</h2></div><div class="toolbar-filters"><input id="shiftFrom" type="date"><input id="shiftTo" type="date"><select id="shiftSource" aria-label="Πηγή βαρδιών"><option value="all">Ordexa &amp; Fleet</option><option value="ordexa">Μόνο Ordexa</option><option value="fleet">Μόνο Fleet clock</option></select><select id="shiftStatus"><option value="">Όλες</option><option value="active">Ενεργές</option><option value="completed">Ολοκληρωμένες</option><option value="pending_overtime">Υπερωρία</option><option value="pending_km">Εκκρεμή χλμ.</option></select><button id="manualClockInButton" class="primary-button" type="button">Χειροκίνητο Clock In</button><button id="refreshShifts" class="secondary-button" type="button">Ανανέωση</button></div></div>
+          <div class="section-toolbar"><div><span class="overline">ΠΡΑΓΜΑΤΙΚΟΣ ΧΡΟΝΟΣ</span><h2>Βάρδιες</h2></div><div class="toolbar-filters"><input id="shiftFrom" type="date"><input id="shiftTo" type="date"><select id="shiftSource" aria-label="Πηγή βαρδιών"><option value="all">Ordexa &amp; Fleet</option><option value="ordexa" selected>Μόνο Ordexa</option><option value="fleet">Μόνο Fleet clock</option></select><select id="shiftStatus"><option value="">Όλες</option><option value="active">Ενεργές</option><option value="completed">Ολοκληρωμένες</option><option value="pending_overtime">Υπερωρία</option><option value="pending_km">Εκκρεμή χλμ.</option></select><button id="manualClockInButton" class="primary-button" type="button">Χειροκίνητο Clock In</button><button id="refreshShifts" class="secondary-button" type="button">Ανανέωση</button></div></div>
           <p id="shiftSourceInfo" class="empty-copy" role="status"></p><section class="panel table-panel"><div id="shiftsTable" class="responsive-table"></div></section>
         </section>
 
@@ -355,29 +356,30 @@
     <div id="uiInvoiceFilterOptions" class="ui-select-options" role="group" aria-label="Διαθέσιμες επιλογές"></div>
     <p id="uiInvoiceFilterEmpty" class="ui-empty" role="status" hidden>Δεν βρέθηκε πινακίδα. Δοκίμασε άλλη αναζήτηση.</p>
   </dialog>
-  <script src="./assets/v5.53.0/scroll-stability.js" defer></script>
+  <script src="./assets/v5.54.0/scroll-stability.js" defer></script>
   <script src="./fleet-config.js?v=5.53.0"></script>
-  <script src="./assets/v5.53.0/service-model.js" defer></script>
-  <script src="./assets/v5.53.0/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.53.0/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.53.0/service-tools.js" defer></script>
-  <script src="./assets/v5.53.0/service-storage.js" defer></script>
-  <script src="./assets/v5.53.0/service-export.js" defer></script>
-  <script src="./assets/v5.53.0/shared-requests.js"></script>
-  <script src="./assets/v5.53.0/live-changes.js"></script>
-  <script src="./assets/v5.53.0/local-view-cache.js"></script>
-  <script src="./assets/v5.53.0/fleet-motion.js"></script>
-  <script src="./assets/v5.53.0/schedule-workbook.js"></script>
-  <script src="./assets/v5.53.0/invoice-retry.js"></script>
-  <script src="./assets/v5.53.0/ordexa-ui.js"></script>
-  <script src="./assets/v5.53.0/ordexa-pay-core.js"></script>
-  <script src="./assets/v5.53.0/ordexa-pay-ui.js"></script>
-  <script src="./assets/v5.53.0/portal.js"></script>
+  <script src="./assets/v5.54.0/service-model.js" defer></script>
+  <script src="./assets/v5.54.0/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.54.0/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.54.0/service-tools.js" defer></script>
+  <script src="./assets/v5.54.0/service-storage.js" defer></script>
+  <script src="./assets/v5.54.0/service-export.js" defer></script>
+  <script src="./assets/v5.54.0/shared-requests.js"></script>
+  <script src="./assets/v5.54.0/live-changes.js"></script>
+  <script src="./assets/v5.54.0/local-view-cache.js"></script>
+  <script src="./assets/v5.54.0/fleet-motion.js"></script>
+  <script src="./assets/v5.54.0/schedule-workbook.js"></script>
+  <script src="./assets/v5.54.0/invoice-retry.js"></script>
+  <script src="./assets/v5.54.0/ordexa-ui.js"></script>
+  <script src="./assets/v5.54.0/ordexa-pay-core.js"></script>
+  <script src="./assets/v5.54.0/ordexa-pay-ui.js"></script>
+  <script src="./assets/v5.54.0/ordexa-server-ui.js"></script>
+  <script src="./assets/v5.54.0/portal.js"></script>
   <script src="./vendor/jsQR.js"></script>
   <script src="./vendor/qrcode-generator.js"></script>
-  <script src="./assets/v5.53.0/invoice-import-ui.js"></script>
-  <script src="./assets/v5.53.0/service-followup.js" defer></script>
-  <script src="./assets/v5.53.0/fleet-operations.js" defer></script>
-  <script src="./assets/v5.53.0/sequential-review.js" defer></script>
+  <script src="./assets/v5.54.0/invoice-import-ui.js"></script>
+  <script src="./assets/v5.54.0/service-followup.js" defer></script>
+  <script src="./assets/v5.54.0/fleet-operations.js" defer></script>
+  <script src="./assets/v5.54.0/sequential-review.js" defer></script>
 </body>
 </html>

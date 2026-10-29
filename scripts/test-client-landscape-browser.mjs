@@ -1,3 +1,4 @@
+import {serverProjectionResponse} from './fixtures/server-projection-response.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,6 +15,7 @@ bikes[0].history[0].invoiceData={qrUrl:'https://einvoice.impact.gr/p/ORPHAN',qrJ
 const generic={user,bikes,version:1,snapshotVersion:1,configured:true,serverOnline:true,databaseOk:true,storageOk:true,employees:[{id:'e',full_name:'Δοκιμαστικός εργαζόμενος',fullName:'Δοκιμαστικός εργαζόμενος',username:'rider',role:'employee',active:1}],vehicles:[],rules:[],shifts:[],alerts:[],documents,days:[],summary:{},today:{vehicles:{available:6,in_use:2},workingNow:2},currentWeek:{payableHours:32,payrollCents:17000,kilometers:480,startDate:'2026-10-19',endDate:'2026-10-25'},realtime:[],dailySchedule:[],actionCount:3,actionGroups:{service:2}};
 const week={...generic,weekStart:'2026-10-19',weekEnd:'2026-10-25',scheduleState:'published',publication:{revision:1},schedules:[{id:'s',employee_id:'e',employee_name:'Δοκιμαστικός εργαζόμενος',work_date:'2026-10-19',start_time:'22:00',end_time:'02:00',start_at:'2026-10-19T19:00:00Z',end_at:'2026-10-19T23:00:00Z',status:'planned',vehicle_name:'BTO 756'}]};
 
+const payroll={period:{status:'open'},totals:{},employees:[]};
 
 // Chromium/file tests exercise responsive content, not Android's window manager.
 // A before capture is deliberately the unchanged browser baseline: the old native
@@ -38,7 +40,7 @@ try{
     const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS'};
     if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers});
     if(url.pathname.startsWith('/api/service-documents/'))return route.fulfill({headers,contentType:'application/pdf',body:pdfBytes()});
-    const json=url.pathname.startsWith('/api/admin/schedule-week')?week:url.pathname==='/api/admin/payroll'?payroll:generic;
+    const json=serverProjectionResponse(url.pathname,generic,payroll)||(url.pathname.startsWith('/api/admin/schedule-week')?week:url.pathname==='/api/admin/payroll'?payroll:generic);
     return route.fulfill({status:url.pathname==='/api/events/ticket'?503:200,headers,json});
    }
    const full=path.resolve(root,'.'+decodeURIComponent(url.pathname));
