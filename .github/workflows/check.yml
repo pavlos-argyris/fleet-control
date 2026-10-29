@@ -35,6 +35,7 @@ jobs:
       - name: Install browser for navigation verification
         run: npx playwright install chromium
         working-directory: cloudflare-worker
+      - run: node scripts/test-store-billing-browser.mjs
       - run: node scripts/test-navigation-motion-browser.mjs
       - run: node scripts/test-next-service-browser.mjs
       - run: node scripts/test-ui-system-browser.mjs
@@ -47,7 +48,6 @@ jobs:
       - run: node scripts/test-schedule-cpu-browser.mjs
       - run: node scripts/test-invoice-retry-browser.mjs
       - run: node scripts/test-invoice-recovery-browser.mjs
-      - run: node scripts/test-store-billing-browser.mjs
       - run: FLEET_CPU_PHASE=after node scripts/profile-schedule-cpu.mjs
       - name: Save navigation verification images
         if: always()

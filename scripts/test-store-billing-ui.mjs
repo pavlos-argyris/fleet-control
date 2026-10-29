@@ -27,3 +27,13 @@ try{
  blockRead=null;ui.load();await flush();const readsBefore=calls.filter(c=>!c.options.method).length;ui.load();ui.load();await flush();assert.equal(calls.filter(c=>!c.options.method).length,readsBefore,'fresh same-range memory cache avoids duplicate reads');
  console.log('PASS shipped store UI/JSDOM:05-day, themed rows/dialog/Back, explicit default-OFF retention, failed-save draft+retry identity, escaped names, hidden-request fence, session reset and same-range read coalescing.');
 }finally{dom.window.close();}
+
+// A newer optional store-status bridge must not disable the existing city/login UI.
+for(const bad of [undefined,'{']){
+ const native=new JSDOM('<section id="panelSettings"><div id="ordexaServerPanel"></div></section>',{runScripts:'outside-only',pretendToBeVisual:true});
+ try{const v=native.window;v.FleetServer={onNativeEvent(){}};v.AndroidServer={getOrdexaStatus:()=>JSON.stringify({configured:true,cityId:'7',cities:[{id:'7',name:'Synthetic city'}]}),getStoreBillingStatus:()=>bad,ordexaStoresRequest(){}};
+  v.eval(fs.readFileSync('server-android/assets/www/ordexa-server.js','utf8'));
+  assert.equal(v.document.querySelector('[name=cityId]').options.length,2,'an invalid optional store status cannot hide the city');assert.equal(v.document.querySelector('[name=cityId]').value,'7');assert.match(v.document.querySelector('[data-stores-status]').textContent,/ρυθμίσεις παρουσιών παραμένουν διαθέσιμες/);
+ }finally{native.window.close();}
+}
+console.log('PASS native settings UI keeps existing city/configuration available when the optional stores status is unavailable or malformed.');
