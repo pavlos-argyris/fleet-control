@@ -2,6 +2,13 @@
 
 Αυτό είναι το κοινό σημείο ενημέρωσης όλων των ChatGPT/βοηθών. Διάβασέ το πριν ξεκινήσεις και ενημέρωσέ το όταν αναλαμβάνεις εργασία, σε σημαντικά ορόσημα και πριν σταματήσεις. Οι καταγραφές διασταυρώνονται πάντα με GitHub branches/commits/PR/Actions και την ενεργή έκδοση.
 
+## Έναρξη δημοσίευσης5.56.1 — διόρθωση αναμονής editor #40 — 29/10/2026
+
+- Πηγή/main **`df870b6ea472e3b0a153d340ff2f49c94234e9a1`**, tree `5c461ef57b9406feb96a497b02f70b0694fd1a7a`, PR#46 από source851ab58. [Source CI40944633659](https://github.com/pavlos-argyris/fleet-control/actions/runs/40944633659) και [exact-main CI40946001550](https://github.com/pavlos-argyris/fleet-control/actions/runs/40946001550) **success**. Chromium desktop/mobile/Client landscape επιβεβαίωσε stale timer και δύο διαδοχικές διορθώσεις με σταματημένο synthetic Server. Εξετάστηκαν εικόνες artifact12929795308. Δύο test APK, native engine/scheduler/backup, Workerd-D1/SQL CAS/audit/epoch/locks, πλήρες source και Worker dry-run πέρασαν.
+- Κανονικό request-publish.mjs σε καθαρό αυθεντικό main μετά το exact CI. Έναρξη **29/10/2026 22:15:26 ώρα Ελλάδας** (`2026-10-29T20:15:26.241Z`). Request-only **`e127303dcf03254857e88ff8fec5e45987ddc80b`**, requestId `fleet-da79dec2-0e68-4e1c-a988-de924216c72f`. Μόνο το request JSON μεταβλήθηκε· επιβεβαιώθηκε remote ref.
+- Client/Web5.56.1(code91), Server2.5.3(code49), Worker5.15.3, engine3. [Publish40947401602](https://github.com/pavlos-argyris/fleet-control/actions/runs/40947401602) παρακολουθείται. **Η ενεργοποίηση δεν έχει ακόμη επιβεβαιωθεί.** Δεν μετακινείται το δεσμευμένο source/request και δεν ξεκινά δεύτερο publish. Η παρούσα καταγραφή αποθηκεύεται σε χωριστό docs branch μέχρι ολοκλήρωση, χωρίς αλλαγή main/source.
+- Άλλη συνομιλία έχει #44/#47 Καταστήματα. Το #47 είναι μόνο σχέδιο/docs και δηλώνει ότι διατηρεί το δικό μας source. Νέα δραστηριότητα `codex/issue-44-ordexa-stores` παρατηρήθηκε πριν το request, χωρίς ενεργό άλλο Publish ή αλλαγή main. Διατηρούνται2014 άσχετα υπάρχοντα blobs και204 παλαιότερα immutable assets, μαζί με ολόκληρο το #37. Κανένα παραγωγικό οικονομικό δεδομένο, πραγματική Ordexa εγγραφή, εγκατάσταση φυσικής συσκευής ή παραγωγικό backup/restore δεν χρησιμοποιήθηκε ως δοκιμή.
+
 ## Ανάληψη συμπληρώματος #40 — επεξεργασία ανεξάρτητα από αναμονή Server — 29/10/2026
 
 - Νεότερη αναφορά χρήστη μετά τη5.56.0: «Αναμονή ενημέρωσης server» εμποδίζει ακόμη την επεξεργασία βαρδιών. Ζητά δυνατότητα επεξεργασίας ανά πάσα στιγμή. Αναλαμβάνεται στο `fix/ordexa-edit-anytime-40`, βάση main`3607c9d1f7ce9d16a76251d9261439ea9c263f44`, χωρίς ανοικτό άλλο PR κατά τον έλεγχο.
