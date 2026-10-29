@@ -27,6 +27,7 @@ try{
  await db.prepare("UPDATE system_settings SET value='ordexa' WHERE key='payroll_hours_source'").run();
  r=await call('/api/admin/payroll?start=2026-10-19&end=2026-10-25',undefined,token);assert.equal(r.status,200,JSON.stringify(r));assert.equal(r.data.hoursSource,'ordexa');assert.equal(r.data.blockers.length,0);assert.equal(r.data.employees.length,1);assert.ok(r.data.totals.payableHours>0);
  // An absent old event is retained and explicitly held, never silently deleted.
+ r=await call('/api/admin/shifts?source=ordexa&overlap=1&from=2026-10-19&to=2026-10-25',undefined,token);assert.equal(r.status,200);assert.equal(r.data.shifts.length,1);assert.equal(r.data.shifts[0].source,'ordexa');assert.equal(r.data.shifts[0].payableHours,8,'Real D1 projection reuses the payroll rules');
  await call('/api/server/ordexa/import',report('2026-10-19','2026-10-20T01:00:00Z',[]));
  const missing=await db.prepare('SELECT * FROM ordexa_sessions').first();assert.equal(missing.review,1);assert.ok(missing.missing_since);assert.equal(missing.raw_json,before.raw_json);
  r=await call('/api/admin/payroll?start=2026-10-19&end=2026-10-25',undefined,token);assert.ok(r.data.blockers.length>0);
@@ -63,4 +64,5 @@ try{
  const loadBaseline=await counts();load.capturedAt='2026-10-28T21:00:00Z';load.report.riders[0].sessions.push({...load.report.riders[0].sessions[0],id:'overflow'});assert.equal((await call('/api/server/ordexa/import',load)).status,400);assert.deepEqual(await counts(),loadBaseline);
  load.report.riders[0].sessions.pop();load.report.riders[0].sessions.forEach((session,i)=>session.id=String(i).padStart(100,'x'));assert.equal((await call('/api/server/ordexa/import',load)).status,400,'Normalized payload over 1 MiB must be rejected');assert.deepEqual(await counts(),loadBaseline);
  console.log(JSON.stringify({ordexaLoad:'synthetic real Workerd/D1',events:2000,elapsedMs,metric:'local elapsed wall time, not production CPU',receiptReplay:true,overEventAndByteLimitsRejectedWithoutPartialRows:true}));
+ r=await call('/api/admin/shifts?source=ordexa&from=2026-10-28&to=2026-10-28',undefined,token);assert.equal(r.status,200);assert.equal(r.data.shifts.length,1000);assert.equal(r.data.hasMore,true,'A bounded shift list must disclose more results');
 }finally{if(runtime)await runtime.dispose();fs.rmSync(dir,{recursive:true,force:true});}

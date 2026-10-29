@@ -1,5 +1,5 @@
 import {ORDEXA_SCHEMA,ORDEXA_COLUMNS} from './ordexa-core.js';
-import {routeOrdexa,readOrdexaPayroll} from './ordexa.js';
+import {routeOrdexa,readOrdexaPayroll,readOrdexaShiftList} from './ordexa.js';
 import { MIRROR_TABLES, mirrorHead } from './mirror-delta.js';
 import {
   ALL_PERMISSIONS,
@@ -3975,18 +3975,27 @@ async function listShifts(request, env) {
   const to = text(url.searchParams.get("to"), 10) || addCalendarDays(from, 14);
   const status = text(url.searchParams.get("status"), 40);
   const employeeId = text(url.searchParams.get("employeeId"), 100);
+  // Legacy callers keep Fleet-only results. The current shifts screen asks
+  // explicitly for both origins; no imported event becomes a Fleet clock.
+  const source=url.searchParams.get('source')||'fleet';
+  if(!['fleet','ordexa','all'].includes(source))throw new ApiError(400,'Μη έγκυρη πηγή βαρδιών.');
+  const overlap=url.searchParams.get('overlap')==='1';
   const bounds = await localDateUtcBounds(env, from, to);
-  const rows = await env.DB.prepare(`SELECT s.*, u.full_name AS employee_name,
+  const rows = source==='ordexa'?{results:[]}:await env.DB.prepare(`SELECT s.*, u.full_name AS employee_name,
     CASE WHEN u.uses_own_vehicle=1 OR substr(s.current_vehicle_id,1,16)='__own_vehicle__:'
       THEN '${OWN_VEHICLE_LABEL}' ELSE v.name END AS vehicle_name,
     sc.start_at AS scheduled_start, sc.end_at AS scheduled_end
     FROM shifts s JOIN app_users u ON u.id=s.employee_id
     LEFT JOIN vehicle_registry v ON v.bike_id=s.current_vehicle_id
     LEFT JOIN schedules sc ON sc.id=s.schedule_id
-    WHERE s.actual_clock_in>=? AND s.actual_clock_in<? AND (?='' OR s.status=?) AND (?='' OR s.employee_id=?)
-    ORDER BY s.actual_clock_in DESC LIMIT 1000`)
-    .bind(bounds.start, bounds.end, status, status, employeeId, employeeId).all();
-  return wfJson({ shifts: (rows.results || []).map((row) => shiftPublic(row, actor)) });
+    WHERE ${overlap?"s.actual_clock_in<? AND (s.actual_clock_out>? OR s.actual_clock_out IS NULL OR (s.actual_clock_out=s.actual_clock_in AND s.actual_clock_in>=?))":"s.actual_clock_in>=? AND s.actual_clock_in<?"} AND (?='' OR s.status=?) AND (?='' OR s.employee_id=?)
+    ORDER BY s.actual_clock_in DESC,s.id LIMIT 1001`)
+    .bind(...(overlap?[bounds.end,bounds.start,bounds.start]:[bounds.start,bounds.end]), status, status, employeeId, employeeId).all();
+  const fleet=(rows.results||[]).map(row=>({...shiftPublic(row,actor),source:'fleet'}));
+  const external=source==='fleet'?{shifts:[]}:await readOrdexaShiftList(env,bounds,from,to,{setting,ApiError,employeeId,status,overlap,
+    calculate:(items,contextFrom,contextTo)=>plannedPayrollRows(env,bounds,contextFrom,contextTo,items)});
+  const combined=[...fleet,...external.shifts].sort((a,b)=>String(b.actualClockIn).localeCompare(String(a.actualClockIn))||a.id.localeCompare(b.id));
+  return wfJson({shifts:combined.slice(0,1000),hasMore:combined.length>1000,source,ordexaInfo:external.info});
 }
 
 async function manualClockIn(request, env, deps) {
@@ -4859,7 +4868,7 @@ async function plannedPayrollRows(env, bounds, startDate, endDate, externalRows 
       hardEndAt:schedule.end_at,excludedIntervals:schedule.excludedIntervals||[],rule,specialWindows:windows,timeZone:zone});computed.set(cacheKey,pay);}
     result.push({id:schedule.id,employee_id:schedule.employee_id,employee_name:schedule.full_name,
       actual_clock_in:schedule.start_at,actual_clock_out:schedule.end_at,scheduled_end:schedule.end_at,
-      payable_minutes:pay.payableMinutes,shift_km:0,base_pay_cents:pay.basePayCents,special_pay_cents:pay.specialPayCents,
+      payable_minutes:pay.payableMinutes,payable_clock_in:pay.payableStart,payable_clock_out:pay.payableEnd,shift_km:0,base_pay_cents:pay.basePayCents,special_pay_cents:pay.specialPayCents,
       special_minutes:pay.segments.filter(p=>p.specialRateId).reduce((n,p)=>n+p.minutes,0),rule_id:row.id,rule_version:row.version,...(schedule.ordexa?{sourceSessionIds:schedule.ordexa.sessions,sourceGaps:schedule.ordexa.gaps}:{} )});
   }
   return result;

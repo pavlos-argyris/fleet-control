@@ -26,6 +26,7 @@ node scripts/test-ordexa-server-ui.mjs
 node scripts/test-ordexa-core.mjs
 node scripts/test-ordexa-d1.mjs
 node scripts/test-ordexa-lifecycle.mjs
+node scripts/test-ordexa-shifts.mjs
 node scripts/test-ordexa-migration.mjs
 node scripts/test-invoice-retry-actions.mjs
 node scripts/test-invoice-retry-ui.mjs
