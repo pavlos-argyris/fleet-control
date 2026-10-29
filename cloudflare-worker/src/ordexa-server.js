@@ -50,7 +50,7 @@ async function inputPage(request,env,url,D){
  if(meta.restoring)fail(D,409,'Η επαναφορά δεδομένων Ordexa βρίσκεται σε εξέλιξη.');
  const lease=url.searchParams.get('lease')||'';
  if(!await env.DB.prepare('SELECT 1 ok FROM ordexa_server_views WHERE week_start=? AND lease_token=? AND lease_until>?').bind(week,lease,stamp()).first())fail(D,409,'Η άδεια υπολογισμού έληξε.');
- if(!table)return D.wfJson({...meta,weekStart:week,endDate:addCalendarDays(week,6),tables:['employees','riders','sessions','schedules','settings','adjustments','payrollAdjustments','vehicles','paid','coverage']});
+ if(!table)return D.wfJson({...meta,weekStart:week,endDate:addCalendarDays(week,6),tables:['employees','riders','sessions','schedules','settings','adjustments','payrollAdjustments','vehicles','paid','coverage','legacyDecisions']});
  if(url.searchParams.get('revision')!==meta.revision||url.searchParams.get('epoch')!==meta.epoch)fail(D,409,'Οι είσοδοι άλλαξαν. Επανάλαβε τον υπολογισμό.');
  const lower=zonedLocalToUtc(addCalendarDays(week,-1),'00:00',meta.timeZone),upper=zonedLocalToUtc(addCalendarDays(week,8),'00:00',meta.timeZone);
  const specs={
@@ -61,6 +61,7 @@ async function inputPage(request,env,url,D){
   settings:["SELECT rowid _cursor,key,value FROM system_settings WHERE rowid>? AND key IN ('timezone','ordexa_policy','ordexa_pay_policy') ORDER BY rowid LIMIT 101",[cursor]],
   adjustments:["SELECT rowid _cursor,* FROM ordexa_shift_adjustments WHERE rowid>? AND id IN(SELECT 'ordexa:'||id FROM ordexa_sessions WHERE in_at>=? AND in_at<?) ORDER BY rowid LIMIT 101",[cursor,lower,upper]],
   payrollAdjustments:["SELECT pa.rowid _cursor,pa.* FROM payroll_adjustments pa JOIN payroll_periods pp ON pp.id=pa.period_id WHERE pa.rowid>? AND pp.start_date=? AND pp.end_date=? ORDER BY pa.rowid LIMIT 101",[cursor,week,addCalendarDays(week,6)]],
+  legacyDecisions:["SELECT d.rowid _cursor,d.id,d.employee_id,d.start_choice,d.end_choice,d.chosen_schedule_id,d.updated_at,COALESCE(u.full_name,d.updated_by) updated_by_name FROM ordexa_pay_decisions d LEFT JOIN app_users u ON u.id=d.updated_by WHERE d.rowid>? AND d.source_session_id IN(SELECT id FROM ordexa_sessions WHERE in_at>=? AND in_at<?) ORDER BY d.rowid LIMIT 101",[cursor,lower,upper]],
   vehicles:["SELECT rowid _cursor,bike_id,name,status FROM vehicle_registry WHERE rowid>? ORDER BY rowid LIMIT 101",[cursor]],
   coverage:["SELECT MIN(rowid) _cursor,city_id,day,MAX(captured_at) captured_at FROM ordexa_imports WHERE accepted=1 AND day BETWEEN ? AND ? GROUP BY city_id,day HAVING MIN(rowid)>? ORDER BY MIN(rowid) LIMIT 101",[week,addCalendarDays(week,6),cursor]],
   paid:[`SELECT * FROM (SELECT ROW_NUMBER() OVER(ORDER BY ps.id,sr.key) _cursor,pp.start_date,pp.end_date,sr.value source_row FROM payroll_snapshots ps JOIN payroll_periods pp ON pp.id=ps.period_id,json_each(ps.data,'$.sourceRows') sr WHERE pp.status='locked' AND EXISTS(SELECT 1 FROM json_each(sr.value,'$.sourceSessionIds') si WHERE si.value IN(SELECT id FROM ordexa_sessions WHERE in_at>=? AND in_at<?))) WHERE _cursor>? ORDER BY _cursor LIMIT 101`,[lower,upper,cursor]]
@@ -95,6 +96,9 @@ async function publish(request,env,D){
   operations.push(env.DB.prepare(`INSERT INTO system_alerts(id,type,severity,title,message,object_type,object_id,dedupe_key,resolved,created_at) SELECT 'ordexa-server:'||v.week_start||':'||json_extract(r.value,'$.id'),'ordexa_server_review','warning','Έλεγχος βάρδιας · '||json_extract(r.value,'$.employeeName'),substr((SELECT group_concat(value,' · ') FROM json_each(r.value,'$.reasons')),1,1000),'ordexa_server_review',json_extract(r.value,'$.id'),'ordexa-server:'||v.week_start||':'||json_extract(r.value,'$.id'),0,? FROM ordexa_server_views v,json_each(v.payload,'$.reviews') r WHERE v.week_start=? AND v.publication_token=? ON CONFLICT(dedupe_key) DO UPDATE SET title=excluded.title,message=excluded.message,resolved=0,resolved_at=NULL WHERE system_alerts.resolved<>0 OR system_alerts.message<>excluded.message OR system_alerts.title<>excluded.title`).bind(computedAt,week,nonce));
   operations.push(env.DB.prepare(`UPDATE system_alerts SET resolved=1,resolved_at=? WHERE type='ordexa_server_review' AND resolved=0 AND dedupe_key LIKE ? AND EXISTS(SELECT 1 FROM ordexa_server_views WHERE week_start=? AND publication_token=?) AND object_id NOT IN(SELECT json_extract(r.value,'$.id') FROM ordexa_server_views v,json_each(v.payload,'$.reviews') r WHERE v.week_start=? AND v.publication_token=?)`).bind(computedAt,'ordexa-server:'+week+':%',week,nonce,week,nonce));
  }
+ // Retire superseded profile warnings only for source rows included in this
+ // native projection, atomically with the new grouped warning/ready result.
+ operations.push(env.DB.prepare(`UPDATE system_alerts SET resolved=1,resolved_at=? WHERE type='ordexa_pay_review' AND resolved=0 AND object_id IN(SELECT 'ordexa:'||si.value FROM ordexa_server_views v,json_each(v.payload,'$.shifts') g,json_each(g.value,'$.sourceSessionIds') si WHERE v.week_start=? AND v.publication_token=? AND json_extract(g.value,'$.workDate') BETWEEN ? AND ?)`).bind(computedAt,week,nonce,week,addCalendarDays(week,6)));
  const saved=await env.DB.batch(operations);if(!saved[0]?.meta?.changes)fail(D,409,'Η προβολή άλλαξε, η άδεια έληξε ή το αποτέλεσμα δεν έχει συμβατό σχήμα.');
  return D.wfJson({saved:true,weekStart:week,payloadHash:hash,computedAt});
 }
@@ -154,7 +158,7 @@ export async function routeOrdexaServer(request,env,path,D){
  }
  if(action==='employee-links'&&['GET','POST'].includes(request.method))return employeeLinks(request,env,url,D);
  if(action==='shift'&&request.method==='GET'){
-  await D.authenticate(request,env,'payroll.manage');const row=await env.DB.prepare(`SELECT week_start,g.value data FROM ordexa_server_views v,json_each(v.payload,'$.shifts') g WHERE json_extract(g.value,'$.id')=? ORDER BY computed_at DESC LIMIT 1`).bind(String(url.searchParams.get('id')||'')).first();
+  await D.authenticate(request,env,'payroll.manage');const row=await env.DB.prepare(`SELECT week_start,g.value data FROM ordexa_server_views v,json_each(v.payload,'$.shifts') g WHERE json_extract(g.value,'$.id')=? OR EXISTS(SELECT 1 FROM json_each(g.value,'$.sourceSessionIds') si WHERE 'ordexa:'||si.value=?) ORDER BY computed_at DESC LIMIT 1`).bind(String(url.searchParams.get('id')||''),String(url.searchParams.get('id')||'')).first();
   if(!row)fail(D,404,'Η βάρδια δεν βρίσκεται σε ενημερωμένη προβολή Server. Άνοιξε την ημέρα της.');const result=await view(env,row.week_start,'shifts',D),group=JSON.parse(row.data);if(await env.DB.prepare("SELECT id FROM payroll_periods WHERE status='locked' AND ? BETWEEN start_date AND end_date LIMIT 1").bind(group.workDate).first())group.payrollLocked=true;return D.wfJson({projection:result.info,shift:group});
  }
  if(action==='adjustment'&&request.method==='POST')return adjustment(request,env,D);

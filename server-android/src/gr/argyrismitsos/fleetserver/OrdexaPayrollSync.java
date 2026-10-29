@@ -46,7 +46,7 @@ public final class OrdexaPayrollSync {
                     input=new JSONObject().put("weekStart",week).put("timeZone",head.optString("timeZone","Europe/Athens"));JSONArray tables=head.getJSONArray("tables");
                     int total=0;
                     for(int t=0;t<tables.length();t++){
-                        String table=tables.getString(t);if(!Arrays.asList("employees","riders","sessions","schedules","settings","adjustments","payrollAdjustments","vehicles","paid","coverage").contains(table))throw new Exception("Άγνωστη κατηγορία υπολογισμού.");
+                        String table=tables.getString(t);if(!Arrays.asList("employees","riders","sessions","schedules","settings","adjustments","payrollAdjustments","vehicles","paid","coverage","legacyDecisions").contains(table))throw new Exception("Άγνωστη κατηγορία υπολογισμού.");
                         JSONArray rows=new JSONArray();long cursor=0;boolean completed=false;
                         for(int page=0;page<300;page++){
                             if(OtaManager.shouldYieldForUpdate(context))throw new Exception("Παύση υπολογισμού για ενημέρωση Server.");

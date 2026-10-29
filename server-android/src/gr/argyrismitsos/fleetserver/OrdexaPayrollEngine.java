@@ -19,6 +19,7 @@ public final class OrdexaPayrollEngine {
     private final Map<String,JSONObject> people=new LinkedHashMap<String,JSONObject>();
     private final Map<String,JSONObject> riders=new HashMap<String,JSONObject>();
     private final Map<String,JSONObject> vehicles=new HashMap<String,JSONObject>();
+    private final Map<String,JSONObject> legacyDecisions=new HashMap<String,JSONObject>();
     private final Map<String,JSONObject> edits=new HashMap<String,JSONObject>();
     private final Map<String,List<JSONObject>> plans=new HashMap<String,List<JSONObject>>();
     private final List<Group> groups=new ArrayList<Group>();
@@ -33,6 +34,7 @@ public final class OrdexaPayrollEngine {
         boolean open,active,sourcePending,midnightCap,oneAmCap,locked,skip,excluded,adjusted,accepted,startApproved,endApproved;
         JSONObject plan,edit,publicRow,frozenSource;
         int editRevision;
+        final JSONArray legacy=new JSONArray();
         final List<JSONObject> events=new ArrayList<JSONObject>();
         final List<String> reasons=new ArrayList<String>();
         String night0="auto",night1="auto";
@@ -44,7 +46,7 @@ public final class OrdexaPayrollEngine {
         JSONArray values=array("settings");for(int i=0;i<values.length();i++){JSONObject r=values.getJSONObject(i);settings.put(r.getString("key"),r.optString("value"));}
         try{JSONObject p=new JSONObject(settings.optString("ordexa_policy","{}"));if(p.has("gapMinutes")){gap=Math.max(0,Math.min(240,p.getInt("gapMinutes")));gapConfigured=true;}}catch(Exception ignored){}
         try{JSONObject p=new JSONObject(settings.optString("ordexa_pay_policy","{}"));startCutoff=bounded(p.optInt("startCutoff",15),1,29);endMiddle=bounded(p.optInt("endMiddleFrom",21),1,29);endNext=bounded(p.optInt("endNextFrom",47),31,59);lateMinutes=bounded(p.optInt("lateStartMinutes",20),1,120);earlyMinutes=bounded(p.optInt("earlyStartMinutes",15),1,120);endDeviation=bounded(p.optInt("endDeviationMinutes",30),1,240);lateMode=p.optString("lateStartMode","up");}catch(Exception ignored){}
-        index(array("employees"),people,"id");index(array("vehicles"),vehicles,"bike_id");index(array("adjustments"),edits,"id");
+        index(array("employees"),people,"id");index(array("vehicles"),vehicles,"bike_id");index(array("adjustments"),edits,"id");index(array("legacyDecisions"),legacyDecisions,"id");
         JSONArray links=array("riders");for(int i=0;i<links.length();i++){JSONObject r=links.getJSONObject(i);riders.put(r.optString("city_id")+"\n"+r.optString("rider_id"),r);}
         JSONArray schedule=array("schedules");for(int i=0;i<schedule.length();i++){JSONObject p=schedule.getJSONObject(i);if("cancelled".equals(p.optString("status")))continue;String id=p.optString("employee_id");if(!plans.containsKey(id))plans.put(id,new ArrayList<JSONObject>());plans.get(id).add(p);}
     }
@@ -125,6 +127,8 @@ public final class OrdexaPayrollEngine {
         g.active=g.open&&!g.midnightCap&&g.start<=now&&now-g.start<=DAY&&!g.skip;
         if(g.edit!=null&&!g.edit.isNull("paid_end")&&time(g.edit.optString("paid_end"))<=now)g.active=false;
         if(g.midnightCap&&g.edit!=null&&!g.edit.isNull("paid_end")&&time(g.edit.optString("paid_end"))>now)g.active=true;
+        for(JSONObject event:g.events){JSONObject old=legacyDecisions.get("ordexa:"+event.getString("id"));if(old!=null)g.legacy.put(old);}
+        if(g.legacy.length()>0&&!g.accepted&&!g.excluded)g.reason("Προηγούμενη απόφαση προγράμματος/clock · επιβεβαίωσε τις πληρωτέες ώρες στο νέο προφίλ");
         if(g.excluded){g.active=false;g.sourcePending=false;g.paidEnd=g.paidStart;boolean reviewed=true;for(JSONObject event:g.events)reviewed=reviewed&&event.optInt("review",0)==0;if(reviewed)g.reasons.clear();}
         JSONArray paid=array("paid");for(int i=0;i<paid.length();i++){JSONObject item=paid.getJSONObject(i),source=new JSONObject(item.getString("source_row"));JSONArray ids=source.optJSONArray("sourceSessionIds");if(ids==null)continue;boolean match=false;for(int j=0;j<ids.length();j++)for(JSONObject e:g.events)if(ids.getString(j).equals(e.optString("id")))match=true;if(match){g.locked=true;g.frozenSource=source;if(!week.equals(item.optString("start_date"))||!endDate.equals(item.optString("end_date"))){g.skip=true;g.reason("Η παρουσία έχει ήδη πληρωθεί σε άλλη κλειδωμένη περίοδο");}break;}}
     }
@@ -149,6 +153,7 @@ public final class OrdexaPayrollEngine {
         JSONArray ids=new JSONArray(),reasons=new JSONArray();for(JSONObject e:g.events)ids.put(e.getString("id"));for(String r:g.reasons)reasons.put(r);
         String vehicleId=g.plan==null?"":g.plan.optString("vehicle_id","");if("null".equals(vehicleId))vehicleId="";JSONObject vehicle=vehicles.get(vehicleId);
         JSONObject r=new JSONObject().put("id",g.id).put("source","ordexa").put("employeeId",g.employeeId).put("employeeName",g.name).put("workDate",g.workDate).put("actualClockIn",iso(g.start)).put("actualClockOut",g.open?JSONObject.NULL:iso(g.end)).put("payableClockIn",iso(g.paidStart)).put("payableClockOut",iso(g.paidEnd)).put("payableHours",(g.normalMinutes+g.specialMinutes)/60.0).put("payableMinutes",g.normalMinutes+g.specialMinutes).put("normalMinutes",g.normalMinutes).put("specialMinutes",g.specialMinutes).put("basePayCents",g.baseCents).put("specialPayCents",g.specialCents).put("totalPayCents",g.baseCents+g.specialCents).put("sourceSessionIds",ids).put("fingerprint",g.fingerprint).put("startFingerprint",g.startFingerprint).put("endFingerprint",g.endFingerprint).put("adjustmentRevision",g.editRevision).put("adjusted",g.adjusted).put("adjustedBy",g.edit==null?"":g.edit.optString("updated_by_name")).put("adjustedAt",g.edit==null?JSONObject.NULL:g.edit.optString("updated_at")).put("night00Mode",g.night0).put("night01Mode",g.night1).put("reasons",reasons).put("sourcePending",g.sourcePending).put("midnightCap",g.midnightCap).put("oneAmCap",g.oneAmCap).put("excluded",g.excluded).put("missingClockOut",g.open).put("active",g.active).put("payrollLocked",g.locked).put("status",g.active?"active":"completed").put("vehicleId",vehicleId).put("vehicleName",vehicle==null?vehicleId:vehicle.optString("name")).put("schedule",g.plan==null?JSONObject.NULL:g.plan);
+        if(g.legacy.length()>0)r.put("legacyDecisions",g.legacy);
         if(g.frozenSource!=null){r.put("payableHours",g.frozenSource.has("payableMinutes")?g.frozenSource.optDouble("payableMinutes",0)/60.0:JSONObject.NULL).put("payableMinutes",g.frozenSource.opt("payableMinutes")).put("payableClockIn",g.frozenSource.opt("payableStart")).put("payableClockOut",g.frozenSource.opt("payableEnd"));if(g.frozenSource.has("basePayCents")){r.put("basePayCents",g.frozenSource.optLong("basePayCents")).put("specialPayCents",g.frozenSource.optLong("specialPayCents")).put("totalPayCents",g.frozenSource.optLong("basePayCents")+g.frozenSource.optLong("specialPayCents"));}else{r.put("basePayCents",JSONObject.NULL).put("specialPayCents",JSONObject.NULL).put("totalPayCents",JSONObject.NULL);}}
         g.publicRow=r;return r;
     }
