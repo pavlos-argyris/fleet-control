@@ -68,6 +68,7 @@ jobs:
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-server-large-storage-native.mjs
       - run: node scripts/test-ordexa-native.mjs
+      - run: node scripts/test-ordexa-server-sync-native.mjs
       - run: node scripts/test-local-invoice-reader.mjs
       - run: node scripts/test-invoice-reader-accuracy.mjs
       - run: node scripts/test-invoice-reader-full.mjs

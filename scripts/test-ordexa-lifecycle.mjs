@@ -35,7 +35,7 @@ const session=db.sqlite.prepare('SELECT * FROM ordexa_sessions').get();
 check(await call('/api/admin/ordexa/review',{token,method:'POST',body:{id:session.id,revision:session.revision,action:'ignore',reason:'Synthetic retained decision'}}));
 check(await call('/api/admin/pin',{server:true,method:'POST',body:{pin:'246810'}}));
 const backup=check(await call('/api/server/system-export',{server:true}));
-assert.equal(Object.keys(backup.workforce).length,32);
+assert.equal(Object.keys(backup.workforce).length,33);
 for(const table of ['ordexa_riders','ordexa_imports','ordexa_sessions','ordexa_pay_decisions'])assert.ok(backup.workforce[table].length);
 const head=check(await call('/api/server/system-export/page',{server:true})).mirror;
 db.sqlite.prepare("UPDATE ordexa_riders SET employee_id=NULL,name='Changed label'").run();
@@ -53,4 +53,4 @@ for(let page=0;page<100;page++){
  assert.ok(page<99,'Bounded synthetic mirror pages');
 }
 for(const table of ['ordexa_riders','ordexa_imports','ordexa_sessions','ordexa_pay_decisions'])assert.ok(changes.some(c=>c.table===table),table+' must reach the local mirror after restore');
-console.log('PASS Ordexa lifecycle: revision/source races cannot lock stale pay, no partial snapshots, successful retry, 32-table backup and exact Ordexa identity/raw/decision restore with differential mirror. Synthetic only.');
+console.log('PASS Ordexa lifecycle: revision/source races cannot lock stale pay, no partial snapshots, successful retry, 33-table backup and exact Ordexa identity/raw/decision restore with differential mirror. Synthetic only.');
