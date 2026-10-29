@@ -2,6 +2,13 @@
 
 Αυτό είναι το κοινό σημείο ενημέρωσης όλων των ChatGPT/βοηθών. Διάβασέ το πριν ξεκινήσεις και ενημέρωσέ το όταν αναλαμβάνεις εργασία, σε σημαντικά ορόσημα και πριν σταματήσεις. Οι καταγραφές διασταυρώνονται πάντα με GitHub branches/commits/PR/Actions και την ενεργή έκδοση.
 
+## Έναρξη δημοσίευσης #44 / 5.57.0 — 30/10/26, 1:04:13 π.μ. ώρα Ελλάδας
+
+- Ακριβής πηγή/main **8c0307e87cb372e59c1fc0d10e14c89368b3452e**, treeff3c5f09ae4149e4d000acb2c6ced657b0d396eb. [PR CI40967933191](https://github.com/pavlos-argyris/fleet-control/actions/runs/40967933191) και [exact-main CI40969304642](https://github.com/pavlos-argyris/fleet-control/actions/runs/40969304642) **success**, όλα τα απαιτούμενα browser/native/backup, δύο APK, Worker dry-run και πλήρης πηγή.
+- Το [artifact-only prepare40969304782](https://github.com/pavlos-argyris/fleet-control/actions/runs/40969304782), job123781718382, ολοκληρώθηκε **success** αφού περίμενε το exact-main CI και εκτέλεσε το κανονικό scripts/request-publish.mjs σε καθαρό αυθεντικό checkout. Generated requestId **fleet-7a6fa72c-cd61-4896-8e86-d9ebce465d50**, requestedAt **2026-10-29T23:03:22.646Z**, release5.57.0. Το ακριβές JSON ανακτήθηκε από το log και επαληθεύτηκε byte-exact με Git blob SHA **4b7e0c4ea2c33d8afdcebe2a2bfff90561be888e**.
+- Επιβεβαιώθηκαν αμετάβλητο main και απουσία άλλου ενεργού Publish. Ακολουθεί μία ξεχωριστή request-only καταχώριση, μόνο .github/fleet-publish-request.json, με μοναδικό parent τη8c0307e. Η παρούσα καταγραφή γίνεται πριν την εντολή και μένει στο docs/issue-44-publication-handoff χωρίς αλλαγή του δεσμευμένου main.
+- **Η ενεργοποίηση δεν έχει ακόμη επιβεβαιωθεί.** Δεν εκδίδεται δεύτερη εντολή ούτε αλλάζει η πηγή κατά τη ροή. Η τελική καταγραφή θα προσθέσει το request commit/run, ενεργοποίηση, αρχικές υπογραφές και online hashes. Καμία παραγωγική οικονομική δοκιμή/Ordexa εγγραφή ή πραγματική εγκατάσταση/backup/restore από τον βοηθό.
+
 ## #44 — ελεγμένη πηγή συγχωνεύτηκε, αναμονή exact-main CI — 30/10/2026
 
 - [PR#48](https://github.com/pavlos-argyris/fleet-control/pull/48) συγχωνεύτηκε από τελικό head **022537177aa1bab3dfe2148d64f6f7312955eae8**. Main/source **8c0307e87cb372e59c1fc0d10e14c89368b3452e**, tree **ff3c5f09ae4149e4d000acb2c6ced657b0d396eb**, ακριβώς ίδιο με την ελεγμένη πηγή και πλήρη τοπικό κώδικα. Διατηρήθηκαν το νεότερο main09ae419, οι αλλαγές #37/#40/5.56.1, όλες οι προηγούμενες καταγραφές και παλιά immutable assets.
