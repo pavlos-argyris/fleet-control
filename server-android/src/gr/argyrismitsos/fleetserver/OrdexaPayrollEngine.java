@@ -68,6 +68,7 @@ public final class OrdexaPayrollEngine {
     private String addDays(String value,int count)throws Exception{Calendar c=calendar(dayFormat.parse(value).getTime());c.add(Calendar.DAY_OF_MONTH,count);return day(c.getTimeInMillis());}
     private int hour(long value){return calendar(value).get(Calendar.HOUR_OF_DAY);}
     private int minute(long value){return calendar(value).get(Calendar.MINUTE);}
+    private String operatingDate(long value)throws Exception{return hour(value)<2?addDays(day(value),-1):day(value);}
     private long round(long value,boolean start){Calendar c=calendar(value);double m=c.get(Calendar.MINUTE)+c.get(Calendar.SECOND)/60.0+c.get(Calendar.MILLISECOND)/60000.0;int target=start?(m<startCutoff?0:m<30+startCutoff?30:60):(m<endMiddle?0:m<endNext?30:60);return Math.round(value+(target-m)*MINUTE);}
     private long floorHalf(long value){Calendar c=calendar(value);return value-(c.get(Calendar.MINUTE)%30)*MINUTE-c.get(Calendar.SECOND)*1000L-c.get(Calendar.MILLISECOND);}
     private static String employee(JSONObject r){return r==null||r.isNull("employee_id")?"":r.optString("employee_id","");}
@@ -78,7 +79,7 @@ public final class OrdexaPayrollEngine {
         for(JSONObject event:events){
             JSONObject rider=riders.get(event.optString("city_id")+"\n"+event.optString("rider_id"));String id=employee(rider);long start=time(event.optString("in_at")),end=time(event.optString("out_at"));
             boolean clean=event.optInt("ignored",0)==0&&event.optString("review_reason","").length()==0&&event.isNull("missing_since")&&(end==0||event.optInt("review",0)==0);
-            if(last!=null&&!last.excluded&&id.length()>0&&id.equals(last.employeeId)&&!last.open&&clean&&last.reasons.isEmpty()&&start-last.end<=gap*MINUTE&&Math.max(start,end)-last.start<=DAY){last.events.add(event);if(end==0){last.end=0;last.open=true;}else last.end=Math.max(last.end,end);continue;}
+            if(last!=null&&!last.excluded&&id.length()>0&&id.equals(last.employeeId)&&!last.open&&clean&&last.reasons.isEmpty()&&operatingDate(last.start).equals(operatingDate(start))&&start-last.end<=gap*MINUTE&&Math.max(start,end)-last.start<=DAY){last.events.add(event);if(end==0){last.end=0;last.open=true;}else last.end=Math.max(last.end,end);continue;}
             Group g=new Group();g.id="ordexa:"+event.getString("id");g.employeeId=id;g.start=start;g.end=end;g.open=end==0;g.events.add(event);JSONObject person=people.get(id);g.name=person!=null?person.optString("full_name"):rider!=null?rider.optString("name"):"Χωρίς αντιστοίχιση";
             g.excluded=event.optInt("ignored",0)==1;g.skip=g.excluded;
             if(id.length()==0)g.reason("Χωρίς αντιστοίχιση εργαζομένου Ordexa");if(!clean&&(!g.excluded||event.optInt("review",0)==1))g.reason("Χρειάζεται έλεγχος αρχικής καταγραφής Ordexa");if(start<=0||end>0&&end<start)g.reason("Μη έγκυρες αρχικές ώρες");
@@ -100,7 +101,7 @@ public final class OrdexaPayrollEngine {
         selectPlan(g);g.workDate=day(g.start);g.fingerprint=fingerprint(g);g.startFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.start+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("start_at"))+"|"+startCutoff+"|"+zone.getID());g.endFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.end+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("end_at"))+"|"+endMiddle+"|"+endNext+"|"+zone.getID());g.edit=edits.get(g.id);g.editRevision=g.edit==null?0:g.edit.optInt("revision",0);if(g.edit!=null&&!g.employeeId.equals(g.edit.optString("employee_id"))){g.reason("Άλλαξε η αντιστοίχιση εργαζομένου · η προηγούμενη διόρθωση δεν μεταφέρεται");g.edit=null;}g.paidStart=round(g.start,true);
         // A working day is open 08:00 through 02:00 the following morning.
         // A source beginning before 02:00 belongs to the preceding open window.
-        String operatingDate=hour(g.start)<2?addDays(day(g.start),-1):day(g.start);Calendar opening=calendar(localMidnight(operatingDate));opening.set(Calendar.HOUR_OF_DAY,8);g.operatingStart=opening.getTimeInMillis();Calendar closing=calendar(localMidnight(addDays(operatingDate,1)));closing.set(Calendar.HOUR_OF_DAY,2);g.operatingEnd=closing.getTimeInMillis();
+        String operatingDate=operatingDate(g.start);Calendar opening=calendar(localMidnight(operatingDate));opening.set(Calendar.HOUR_OF_DAY,8);g.operatingStart=opening.getTimeInMillis();Calendar closing=calendar(localMidnight(addDays(operatingDate,1)));closing.set(Calendar.HOUR_OF_DAY,2);g.operatingEnd=closing.getTimeInMillis();
         long planEnd=g.plan==null?0:time(g.plan.optString("end_at")),actualEnd=g.end;
         long planStart=g.plan==null?0:time(g.plan.optString("start_at"));if(g.plan!=null&&g.start-planStart>=lateMinutes*MINUTE&&"up".equals(lateMode)){long floor=floorHalf(g.start);g.paidStart=g.start==floor?floor:floor+HALF;}
         if(g.plan!=null&&hour(planEnd)==0&&minute(planEnd)==0&&planEnd>=g.start&&planEnd<=now&&(actualEnd==0||actualEnd>planEnd)){actualEnd=planEnd;g.midnightCap=true;}
