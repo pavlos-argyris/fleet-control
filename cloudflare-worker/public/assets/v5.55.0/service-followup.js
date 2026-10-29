@@ -122,8 +122,9 @@
     refresh.onclick=read;await read();
   }
   async function open(selected,options){
+    if(options?.recover&&Array.isArray(options.entryIds)){filter={bikeId:'',from:'',to:'',includeExempt:false};if(dialog?.open){dialog.querySelector('[data-bike]').value='';dialog.querySelector('[data-from]').value='';dialog.querySelector('[data-to]').value='';dialog.querySelector('[data-exempt]').checked=false;}}
     if(!A()?.canManage())return A()?.toast('Χρειάζεται πρόσβαση διαχείρισης στόλου.');
-    if(dialog?.open){tab=selected||tab;render();if(options?.recover)await recoverAll(options.entryIds);return;}
+    if(dialog?.open){tab=selected||tab;render();if(options?.recover){await load();await recoverAll(options.entryIds);}return;}
     tab=selected||'pending';bikes=A().getBikes?.()||[];documents=[];outbox=[];
     dialog=U.dialog('Εκκρεμότητες στόλου','<p class="service-section-help" data-followup-explanation></p><div class="service-tools-toolbar" data-followup-tabs></div><div class="followup-filters"><label>Μηχανάκι<select data-bike><option value="">Όλα</option></select></label><label>Από<input type="date" data-from></label><label>Έως<input type="date" data-to></label><label class="followup-check"><input type="checkbox" data-exempt> Εμφάνιση εξαιρέσεων / ελεγμένων</label></div><p data-followup-caption></p><p data-followup-message role="alert"></p><section class="service-section-help" data-recovery-status role="status" aria-live="polite"></section><div class="service-tools-toolbar"><button type="button" class="primary-button" data-followup-recover hidden>Επανάληψη όλων</button><button type="button" class="secondary-button" data-recovery-resume hidden>Συνέχιση ουράς</button></div><div data-followup-list></div><div class="service-tools-toolbar"><button type="button" class="secondary-button" data-server-report-open>Συνολικός έλεγχος από Server</button><button type="button" class="secondary-button" data-followup-refresh>Ανανέωση</button><button type="button" class="ghost-button" data-followup-close>Πίσω</button></div>');dialog.classList.add('followup-dialog');
     const d=dialog;const select=d.querySelector('[data-bike]');
