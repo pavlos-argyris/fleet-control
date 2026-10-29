@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-da79dec2-0e68-4e1c-a988-de924216c72f",
-  "sourceCommit": "df870b6ea472e3b0a153d340ff2f49c94234e9a1",
-  "releaseVersion": "5.56.1",
-  "requestedAt": "2026-10-29T20:15:26.241Z",
-  "reason": "Εντολή χρήστη για επεξεργασία βαρδιών χωρίς αναμονή Server και πάγια εξουσιοδότηση αυτόματης δημοσίευσης μετά επιτυχείς ελέγχους. Exact-main CI40946001550 success."
+  "requestId": "fleet-7a6fa72c-cd61-4896-8e86-d9ebce465d50",
+  "sourceCommit": "8c0307e87cb372e59c1fc0d10e14c89368b3452e",
+  "releaseVersion": "5.57.0",
+  "requestedAt": "2026-10-29T23:03:22.646Z",
+  "reason": "Εντολή χρήστη: πλήρης υλοποίηση issue44 με ημέρα05:00, προαιρετική ανά κατάστημα διατήρηση defaultOFF και Server-owned συγχρονισμό. Δημοσίευση5.57.0 μόνο μετά επιτυχές exact-main CI, με πλήρη πηγή και τις αρχικές υπογραφές APK."
 }
