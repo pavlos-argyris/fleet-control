@@ -1,6 +1,8 @@
 # Ordexa: Βάρδιες, μισάωρα και απόφαση μισθοδοσίας — 5.53.0
 
-Υποψήφια5.53.0: Client/Web5.53.0(code87), Server2.4.0(code45), Worker5.14.0.
+Δημοσιευμένη έκδοση 5.53.0: Client/Web 5.53.0 (code87), Server 2.4.0 (code45), Worker 5.14.0.
+Ενεργοποίηση και σωστά αρχεία λήψης επιβεβαιώθηκαν στις 29/10/2026 από το Publish 40853172924.
+Πηγή `6c95361ee84b5cdcc8d628026e9b4010e4e8745a`· [APK, πλήρης πηγή και SHA-256](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.53.0).
 Ακριβής δημοσίευση/CI/εκκρεμότητες στο CHATGPT_HANDOFF_GR.md. Η5.52.1 ήταν
 αδημοσίευτο checkpoint και δεν παραδίδεται ως έκδοση.
 
