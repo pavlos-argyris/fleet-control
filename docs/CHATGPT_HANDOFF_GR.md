@@ -2,6 +2,12 @@
 
 Αυτό είναι το κοινό σημείο ενημέρωσης όλων των ChatGPT/βοηθών. Διάβασέ το πριν ξεκινήσεις και ενημέρωσέ το όταν αναλαμβάνεις εργασία, σε σημαντικά ορόσημα και πριν σταματήσεις. Οι καταγραφές διασταυρώνονται πάντα με GitHub branches/commits/PR/Actions και την ενεργή έκδοση.
 
+## #44 / 5.57.0 — δημοσίευση σε εξέλιξη, επιτυχής επικύρωση εντολής
+
+- Request-only commit **2313909938a004dbeb46afb2d799fc72419294c9**, μοναδικός parent/source8c0307e87cb372e59c1fc0d10e14c89368b3452e. Ελέγχθηκε diff μίας μόνο αλλαγής: .github/fleet-publish-request.json. Το main ενημερώθηκε με expected-SHA lease, χωρίς force. Generated request blob4b7e0c4ea2c33d8afdcebe2a2bfff90561be888e.
+- [Publish40970564919](https://github.com/pavlos-argyris/fleet-control/actions/runs/40970564919) ξεκίνησε. **Validate publication request**, job123785971560, **success**. Publish job **123786043337** σε εξέλιξη. Στο ίδιο request ξεκίνησε και το συνήθες Check saved source40970564788· η υποχρεωτική ελεγμένη πηγή είναι8c0307e/exact-main CI40969304642.
+- **Η ενεργοποίηση5.57.0 δεν έχει ακόμη επιβεβαιωθεί.** Δεν αλλάζει main/source/request και δεν ξεκινά δεύτερο publish. Επόμενο: παρακολούθηση αυτού του run, αρχικές υπογραφές APK, activated:true και live verification/πλήρης πηγή. Η παρούσα καταγραφή μένει σε docs branch μέχρι ολοκλήρωση.
+
 ## Έναρξη δημοσίευσης #44 / 5.57.0 — 30/10/26, 1:04:13 π.μ. ώρα Ελλάδας
 
 - Ακριβής πηγή/main **8c0307e87cb372e59c1fc0d10e14c89368b3452e**, treeff3c5f09ae4149e4d000acb2c6ced657b0d396eb. [PR CI40967933191](https://github.com/pavlos-argyris/fleet-control/actions/runs/40967933191) και [exact-main CI40969304642](https://github.com/pavlos-argyris/fleet-control/actions/runs/40969304642) **success**, όλα τα απαιτούμενα browser/native/backup, δύο APK, Worker dry-run και πλήρης πηγή.
