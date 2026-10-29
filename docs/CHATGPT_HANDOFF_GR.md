@@ -2,6 +2,13 @@
 
 Αυτό είναι το κοινό σημείο ενημέρωσης όλων των ChatGPT/βοηθών. Διάβασέ το πριν ξεκινήσεις και ενημέρωσέ το όταν αναλαμβάνεις εργασία, σε σημαντικά ορόσημα και πριν σταματήσεις. Οι καταγραφές διασταυρώνονται πάντα με GitHub branches/commits/PR/Actions και την ενεργή έκδοση.
 
+## Συνέχιση #44 από τελευταίο πραγματικό checkpoint — 30/10/2026
+
+- Νέα ρητή εντολή χρήστη: ολοκλήρωση από το τελευταίο αποθηκευμένο σημείο χωρίς επανάληψη ολοκληρωμένων εργασιών. Προτεραιότητα ημέρα05:00–05:00 και προαιρετική διατήρηση ανά κατάστημα με defaultOFF.
+- Συνεχίζεται το ίδιο branch `codex/issue-44-ordexa-stores` / PR#48, ακριβές αρχικό head `d77f6973c22336214ca5c214b0066054be6ca3dd`. Main `09ae41972ca71b8956799b9b2fff971ce64a2b8a`, ενεργή5.56.1 ήδη δημοσιευμένη. Διαβάστηκαν #44, PR#47/#48, AGENTS και τα νεότερα main/branch handoff. Δεν γίνεται ανακατασκευή από το παλιό foundation413e2d0.
+- Επαληθεύτηκε [CI40962111163](https://github.com/pavlos-argyris/fleet-control/actions/runs/40962111163), job123765335952: full check-all success· νέο stores browser test περνά desktop αλλά αποτυγχάνει στο mobile click του εκτός viewport sideNav. Η mobile ροή πρέπει να χρησιμοποιεί το πραγματικό «Περισσότερα»· θα ελεγχθεί χωρίς force-click/παράκαμψη. Όλα τα επόμενα Chromium/native/build βήματα του συγκεκριμένου CI ήταν skipped, όχι επιτυχή.
+- Τα υφιστάμενα Server/Worker/UI/backup/engine/protocol και tests είναι αποθηκευμένα. Επόμενο: διόρθωση του συγκεκριμένου ελέγχου/τυχόν πραγματικών ευρημάτων, ουσιαστική επανεξέταση τελικού checkpoint, επιτυχές exact PR/main CI και μία κανονική δημοσίευση5.57.0. Καμία νέα παραγωγική εισαγωγή/οικονομική δοκιμή ή backup/restore.
+
 ## #44 — πλήρες local check-all επιτυχές, GitHub CI σε εξέλιξη
 
 - Το πλήρες check-all ολοκληρώθηκε με exit0. Native large-storage regression προσαρμόστηκε με πραγματικό νέο StoreBillingStore, όχι stub.42Java engine/protocol assertions πέρασαν. Actual Workerd/D1 και ο διευρυμένος actual native/SQLite/Worker pipeline πέρασαν, με lostACK/rehydration/futureterms/ακριβές validated backup restore και απόρριψη ασυμφωνίας συνολικού πλήθους pagination πριν αποδοχή. Ο έλεγχος source σελίδων συγκρίνει total/pages μεταξύ σελίδων και το τελικό πραγματικό πλήθος με το δηλωμένο.
