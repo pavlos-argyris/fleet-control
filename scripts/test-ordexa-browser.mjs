@@ -21,7 +21,7 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
  const context=await browser.newContext({viewport:{width,height},locale:'el-GR',timezoneId:'Europe/Athens',serviceWorkers:'block'}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await context.addInitScript(({token,user})=>{localStorage.setItem('fleet-control-auth-token',token);localStorage.setItem('fleet-control-user-cache',JSON.stringify(user));},{token,user});
  const root=path.resolve('cloudflare-worker/public');let writes=0,serverWork=Promise.resolve(),failSave=false;
- const project=()=>{serverWork=serverWork.then(async()=>{await projectOrdexaWeek(call,native,week);if(!page.isClosed())await page.evaluate(()=>window.syntheticFleetLive?.(['workforce','status']));}).catch(error=>{errors.push('Synthetic Server: '+error.message);});};
+ const project=()=>{serverWork=serverWork.then(async()=>{for(let attempt=0;attempt<3;attempt++){try{await projectOrdexaWeek(call,native,week);break;}catch(error){if(error.status!==409||attempt===2)throw error;await new Promise(resolve=>setTimeout(resolve,30));}}if(!page.isClosed())await page.evaluate(()=>window.syntheticFleetLive?.(['workforce','status']));}).catch(error=>{errors.push('Synthetic Server: '+error.message);});};
  await context.route('**/*',async route=>{const req=route.request(),url=new URL(req.url());if(url.protocol==='file:')return route.continue();
  if(/\/live-changes(?:-[^/]+)?\.js$/.test(url.pathname)||/\/assets\/v[^/]+\/live-changes\.js$/.test(url.pathname))return route.fulfill({contentType:'text/javascript',body:"window.FleetLive={start(o){window.syntheticFleetLive=(scopes)=>o.onChange(scopes);},stop(){},connected(){return true;}};"});
  if(url.pathname.startsWith('/api/')){
