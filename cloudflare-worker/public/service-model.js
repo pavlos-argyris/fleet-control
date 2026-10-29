@@ -24,7 +24,7 @@
     if(/(?:φιλτρ\S*\s+(?:λαδι|oil)|\boil\s+filter\b)/u.test(text))return false;
     return /\b(?:ladi|oil|yamalube)\b|λαδι|λιπαντικ/u.test(text);
   }
-  const fields = ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','confirmedAt','reviewStatus','reviewedBy','correctedByUserAt','serviceKmBeforeCorrection','serviceKmAfterCorrection','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','confirmationMethod','confirmationRuleVersion','confirmationReason','lastReadFingerprint','acknowledgedReadFingerprint','lastReadCanonicalFingerprint','acknowledgedReadCanonicalFingerprint','lastReadFields','acknowledgedReadFields'];
+  const fields = ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','confirmedAt','reviewStatus','reviewedBy','correctedByUserAt','serviceKmBeforeCorrection','serviceKmAfterCorrection','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','confirmationMethod','confirmationRuleVersion','confirmationReason','lastReadFingerprint','acknowledgedReadFingerprint','lastReadCanonicalFingerprint','acknowledgedReadCanonicalFingerprint','lastReadFields','acknowledgedReadFields','reviewDocumentKey'];
   function cents(value) {
     if (value == null || String(value).trim() === '') return null;
     let s = String(value).replace(/EUR|ευρώ|[€\s\u00a0]/gi,'');

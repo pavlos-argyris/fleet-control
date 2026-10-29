@@ -810,7 +810,7 @@
   function normalizeInvoiceData(value) {
     if (!value || typeof value !== "object") return null;
     const result = {};
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"].forEach(function (field) {
       if (value[field] != null && String(value[field]).trim()) result[field] = String(value[field]).trim().slice(0, ["rawText","workPerformed"].includes(field) ? 128000 : 2000);
     });
     ["analysisEngine","analysisVersion"].forEach(function(field){if(value[field])result[field]=String(value[field]).slice(0,100);});
@@ -831,7 +831,7 @@
     const first = normalizeInvoiceData(primary) || {};
     const second = normalizeInvoiceData(fallback) || {};
     const merged = { ...second, ...first };
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"].forEach(function (field) {
       if (!String(first[field] || "").trim() && String(second[field] || "").trim()) merged[field] = second[field];
     });
     if (!Array.isArray(first.parts) && Array.isArray(second.parts)) merged.parts = second.parts;
@@ -911,11 +911,7 @@
       .replace(/[^a-z0-9α-ω]+/g, "");
   }
 
-  function isOilTask(value) {
-    const text = String(value || "");
-    if (/^\s*φίλτρ(?:ο|ου|ων|α)?\s+λ[άα]δι(?:ού|ών|ων|α)?/iu.test(text)) return false;
-    return /\b(?:ladi|oil|yamalube)\b|λ[άα]δι(?:ού|ών|ων|α)?|λιπαντικ/i.test(text);
-  }
+  function isOilTask(value) { return window.FleetServiceModel.isOilTask(value); }
 
   function mergeServiceTasks(existing, imported) {
     const result = [], keys = new Set();
@@ -2219,7 +2215,7 @@
     const rows=qrAttentionRows(bikes);let banner=document.getElementById('qrAttentionBanner');
     if(!banner){banner=document.createElement('button');banner.id='qrAttentionBanner';banner.type='button';banner.className='secondary-action ui-qr-attention';list.before(banner);}
     banner.hidden=!rows.length;
-    if(rows.length){const first=rows[0];banner.innerHTML='<strong>'+rows.length+' '+(rows.length===1?'τιμολόγιο χρειάζεται έλεγχο':'τιμολόγια χρειάζονται έλεγχο')+'</strong><small>'+escapeHtml(first.bike.name+' · '+formatDate(first.entry.date))+' · Πάτησε για έλεγχο και επανάληψη</small>';banner.onclick=()=>{openDetail(first.bike.id,true);window.FleetUI?.setBikeTab('history');requestAnimationFrame(()=>document.querySelector('[data-history-entry="'+CSS.escape(first.entry.id)+'"]')?.scrollIntoView({block:'center',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}));};}
+    if(rows.length){const first=rows[0];banner.innerHTML='<strong>'+rows.length+' '+(rows.length===1?'τιμολόγιο χρειάζεται έλεγχο':'τιμολόγια χρειάζονται έλεγχο')+'</strong><small>'+escapeHtml(first.bike.name+' · '+formatDate(first.entry.date))+' · Πάτησε για έλεγχο και επανάληψη</small>';banner.onclick=()=>window.FleetFollowup.open('pending',{recover:true,entryIds:rows.map(r=>String(r.bike.id)+':'+String(r.entry.id))});}
     notifyQrFailures(rows);
   }
 

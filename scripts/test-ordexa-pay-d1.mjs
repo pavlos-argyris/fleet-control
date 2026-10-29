@@ -26,6 +26,6 @@ try{
  assert.equal((await db.prepare("SELECT COUNT(*) n FROM system_alerts WHERE type='ordexa_pay_review'").first()).n,1);assert.equal((await db.prepare("SELECT COUNT(*) n FROM system_alerts WHERE type='ordexa_pay_review' AND resolved=0").first()).n,0);
  ok(await call('/api/admin/payroll/lock',{startDate:'2026-10-19',endDate:'2026-10-19',reason:'Synthetic reviewed lock'}));
  const locked=ok(await call('/api/admin/payroll?start=2026-10-19&end=2026-10-19'));assert.equal(locked.lockedSnapshot,true);assert.equal(locked.totals.payableHours,winner===0?8:9);
- const counts=await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' AND name LIKE 'fleet_mirror_%'").first();assert.equal(counts.n,96);
+ const counts=await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' AND name LIKE 'fleet_mirror_%'").first();assert.equal(counts.n,99);
  console.log('PASS actual Workerd/D1 half-hour/program policy: batch-completion aggregated warning, exact program preview, concurrent review CAS with one audit, immutable raw fields, snapshot provenance, resolved notification and locked payment. Synthetic only.');
 }finally{if(runtime)await runtime.dispose();fs.rmSync(dir,{recursive:true,force:true});}

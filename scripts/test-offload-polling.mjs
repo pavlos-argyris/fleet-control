@@ -5,6 +5,7 @@ let hiddenFrame=false;const window={frameElement:{closest:()=>hiddenFrame?{}:nul
 assert.equal(context.fleetScreenActive(),true);hiddenFrame=true;assert.equal(context.fleetScreenActive(),false);hiddenFrame=false;document.hidden=true;assert.equal(context.fleetScreenActive(),false);document.hidden=false;
 let now=60000,calls=0,batches=0;const state={user:{id:'owner'},view:'invoices',invoiceDocuments:[],invoiceReprocessBusy:false};
 context=vm.createContext({window,state,document,Date:{now:()=>now},invoiceLiveRefreshRunning:false,api:async()=>{calls++;return {documents:state.invoiceDocuments};},refreshInvoiceReprocessBatch:async()=>{batches++;},renderInvoiceQueue(){}});
+vm.runInContext(fs.readFileSync('cloudflare-worker/public/service-model.js','utf8'),context);window.FleetServiceModel=context.FleetServiceModel;
 vm.runInContext(['applyInvoiceDocuments','loadInvoices','hasLiveInvoiceJobs','refreshInvoiceProgressLive'].map(name=>declaration(portal,name)).join('\n'),context);
 await context.refreshInvoiceProgressLive();assert.equal(calls,1);assert.equal(batches,1);now+=5000;await context.refreshInvoiceProgressLive();assert.equal(calls,1,'Idle screen does not poll every timer tick');now+=55000;await context.refreshInvoiceProgressLive();assert.equal(calls,2);
 state.invoiceDocuments=[{status:'processing',jobId:'a'}];now+=5000;await context.refreshInvoiceProgressLive();assert.equal(calls,3,'Active jobs refresh promptly');assert.equal(batches,2);

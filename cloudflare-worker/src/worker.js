@@ -44,7 +44,7 @@ const SERVICE_RENDER_MAX_ATTEMPTS = 3;
 const INVOICE_REPROCESS_BATCH_SETTING = "service_invoice_reprocess_batch";
 const INVOICE_REPROCESS_BATCH_STALE_MS = 20 * 60 * 1000;
 const INVOICE_REPROCESS_BATCH_RESULT_TTL_MS = 30 * 1000;
-const RUNTIME_SCHEMA_VERSION = "ordexa-attendance-payroll-v2";
+const RUNTIME_SCHEMA_VERSION = "ordexa-server-payroll-v3";
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fleet_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'canonical', updated_at TEXT NOT NULL);
@@ -118,9 +118,10 @@ async function ensureSchema(env) {
     await ensureWorkforceSchema(env);
     await env.DB.exec(MIRROR_SCHEMA);
     await env.DB.batch([
-      env.DB.prepare("UPDATE fleet_mirror_state SET epoch=lower(hex(randomblob(16))) WHERE id=1 AND (NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_mirror_schema_v1') OR NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_payroll_schema_v2'))"),
+      env.DB.prepare("UPDATE fleet_mirror_state SET epoch=lower(hex(randomblob(16))) WHERE id=1 AND (NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_mirror_schema_v1') OR NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_payroll_schema_v2') OR NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_server_schema_v3'))"),
       env.DB.prepare("INSERT OR IGNORE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_mirror_schema_v1','1',datetime('now'))"),
-      env.DB.prepare("INSERT OR IGNORE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_payroll_schema_v2','1',datetime('now'))")
+      env.DB.prepare("INSERT OR IGNORE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_payroll_schema_v2','1',datetime('now'))"),
+      env.DB.prepare("INSERT OR IGNORE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_server_schema_v3','1',datetime('now'))")
     ]);
     await setSetting(env, "runtime_schema_version", RUNTIME_SCHEMA_VERSION);
   })().catch((error) => {
@@ -1031,13 +1032,17 @@ function adminServiceDocumentStatus(attachment, data, warnings) {
 function invoiceDataForServiceDocument(entry, attachment) {
   const fallback = !attachment || (entry?.attachments || []).length <= 1 ? entry?.invoiceData : null;
   const data = mergeServerInvoiceData(fallback, attachment?.qrData, attachment?.ocr);
+  if(attachment?.key&&data.reviewDocumentKey&&data.reviewDocumentKey!==attachment.key){
+    for(const field of ['confirmedAt','reviewedBy','confirmationMethod','confirmationRuleVersion','confirmationReason','correctedByUserAt','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','lastReadFingerprint','acknowledgedReadFingerprint','lastReadCanonicalFingerprint','acknowledgedReadCanonicalFingerprint','lastReadFields','acknowledgedReadFields','reviewDocumentKey'])delete data[field];
+    data.reviewStatus='needs_review';
+  }
   return data.confirmedAt ? data : normalizeServiceDocumentOcr(data) || {};
 }
 
 function adminServiceDocumentRecord(bike, entry, attachment, pending = null, allBikes = [], compact = false) {
   const data = invoiceDataForServiceDocument(entry, attachment);
   const invoiceLineCount=Math.max(Number(attachment?._listLineCount||entry?._listLineCount||0),Array.isArray(data.lineItems)?data.lineItems.length:0);
-  const previewTruncated=Boolean(compact&&(invoiceLineCount>12||Math.max(Number(entry?._listTaskCount||0),(entry?.tasks||[]).length)>12));
+  const previewTruncated=Boolean(compact&&(attachment?._listWorkTruncated||entry?._listWorkTruncated||invoiceLineCount>12||Math.max(Number(entry?._listTaskCount||0),(entry?.tasks||[]).length)>12));
   if(compact)for(const field of ['rawText','fieldEvidence','analysisTimings'])delete data[field];
   const warnings = serviceDocumentWarnings(bike, entry, data);
   if(attachment?.ocrError&&data.confirmedAt)warnings.push({type:"latest-read-error",label:"Απέτυχε η νέα ανάγνωση",message:"Η προηγούμενη επιβεβαίωση διατηρείται. "+cleanText(attachment.ocrError,300)});
@@ -1138,9 +1143,9 @@ async function listAdminServiceDocuments(request, env) {
     json_extract(b.value,'$.name') AS bike_name,
     json_object('id',json_extract(h.value,'$.id'),'type',json_extract(h.value,'$.type'),
       'date',json_extract(h.value,'$.date'),'km',json_extract(h.value,'$.km'),
-      'updatedAt',json_extract(h.value,'$.updatedAt'),'tasks',${shortArray("json_extract(h.value,'$.tasks')")},'_listTaskCount',json_array_length(h.value,'$.tasks'),'_listLineCount',json_array_length(h.value,'$.invoiceData.lineItems'),
+      'updatedAt',json_extract(h.value,'$.updatedAt'),'tasks',${shortArray("json_extract(h.value,'$.tasks')")},'_listTaskCount',json_array_length(h.value,'$.tasks'),'_listWorkTruncated',length(COALESCE(json_extract(h.value,'$.invoiceData.workPerformed'),''))>600,'_listLineCount',json_array_length(h.value,'$.invoiceData.lineItems'),
       'invoiceData',${shortInvoice("json_extract(h.value,'$.invoiceData')")},
-      'attachments',json((SELECT COALESCE(json_group_array(json(json_set(a.value,'$.ocr',${shortInvoice("json_extract(a.value,'$.ocr')")},'$.qrData',${shortInvoice("json_extract(a.value,'$.qrData')")},'$._listLineCount',MAX(COALESCE(json_array_length(a.value,'$.ocr.lineItems'),0),COALESCE(json_array_length(a.value,'$.qrData.lineItems'),0))))),'[]')
+      'attachments',json((SELECT COALESCE(json_group_array(json(json_set(a.value,'$.ocr',${shortInvoice("json_extract(a.value,'$.ocr')")},'$.qrData',${shortInvoice("json_extract(a.value,'$.qrData')")},'$._listWorkTruncated',MAX(length(COALESCE(json_extract(a.value,'$.ocr.workPerformed'),'')),length(COALESCE(json_extract(a.value,'$.qrData.workPerformed'),'')))>600,'$._listLineCount',MAX(COALESCE(json_array_length(a.value,'$.ocr.lineItems'),0),COALESCE(json_array_length(a.value,'$.qrData.lineItems'),0))))),'[]')
         FROM json_each(h.value,'$.attachments') a))) AS entry_json
     FROM fleet_snapshot s, json_each(s.data,'$.bikes') b, json_each(b.value,'$.history') h
     WHERE s.id=1 AND json_extract(h.value,'$.type') != 'check'
@@ -1248,6 +1253,7 @@ function normalizeInvoiceDecision(value, result) {
 }
 
 async function decideInvoiceRead(env, bike, entry, attachment, data, names, previous = {}, readError = '', proof) {
+  if(previous.reviewDocumentKey&&previous.reviewDocumentKey!==attachment.key)previous={};
   const now = new Date().toISOString(), protectedData = Boolean(previous.confirmedAt || previous.correctedByUserAt || previous.mileageResolution || previous.plateResolution);
   const comparison=invoiceReadComparison(data,ServiceModel.cents);
   const fingerprint=await sha256(stableReviewJson(comparison));
@@ -1276,7 +1282,7 @@ async function decideInvoiceRead(env, bike, entry, attachment, data, names, prev
     }
     // Keep all business values and explicit resolutions, including intentional
     // omissions. Only evidence/status for this attempt may be refreshed.
-    const preserved = {...previous,lastReadFingerprint:fingerprint,lastReadCanonicalFingerprint:fingerprint,lastReadFields:JSON.stringify(readFields),reviewIssues:readError?(previous.reviewIssues||[]):issues};
+    const preserved = {...previous,reviewDocumentKey:attachment.key,lastReadFingerprint:fingerprint,lastReadCanonicalFingerprint:fingerprint,lastReadFields:JSON.stringify(readFields),reviewIssues:readError?(previous.reviewIssues||[]):issues};
     if(acceptedFields)preserved.acknowledgedReadFields=JSON.stringify(acceptedFields);
     if (previous.confirmedAt) preserved.confirmationMethod=previous.confirmationMethod||'manual';
     for(const field of ['rawText','fieldEvidence','analysisEngine','analysisVersion','analysisCacheHit','analysisDurationMs','analysisTimings','extractionChecks','ocrSource','ocrFallbackUsed','ocrFallbackReason','ocrFallbackError','localReadStatus','localReadAt','ocrConfidence']) if(data[field]!==undefined)preserved[field]=data[field];
@@ -1289,7 +1295,7 @@ async function decideInvoiceRead(env, bike, entry, attachment, data, names, prev
   }
   const tasks=mergeInvoiceTasks(entry.tasks,invoiceWorkItems(data),5121),tasksFit=tasks.length<=5120;
   if(!tasksFit){decision.eligible=false;decision.reasons.push({field:'lineItems',code:'service-task-limit',message:'Το service υπερβαίνει τις 5.120 εργασίες. Όλες οι γραμμές διατηρούνται στο παραστατικό· οι προηγούμενες εργασίες δεν αντικαταστάθηκαν.'});}
-  const result={...data,lastReadFingerprint:fingerprint,lastReadCanonicalFingerprint:fingerprint,lastReadFields:JSON.stringify(readFields),reviewIssues:decision.reasons,ocrConfidence:String(decision.score),confirmationRuleVersion:decision.version};
+  const result={...data,reviewDocumentKey:attachment.key,lastReadFingerprint:fingerprint,lastReadCanonicalFingerprint:fingerprint,lastReadFields:JSON.stringify(readFields),reviewIssues:decision.reasons,ocrConfidence:String(decision.score),confirmationRuleVersion:decision.version};
   delete result.confirmedAt;delete result.reviewedBy;delete result.confirmationMethod;delete result.confirmationReason;
   if(decision.eligible)Object.assign(result,{confirmedAt:now,reviewedBy:'Fleet Control · αυτόματος έλεγχος',reviewStatus:'confirmed',confirmationMethod:'automatic',confirmationReason:'Μοναδική πινακίδα, συμφωνία χιλιομέτρων, σαφής αριθμός/ημερομηνία, πλήρης πίνακας και συμφωνία καθαρής αξίας + ΦΠΑ = συνόλου.'});
   else result.reviewStatus='needs_review';
@@ -1467,6 +1473,7 @@ async function invoiceReprocessBatch(request, env) {
     })).filter((item) => isServiceDocumentKey(item.key));
     const seenKeys=new Set(),items=body.recovery===true?recoveryItems(Array.isArray(body.items)?body.items:[],cleanText,isServiceDocumentKey):submitted.filter(item=>{if(seenKeys.has(item.key))return false;seenKeys.add(item.key);return true;});
     if(body.recovery===true&&items.length!==(Array.isArray(body.items)?new Set(body.items.map(i=>i.key||JSON.stringify([i.bikeId,i.entryId,i.jobId||i.qrUrl]))).size:0))return json({error:'Η λίστα περιλαμβάνει μη έγκυρη πηγή. Δεν ξεκίνησε μερική επανάληψη.'},400);
+    if(body.recovery===true&&(!items.length||new TextEncoder().encode(JSON.stringify(items)).length>500000))return json({error:'Η λίστα είναι κενή ή πολύ μεγάλη. Επίλεξε μικρότερη περίοδο ή πινακίδα· δεν αποθηκεύτηκε μερική λίστα.'},400);
     const total = items.length || cleanInteger(body.total, 1, 5000, 0);
     if (!total) return json({ error: "Δεν υπάρχουν τιμολόγια για νέα ανάγνωση." }, 400);
     const batch = {
@@ -1845,7 +1852,7 @@ function reviewBusinessState(entry) {
 async function invoiceReviewRevision(entry, attachment) {
   const current = invoiceDataForServiceDocument(entry,attachment), data = {};
   for (const field of ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','lineItems','parts',
-    'plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm']) {
+    'plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','lastReadFingerprint','lastReadCanonicalFingerprint','lastReadFields','reviewIssues','reviewDocumentKey']) {
     if (current[field] !== undefined) data[field] = current[field];
   }
   return sha256(stableReviewJson({entry:reviewBusinessState(entry),key:attachment.key,data}));
@@ -1902,7 +1909,7 @@ async function reviewAdminServiceDocument(request, env) {
     if (contentChanged) data.correctedByUserAt=now;
     data.confirmedAt=contentChanged?now:original.confirmedAt||now;
     data.reviewedBy=contentChanged?name:original.reviewedBy||name;
-    data.confirmationMethod='manual';data.confirmationRuleVersion=INVOICE_RULES_VERSION;data.confirmationReason='Επιβεβαίωση από διαχειριστή';delete data.reviewIssues;
+    data.reviewDocumentKey=key;data.confirmationMethod='manual';data.confirmationRuleVersion=INVOICE_RULES_VERSION;data.confirmationReason='Επιβεβαίωση από διαχειριστή';delete data.reviewIssues;
     delete data.ocrFallbackError;delete data.qrProcessingError;
     if(original.lastReadFingerprint)data.acknowledgedReadFingerprint=original.lastReadFingerprint;
     if(original.lastReadCanonicalFingerprint)data.acknowledgedReadCanonicalFingerprint=original.lastReadCanonicalFingerprint;
@@ -2339,7 +2346,7 @@ function normalizeInvoiceWorkPerformed(value, limit = MAX_INVOICE_TEXT, structur
 function normalizeServiceInvoiceData(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = {};
-  for (const field of ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields"]) {
+  for (const field of ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"]) {
     if (value[field] == null) continue;
     if (field === "qrProcessingProgress") {
       result[field] = String(cleanInteger(value[field], 0, 100, 5));
@@ -2397,7 +2404,7 @@ function normalizeInvoiceAnalysis(value,result) {
 function normalizeServiceDocumentOcr(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = {};
-  for (const field of ["rawText", "supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields"]) {
+  for (const field of ["rawText", "supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"]) {
     if (value[field] == null) continue;
     if (field === "qrProcessingProgress") {
       result[field] = String(cleanInteger(value[field], 0, 100, 5));

@@ -1,8 +1,9 @@
 # #37 — Μαζική επανάληψη και σταθερός έλεγχος τιμολογίων
 
-Υλοποίηση σε εξέλιξη, 29/10/2026, `codex/issue-37-invoice-recovery` / PR#39.
-Η νέα έκδοση θα οριστικοποιηθεί μετά τη δημοσίευση Ordexa/PR#38 και συνδυασμό
-του τότε νεότερου main. Αυτό το checkpoint δεν είναι παραγωγική παράδοση.
+Υποψήφια5.55.0, 29/10/2026, `codex/issue-37-invoice-recovery` / PR#39.
+Client/Web5.55.0(code89), Server2.5.1(code47), Worker5.15.1. Συνδυάστηκε
+ολόκληρη η ήδη ενεργοποιημένη Ordexa5.54.0 και το νεότερο main9c1d4e7.
+Το checkpoint περιμένει τελικό CI/Chromium και δεν είναι παραγωγική παράδοση.
 
 ## Αλλαγές
 
@@ -58,6 +59,11 @@
 - Προηγούμενα invoice-auto/retry/followup στοχευμένα tests πέρασαν.
 
 ## Εκκρεμότητες πριν παράδοση
+
+Το πλήρες συνδυασμένο local check-all και οι κατασκευές των δύο APK με
+προσωρινό κλειδί πέρασαν. Στον τελικό έλεγχο προστέθηκε ακύρωση παλιού editor
+όταν αλλάζει το τεκμήριο ανάγνωσης και binding επιβεβαίωσης στο document key·
+τα νέα regressions πέρασαν. Το exact CI θα επαναλάβει όλα στο πλήρες head.
 
 Τελικός συνδυασμός Ordexa/main, versions/immutable snapshots/Client mirrors,
 νέο browser test `test-invoice-recovery-browser.mjs` και οπτική επιθεώρηση,
