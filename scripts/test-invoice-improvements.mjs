@@ -13,6 +13,7 @@ const helpers = ['stripInvoicePartCode', 'invoiceLineText', 'normalizeInvoiceDat
   'cleanInvoiceWorkText', 'invoiceWorkItems', 'taskKey', 'isOilTask', 'mergeServiceTasks', 'splitImportedWork',
   'invoiceMoneyCents', 'reportCost', 'reportServiceDateCell', 'invoiceDateForName', 'invoicePlateKey', 'invoiceWarnings', 'parseInvoiceKm'];
 const context = vm.createContext({ console, formatDate: value => value, escapeHtml: value => String(value).replace(/</g, '&lt;'), formatKm: String });
+context.window=context;vm.runInContext(fs.readFileSync(new URL('../cloudflare-worker/public/service-model.js',import.meta.url),'utf8'),context);
 vm.runInContext(helpers.map(name => extract(app, name)).join('\n'), context);
 const file = (key, amount, date = '2026-10-02') => ({ key, ocr: { totalAmount: amount, invoiceDate: date } });
 assert.equal(context.reportCost({ cost: '9', invoiceData: { totalAmount: '50' }, attachments: [file('one', '9'), file('two', '50')] }), '59,00 €');
@@ -35,6 +36,7 @@ for (const clean of [cleanInvoiceWorkText, context.cleanInvoiceWorkText]) {
   assert.equal(clean('PAYMENT TERMS CASH'), '');
 }
 assert.deepEqual(Array.from(context.mergeServiceTasks([payment, 'Αλλαγή τακακιών'], [payment])), ['Αλλαγή τακακιών']);
+assert.deepEqual(Array.from(context.mergeServiceTasks(['Αλλαγή λαδιών'],['ΦΙΛΤΡΟ ΛΑΔΙΟΥ'])),['Αλλαγή λαδιών','ΦΙΛΤΡΟ ΛΑΔΙΟΥ']);
 const normalized = normalizeServiceDocumentOcr({ workPerformed: ['Λάδι Yamalube', payment], lineItems: [payment], parts: [payment] });
 assert.equal(normalized.workPerformed, 'Λάδι Yamalube'); assert.deepEqual(normalized.lineItems, []); assert.deepEqual(normalized.parts, []);
 const portalContext = vm.createContext({});

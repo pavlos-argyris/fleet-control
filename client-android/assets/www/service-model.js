@@ -1,7 +1,30 @@
 (function (root) {
   'use strict';
   const clone = v => JSON.parse(JSON.stringify(v));
-  const fields = ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','confirmedAt','reviewStatus','reviewedBy','correctedByUserAt','serviceKmBeforeCorrection','serviceKmAfterCorrection','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','confirmationMethod','confirmationRuleVersion','confirmationReason','lastReadFingerprint','acknowledgedReadFingerprint'];
+  async function loadInvoiceDocuments(api){
+    for(let attempt=0;attempt<2;attempt++){
+      const documents=new Map();let cursor='',version=null;
+      try{
+        for(let page=0;page<2000;page++){
+          const data=await api('/api/admin/service-documents?paged=1'+(cursor?'&cursor='+encodeURIComponent(cursor):''),{forceRead:true});
+          if(!Array.isArray(data.documents))throw new Error('Δεν φορτώθηκε πλήρης λίστα τιμολογίων. Τα προηγούμενα δεδομένα διατηρούνται.');
+          if(version!==null&&Number(data.serverVersion)!==version)throw Object.assign(new Error('Τα τιμολόγια άλλαξαν κατά την ανάγνωση.'),{status:409});
+          version=Number(data.serverVersion);for(const item of data.documents)documents.set(String(item.id),item);
+          if(!data.hasMore)return {...data,documents:[...documents.values()].sort((a,b)=>String(b.uploadedAt||b.serviceDate||'').localeCompare(String(a.uploadedAt||a.serviceDate||'')))};
+          if(!data.nextCursor||data.nextCursor===cursor)throw new Error('Η λίστα δεν προχώρησε στην επόμενη σελίδα. Δοκίμασε Ανανέωση.');
+          cursor=data.nextCursor;
+        }
+        throw new Error('Η λίστα υπερβαίνει το υποστηριζόμενο όριο σελίδων.');
+      }catch(error){if(Number(error.status)!==409||attempt)throw error;}
+    }
+  }
+  function isOilTask(value) {
+    const text=String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ');
+    // A filter containing oil is a separate part, never an oil-change cycle.
+    if(/(?:φιλτρ\S*\s+(?:λαδι|oil)|\boil\s+filter\b)/u.test(text))return false;
+    return /\b(?:ladi|oil|yamalube)\b|λαδι|λιπαντικ/u.test(text);
+  }
+  const fields = ['supplier','invoiceNumber','invoiceDate','plate','odometerKm','totalAmount','netAmount','vatAmount','workPerformed','comments','confirmedAt','reviewStatus','reviewedBy','correctedByUserAt','serviceKmBeforeCorrection','serviceKmAfterCorrection','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','confirmationMethod','confirmationRuleVersion','confirmationReason','lastReadFingerprint','acknowledgedReadFingerprint','lastReadCanonicalFingerprint','acknowledgedReadCanonicalFingerprint','lastReadFields','acknowledgedReadFields','reviewDocumentKey'];
   function cents(value) {
     if (value == null || String(value).trim() === '') return null;
     let s = String(value).replace(/EUR|ευρώ|[€\s\u00a0]/gi,'');
@@ -156,5 +179,5 @@
     }
     return rows.sort((a,b)=>date(b.entry.date).localeCompare(date(a.entry.date))||String(a.bike.name).localeCompare(String(b.bike.name),'el')||String(a.entry.id).localeCompare(String(b.entry.id)));
   }
-  root.FleetServiceModel={cents,euro,date,invoice,sourcePhoto,preserveInvoiceFiles,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,qrDocumentState,pendingInvoice,missingInvoices};
+  root.FleetServiceModel={loadInvoiceDocuments,isOilTask,cents,euro,date,invoice,sourcePhoto,preserveInvoiceFiles,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,qrDocumentState,pendingInvoice,missingInvoices};
 })(globalThis);
