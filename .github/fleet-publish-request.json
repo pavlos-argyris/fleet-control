@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-488235cd-97f2-40e7-8dab-8d3f19887852",
-  "sourceCommit": "7a622c9590efe65a994f820965c44ca671ac9c23",
-  "releaseVersion": "5.52.0",
-  "requestedAt": "2026-10-29T00:01:32.477Z",
-  "reason": "Ο χρήστης ζήτησε συνέχιση της ενιαίας διασύνδεσης Ordexa και είσοδο username/password από Server APK· δημοσίευση μετά επιτυχείς ελέγχους σύμφωνα με AGENTS.md."
+  "requestId": "fleet-79b71b86-6425-4f40-965c-2c160be45da5",
+  "sourceCommit": "6c95361ee84b5cdcc8d628026e9b4010e4e8745a",
+  "releaseVersion": "5.53.0",
+  "requestedAt": "2026-10-29T09:53:15.135Z",
+  "reason": "Εντολή υλοποίησης και αυτόματης δημοσίευσης μετά από επιτυχείς ελέγχους: Ordexa βάρδιες, μισάωρα και άμεσες αποφάσεις προγράμματος 5.53.0"
 }
