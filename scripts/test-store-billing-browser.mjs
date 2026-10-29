@@ -24,7 +24,9 @@ try{for(const [mode,width,height]of[['desktop',1440,1000],['mobile',390,844],['c
   const more=page.locator('[data-ui-more]');
   if(await more.isVisible()){await more.click();await page.locator('#uiMoreItems [data-go="stores"]').click();}
   else await page.locator('#sideNav [data-go="stores"]').click();
-  await page.locator('[data-stores-edit]').waitFor();assert.match(await page.locator('#storeBillingRoot').textContent(),/05:00–05:00/);await page.screenshot({path:path.join(output,mode+'-list.png')});
+  await page.locator('[data-stores-edit]').waitFor();assert.match(await page.locator('#storeBillingRoot').textContent(),/05:00–05:00/);
+  if(mode==='mobile')for(const id of ['storesFrom','storesTo']){const box=await page.locator('#'+id).boundingBox();assert.ok(box&&box.width>=170,'mobile date fields leave room for the full date and calendar control');}
+  await page.screenshot({path:path.join(output,mode+'-list.png')});
   await page.locator('[data-stores-edit]').click();const dialog=page.locator('.stores-dialog[open]');await dialog.waitFor();assert.equal(await dialog.locator('[name=retain]').isChecked(),false);await dialog.locator('[name=retain]').check();await dialog.locator('[type=submit]').click();await dialog.locator('[data-error]').filter({hasText:'Δεν αποθηκεύτηκαν'}).waitFor();assert.equal(await dialog.locator('[name=retain]').isChecked(),true);assert.equal(saves.length,1);await page.screenshot({path:path.join(output,mode+'-retention-retry.png')});
   failed=false;await dialog.locator('[type=submit]').click();await dialog.waitFor({state:'detached'});assert.equal(saves.length,2);assert.equal(saves[0].operationId,saves[1].operationId);assert.deepEqual(saves[1].patch,{retainOrders:true});await page.locator('.stores-badge.is-retained').waitFor();
   await page.locator('[data-stores-detail]').click();await dialog.locator('.stores-days').waitFor();await dialog.locator('[data-close]').click();await dialog.waitFor({state:'detached'});
