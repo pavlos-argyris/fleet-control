@@ -12,7 +12,7 @@ export async function projectOrdexaWeek(call,native,week){
    for(let page=0;page<300;page++){const data=check(await call(prefix+'&table='+table+'&revision='+meta.revision+'&epoch='+meta.epoch+'&cursor='+cursor,{server:true}));input[table].push(...data.rows);if(!data.hasMore){done=true;break;}if(data.nextCursor<=cursor)throw Error('Projection cursor did not advance');cursor=data.nextCursor;}
    if(!done)throw Error('Projection inputs incomplete');
   }
-  const payload=native.build(input,meta.serverTime),body={weekStart:targetWeek,lease:job.lease,revision:meta.revision,epoch:meta.epoch,engineVersion:1,sourceSyncedAt:new Date().toISOString(),payload};
+  const payload=native.build(input,meta.serverTime),body={weekStart:targetWeek,lease:job.lease,revision:meta.revision,epoch:meta.epoch,engineVersion:payload.engineVersion,sourceSyncedAt:new Date().toISOString(),payload};
   const saved=check(await call('/api/server/ordexa-server/publish',{server:true,method:'POST',body}));completed.add(job.lease);if(targetWeek===week)requested={payload,input,meta,body,saved};
  }return requested;
  }finally{for(const job of control.jobs)if(!completed.has(job.lease))check(await call('/api/server/ordexa-server/release',{server:true,method:'POST',body:{weekStart:job.weekStart,lease:job.lease}}));}

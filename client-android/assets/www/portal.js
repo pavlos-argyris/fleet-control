@@ -3407,7 +3407,7 @@
 
   async function loadInvoices() {
     const sequence=state.invoiceListSequence=(state.invoiceListSequence||0)+1,token=state.token;
-    const data = await api("/api/admin/service-documents");
+    const data = await window.FleetServiceModel.loadInvoiceDocuments(api);
     if(applyInvoiceDocuments(data,sequence,token))renderInvoiceQueue();
   }
 
@@ -4913,7 +4913,7 @@
     if(document.querySelector('dialog[open]')||document.activeElement?.matches('input,textarea,select')){scopes.forEach(s=>pendingLiveScopes.add(s));return;}
     const view=state.view;
     try{
-      if(view==='invoices'&&scopes.some(s=>s==='invoices'||s==='fleet')){await loadInvoices();await refreshInvoiceReprocessBatch();}
+      if(view==='invoices'&&scopes.some(s=>s==='invoices'||s==='fleet')){if(!state.invoiceReprocessBusy)await loadInvoices();await refreshInvoiceReprocessBatch();}
       else if(view==='alerts'&&scopes.some(s=>s==='invoices'||s==='fleet'||s==='workforce'))await loadAlerts();
       else if(view==='fleet'&&scopes.includes('fleet'))await loadFleetSummary();
       else if(view==='server'&&scopes.includes('status'))await loadStatus(true);

@@ -8,3 +8,8 @@
 @media(prefers-reduced-motion:no-preference){.ordexa-shift-row{animation:ordexaDayEnter .16s ease-out}@keyframes ordexaDayEnter{from{opacity:.7;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}}
 
 .ordexa-day-pager .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.ordexa-day-person{border:1px solid var(--line,#d9e7e9);border-radius:16px;overflow:hidden;margin-bottom:16px;background:var(--surface,#fff)}
+.ordexa-person-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 20px;background:var(--mint,#eef8f6)}
+.ordexa-person-heading>strong{min-width:0;overflow-wrap:anywhere;font-size:1rem}.ordexa-person-heading>div{display:flex;flex-direction:column;gap:4px;text-align:right;min-width:0}.ordexa-day-total{font-weight:750}.ordexa-person-heading small{font-size:.76rem;line-height:1.5;color:var(--ink-soft,#657d8b)}
+.ordexa-shift-row .ordexa-unscheduled{color:#805b17;background:#fff4dc;padding:4px 7px;border-radius:7px;line-height:1.5}
+@media(max-width:600px){.ordexa-person-heading{align-items:flex-start;flex-direction:column;padding:14px}.ordexa-person-heading>div{text-align:left}.ordexa-day-person{margin-bottom:12px}}

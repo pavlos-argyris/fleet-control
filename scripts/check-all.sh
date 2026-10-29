@@ -31,12 +31,16 @@ node scripts/test-ordexa-pay.mjs
 node scripts/test-ordexa-pay-ui.mjs
 node scripts/test-ordexa-server-engine.mjs
 node scripts/test-ordexa-server-api.mjs
+node scripts/test-ordexa-day-fixes.mjs
 node scripts/test-ordexa-server-d1.mjs
 node scripts/test-ordexa-pay-d1.mjs
 node scripts/test-ordexa-migration.mjs
 node scripts/test-invoice-retry-actions.mjs
 node scripts/test-invoice-retry-ui.mjs
 node scripts/test-invoice-retry-d1.mjs
+node scripts/test-invoice-recovery.mjs
+node scripts/test-invoice-recovery-ui.mjs
+node scripts/test-invoice-recovery-d1.mjs
 node scripts/test-invoice-imports.mjs
 node scripts/test-service-model.mjs
 node scripts/test-fleet-operations-model.mjs

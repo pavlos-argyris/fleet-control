@@ -5,6 +5,7 @@ let hiddenFrame=false;const window={frameElement:{closest:()=>hiddenFrame?{}:nul
 assert.equal(context.fleetScreenActive(),true);hiddenFrame=true;assert.equal(context.fleetScreenActive(),false);hiddenFrame=false;document.hidden=true;assert.equal(context.fleetScreenActive(),false);document.hidden=false;
 let now=60000,calls=0,batches=0;const state={user:{id:'owner'},view:'invoices',invoiceDocuments:[],invoiceReprocessBusy:false};
 context=vm.createContext({window,state,document,Date:{now:()=>now},invoiceLiveRefreshRunning:false,api:async()=>{calls++;return {documents:state.invoiceDocuments};},refreshInvoiceReprocessBatch:async()=>{batches++;},renderInvoiceQueue(){}});
+vm.runInContext(fs.readFileSync('cloudflare-worker/public/service-model.js','utf8'),context);window.FleetServiceModel=context.FleetServiceModel;
 vm.runInContext(['applyInvoiceDocuments','loadInvoices','hasLiveInvoiceJobs','refreshInvoiceProgressLive'].map(name=>declaration(portal,name)).join('\n'),context);
 await context.refreshInvoiceProgressLive();assert.equal(calls,1);assert.equal(batches,1);now+=5000;await context.refreshInvoiceProgressLive();assert.equal(calls,1,'Idle screen does not poll every timer tick');now+=55000;await context.refreshInvoiceProgressLive();assert.equal(calls,2);
 state.invoiceDocuments=[{status:'processing',jobId:'a'}];now+=5000;await context.refreshInvoiceProgressLive();assert.equal(calls,3,'Active jobs refresh promptly');assert.equal(batches,2);
@@ -23,3 +24,12 @@ assert.equal(state.invoiceDocuments[0].id,'fresh');
 assert.throws(()=>context.applyInvoiceDocuments({serverVersion:22},7,'current'),/δεν φορτώθηκε σωστά/);
 assert.equal(state.invoiceDocuments[0].id,'fresh','Invalid responses preserve the last valid list');
 console.log('PASS invoice list response ordering, newer snapshot acceptance, login isolation and invalid response retention.');
+
+// Real Fleet live callback coalesces a burst without delaying explicit saves.
+let liveNow=10000,liveReads=0;const timers=[],cancelledTimers=[];const liveWindow={FleetLive:{start(){}}};liveWindow.parent=liveWindow;
+const liveContext=vm.createContext({window:liveWindow,document:{hidden:false},Date:{now:()=>liveNow},webToken:'first',currentUser:{id:'owner'},fleetLastPoll:0,fleetLiveTimer:0,fleetLiveScope:'first',apiBase:'https://fixture.invalid',clearTimeout(id){cancelledTimers.push(id);},syncNow(){liveReads++;},setTimeout(fn,ms){timers.push({fn,ms});return timers.length;}});
+vm.runInContext(['fleetScreenActive','queueFleetLiveChanges','startFleetLiveChanges'].map(name=>declaration(app,name)).join('\n'),liveContext);
+liveContext.queueFleetLiveChanges(['fleet']);assert.equal(timers[0].ms,0);timers[0].fn();assert.equal(liveReads,1);
+liveNow=10100;for(let i=0;i<20;i++)liveContext.queueFleetLiveChanges(['fleet','invoices']);assert.equal(timers.length,2);assert.equal(timers[1].ms,4900);liveContext.startFleetLiveChanges();assert.equal(cancelledTimers.length,0,'same-session profile refresh keeps the pending final read');liveNow=15000;timers[1].fn();assert.equal(liveReads,2,'twenty live results require one new snapshot read');
+liveNow=15100;liveContext.queueFleetLiveChanges(['fleet']);liveContext.document.hidden=true;timers[2].fn();assert.equal(liveReads,2,'hidden tab never flushes a pending live read');liveContext.document.hidden=false;liveNow=20000;liveContext.queueFleetLiveChanges(['fleet']);liveContext.webToken='second';timers[3].fn();assert.equal(liveReads,2,'old login cannot flush into a new session');
+console.log('PASS #37 Fleet live burst: twenty results/one read, maximum five-second coalescing, hidden and session fences; direct syncNow mutation path unchanged.');

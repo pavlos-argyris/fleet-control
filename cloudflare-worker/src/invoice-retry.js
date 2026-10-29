@@ -3,9 +3,9 @@
 export async function retryFailedInvoice(request, env, deps) {
   const {json, authenticateExternal, isManagementActor, readServiceEntry,
     readServiceDocument, serviceRenderState, jobAttachmentMatches, restartServiceDocument,
-    reprocessAdminServiceDocument, resolveServiceDocumentFailure, digestHex} = deps;
+    reprocessAdminServiceDocument, resolveServiceDocumentFailure, digestHex, serverAuthorized} = deps;
   let actor;
-  try { actor = await authenticateExternal(request, env, 'fleet.manage'); }
+  try { actor = serverAuthorized&&await serverAuthorized(request,env)?{id:'android-server',role:'owner'}:await authenticateExternal(request, env, 'fleet.manage'); }
   catch (error) { return json({error:error.message}, Number(error.status)||401); }
   if (!isManagementActor(actor)) return json({error:'Χρειάζεται λογαριασμός διαχείρισης.'},403);
   const body = await request.json().catch(()=>({}));

@@ -19,6 +19,8 @@ try{
  const control=ok(await post('/api/server/ordexa-server/control',{week:'2026-10-19'},true)),lease=control.jobs[0].lease;
  ok(await post('/api/server/ordexa-server/publish',{...result.body,payload:undefined,payloadHash:result.saved.payloadHash,lease},true));assert.equal((await db.prepare("SELECT COUNT(*) n FROM system_alerts WHERE type='ordexa_server_review'").first()).n,1);
  const decision={weekStart:'2026-10-19',id:row.id,fingerprint:row.fingerprint,revision:0,paidStart:row.payableClockIn,paidEnd:'2026-10-19T13:00:00.000Z'};
+ await db.prepare("UPDATE system_settings SET value=CAST(value AS INTEGER)+1 WHERE key='ordexa_revision'").run();
+ const editor=ok(await call('/api/admin/ordexa-server/shift?id='+encodeURIComponent(row.id)));assert.equal(editor.projection.readOnly,true);assert.equal(editor.projection.editReadOnly,false,'Actual D1 uses the employee dependency fence while the global view awaits a newer revision');
  const concurrent=await Promise.all([post('/api/admin/ordexa-server/adjustment',decision),post('/api/admin/ordexa-server/adjustment',{...decision,paidEnd:'2026-10-19T13:30:00.000Z'})]);assert.deepEqual(concurrent.map(r=>r.status).sort(),[200,409]);assert.equal((await db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='ordexa_shift_adjusted'").first()).n,1);
  result=await projectOrdexaWeek(call,native,'2026-10-19');row=result.payload.shifts[0];assert.equal(result.payload.reviews.length,0);assert.equal((await db.prepare("SELECT COUNT(*) n FROM system_alerts WHERE type='ordexa_server_review' AND resolved=0").first()).n,0);
  // The storage/alert transaction must roll back entirely on an audit failure.

@@ -70,6 +70,7 @@ jobs:
       - run: node scripts/test-next-service-browser.mjs
       - run: node scripts/test-ui-system-browser.mjs
       - run: node scripts/test-invoice-retry-browser.mjs
+      - run: node scripts/test-invoice-recovery-browser.mjs
       - run: node scripts/test-invoice-auto-browser.mjs
       - run: node scripts/test-ordexa-browser.mjs
       - name: Save navigation verification images
@@ -81,7 +82,8 @@ jobs:
             verification/navigation-motion/
             verification/next-service/
             verification/ui-system/
-            verification/invoice-retry/
+            verification/invoice-retry
+            verification/invoice-recovery/
             verification/invoice-auto/
             verification/ordexa/
           if-no-files-found: warn
