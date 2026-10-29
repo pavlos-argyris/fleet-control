@@ -877,6 +877,7 @@
   function renderCoverage() {
     const data = state.coverage;
     if (!data || !Array.isArray(data.days)) return;
+    if(!data.days.length){$("coverageTimeline").innerHTML='<p class="empty-copy">Δεν υπάρχουν στοιχεία κάλυψης για αυτή την εβδομάδα.</p>';return;}
     const summary = data.summary || {};
     $("coverageSummary").innerHTML = [
       ["Κάλυψη", String(summary.coveragePercent == null ? 100 : summary.coveragePercent) + "%", "covered"],
@@ -1270,30 +1271,12 @@
         }).join("") + '</div>';
         return;
       }
-      if (tab === "shifts") {
-        const data = await api("/api/admin/shifts?from=" + inputDate(-90) + "&to=" + inputDate(1) + "&employeeId=" + encodeURIComponent(item.id));
-        $("employeeDetailContent").innerHTML = (data.shifts || []).length ? '<div class="data-list">' + data.shifts.map(function (shift) {
-          return '<div class="data-row"><span><strong>' + escapeHtml(formatDateTime(shift.actualClockIn)) + '</strong><small>' + escapeHtml(shift.vehicleName || "Χωρίς μηχανάκι") + '</small></span><span><strong>' + escapeHtml(shift.actualClockOut ? formatDateTime(shift.actualClockOut) : "Σε εξέλιξη") + '</strong><small>' + escapeHtml(shift.shiftKm == null ? "—" : km(shift.shiftKm)) + '</small></span>' + statusPill(shift.status) + '</div>';
-        }).join("") + '</div>' : '<p class="empty-copy">Δεν υπάρχουν βάρδιες στις τελευταίες 90 ημέρες.</p>';
-        return;
-      }
+      if(await window.FleetOrdexaServerUI.employeeDetail(item,tab))return;
       if (tab === "schedules") {
         const data = await api("/api/admin/schedules?from=" + inputDate(-30) + "&to=" + inputDate(60) + "&employeeId=" + encodeURIComponent(item.id));
         $("employeeDetailContent").innerHTML = (data.schedules || []).length ? '<div class="data-list">' + data.schedules.map(function (schedule) {
           return '<div class="data-row"><span><strong>' + escapeHtml(formatDateTime(schedule.start_at)) + '</strong><small>' + escapeHtml(schedule.vehicle_name || "Χωρίς προανάθεση") + '</small></span><span><strong>' + escapeHtml(formatDateTime(schedule.end_at)) + '</strong><small>' + escapeHtml(schedule.notes || "—") + '</small></span>' + statusPill(schedule.status) + '</div>';
         }).join("") + '</div>' : '<p class="empty-copy">Δεν υπάρχει πρόγραμμα στο επιλεγμένο διάστημα.</p>';
-        return;
-      }
-      if (tab === "payroll") {
-        const start = mondayDate();
-        const data = await api("/api/admin/payroll?start=" + start + "&end=" + datePlus(start, 6));
-        const pay = (data.employees || []).find(function (entry) { return String(entry.employeeId) === String(item.id); });
-        $("employeeDetailContent").innerHTML = pay ? employeeFacts([
-          ["Περίοδος", start + " – " + datePlus(start, 6)], ["Βάρδιες", String(pay.shifts || 0)],
-          ["Κανονικές ώρες", hours(pay.normalHours)], ["Ειδικές ώρες", hours(pay.specialHours)], ["Πληρωτέες ώρες", hours(pay.payableHours)],
-          ["Χιλιόμετρα", km(pay.kilometers)], ["Βασική αμοιβή", money(pay.basePayCents)], ["Ειδική αμοιβή", money(pay.specialPayCents)],
-          ["Bonus", money(pay.bonusCents)], ["Κρατήσεις", money(pay.deductionCents)], ["Προκαταβολές", money(pay.advanceCents)], ["Τελικό", money(pay.finalCents)]
-        ]) : '<p class="empty-copy">Δεν υπάρχουν στοιχεία μισθοδοσίας για αυτή την εβδομάδα.</p>';
         return;
       }
       if (tab === "history") {
@@ -4061,8 +4044,8 @@
       await loadAdminLists();
       const data = await simpleEditor({
         overline: "ΜΙΣΘΟΔΟΣΙΑ", title: "Bonus / κράτηση / προκαταβολή", submit: "Καταχώρηση",
-        html: '<label class="field"><span>Εργαζόμενος</span><select id="adjustEmployee">' + state.employees.filter(function (item) { return item.active; }).map(function (item) { return '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.fullName) + '</option>'; }).join("") + '</select></label><label class="field"><span>Τύπος</span><select id="adjustKind"><option value="bonus">Bonus</option><option value="deduction">Κράτηση</option><option value="advance">Προκαταβολή</option><option value="hours">Διόρθωση ωρών</option></select></label><label class="field"><span>Ποσό (€ — για bonus/κράτηση/προκαταβολή)</span><input id="adjustAmount" type="number" step="0.01" value="0"></label><label class="field"><span>Ώρες (για διόρθωση ωρών)</span><input id="adjustHours" type="number" step="0.01" value="0"></label><label class="field"><span>Ημερομηνία</span><input id="adjustDate" type="date" value="' + inputDate(0) + '"></label><label class="field"><span>Αιτιολογία</span><textarea id="adjustReason" rows="3" required></textarea></label>',
-        collect: function () { const reason = $("adjustReason").value.trim(); if (!reason) throw new Error("Γράψε αιτιολογία."); return { employeeId: $("adjustEmployee").value, kind: $("adjustKind").value, amountCents: Math.round(Number($("adjustAmount").value || 0) * 100), hours: Number($("adjustHours").value || 0), date: $("adjustDate").value, reason: reason }; }
+        html: '<label class="field"><span>Εργαζόμενος</span><select id="adjustEmployee">' + state.employees.filter(function (item) { return item.active; }).map(function (item) { return '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.fullName) + '</option>'; }).join("") + '</select></label><label class="field"><span>Τύπος</span><select id="adjustKind"><option value="bonus">Bonus</option><option value="deduction">Κράτηση</option><option value="advance">Προκαταβολή</option><option value="hours">Διόρθωση ωρών περιόδου</option></select></label><label class="field"><span>Ποσό (€ — για bonus/κράτηση/προκαταβολή)</span><input id="adjustAmount" type="number" step="0.01" value="0"></label><label class="field"><span>Ώρες περιόδου · για συγκεκριμένη βάρδια χρησιμοποίησε τις Βάρδιες</span><input id="adjustHours" type="number" step="0.5" value="0"></label><label class="field"><span>Ημερομηνία</span><input id="adjustDate" type="date" value="' + inputDate(0) + '"></label><label class="field"><span>Αιτιολογία</span><textarea id="adjustReason" rows="3" required></textarea></label>',
+        collect: function () { const reason = $("adjustReason").value.trim(); if (!reason) throw new Error("Γράψε αιτιολογία."); if($("adjustKind").value==="hours"&&!Number.isInteger(Number($("adjustHours").value)*2))throw new Error("Οι ώρες πρέπει να είναι σε μισάωρα."); return { employeeId: $("adjustEmployee").value, kind: $("adjustKind").value, amountCents: Math.round(Number($("adjustAmount").value || 0) * 100), hours: Number($("adjustHours").value || 0), date: $("adjustDate").value, reason: reason }; }
       });
       const confirmation = await requestPin(false);
       data.startDate = $("payrollStart").value || mondayDate();

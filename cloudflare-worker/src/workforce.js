@@ -603,7 +603,6 @@ INSERT OR IGNORE INTO alert_rules (type,enabled,severity,channel,updated_at) VAL
 INSERT OR IGNORE INTO alert_rules (type,enabled,severity,channel,updated_at) VALUES ('server_restriction',1,'warning','both',datetime('now'));
 ${ORDEXA_SCHEMA}
 ${ORDEXA_SERVER_SCHEMA}
-${ORDEXA_SOURCE_TRIGGERS}
 `;
 
 // D1Database.exec treats every non-empty line as a separate query. Keep each
@@ -730,6 +729,8 @@ export async function ensureWorkforceSchema(env) {
   await ensureColumn(env, "shifts", "overtime_approved_by_name", "TEXT NOT NULL DEFAULT ''");
   await ensureColumn(env, "shifts", "overtime_approved_at", "TEXT");
   await initializeDefaultPayrollPolicy(env);
+  // Create source guards only after legacy personnel columns have migrated.
+  await env.DB.exec(ORDEXA_SOURCE_TRIGGERS);
 }
 
 export async function routeWorkforce(request, env, path, deps) {

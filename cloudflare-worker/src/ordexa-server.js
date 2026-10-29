@@ -38,8 +38,8 @@ async function demand(env,week){await env.DB.prepare('INSERT INTO ordexa_server_
 const sourceGuard="EXISTS(SELECT 1 FROM system_settings WHERE key='ordexa_revision' AND value=?) AND EXISTS(SELECT 1 FROM fleet_mirror_state WHERE id=1 AND epoch=?)";
 async function view(env,week,section,D){
  await demand(env,week);const meta=await head(env);
- const row=await env.DB.prepare(`SELECT input_revision,input_epoch,computed_at,source_synced_at,sequence,payload_hash,json_extract(payload,?) AS data FROM ordexa_server_views WHERE week_start=?`).bind('$.'+section,week).first();
- const fresh=!!row?.data&&row.input_revision===meta.revision&&row.input_epoch===meta.epoch&&Date.now()-Date.parse(row.computed_at)<180000;
+ const row=await env.DB.prepare(`SELECT input_revision,input_epoch,computed_at,source_synced_at,sequence,payload_hash,payload IS NOT NULL has_payload,CASE WHEN ?='shifts' THEN NULL ELSE json_extract(payload,?) END AS data FROM ordexa_server_views WHERE week_start=?`).bind(section,'$.'+section,week).first();
+ const fresh=!!row?.has_payload&&row.input_revision===meta.revision&&row.input_epoch===meta.epoch&&Date.now()-Date.parse(row.computed_at)<180000;
  const sourceFresh=!!row?.source_synced_at&&Date.now()-Date.parse(row.source_synced_at)<180000;
  const info={...meta,computedAt:row?.computed_at||null,sourceSyncedAt:row?.source_synced_at||null,sequence:Number(row?.sequence||0),fresh,sourceFresh,waiting:!fresh,readOnly:!fresh||!sourceFresh,weekStart:week};
  return {row,info,json:row?.data||null};
@@ -168,7 +168,8 @@ export async function routeOrdexaServer(request,env,path,D){
  }
  if(action==='shifts'){
   const result=await view(env,week,'shifts',D),locked=!!await env.DB.prepare("SELECT id FROM payroll_periods WHERE status='locked' AND ? BETWEEN start_date AND end_date LIMIT 1").bind(ordexaDay(day)).first();let expression='g.value';if(locked)expression="CASE WHEN json_extract(g.value,'$.payrollLocked')=1 THEN g.value ELSE json_set(g.value,'$.payrollLocked',json('true'),'$.payableHours',NULL,'$.payableClockIn',NULL,'$.payableClockOut',NULL) END";if(!financial)expression="json_remove("+expression+",'$.basePayCents','$.specialPayCents','$.totalPayCents')";
-  const rows=await env.DB.prepare(`SELECT COALESCE(json_group_array(json(${expression})),'[]') data FROM ordexa_server_views v,json_each(v.payload,'$.shifts') g WHERE v.week_start=? AND json_extract(g.value,'$.workDate')=?`).bind(week,day).first();
+  const employee=url.searchParams.get('employeeId')||'',from=employee?week:day,to=employee?addCalendarDays(week,6):day;
+  const rows=await env.DB.prepare(`SELECT COALESCE(json_group_array(json(${expression})),'[]') data FROM ordexa_server_views v,json_each(v.payload,'$.shifts') g WHERE v.week_start=? AND json_extract(g.value,'$.workDate') BETWEEN ? AND ? AND (?='' OR json_extract(g.value,'$.employeeId')=?)`).bind(week,from,to,employee,employee).first();
   return rawJson('{"projection":'+JSON.stringify(result.info)+',"shifts":'+(rows?.data||'[]')+'}');
  }
  if(action==='dashboard'){const result=await view(env,week,'dashboard',D);let data=result.json;if(data&&!financial){const section=await env.DB.prepare("SELECT json_remove(json_extract(payload,'$.dashboard'),'$.payrollCents','$.payableHours') data FROM ordexa_server_views WHERE week_start=?").bind(week).first();data=section?.data||'null';}
