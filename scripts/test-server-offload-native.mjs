@@ -11,6 +11,11 @@ fs.writeFileSync(path.join(temp,'OffloadTest.java'),`import gr.argyrismitsos.fle
  queue=new LocalWorkQueue(disk);check(queue.ready(99).length()==0);check(queue.ready(101).getJSONObject(0).getJSONObject("localResult").getString("totalAmount").equals("59"));
  queue.reconcile(new JSONArray().put(new JSONObject(job.toString())),null,null);check(queue.ready(101).getJSONObject(0).has("localResult"));
  queue.update("a","retryAt",Long.MAX_VALUE);check(!queue.hasWork());check(queue.ready(1000).length()==0);queue.update("a","retryAt",0L);check(queue.hasWork());
+ check(queue.batchFailed("a",1000)==1);check(queue.ready(60999).length()==0);check(queue.ready(61000).length()==1);
+ queue=new LocalWorkQueue(disk);queue.reconcile(new JSONArray().put(new JSONObject().put("id","a").put("type","service_document_reprocess_batch")),null,null);check(queue.ready(61000).getJSONObject(0).optInt("batchFailures",0)==1);
+ check(queue.batchFailed("a",61000)==2);check(queue.ready(180999).length()==0);check(queue.ready(181000).length()==1);
+ check(queue.batchFailed("a",181000)==3);queue=new LocalWorkQueue(disk);check(!queue.hasWork());check(queue.ready(999999999).length()==0);
+ queue.update("a","batchFailures",0);queue.update("a","retryAt",0L);
  queue.update("a","localComplete",true);check(!queue.hasWork());check(queue.acknowledgements().length()==1);queue=new LocalWorkQueue(disk);check(queue.ready(1000).length()==0);
  queue.reconcile(null,null,new JSONArray().put("a"));check(queue.known().length()==0);
  queue.reconcile(new JSONArray().put(job),null,null);queue.reconcile(null,new JSONArray().put(new JSONObject().put("id","a").put("status","cancelled")),null);check(!queue.hasWork());

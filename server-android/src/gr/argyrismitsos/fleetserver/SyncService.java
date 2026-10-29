@@ -218,7 +218,7 @@ public final class SyncService extends Service {
         if(known!=null)for(int i=0;i<known.length();i++){JSONObject job=known.getJSONObject(i);if(activeJobId.equals(job.optString("id"))&&!"pending".equals(job.optString("status"))&&activeCancellation!=null)activeCancellation.set(true);}
         JSONObject batch=exchange.optJSONObject("batch");
         if(batch!=null){saveInvoiceReprocessState(preferences,batch,"");
-            JSONArray queued=workQueue.ready(Long.MAX_VALUE);for(int i=0;i<queued.length();i++){JSONObject job=queued.getJSONObject(i);if("service_document_reprocess_batch".equals(job.optString("type")))workQueue.update(job.optString("id"),"retryAt","paused".equals(batch.optString("status"))?Long.MAX_VALUE:0L);}}
+            JSONArray queued=workQueue.ready(Long.MAX_VALUE);for(int i=0;i<queued.length();i++){JSONObject job=queued.getJSONObject(i);if("service_document_reprocess_batch".equals(job.optString("type")))if("paused".equals(batch.optString("status")))workQueue.update(job.optString("id"),"retryAt",Long.MAX_VALUE);else if(job.optLong("retryAt",0)==Long.MAX_VALUE&&job.optInt("batchFailures",0)<3)workQueue.update(job.optString("id"),"retryAt",0L);}}
         JSONObject response=exchange.getJSONObject("snapshot");
         JSONObject remoteSnapshot=response.optBoolean("unchanged",false)?canonical:response;
         if(remoteSnapshot.optJSONArray("bikes")==null)throw new Exception("Δεν επιστράφηκε έγκυρος στόλος.");
@@ -385,8 +385,17 @@ public final class SyncService extends Service {
                 JSONObject op=ops.getJSONObject(i);String id=op.optString("id");
                 if (store.wasApplied(id)) { acknowledgeOne(base,id,headers); continue; }
                 if ("service_document_reprocess_batch".equals(op.optString("type"))) {
-                    JSONObject result=processInvoiceReprocessBatch(base,headers,p,Math.max(1,Math.min(10,p.getInt("invoice_parallelism",4))));
-                    if (result.optBoolean("complete",false)) {store.markApplied(id);acknowledgeOne(base,id,headers);}
+                    try {
+                        JSONObject result=processInvoiceReprocessBatch(base,headers,p,Math.max(1,Math.min(10,p.getInt("invoice_parallelism",4))));
+                        workQueue.update(id,"batchFailures",0);workQueue.update(id,"retryAt",0L);
+                        if (result.optBoolean("complete",false)) {store.markApplied(id);acknowledgeOne(base,id,headers);}
+                    } catch(Exception failure) {
+                        if(OtaManager.shouldYieldForUpdate(this)||failure instanceof java.util.concurrent.CancellationException)continue;
+                        int attempts=workQueue.batchFailed(id,System.currentTimeMillis());
+                        String message=attempts>=3?"Η ουρά παύει μετά από 3 αποτυχημένες επικοινωνίες. Έλεγξε τη σύνδεση και πάτησε Συνέχιση ουράς.":"Προσωρινή αποτυχία. Νέα προσπάθεια σε "+(attempts==1?"1":"2")+" λεπτά.";
+                        markInvoiceReprocessError(p,message+" "+safeMessage(failure));p.edit().putString("invoice_queue_error",message).apply();
+                        if(attempts>=3)try{JSONObject payload=op.optJSONObject("payload");FleetHttp.sendJson(base+"/api/server/service-documents/reprocess-batch","POST",new JSONObject().put("action","pause").put("batchId",payload==null?"":payload.optString("batchId")).put("error",message),headers);}catch(Exception unavailable){}
+                    }
                     continue;
                 }
                 activePausedForUpdate=false;activeJobId=id; activeCancellation=new java.util.concurrent.atomic.AtomicBoolean();
@@ -544,7 +553,7 @@ public final class SyncService extends Service {
                 results.add(workers.submit(new Callable<JSONObject>() {
                     @Override
                     public JSONObject call() throws Exception {
-                        if (forceWorkersAi) return new JSONObject();
+                        if (forceWorkersAi || item == null || item.optString("key", "").length() == 0) return new JSONObject();
                         return readInvoiceLocally(base, item, headers);
                     }
                 }));

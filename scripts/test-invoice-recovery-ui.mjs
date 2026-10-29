@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import {createRequire} from 'node:module';
+const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{JSDOM}=require('jsdom');
+const dom=new JSDOM('<!doctype html><body></body>',{url:'https://fixture.invalid',runScripts:'outside-only',pretendToBeVisual:true}),w=dom.window;
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+for(const file of ['service-model.js','service-tools.js'])w.eval(fs.readFileSync('cloudflare-worker/public/'+file,'utf8'));
+const records=Array.from({length:57},(_,i)=>({id:'service-documents/b/e'+i+'/f.pdf',key:'service-documents/b/e'+i+'/f.pdf',bikeId:'b',bikeName:'BTO 756',entryId:'e'+i,name:'<script>fixture</script> '+i,status:i%2?'error':'warning',serviceDate:'2026-10-10'}));
+let writes=[],batch=null,scope='first',reads=[],fail=false;
+w.FleetFollowupAdapter={canManage:()=>true,context:()=>scope,toast(){},getBikes:()=>[],getOutbox:async()=>[],api:async(path,options)=>{
+ reads.push(path);assert.notEqual(path,'/api/snapshot','pending recovery does not re-read the full snapshot');
+ if(path.startsWith('/api/admin/service-documents?paged=1'))return {documents:records,serverVersion:1};
+ assert.equal(path,'/api/admin/service-documents/reprocess-batch');
+ if(options?.body){writes.push(options.body);if(fail)throw new Error('Synthetic save failure');batch={id:'fixture',status:'processing',total:57,completed:0,currentName:'Αναμονή Server',progress:0};}
+ return {started:!!options?.body,batch};
+}};
+w.eval(fs.readFileSync('cloudflare-worker/public/service-followup.js','utf8'));
+const tick=()=>new Promise(r=>setImmediate(r));
+let opened=w.FleetFollowup.open('pending',{recover:true});await tick();let choose=[...w.document.querySelectorAll('dialog')].find(d=>d.querySelector('[data-recovery-mode]'));assert.ok(choose);assert.equal(writes.length,0);choose.querySelector('[data-recovery-back]').click();await opened;assert.equal(writes.length,0);let panel=w.document.querySelector('.followup-dialog');assert.equal(panel.querySelector('script'),null);assert.match(panel.textContent,/Επανάληψη όλων \(57\)/);
+panel.querySelector('[data-followup-recover]').click();await tick();choose=[...w.document.querySelectorAll('dialog')].find(d=>d.querySelector('[data-recovery-mode]'));choose.querySelector('[data-recovery-mode="server-first"]').click();await tick();await tick();
+assert.equal(writes.length,1);assert.equal(writes[0].items.length,57);assert.equal(writes[0].recovery,true);assert.equal(writes[0].mode,'server-first');assert.match(panel.querySelector('[data-recovery-status]').textContent,/0 \/ 57/);assert.match(panel.textContent,/Μπορείς να κλείσεις/);panel.querySelector('[data-followup-close]').click();assert.equal(writes.length,1,'closing the panel never resubmits or cancels the durable queue');
+batch=null;fail=true;await w.FleetFollowup.open('pending');panel=w.document.querySelector('.followup-dialog');panel.querySelector('[data-followup-recover]').click();await tick();choose=[...w.document.querySelectorAll('dialog')].find(d=>d.querySelector('[data-recovery-mode]'));choose.querySelector('[data-recovery-mode="server-first"]').click();await tick();await tick();assert.match(panel.querySelector('[data-recovery-status]').textContent,/Δεν επιβεβαιώθηκε/);assert.ok(!panel.querySelector('[data-followup-recover]').disabled);assert.equal(writes.length,2);
+fail=false;panel.querySelector('[data-followup-recover]').click();await tick();choose=[...w.document.querySelectorAll('dialog')].find(d=>d.querySelector('[data-recovery-mode]'));scope='second';choose.querySelector('[data-recovery-mode="server-first"]').click();await tick();assert.equal(writes.length,2,'session change fences a stale confirmation before POST');w.close();
+console.log('PASS #37 shipped UI: 57 selected invoices, unified explicit modes/Back, one durable start, progress, no full snapshot read, escaped names, retained failed save and stale-session fence.');
