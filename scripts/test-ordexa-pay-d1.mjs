@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
+const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-ordexa-pay-'));let runtime;
+try{
+ await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+ runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'pay-fixture'},bindings:{SERVER_KEY:'synthetic-pay-server',PIN_PEPPER:'synthetic-pay-pepper'}}));
+ const db=await runtime.getD1Database('DB');let token;
+ const call=async(url,body,server=false)=>{const res=await runtime.dispatchFetch('https://fixture'+url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(server?{'X-Fleet-Server-Key':'synthetic-pay-server'}:{Authorization:'Bearer '+token})},body:body?JSON.stringify(body):undefined});return {status:res.status,data:await res.json()};};
+ const ok=(r,status=200)=>{assert.equal(r.status,status,JSON.stringify(r));return r.data;};
+ const boot=ok(await call('/api/auth/bootstrap',{fullName:'Synthetic D1 pay worker',username:'payd1',password:'SyntheticD1Pay!7'},true));token=boot.token;const employee=boot.user.id;
+ ok(await call('/api/server/ordexa/import',{cityId:'7',day:'2026-10-19',capturedAt:'2026-10-28T20:00:00Z',report:{riders:[{riderId:'17',name:'Provider label',sessions:[]}]}},true));
+ const rider=await db.prepare('SELECT * FROM ordexa_riders').first();ok(await call('/api/admin/ordexa/mapping',{cityId:'7',riderId:'17',employeeId:employee,revision:rider.revision,reason:'Explicit synthetic pairing'}));
+ ok(await call('/api/admin/ordexa/policy',{gapMinutes:15,gapTreatment:'include',revision:0,reason:'Explicit continuity'}));
+ const initial=ok(await call('/api/admin/ordexa/pay-policy')).policy;ok(await call('/api/admin/ordexa/pay-policy',{policy:{...initial,enabled:true},revision:initial.revision,reason:'Explicit synthetic profile'}));
+ await db.prepare("UPDATE system_settings SET value='ordexa' WHERE key='payroll_hours_source'").run();
+ await db.prepare("INSERT INTO schedules(id,employee_id,start_at,end_at,status,created_by,created_at,updated_at) VALUES('published',?,'2026-10-19T05:00:00.000Z','2026-10-19T13:00:00.000Z','planned',?,'fixture','fixture')").bind(employee,employee).run();
+ ok(await call('/api/server/ordexa/import',{cityId:'7',day:'2026-10-19',capturedAt:'2026-10-28T21:00:00Z',report:{riders:[{riderId:'17',name:'Provider label',sessions:[{id:'source',day:'2026-10-19',inAt:'2026-10-19T07:41:00+03:00',outAt:'2026-10-19T16:40:00+03:00'}]}]}},true));
+ ok(await call('/api/server/ordexa/pay-check',{from:'2026-10-19',to:'2026-10-19'},true));
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM system_alerts WHERE type='ordexa_pay_review' AND resolved=0").first()).n,1,'A complete sync batch raises a single aggregated warning');
+ let payroll=ok(await call('/api/admin/payroll?start=2026-10-19&end=2026-10-19'));assert.equal(payroll.ordexaReviews.length,1);assert.equal(payroll.ordexaReviews[0].reasons.length,2);assert.equal(payroll.totals.payableHours,8);
+ const review=payroll.ordexaReviews[0],body={id:review.id,fingerprint:review.fingerprint,revision:review.revision,chosenScheduleId:'',reason:'Synthetic concurrent review'};
+ const choices=[{startChoice:'program',endChoice:'program'},{startChoice:'clock',endChoice:'clock'}];const concurrent=await Promise.all(choices.map(choice=>call('/api/admin/ordexa/pay-review',{...body,...choice})));
+ assert.equal(concurrent.filter(r=>r.status===200).length,1,JSON.stringify(concurrent));assert.equal(concurrent.filter(r=>r.status===409).length,1);const winner=concurrent.findIndex(r=>r.status===200);
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='ordexa_pay_decision'").first()).n,1);assert.equal((await db.prepare('SELECT revision FROM ordexa_pay_decisions').first()).revision,1);
+ payroll=ok(await call('/api/admin/payroll?start=2026-10-19&end=2026-10-19'));assert.equal(payroll.ordexaReviews.length,0);assert.equal(payroll.totals.payableHours,winner===0?8:9);assert.equal(payroll.employees[0].sourceRows[0].sourceScheduleId,'published');assert.equal(payroll.employees[0].sourceRows[0].start,'2026-10-19T04:41:00.000Z');
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM system_alerts WHERE type='ordexa_pay_review'").first()).n,1);assert.equal((await db.prepare("SELECT COUNT(*) n FROM system_alerts WHERE type='ordexa_pay_review' AND resolved=0").first()).n,0);
+ ok(await call('/api/admin/payroll/lock',{startDate:'2026-10-19',endDate:'2026-10-19',reason:'Synthetic reviewed lock'}));
+ const locked=ok(await call('/api/admin/payroll?start=2026-10-19&end=2026-10-19'));assert.equal(locked.lockedSnapshot,true);assert.equal(locked.totals.payableHours,winner===0?8:9);
+ const counts=await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' AND name LIKE 'fleet_mirror_%'").first();assert.equal(counts.n,96);
+ console.log('PASS actual Workerd/D1 half-hour/program policy: batch-completion aggregated warning, exact program preview, concurrent review CAS with one audit, immutable raw fields, snapshot provenance, resolved notification and locked payment. Synthetic only.');
+}finally{if(runtime)await runtime.dispose();fs.rmSync(dir,{recursive:true,force:true});}

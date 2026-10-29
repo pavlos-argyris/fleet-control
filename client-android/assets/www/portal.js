@@ -15,7 +15,9 @@
     alerts: 30000, audit: 60000, recycle: 30000, server: 30000, settings: 300000
   };
   const numberFormat = new Intl.NumberFormat("el-GR");
+  let shiftsLoadSequence=0,payrollLoadSequence=0;
   const moneyFormat = new Intl.NumberFormat("el-GR", { style: "currency", currency: "EUR" });
+  const shiftDateTimeFormat = new Intl.DateTimeFormat("el-GR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" });
   const dateTimeFormat = new Intl.DateTimeFormat("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const dateFormat = new Intl.DateTimeFormat("el-GR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const timeFormat = new Intl.DateTimeFormat("el-GR", { hour: "2-digit", minute: "2-digit" });
@@ -27,7 +29,7 @@
     service_conflict: "Σύγκρουση service", service_due: "Service που πλησιάζει", major_service_due: "Μεγάλο service", payroll_correction: "Διόρθωση μισθοδοσίας",
     correction_request: "Αίτημα διόρθωσης", backup_failed: "Αποτυχία backup", db_problem: "Πρόβλημα βάσης",
     server_offline: "Server offline", server_restart: "Επανεκκίνηση Server",
-    invoice_processing_failed: "Αποτυχία τιμολογίου",
+    invoice_processing_failed: "Αποτυχία τιμολογίου",ordexa_pay_review:"Έλεγχος μισθοδοσίας Ordexa",
     server_temperature: "Θερμοκρασία Server", server_storage: "Χώρος Server",
     server_battery: "Μπαταρία Server", server_restriction: "Περιορισμός Android"
   };
@@ -339,6 +341,7 @@
   }
 
   function showAuth() {
+    payrollLoadSequence++;state.payroll=null;window.FleetOrdexaPayUI?.clear();shiftsLoadSequence++;state.shifts=[];$("shiftsTable").replaceChildren();
     window.FleetMotion?.finish();
     window.FleetLive?.stop();
     setFleetDetailMode(false);
@@ -2516,6 +2519,7 @@
   }
 
   function shiftActions(item) {
+    if(item.source==='ordexa')return item.payReviewId&&can('payroll.manage')?'<button class="secondary-button" type="button" data-review-ordexa-pay="'+escapeHtml(item.payReviewId)+'">Έλεγχος μισθοδοσίας</button>':'<span class="empty-copy">Από Ordexa · μόνο προβολή</span>';
     const buttons = [];
     if (item.status === "active" && can("shifts.manage")) buttons.push('<button data-shift-action="close" data-shift-id="' + escapeHtml(item.id) + '" type="button">Κλείσιμο</button>');
     if (item.status === "active" && !item.ownVehicle && can("shifts.vehicle.change")) buttons.push('<button data-shift-action="vehicle" data-shift-id="' + escapeHtml(item.id) + '" type="button">Αλλαγή μηχανής</button>');
@@ -2532,15 +2536,24 @@
   }
 
   async function loadShifts() {
+    const sequence=++shiftsLoadSequence,requestToken=state.token;
     if (!$("shiftFrom").value) $("shiftFrom").value = inputDate(-7);
     if (!$("shiftTo").value) $("shiftTo").value = inputDate(7);
     $("manualClockInButton").classList.toggle("is-hidden", !can("shifts.manage"));
     const query = new URLSearchParams({ from: $("shiftFrom").value, to: $("shiftTo").value });
+    query.set('source',$("shiftSource")?.value||'all');query.set('overlap','1');
     if ($("shiftStatus").value) query.set("status", $("shiftStatus").value);
-    const data = await api("/api/admin/shifts?" + query.toString());
+    let data;
+    try{data=await api("/api/admin/shifts?"+query.toString());}
+    catch(error){
+      if(sequence===shiftsLoadSequence&&requestToken===state.token){state.shifts=[];$("shiftsTable").innerHTML='<p class="form-error">'+escapeHtml(error.message)+'</p>';if($("shiftSourceInfo"))$("shiftSourceInfo").textContent='Η ανάγνωση βαρδιών απέτυχε. Πάτησε Ανανέωση για επανάληψη.';}
+      return;
+    }
+    if(sequence!==shiftsLoadSequence||requestToken!==state.token||!can('shifts.view'))return;
     state.shifts = data.shifts || [];
-    $("shiftsTable").innerHTML = state.shifts.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Μηχανάκι</th><th>Clock In</th><th>Clock Out</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead><tbody>' + state.shifts.map(function (item) {
-      return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong></td><td>' + escapeHtml(item.vehicleName || "—") + '</td><td>' + escapeHtml(formatDateTime(item.actualClockIn)) + (item.outOfSchedule ? '<br><small>Εκτός προγράμματος</small>' : '') + '</td><td>' + escapeHtml(item.actualClockOut ? formatDateTime(item.actualClockOut) : "—") + '</td><td>' + escapeHtml(item.payableHours == null ? "—" : hours(item.payableHours)) + '</td><td>' + escapeHtml(item.shiftKm == null ? "—" : km(item.shiftKm)) + '</td><td>' + statusPill(item.status) + '</td><td>' + shiftActions(item) + '</td></tr>';
+    if($("shiftSourceInfo"))$("shiftSourceInfo").textContent=(data.source==='fleet'?'':'Οι παρουσίες Ordexa εμφανίζονται χωρίς αλλαγή των αρχικών ωρών. Οι νυχτερινές βάρδιες διατηρούν την έξοδο της επόμενης ημερομηνίας. Οι πληρωτέες ώρες Ordexa είναι προεπισκόπηση των κανόνων· η μισθοδοσία χρησιμοποιεί την επιλεγμένη πηγή, χωρίς άθροιση Fleet και Ordexa. ')+(data.ordexaInfo&&!data.ordexaInfo.policyConfigured?'Όρισε πρώτα αντιστοιχίσεις και κανόνες κενών στις Ρυθμίσεις για υπολογισμό πληρωτέων ωρών. ':'')+(data.hasMore?'Υπάρχουν περισσότερες βάρδιες. Μίκρυνε το διάστημα για πλήρη προβολή.':'');
+    $("shiftsTable").innerHTML = state.shifts.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος / Πηγή</th><th>Μηχανάκι</th><th>Clock In</th><th>Clock Out</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead><tbody>' + state.shifts.map(function (item) {
+      return '<tr data-shift-source="'+escapeHtml(item.source||'fleet')+'"><td><strong>' + escapeHtml(item.employeeName) + '</strong><br><small>'+escapeHtml(item.source==='ordexa'?'Ordexa · '+item.sourceSessionCount+' καταγραφές':'Fleet clock')+'</small>'+(item.source==='ordexa'&&item.providerName!==item.employeeName?'<br><small>'+escapeHtml(item.providerName)+'</small>':'')+'</td><td>' + escapeHtml(item.vehicleName || "—") + '</td><td>' + escapeHtml(shiftDateTimeFormat.format(new Date(item.actualClockIn))) + (item.outOfSchedule ? '<br><small>Εκτός προγράμματος</small>' : '') + '</td><td>' + escapeHtml(item.actualClockOut ? shiftDateTimeFormat.format(new Date(item.actualClockOut)) : "—") + '</td><td>' + escapeHtml(item.payableHours == null ? (item.source==='ordexa'?(item.payrollLocked?'Κλειδωμένη περίοδος':'Εκκρεμεί υπολογισμός'):"—") : hours(item.payableHours))+(item.payablePreview?'<br><small>Προεπισκόπηση κανόνων</small>':'') + '</td><td>' + escapeHtml(item.shiftKm == null ? "—" : km(item.shiftKm)) + '</td><td>' + statusPill(item.status)+(item.sourceNotes?.length?'<br><small>'+escapeHtml(item.sourceNotes.join(' · '))+'</small>':'') + '</td><td>' + shiftActions(item) + '</td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν βρέθηκαν βάρδιες.</p>';
   }
 
@@ -4010,14 +4023,18 @@
   }
 
   async function loadPayroll() {
+    const sequence=++payrollLoadSequence,token=state.token;
     if (!$("payrollStart").value) $("payrollStart").value = mondayDate();
     const start = $("payrollStart").value;
     const end = datePlus(start, 6);
     const data = await api("/api/admin/payroll?start=" + start + "&end=" + end);
-    state.payroll = data;
+    if(sequence!==payrollLoadSequence||token!==state.token)return;
+    state.payroll = data;window.FleetOrdexaPayUI?.render(data);
+    $("ordexaPayPolicyButton")?.classList.toggle('is-hidden',!can('settings.manage'));
     const scheduleSource=(data.hoursSource || data.period.hoursSource)==="schedule";
     $("payrollSourceInfo").innerHTML='<div><strong>'+ (scheduleSource?"Υπολογισμός από δημοσιευμένο πρόγραμμα":"Υπολογισμός από πραγματικές καταγραφές")+'</strong><p>'+ (data.lockedSnapshot?"Η πηγή και τα ποσά διατηρούνται όπως ήταν στο κλείδωμα της περιόδου.":scheduleSource?"Μετρούν οι δημοσιευμένες βάρδιες, χωρίς να απαιτείται clock in/out. Τα πρόχειρα δεν υπολογίζονται. Οι διορθώσεις προγράμματος ενημερώνουν αυτή την ανοικτή περίοδο.":"Μετρούν οι ολοκληρωμένες πραγματικές καταγραφές clock in/out. Το πρόγραμμα διατηρείται ανεξάρτητα.")+'</p></div>'+(can("settings.manage")?'<button class="secondary-button" type="button" data-go="settings">Ρύθμιση πηγής</button>':'');
     if(data.hoursSource==="ordexa")$("payrollSourceInfo").innerHTML='<div><strong>Ordexa — πραγματικές παρουσίες</strong><p>Χρησιμοποιούνται αποκλειστικά οι αντιστοιχισμένες παρουσίες Ordexa και οι υπάρχοντες κανόνες πληρωμής Fleet. Οι καταγραφές Fleet clock δεν προστίθενται δεύτερη φορά.</p></div>'+(data.blockers?.length?'<p class="form-error">Εκκρεμούν '+data.blockers.length+' έλεγχοι: '+escapeHtml([...new Set(data.blockers.map(x=>x.reason))].join(" · "))+'. Έλεγξε Ordexa στις Ρυθμίσεις. Το κλείδωμα δεν επιτρέπεται ακόμη.</p>':'');
+    if(data.ordexaPayPolicy?.enabled)$("payrollSourceInfo").insertAdjacentHTML('beforeend','<p>Ενεργό προφίλ μισάωρου &amp; προγράμματος. Οι πληρωτέες ώρες έχουν χωριστή βάση από την πραγματική καταγραφή. Οι προειδοποιήσεις ανοίγουν άμεσο έλεγχο της συγκεκριμένης βάρδιας.</p>');
     $("payrollLockButton").classList.toggle("is-hidden", !can("payroll.lock"));
     $("payrollLockButton").disabled=Boolean(data.blockers?.length);
     $("newAdjustmentButton").classList.toggle("is-hidden", !can("payroll.manage"));
@@ -4032,7 +4049,7 @@
       metric("Τελικό ποσό", money(data.totals.finalCents), data.period.status === "locked" ? "Κλειδωμένο snapshot" : "Ανοιχτή περίοδος", "€")
     ].join("");
     $("payrollTable").innerHTML = data.employees.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Βάρδιες</th><th>Κανονικές ώρες</th><th>Ειδικές ώρες</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Βάση</th><th>Ειδική αμοιβή</th><th>Υπερωρίες / έγκριση</th><th>Bonus</th><th>Κρατήσεις</th><th>Προκαταβολές</th><th>Τελικό</th></tr></thead><tbody>' + data.employees.map(function (item) {
-      return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong></td><td>' + Number(item.shifts || 0) + '</td><td>' + escapeHtml(hours(item.normalHours)) + '</td><td>' + escapeHtml(hours(item.specialHours)) + '</td><td>' + escapeHtml(hours(item.payableHours)) + '</td><td>' + escapeHtml(km(item.kilometers)) + '</td><td>' + escapeHtml(money(item.basePayCents)) + '</td><td>' + escapeHtml(money(item.specialPayCents)) + '</td><td>' + payrollOvertimeCell(item) + '</td><td>' + escapeHtml(money(item.bonusCents)) + '</td><td>' + escapeHtml(money(item.deductionCents)) + '</td><td>' + escapeHtml(money(item.advanceCents)) + '</td><td><strong>' + escapeHtml(money(item.finalCents)) + '</strong></td></tr>';
+      return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong>'+(data.hoursSource==='ordexa'?'<br><button class="ghost-button" type="button" data-ordexa-pay-breakdown="'+escapeHtml(item.employeeId)+'">Ανάλυση βαρδιών</button>':'')+'</td><td>' + Number(item.shifts || 0) + '</td><td>' + escapeHtml(hours(item.normalHours)) + '</td><td>' + escapeHtml(hours(item.specialHours)) + '</td><td>' + escapeHtml(hours(item.payableHours)) + '</td><td>' + escapeHtml(km(item.kilometers)) + '</td><td>' + escapeHtml(money(item.basePayCents)) + '</td><td>' + escapeHtml(money(item.specialPayCents)) + '</td><td>' + payrollOvertimeCell(item) + '</td><td>' + escapeHtml(money(item.bonusCents)) + '</td><td>' + escapeHtml(money(item.deductionCents)) + '</td><td>' + escapeHtml(money(item.advanceCents)) + '</td><td><strong>' + escapeHtml(money(item.finalCents)) + '</strong></td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν υπάρχουν ολοκληρωμένες βάρδιες σε αυτή την περίοδο.</p>';
   }
 
@@ -4148,7 +4165,7 @@
     const modeLabels = { none: "Ακριβώς όπως καταγράφηκε", down: "Στην προηγούμενη χρονική βαθμίδα", up: "Στην επόμενη χρονική βαθμίδα", nearest: "Στην κοντινότερη χρονική βαθμίδα" };
     const modeOptions = function (value) { return Object.keys(modeLabels).map(function (mode) { return '<option value="' + mode + '" ' + (mode === value ? "selected" : "") + '>' + modeLabels[mode] + '</option>'; }).join(""); };
     const specialRates = Array.isArray(selected.specialRates) ? selected.specialRates : [];
-    return '<label class="field"><span>Επεξεργασία υπάρχοντος</span><select id="rulePicker">' + options + '</select></label><input id="ruleEditId" type="hidden" value="' + escapeHtml(selected.id) + '"><div class="form-grid"><label class="field"><span>Όνομα</span><input id="ruleName" value="' + escapeHtml(selected.name) + '" required></label><label class="field"><span>Scope</span><select id="ruleScope">' + scopeOptions + '</select></label><label class="field"><span>Scope ID</span><input id="ruleScopeId" value="' + escapeHtml(selected.scopeId || "") + '"></label><label class="field"><span>Προτεραιότητα</span><input id="rulePriority" type="number" step="1" value="' + Number(selected.priority || 0) + '"></label><label class="field"><span>Ισχύει από</span><input id="ruleValidFrom" type="date" value="' + escapeHtml(selected.validFrom || "") + '"></label><label class="field"><span>Ισχύει έως</span><input id="ruleValidUntil" type="date" value="' + escapeHtml(selected.validUntil || "") + '"></label><label class="field"><span>Κανονική αμοιβή €/ώρα</span><input id="ruleRate" type="number" min="0" step="0.01" value="' + (Number(selected.normalRateCents || 0) / 100) + '" required></label><label class="field"><span>Ανοχή καθυστερημένου Clock In (λεπτά)</span><input id="ruleLateGrace" type="number" min="0" max="720" step="1" value="' + Number(selected.lateGraceMinutes || 0) + '"><small>Μέχρι αυτά τα λεπτά πληρώνεται από την προγραμματισμένη έναρξη.</small></label><label class="field"><span>Ανοχή καθυστερημένου Clock Out (λεπτά)</span><input id="ruleLateClockOutGrace" type="number" min="0" max="720" step="1" value="' + Number(selected.lateClockOutGraceMinutes == null ? 30 : selected.lateClockOutGraceMinutes) + '"><small>Προεπιλογή 30. Η καθυστέρηση δεν πληρώνεται χωρίς έγκριση υπερωρίας.</small></label><label class="field"><span>Υπολογισμός έναρξης Clock In</span><select id="ruleStartMode">' + modeOptions(selected.startRoundMode || "none") + '</select><small>Π.χ. «επόμενη» με βήμα 30: 15:20 υπολογίζεται ως 15:30.</small></label><label class="field"><span>Βήμα έναρξης (λεπτά)</span><input id="ruleStartMinutes" type="number" min="1" max="60" step="1" value="' + Number(selected.startRoundMinutes || 1) + '"></label><label class="field"><span>Υπολογισμός λήξης Clock Out</span><select id="ruleEndMode">' + modeOptions(selected.endRoundMode || "none") + '</select><small>Εφαρμόζεται μόνο μέσα στον πληρωτέο χρόνο και δεν περνά την εγκεκριμένη λήξη.</small></label><label class="field"><span>Βήμα λήξης (λεπτά)</span><input id="ruleEndMinutes" type="number" min="1" max="60" step="1" value="' + Number(selected.endRoundMinutes || 1) + '"></label><label class="field"><span>Ελάχιστα πληρωτέα λεπτά</span><input id="ruleMinimum" type="number" min="0" max="1440" step="1" value="' + Number(selected.minimumMinutes || 0) + '"><small>0 = χωρίς ελάχιστο. Η διάρκεια δεν στρογγυλοποιείται.</small></label><label class="field"><span>Μέγιστα πληρωτέα λεπτά</span><input id="ruleMaximum" type="number" min="1" max="1440" step="1" value="' + Number(selected.maximumMinutes || 720) + '"></label></div><div class="pay-rate-editor"><div class="pay-rate-editor-head"><span><strong>Ωριαίες ζώνες</strong><small>Πρόσθεσε όσες ζώνες χρειάζεσαι. Για το παράδειγμά σου: 00:00–01:00 με €10 και 01:00–02:00 με €15.</small></span><button class="secondary-button" type="button" data-add-pay-rate>+ Προσθήκη ζώνης</button></div><div id="payRateRows" class="pay-rate-rows">' + specialRates.map(payRateRow).join("") + '</div></div><label class="remember-row"><input id="ruleActive" type="checkbox" ' + (selected.active ? "checked" : "") + '><span><strong>Ενεργός κανόνας</strong></span></label>';
+    return '<label class="field"><span>Επεξεργασία υπάρχοντος</span><select id="rulePicker">' + options + '</select></label><input id="ruleEditId" type="hidden" value="' + escapeHtml(selected.id) + '"><div class="form-grid"><label class="field"><span>Όνομα</span><input id="ruleName" value="' + escapeHtml(selected.name) + '" required></label><label class="field"><span>Scope</span><select id="ruleScope">' + scopeOptions + '</select></label><label class="field"><span>Scope ID</span><input id="ruleScopeId" value="' + escapeHtml(selected.scopeId || "") + '"></label><label class="field"><span>Προτεραιότητα</span><input id="rulePriority" type="number" step="1" value="' + Number(selected.priority || 0) + '"></label><label class="field"><span>Ισχύει από</span><input id="ruleValidFrom" type="date" value="' + escapeHtml(selected.validFrom || "") + '"></label><label class="field"><span>Ισχύει έως</span><input id="ruleValidUntil" type="date" value="' + escapeHtml(selected.validUntil || "") + '"></label><label class="field"><span>Κανονική αμοιβή €/ώρα</span><input id="ruleRate" type="number" min="0" step="0.01" value="' + (Number(selected.normalRateCents || 0) / 100) + '" required></label><label class="field"><span>Ανοχή καθυστερημένου Clock In (λεπτά)</span><input id="ruleLateGrace" type="number" min="0" max="720" step="1" value="' + Number(selected.lateGraceMinutes || 0) + '"><small>Μέχρι αυτά τα λεπτά πληρώνεται από την προγραμματισμένη έναρξη.</small></label><label class="field"><span>Ανοχή καθυστερημένου Clock Out (λεπτά)</span><input id="ruleLateClockOutGrace" type="number" min="0" max="720" step="1" value="' + Number(selected.lateClockOutGraceMinutes == null ? 30 : selected.lateClockOutGraceMinutes) + '"><small>Προεπιλογή 30. Η καθυστέρηση δεν πληρώνεται χωρίς έγκριση υπερωρίας.</small></label><label class="field"><span>Υπολογισμός έναρξης Clock In</span><select id="ruleStartMode">' + modeOptions(selected.startRoundMode || "none") + '</select><small>Π.χ. «επόμενη» με βήμα 30: 15:20 υπολογίζεται ως 15:30.</small></label><label class="field"><span>Βήμα έναρξης (λεπτά)</span><input id="ruleStartMinutes" type="number" min="1" max="60" step="1" value="' + Number(selected.startRoundMinutes || 1) + '"></label><label class="field"><span>Υπολογισμός λήξης Clock Out</span><select id="ruleEndMode">' + modeOptions(selected.endRoundMode || "none") + '</select><small>Π.χ. «προηγούμενη» με βήμα 30: 00:10 → 00:00 και 02:10 → 02:00. Η πραγματική ώρα διατηρείται· αλλάζει ο υπολογισμός αμοιβής και δεν περνά την εγκεκριμένη λήξη.</small></label><label class="field"><span>Βήμα λήξης (λεπτά)</span><input id="ruleEndMinutes" type="number" min="1" max="60" step="1" value="' + Number(selected.endRoundMinutes || 1) + '"></label><label class="field"><span>Ελάχιστα πληρωτέα λεπτά</span><input id="ruleMinimum" type="number" min="0" max="1440" step="1" value="' + Number(selected.minimumMinutes || 0) + '"><small>0 = χωρίς ελάχιστο. Η διάρκεια δεν στρογγυλοποιείται.</small></label><label class="field"><span>Μέγιστα πληρωτέα λεπτά</span><input id="ruleMaximum" type="number" min="1" max="1440" step="1" value="' + Number(selected.maximumMinutes || 720) + '"></label></div><div class="pay-rate-editor"><div class="pay-rate-editor-head"><span><strong>Ωριαίες ζώνες</strong><small>Πρόσθεσε όσες ζώνες χρειάζεσαι. Για το παράδειγμά σου: 00:00–01:00 με €10 και 01:00–02:00 με €15.</small></span><button class="secondary-button" type="button" data-add-pay-rate>+ Προσθήκη ζώνης</button></div><div id="payRateRows" class="pay-rate-rows">' + specialRates.map(payRateRow).join("") + '</div></div><label class="remember-row"><input id="ruleActive" type="checkbox" ' + (selected.active ? "checked" : "") + '><span><strong>Ενεργός κανόνας</strong></span></label>';
   }
 
   async function managePayRules() {
@@ -4342,7 +4359,7 @@
       const canApproveOvertime = can("shifts.manage") || can("payroll.manage");
       const invoiceFailure=item.type==='invoice_processing_failed'&&item.object_type==='invoice_job';
       const retrying=item.invoice_retry_state==='processing'||invoiceRetryController.pending({jobId:item.object_id});
-      const action = invoiceFailure
+      const action = item.type==='ordexa_pay_review' ? (can('payroll.manage')?'<button class="secondary-button" type="button" data-review-ordexa-pay="'+escapeHtml(item.object_id)+'">Έλεγχος μισθοδοσίας</button>':'<span>Αναμονή απόφασης μισθοδοσίας</span>') : invoiceFailure
         ? (can('fleet.manage')?'<button class="secondary-button invoice-retry-button" type="button" data-retry-invoice-alert="'+escapeHtml(item.id)+'" '+(retrying?'disabled':'')+'>'+(retrying?'Αναμονή επεξεργασίας…':'Επανάληψη')+'</button>':'')
         : item.type === "correction_request" && canResolve
         ? '<button class="secondary-button" type="button" data-handle-correction="' + escapeHtml(item.object_id) + '">Έλεγχος</button>'
@@ -4359,7 +4376,7 @@
     deliverLocalAlerts(state.alerts);
   }
 
-  const alertsRequiringAction = new Set(["correction_request", "overtime", "forgotten_clock_out", "invoice_processing_failed"]);
+  const alertsRequiringAction = new Set(["correction_request", "overtime", "forgotten_clock_out", "invoice_processing_failed", "ordexa_pay_review"]);
 
   function bulkResolvableAlerts() {
     return (state.alerts || []).filter(function (item) {
@@ -4950,4 +4967,5 @@
   setInterval(refreshInvoiceProgressLive, 5000);
   setInterval(function(){if(state.user&&state.view==='alerts'&&!document.hidden&&!window.FleetLive?.connected()&&(state.alerts||[]).some(a=>a.type==='invoice_processing_failed'&&a.invoice_retry_state==='processing'))loadAlerts().catch(()=>{});},15000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("./service-worker.js").catch(function () {});
+  window.FleetOrdexaPayUI?.mount({api,can,editor:simpleEditor,pin:requestPin,session:()=>state.token,toast,money,payroll:()=>state.payroll,invalidate:()=>window.FleetSharedReads?.invalidate(),refresh:async()=>{let failed=false;try{if(state.view==='payroll')await loadPayroll();else if(state.view==='shifts')await loadShifts();}catch{failed=true;}try{if(can('alerts.view'))await loadAlerts();}catch{failed=true;}if(failed)toast('Η αποθήκευση ολοκληρώθηκε. Η προβολή χρειάζεται Ανανέωση.');}});
 })();

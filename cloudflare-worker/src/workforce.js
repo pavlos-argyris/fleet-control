@@ -1,5 +1,5 @@
 import {ORDEXA_SCHEMA,ORDEXA_COLUMNS} from './ordexa-core.js';
-import {routeOrdexa,readOrdexaPayroll} from './ordexa.js';
+import {routeOrdexa,readOrdexaPayroll,readOrdexaShiftList} from './ordexa.js';
 import { MIRROR_TABLES, mirrorHead } from './mirror-delta.js';
 import {
   ALL_PERMISSIONS,
@@ -52,7 +52,6 @@ export function isOwnVehicleShiftId(value) {
 const SERVER_HEARTBEAT_GRACE_MS = 7 * 60 * 1000;
 
 export const WORKFORCE_SCHEMA = `
-${ORDEXA_SCHEMA}
 CREATE TABLE IF NOT EXISTS app_users (
   id TEXT PRIMARY KEY NOT NULL,
   full_name TEXT NOT NULL,
@@ -601,6 +600,7 @@ INSERT OR IGNORE INTO alert_rules (type,enabled,severity,channel,updated_at) VAL
 INSERT OR IGNORE INTO alert_rules (type,enabled,severity,channel,updated_at) VALUES ('server_storage',1,'critical','both',datetime('now'));
 INSERT OR IGNORE INTO alert_rules (type,enabled,severity,channel,updated_at) VALUES ('server_battery',1,'warning','both',datetime('now'));
 INSERT OR IGNORE INTO alert_rules (type,enabled,severity,channel,updated_at) VALUES ('server_restriction',1,'warning','both',datetime('now'));
+${ORDEXA_SCHEMA}
 `;
 
 // D1Database.exec treats every non-empty line as a separate query. Keep each
@@ -3975,18 +3975,27 @@ async function listShifts(request, env) {
   const to = text(url.searchParams.get("to"), 10) || addCalendarDays(from, 14);
   const status = text(url.searchParams.get("status"), 40);
   const employeeId = text(url.searchParams.get("employeeId"), 100);
+  // Legacy callers keep Fleet-only results. The current shifts screen asks
+  // explicitly for both origins; no imported event becomes a Fleet clock.
+  const source=url.searchParams.get('source')||'fleet';
+  if(!['fleet','ordexa','all'].includes(source))throw new ApiError(400,'Μη έγκυρη πηγή βαρδιών.');
+  const overlap=url.searchParams.get('overlap')==='1';
   const bounds = await localDateUtcBounds(env, from, to);
-  const rows = await env.DB.prepare(`SELECT s.*, u.full_name AS employee_name,
+  const rows = source==='ordexa'?{results:[]}:await env.DB.prepare(`SELECT s.*, u.full_name AS employee_name,
     CASE WHEN u.uses_own_vehicle=1 OR substr(s.current_vehicle_id,1,16)='__own_vehicle__:'
       THEN '${OWN_VEHICLE_LABEL}' ELSE v.name END AS vehicle_name,
     sc.start_at AS scheduled_start, sc.end_at AS scheduled_end
     FROM shifts s JOIN app_users u ON u.id=s.employee_id
     LEFT JOIN vehicle_registry v ON v.bike_id=s.current_vehicle_id
     LEFT JOIN schedules sc ON sc.id=s.schedule_id
-    WHERE s.actual_clock_in>=? AND s.actual_clock_in<? AND (?='' OR s.status=?) AND (?='' OR s.employee_id=?)
-    ORDER BY s.actual_clock_in DESC LIMIT 1000`)
-    .bind(bounds.start, bounds.end, status, status, employeeId, employeeId).all();
-  return wfJson({ shifts: (rows.results || []).map((row) => shiftPublic(row, actor)) });
+    WHERE ${overlap?"s.actual_clock_in<? AND (s.actual_clock_out>? OR s.actual_clock_out IS NULL OR (s.actual_clock_out=s.actual_clock_in AND s.actual_clock_in>=?))":"s.actual_clock_in>=? AND s.actual_clock_in<?"} AND (?='' OR s.status=?) AND (?='' OR s.employee_id=?)
+    ORDER BY s.actual_clock_in DESC,s.id LIMIT 1001`)
+    .bind(...(overlap?[bounds.end,bounds.start,bounds.start]:[bounds.start,bounds.end]), status, status, employeeId, employeeId).all();
+  const fleet=(rows.results||[]).map(row=>({...shiftPublic(row,actor),source:'fleet'}));
+  const external=source==='fleet'?{shifts:[]}:await readOrdexaShiftList(env,bounds,from,to,{setting,ApiError,employeeId,status,overlap,
+    calculate:(items,contextFrom,contextTo)=>plannedPayrollRows(env,bounds,contextFrom,contextTo,items)});
+  const combined=[...fleet,...external.shifts].sort((a,b)=>String(b.actualClockIn).localeCompare(String(a.actualClockIn))||a.id.localeCompare(b.id));
+  return wfJson({shifts:combined.slice(0,1000),hasMore:combined.length>1000,source,ordexaInfo:external.info});
 }
 
 async function manualClockIn(request, env, deps) {
@@ -4845,7 +4854,7 @@ async function plannedPayrollRows(env, bounds, startDate, endDate, externalRows 
       .sort((a,b)=>a.rank-b.rank||Number(b.row.priority)-Number(a.row.priority)||Number(b.row.version)-Number(a.row.version));
     const row=candidates[0]?.row||(rules.results || []).find(r=>r.id==="default-general");
     if(!row)throw new ApiError(409,"Δεν υπάρχει διαθέσιμος κανόνας πληρωμής.");
-    const rule=rulePublic(row,[]),windows=(specials.results || []).filter(r=>r.pay_rule_id===row.id).map(r=>{
+    let rule=rulePublic(row,[]);if(schedule.ordexa?.payResolution){if(Number(rule.minimumMinutes)%30||Number(rule.maximumMinutes)%30)throw new ApiError(409,'Ο κανόνας '+rule.name+' έχει όριο διάρκειας που δεν είναι πολλαπλάσιο 30 λεπτών.');rule={...rule,startRoundMode:'none',endRoundMode:'none',lateGraceMinutes:0};}const windows=(specials.results || []).filter(r=>r.pay_rule_id===row.id).map(r=>{
       const key=r.id+":"+date,set=claimed.get(key)||new Set();let qualified=r.qualification!=="manual"||set.has(String(schedule.employee_id));
       if(qualified&&r.capacity!=null&&r.qualification!=="manual") {
         if(!set.has(String(schedule.employee_id))&&set.size<Number(r.capacity))set.add(String(schedule.employee_id));
@@ -4858,9 +4867,9 @@ async function plannedPayrollRows(env, bounds, startDate, endDate, externalRows 
     if(!pay){pay=computePayBreakdown({actualStart:schedule.start_at,actualEnd:schedule.end_at,scheduledStart:externalRows?null:schedule.start_at,
       hardEndAt:schedule.end_at,excludedIntervals:schedule.excludedIntervals||[],rule,specialWindows:windows,timeZone:zone});computed.set(cacheKey,pay);}
     result.push({id:schedule.id,employee_id:schedule.employee_id,employee_name:schedule.full_name,
-      actual_clock_in:schedule.start_at,actual_clock_out:schedule.end_at,scheduled_end:schedule.end_at,
-      payable_minutes:pay.payableMinutes,shift_km:0,base_pay_cents:pay.basePayCents,special_pay_cents:pay.specialPayCents,
-      special_minutes:pay.segments.filter(p=>p.specialRateId).reduce((n,p)=>n+p.minutes,0),rule_id:row.id,rule_version:row.version,...(schedule.ordexa?{sourceSessionIds:schedule.ordexa.sessions,sourceGaps:schedule.ordexa.gaps}:{} )});
+      actual_clock_in:schedule.raw_start_at||schedule.start_at,actual_clock_out:schedule.raw_end_at||schedule.end_at,scheduled_end:schedule.end_at,
+      payable_minutes:pay.payableMinutes,payable_clock_in:pay.payableStart,payable_clock_out:pay.payableEnd,shift_km:0,base_pay_cents:pay.basePayCents,special_pay_cents:pay.specialPayCents,
+      special_minutes:pay.segments.filter(p=>p.specialRateId).reduce((n,p)=>n+p.minutes,0),rule_id:row.id,rule_version:row.version,...(schedule.ordexa?{sourceSessionIds:schedule.ordexa.sessions,sourceGaps:schedule.ordexa.gaps,sourceScheduleId:schedule.ordexa.payResolution?.schedule?.id||null,ordexaPayPolicy:schedule.ordexa.payResolution?.policy||null,ordexaSchedule:schedule.ordexa.payResolution?.schedule||null,ordexaTimeZone:schedule.ordexa.payResolution?.zone||null,ordexaPayDecision:schedule.ordexa.payResolution?{start:schedule.ordexa.payResolution.appliedStartChoice,end:schedule.ordexa.payResolution.appliedEndChoice,reason:schedule.ordexa.payResolution.decisionReason}:null}:{} )});
   }
   return result;
 }
@@ -4878,7 +4887,7 @@ async function buildPayrollSummary(env, startDate, endDate) {
   if(hoursSource==='ordexa'){
     try{ordexaData=await readOrdexaPayroll(env,bounds,startDate,endDate,setting);}catch(e){throw new ApiError(409,e.message);}
     const staff=(await env.DB.prepare('SELECT id,pay_rule_id,employee_group FROM app_users').all()).results||[];
-    for(const row of ordexaData.rows){const user=staff.find(u=>u.id===row.employee_id)||{};row.pay_rule_id=user.pay_rule_id;row.employee_group=user.employee_group;row.excludedIntervals=ordexaData.policy.gapTreatment==='include'?[]:row.ordexa.gaps;}
+    for(const row of ordexaData.rows){const user=staff.find(u=>u.id===row.employee_id)||{};row.pay_rule_id=user.pay_rule_id;row.employee_group=user.employee_group;row.excludedIntervals=ordexaData.payPolicy?.enabled||ordexaData.policy.gapTreatment==='include'?[]:row.ordexa.gaps;}
   }
   const shifts = hoursSource==='ordexa' ? {results:await plannedPayrollRows(env,bounds,startDate,endDate,ordexaData.rows)} : hoursSource === "schedule" ? {results: await plannedPayrollRows(env,bounds,startDate,endDate)}
     : await env.DB.prepare(`SELECT s.*,u.full_name AS employee_name,sc.end_at AS scheduled_end,
@@ -4907,7 +4916,7 @@ async function buildPayrollSummary(env, startDate, endDate) {
     item.hoursSource = hoursSource;
     if (!item.sourceRows) item.sourceRows = [];
     item.sourceRows.push({id:shift.id,start:shift.actual_clock_in,end:shift.actual_clock_out || shift.scheduled_end || null,
-      ruleId:shift.rule_id || null,ruleVersion:Number(shift.rule_version || 0),payableMinutes:Number(shift.payable_minutes || 0),...(shift.sourceSessionIds?{sourceSessionIds:shift.sourceSessionIds,gaps:shift.sourceGaps}: {})});
+      ruleId:shift.rule_id || null,ruleVersion:Number(shift.rule_version || 0),payableMinutes:Number(shift.payable_minutes || 0),...(shift.sourceSessionIds?{sourceSessionIds:shift.sourceSessionIds,gaps:shift.sourceGaps,sourceScheduleId:shift.sourceScheduleId||null,ordexaSchedule:shift.ordexaSchedule||null,ordexaTimeZone:shift.ordexaTimeZone||null,ordexaPayPolicy:shift.ordexaPayPolicy||null,ordexaPayDecision:shift.ordexaPayDecision||null,payableStart:shift.payable_clock_in||null,payableEnd:shift.payable_clock_out||null,basePayCents:Number(shift.base_pay_cents||0),specialPayCents:Number(shift.special_pay_cents||0)}: {})});
     if (shift.overtime_status === "pending") item.pendingOvertime += 1;
     if (shift.overtime_status === "approved") {
       const actualEnd = new Date(shift.actual_clock_out || "").getTime();
@@ -4943,7 +4952,7 @@ async function buildPayrollSummary(env, startDate, endDate) {
     item.finalCents = item.basePayCents + item.specialPayCents + item.bonusCents - item.deductionCents - item.advanceCents;
     return item;
   });
-  return { period, employees: employees.map(item=>({...item,hoursSource,...(ordexaData?{ordexaPolicy:ordexaData.policy}: {})})), hoursSource, lockedSnapshot: false, blockers:ordexaData?.blocked||[],ordexaRevision:ordexaData?.revision };
+  return { period, employees: employees.map(item=>({...item,hoursSource,...(ordexaData?{ordexaPolicy:ordexaData.policy}: {})})), hoursSource, lockedSnapshot: false, blockers:ordexaData?.blocked||[],ordexaReviews:ordexaData?.reviews||[],ordexaPayPolicy:ordexaData?.payPolicy||null,ordexaRevision:ordexaData?.revision };
 }
 
 async function payrollSummary(request, env) {
@@ -4967,7 +4976,7 @@ async function payrollSummary(request, env) {
     approvedOvertime: acc.approvedOvertime + (item.overtimeApprovals || []).length
   }), { employees: 0, payableHours: 0, kilometers: 0, basePayCents: 0, specialPayCents: 0, bonusCents: 0, deductionCents: 0, advanceCents: 0, finalCents: 0, pendingOvertime: 0, approvedOvertime: 0 });
   totals.payableHours = Math.round(totals.payableHours * 100) / 100;
-  return wfJson({ period: { id: summary.period.id, startDate, endDate, status: summary.period.status, hoursSource: summary.hoursSource }, hoursSource: summary.hoursSource, employees: summary.employees, totals, lockedSnapshot: summary.lockedSnapshot, blockers:summary.blockers||[] });
+  return wfJson({ period: { id: summary.period.id, startDate, endDate, status: summary.period.status, hoursSource: summary.hoursSource }, hoursSource: summary.hoursSource, employees: summary.employees, totals, lockedSnapshot: summary.lockedSnapshot, blockers:summary.blockers||[],ordexaReviews:summary.ordexaReviews||[],ordexaPayPolicy:summary.ordexaPayPolicy||null });
 }
 
 async function addPayrollAdjustment(request, env, deps) {
@@ -5120,6 +5129,7 @@ async function resolveCorrection(request, env, deps, id) {
 
 async function resolveAlert(request, env, id) {
   const actor = await authenticate(request, env, "alerts.manage");
+  if(await env.DB.prepare("SELECT id FROM system_alerts WHERE id=? AND type='ordexa_pay_review' AND resolved=0").bind(id).first())throw new ApiError(409,'Αυτή η ειδοποίηση χρειάζεται απόφαση για τη βάρδια μέσα από τον έλεγχο μισθοδοσίας.');
   const invoice=await env.DB.prepare("SELECT id FROM system_alerts WHERE id=? AND type='invoice_processing_failed' AND resolved=0").bind(id).first();
   if(invoice)throw new ApiError(409,'Το τιμολόγιο χρειάζεται επανάληψη. Η ειδοποίηση κλείνει αυτόματα μετά την επιτυχία.');
   const now = nowIso();

@@ -1,4 +1,6 @@
-import {normalizeOrdexaReport,ordexaId,ordexaDay,validateOrdexaPolicy,groupOrdexaSessions} from './ordexa-core.js';
+import {normalizeOrdexaReport,ordexaId,ordexaDay,validateOrdexaPolicy,groupOrdexaSessions,projectOrdexaGroups} from './ordexa-core.js';
+import {addCalendarDays} from './workforce-core.js';
+import {routeOrdexaPay,resolveOrdexaPayGroups,syncOrdexaPayAlerts,refreshOrdexaPayAlerts} from './ordexa-pay.js';
 const now=()=>new Date().toISOString();
 const records=r=>r.results||[];
 const bad=(D,message,status=400)=>{throw new D.ApiError(status,message);};
@@ -9,6 +11,8 @@ export async function routeOrdexa(request,env,path,D){
  if(!path.startsWith('/api/admin/ordexa')&&!path.startsWith('/api/server/ordexa'))return null;
  const server=path.startsWith('/api/server/ordexa'),method=request.method;
  if(server&&!await D.serverAuthorized(request,env))bad(D,'Μη έγκυρος Server.',401);
+ if(!server&&(path==='/api/admin/ordexa/pay-policy'||path==='/api/admin/ordexa/pay-review'))return routeOrdexaPay(request,env,path,D);
+ if(server&&path==='/api/server/ordexa/pay-check'&&method==='POST'){const b=await D.bodyJson(request);let from,to;try{from=ordexaDay(b.from);to=ordexaDay(b.to);}catch(e){bad(D,e.message);}if(to<from||Date.parse(to)-Date.parse(from)>=31*86400000)bad(D,'Επίλεξε έως 31 ημέρες ελέγχου.');const result=await refreshOrdexaPayAlerts(env,from,to);return D.wfJson({checked:true,...result});}
  const actor=server?null:await D.authenticate(request,env,'employees.manage');
  if(!server&&method==='POST')await D.requirePin(request,env,D,actor);
  if(server&&path==='/api/server/ordexa/import'&&method==='POST'){
@@ -108,19 +112,86 @@ export async function routeOrdexa(request,env,path,D){
 export async function readOrdexaPayroll(env,bounds,startDate,endDate,setting){
  const revision=await setting(env,'ordexa_revision','0');
  let p;try{p=validateOrdexaPolicy(JSON.parse(await setting(env,'ordexa_policy','null')));}catch{throw new Error('Ρύθμισε πρώτα τους κανόνες κενών Ordexa.');}
+ const contextStart=new Date(Date.parse(bounds.start)-86400000).toISOString(),contextEnd=new Date(Date.parse(bounds.end)+86400000).toISOString();
  const [sessions,coverage,cities]=await Promise.all([
-  env.DB.prepare(`SELECT s.*,r.employee_id,u.full_name AS employee_name FROM ordexa_sessions s LEFT JOIN ordexa_riders r ON r.city_id=s.city_id AND r.rider_id=s.rider_id LEFT JOIN app_users u ON u.id=r.employee_id WHERE s.in_at>=? AND s.in_at<? ORDER BY s.in_at,s.id`).bind(bounds.start,bounds.end).all(),
+  env.DB.prepare(`SELECT s.*,r.employee_id,u.full_name AS employee_name FROM ordexa_sessions s LEFT JOIN ordexa_riders r ON r.city_id=s.city_id AND r.rider_id=s.rider_id LEFT JOIN app_users u ON u.id=r.employee_id WHERE s.in_at>=? AND s.in_at<? ORDER BY s.in_at,s.id LIMIT 100001`).bind(contextStart,contextEnd).all(),
   env.DB.prepare('SELECT DISTINCT city_id,day FROM ordexa_imports WHERE accepted=1 AND day BETWEEN ? AND ?').bind(startDate,endDate).all(),
   env.DB.prepare('SELECT DISTINCT city_id FROM ordexa_riders WHERE employee_id IS NOT NULL').all()
  ]);
  // Provider dates can be corrected independently of timestamps. A session
  // already included in another locked period must never become payable twice.
- const sourceRows=records(sessions),paid=sourceRows.length?records(await env.DB.prepare(`SELECT DISTINCT si.value AS session_id FROM payroll_snapshots ps JOIN payroll_periods pp ON pp.id=ps.period_id,json_each(ps.data,'$.sourceRows') sr,json_each(sr.value,'$.sourceSessionIds') si WHERE pp.status='locked' AND (pp.start_date<>? OR pp.end_date<>?) AND si.value IN (SELECT value FROM json_each(?))`).bind(startDate,endDate,JSON.stringify(sourceRows.map(r=>r.id))).all()):[];
+ const sourceRows=records(sessions);if(sourceRows.length>100000)throw new Error('Πάρα πολλές παρουσίες Ordexa. Επίλεξε μικρότερη περίοδο μισθοδοσίας.');
+ const sourceIdsJson=JSON.stringify(sourceRows.map(row=>row.id));if(new TextEncoder().encode(sourceIdsJson).length>1024*1024)throw new Error('Πάρα πολλές παρουσίες Ordexa. Επίλεξε μικρότερη περίοδο μισθοδοσίας.');
+ const paid=sourceRows.length?records(await env.DB.prepare(`SELECT DISTINCT si.value AS session_id FROM payroll_snapshots ps JOIN payroll_periods pp ON pp.id=ps.period_id,json_each(ps.data,'$.sourceRows') sr,json_each(sr.value,'$.sourceSessionIds') si WHERE pp.status='locked' AND (pp.start_date<>? OR pp.end_date<>?) AND si.value IN (SELECT value FROM json_each(?))`).bind(startDate,endDate,sourceIdsJson).all()):[];
  const paidIds=new Set(paid.map(r=>r.session_id));
- const grouped=groupOrdexaSessions(sourceRows.filter(r=>!paidIds.has(r.id)),p),coverageSet=new Set(records(coverage).map(r=>r.city_id+'|'+r.day));
- for(const row of sourceRows)if(paidIds.has(row.id)&&(!Number(row.ignored)||Number(row.review)))grouped.blocked.push({id:row.id,reason:'Η παρουσία έχει ήδη προσμετρηθεί σε άλλη κλειδωμένη μισθοδοσία.'});
+ // Group complete overnight presences before assigning their start date to a
+ // payroll period. Midnight is a calendar boundary, never an artificial out.
+ const all=groupOrdexaSessions(sourceRows,p),inPeriod=value=>value>=bounds.start&&value<bounds.end;
+ const resolved=await resolveOrdexaPayGroups(env,projectOrdexaGroups(sourceRows,p),{paidIds});
+ const allGroups=resolved.policy.enabled?resolved.groups.filter(group=>group.eligible):all.groups;
+ const selected=allGroups.filter(group=>inPeriod(group.payrollAnchor||group.start)),byId=new Map(sourceRows.map(row=>[row.id,row]));
+ const blocked=all.blocked.filter(item=>{const row=byId.get(item.id);if(inPeriod(row.in_at))return true;
+  return selected.some(group=>{if(!row.employee_id||row.employee_id!==group.employeeId)return false;
+   const before=(Date.parse(group.start)-Date.parse(row.out_at||row.in_at))/60000,after=(Date.parse(row.in_at)-Date.parse(group.end))/60000;
+   return (before>=0&&before<=p.gapMinutes)||(after>=0&&after<=p.gapMinutes)||(row.in_at<group.end&&(!row.out_at||row.out_at>group.start));});});
+ const grouped={groups:selected.filter(group=>!group.sessions.some(id=>paidIds.has(id))&&(!group.payResolution||group.payResolution.paidEnd>=group.payResolution.paidStart)),blocked},coverageSet=new Set(records(coverage).map(r=>r.city_id+'|'+r.day));
+ const reviews=resolved.reviews.filter(review=>{const group=resolved.groups.find(g=>g.id===review.id);return inPeriod(group.payrollAnchor||group.start);});
+ for(const review of reviews)grouped.blocked.push({id:review.id,reason:'Χρειάζεται απόφαση μισθοδοσίας: '+review.reasons.map(r=>r.message).join(' · ')});
+ for(const group of selected)for(const id of group.sessions)if(paidIds.has(id))grouped.blocked.push({id,reason:'Η παρουσία έχει ήδη προσμετρηθεί σε άλλη κλειδωμένη μισθοδοσία.'});
  for(const city of records(cities))for(let d=Date.parse(startDate+'T00:00:00Z');d<=Date.parse(endDate+'T00:00:00Z');d+=86400000){const day=new Date(d).toISOString().slice(0,10);if(!coverageSet.has(city.city_id+'|'+day))grouped.blocked.push({id:city.city_id+'|'+day,reason:'Λείπει ημερήσιος συγχρονισμός'});}
  if(!records(cities).length)grouped.blocked.push({reason:'Δεν υπάρχουν αντιστοιχισμένοι εργαζόμενοι Ordexa.'});
  if(revision!==await setting(env,'ordexa_revision','0'))throw new Error('Οι παρουσίες Ordexa άλλαξαν στη διάρκεια του υπολογισμού. Κάνε ανανέωση.');
- return {...grouped,policy:p,revision,rows:grouped.groups.map(g=>({id:g.id,employee_id:g.employeeId,full_name:g.employeeName,start_at:g.start,end_at:g.end,status:'completed',ordexa:g}))};
+ if(resolved.policy.enabled)await syncOrdexaPayAlerts(env,resolved.groups);
+ return {...grouped,policy:p,payPolicy:resolved.policy,reviews,revision,rows:grouped.groups.map(g=>({id:g.id,employee_id:g.employeeId,full_name:g.employeeName,start_at:g.payResolution?.paidStart||g.start,end_at:g.payResolution?.paidEnd||g.end,raw_start_at:g.start,raw_end_at:g.end,status:'completed',ordexa:g}))};
+}
+
+// A read-only projection for the ordinary shifts screen. Payroll remains the
+// sole authority for payment/locks; nothing is inserted into Fleet shifts.
+export async function readOrdexaShiftList(env,bounds,from,to,D){
+ const revision=await D.setting(env,'ordexa_revision','0');let p=null;
+ try{p=validateOrdexaPolicy(JSON.parse(await D.setting(env,'ordexa_policy','null')));}catch{}
+ // A grouped presence lasts at most 24 hours. Read context on both sides so
+ // a midnight date filter cannot lose the first/last part of the same shift.
+ const contextStart=new Date(Date.parse(bounds.start)-86400000).toISOString(),contextEnd=new Date(Date.parse(bounds.end)+86400000).toISOString();
+ const result=await env.DB.prepare(`SELECT s.*,r.name,r.employee_id,u.full_name AS employee_name,u.pay_rule_id,u.employee_group
+  FROM ordexa_sessions s LEFT JOIN ordexa_riders r ON r.city_id=s.city_id AND r.rider_id=s.rider_id
+  LEFT JOIN app_users u ON u.id=r.employee_id
+  WHERE s.in_at>=? AND s.in_at<? ORDER BY s.in_at,s.id LIMIT 10001`).bind(contextStart,contextEnd).all();
+ const rows=records(result);if(rows.length>10000)throw new D.ApiError(413,'Πολλές παρουσίες Ordexa. Επίλεξε μικρότερο διάστημα για πλήρη προβολή.');
+ const projected=projectOrdexaGroups(rows,p);await resolveOrdexaPayGroups(env,projected);
+ const visible=projected.filter(group=>{
+  if(D.employeeId&&group.employeeId!==D.employeeId)return false;
+  if(D.status&&D.status!==(group.end?'completed':'active'))return false;
+  if(group.start>=bounds.end)return false;
+  return D.overlap?(!group.end||group.end>bounds.start||(group.end===group.start&&group.start>=bounds.start)):group.start>=bounds.start;
+ });
+ const ids=visible.flatMap(group=>group.sessions);
+ const idsJson=JSON.stringify(ids);if(new TextEncoder().encode(idsJson).length>1024*1024)throw new D.ApiError(413,'Πολλές παρουσίες Ordexa. Επίλεξε μικρότερο διάστημα για πλήρη προβολή.');
+ const paid=ids.length?records(await env.DB.prepare(`SELECT DISTINCT si.value AS id FROM payroll_snapshots ps JOIN payroll_periods pp ON pp.id=ps.period_id,
+  json_each(ps.data,'$.sourceRows') sr,json_each(sr.value,'$.sourceSessionIds') si
+  WHERE pp.status='locked' AND si.value IN (SELECT value FROM json_each(?))`).bind(idsJson).all()):[];
+ const paidIds=new Set(paid.map(row=>row.id));
+ const candidates=visible.filter(group=>group.eligible&&!group.sessions.some(id=>paidIds.has(id))&&(!group.payResolution||group.payResolution.paidEnd>=group.payResolution.paidStart));
+ const calculated=candidates.length?await D.calculate(candidates.map(group=>({id:group.id,employee_id:group.employeeId,full_name:group.employeeName,
+  pay_rule_id:group.raw[0].pay_rule_id,employee_group:group.raw[0].employee_group,start_at:group.payResolution?.paidStart||group.start,end_at:group.payResolution?.paidEnd||group.end,raw_start_at:group.start,raw_end_at:group.end,
+  excludedIntervals:group.payResolution?[]:p.gapTreatment==='exclude'?group.gaps:[],ordexa:group})),addCalendarDays(from,-1),addCalendarDays(to,1)):[];
+ const payById=new Map(calculated.map(row=>[row.id,row]));
+ const shifts=visible.map(group=>{
+  const raw=group.raw[0],locked=group.sessions.some(id=>paidIds.has(id)),pay=payById.get(group.id),notes=[];
+  if(!group.employeeId)notes.push('Χωρίς αντιστοίχιση εργαζομένου');
+  if(group.raw.some(row=>Number(row.ignored)))notes.push('Δεν προσμετράται');
+  if(group.raw.some(row=>Number(row.review)||row.missing_since))notes.push('Χρειάζεται έλεγχος παρουσίας');
+  if(!p)notes.push('Δεν έχουν οριστεί κανόνες κενών');
+  if(!group.end)notes.push('Εκκρεμεί τελικό Clock Out');
+  if(locked)notes.push('Κλειδωμένη μισθοδοσία — δες την αποθηκευμένη περίοδο');
+  if(group.payResolution?.unresolved.length)notes.push('Εκκρεμεί απόφαση μισθοδοσίας');
+  return {id:group.id,source:'ordexa',employeeId:group.employeeId||null,employeeName:group.employeeName||raw.name||'Χωρίς αντιστοίχιση',
+   providerName:[...new Set(group.raw.map(row=>row.name||row.rider_id))].join(' · '),vehicleId:null,vehicleName:'',ownVehicle:false,
+   status:group.end?'completed':'active',actualClockIn:group.start,actualClockOut:group.end||null,
+   payableHours:pay?Math.round(pay.payable_minutes/60*100)/100:null,payableClockIn:pay?.payable_clock_in||null,payableClockOut:pay?.payable_clock_out||null,
+   payablePreview:!!pay,payrollLocked:locked,payReviewId:group.payResolution?.unresolved.length?group.id:null,sourceSessionIds:group.sessions,sourceSessionCount:group.sessions.length,
+   sourceNotes:notes,lastSourceRead:group.raw.map(row=>row.last_seen).sort().at(-1)};
+ });
+ if(revision!==await D.setting(env,'ordexa_revision','0'))throw new D.ApiError(409,'Οι παρουσίες Ordexa άλλαξαν. Κάνε ανανέωση.');
+ return {shifts,info:{policyConfigured:!!p,readOnly:true}};
 }
