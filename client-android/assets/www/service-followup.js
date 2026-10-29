@@ -65,7 +65,7 @@
       d.querySelector('[data-recovery-resume]').hidden=!b||!['error','paused'].includes(b.status)||Number(b.completed)>=Number(b.total);
       const node=d.querySelector('[data-recovery-status]');
       node.textContent=b?'Ουρά Server: '+Number(b.completed||0)+' / '+Number(b.total||0)+' · '+Number(b.progress||0)+'% · '+(b.currentName||'')+' · Αποτυχίες: '+Number(b.failed||0)+(b.queued?' · QR που υποβλήθηκαν στην ουρά: '+b.queued:'')+(b.error?' · '+b.error:'')+(active?' · Μπορείς να κλείσεις την καρτέλα. Η ουρά συνεχίζει στον Server.':' · Η νέα ανάγνωση δεν επιβεβαιώνει αυτόματα ανεπίλυτες διαφορές.')+(b.results||[]).filter(r=>r.status==='error').map(r=>' · '+r.name+': '+r.error).join(''):'';
-      render();if(wasActive&&!active)await load();if(active)recoveryTimer=setTimeout(()=>{if(!document.hidden)watchRecovery();else recoveryTimer=setTimeout(()=>watchRecovery(),15000);},15000);
+      render();if(wasActive&&!active)await load();if(active)recoveryTimer=setTimeout(()=>{if(!document.hidden)watchRecovery();},15000);
     }catch(error){if(d.open&&context===A().context?.())d.querySelector('[data-recovery-status]').textContent='Δεν ανανεώθηκε η πρόοδος: '+error.message+' Η αποθηκευμένη ουρά διατηρείται.';}
   }
   async function recoverAll(entryIds){
@@ -138,6 +138,7 @@
     d.addEventListener('close',()=>{clearTimeout(recoveryTimer);request++;if(dialog===d)dialog=null;},{once:true});render();await load();if(dialog===d){populate();await watchRecovery();if(options?.recover)await recoverAll(options.entryIds);}
   }
   root.FleetFollowup={open,reset(){request++;dialog?.close();dialog=null;bikes=[];documents=[];outbox=[];filter={bikeId:"",from:"",to:"",includeExempt:false};document.querySelectorAll(".service-tools-dialog").forEach(d=>{if(d.open)d.close();});}};
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&dialog?.open)watchRecovery();});
   function mount(){for(const b of document.querySelectorAll('[data-open-followup]'))b.onclick=()=>open(b.dataset.openFollowup);}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
 })(window);
