@@ -1,5 +1,15 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## #52 / 5.58.0 — συγχώνευση και προετοιμασία δημοσίευσης
+
+- Το [PR#55](https://github.com/pavlos-argyris/fleet-control/pull/55) συγχωνεύτηκε από τελικό head **7ebfb1eb0a679d4e307bcb0456d6a89f54892522**. Main/source **7c8a4cbf96c184b5db1a2a7423f3147c1f56ebf4**, tree **ab990c44802dbd8e470ff171050a04e4404a4795**, ταυτόσημο με το πλήρες ελεγμένο τοπικό/PR tree.
+- [Exact PR CI41127995097](https://github.com/pavlos-argyris/fleet-control/actions/runs/41127995097) **success**: πλήρες check-all, όλες οι παλιές/νέες browser/native/SQLite/Workerd/D1 σουίτες, δύο δοκιμαστικά APK, Worker dry-run και πλήρης source παράδοση. Ο πλήρης τελικός τοπικός κύκλος (build και check-all μαζί με μεγάλη SQLite) επίσης success. Οι παραγωγικές υπογραφές θα δημιουργηθούν μόνο από τα αρχικά Secrets στο κανονικό release workflow.
+- Εξετάστηκαν οπτικά πραγματικά desktop/mobile/file Client screenshots. Artifact **13011343551**, ZIP SHA256 **71ad93fa9bd01c31d63353417c9106360e43cdd4209446c61427032b08895d6d**· περιλαμβάνουν πραγματικό WebCrypto, ασφαλές κείμενο αντί HTML, αναγνώσιμη ηλικία/μόνο προβολή και πλήρες responsive πλάτος.
+- [Exact-main CI41129750722](https://github.com/pavlos-argyris/fleet-control/actions/runs/41129750722) και [artifact-only prepare41129750675](https://github.com/pavlos-argyris/fleet-control/actions/runs/41129750675) σε εξέλιξη. Το prepare περιμένει επιτυχές CI και εκτελεί τον κανονικό generator· δεν κάνει commit ή deploy.
+- **Η παρούσα συνομιλία αναλαμβάνει τη μοναδική δημοσίευση5.58.0. Το main/source παραμένει δεσμευμένο στην7c8a4cb έως request/ενεργοποίηση.** Η παρούσα ενημέρωση κρατείται στον `docs/issue-52-publication-handoff` ώστε να μη μετακινηθεί το δεσμευμένο main. Το χωριστό PR#54 CI δεν συγχωνεύεται τυφλά.
+- **Δεν έχει ξεκινήσει ακόμη δημοσίευση5.58.0 και δεν έχει επιβεβαιωθεί νέα ενεργοποίηση.** Επόμενο: exact-main success → έλεγχος generated request/μοναδικού parent/source → request-only commit με expected-SHA lease → παρακολούθηση ίδιας ροής έως αρχικές υπογραφές, activated:true και live bytes/source verification.
+- Υπενθύμιση πεδίου: εφεδρική είσοδος/τοπικές προβολές **μόνο ανάγνωση**. Η πλήρης μεταφορά καταχωρίσεων/εισαγωγών/μισθοδοσίας και η μηνιαία ταχύτητα παραμένουν στα #52/#51. Καμία φυσική εγκατάσταση, production import/οικονομικό write ή πραγματικό backup/restore από τον βοηθό.
+
 
 
 ## #52 / PR#55 — αποθηκευμένο source, πρόσθετη κρυπτογράφηση/έλεγχοι
