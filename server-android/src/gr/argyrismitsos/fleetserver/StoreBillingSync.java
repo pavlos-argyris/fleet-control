@@ -47,7 +47,7 @@ public final class StoreBillingSync {
         try{r=FleetHttp.sendJson(source.getString("worker")+"/api/server/store-billing/control","POST",input,SyncService.serverHeaders());}
         catch(Exception offline){
             JSONObject cached=m.optJSONObject("control");JSONObject j=new JSONObject(source.toString()).put("operationId",UUID.randomUUID().toString()).put("lease",UUID.randomUUID().toString()).put("type","sync").put("from",from).put("to",today).put("phase","localSetup").put("offline",true);
-            if(cached!=null&&source.getString("scope").equals(cached.optString("scope"))&&source.getString("generation").equals(cached.optString("generation")))j.put("epoch",cached.getString("epoch")).put("inputRevision",cached.getLong("inputRevision"));
+            if(cached!=null&&source.getString("scope").equals(cached.optString("scope"))&&source.getString("generation").equals(cached.optString("generation"))&&(s.get(StoreBillingStore.key("authority",source.getString("scope"),"ledger"))!=null||m.optString("archiveEpoch","").startsWith(source.getString("scope")+":"+cached.getString("epoch")+":")))j.put("epoch",cached.getString("epoch")).put("inputRevision",cached.getLong("inputRevision"));
             m.put("job",j).remove("localRequest");return;
         }if(r.optBoolean("idle",false)){m.put("wake",false).put("nextDue",Math.max(m.optLong("nextDue",0),System.currentTimeMillis()+60000));return;}JSONObject job=r.getJSONObject("job");
         same(c,source);JSONObject j=new JSONObject(source.toString()).put("epoch",r.getString("epoch")).put("operationId",job.getString("id")).put("lease",job.getString("lease")).put("type",job.getString("type")).put("from",job.getString("from")).put("to",job.getString("to")).put("inputRevision",r.getJSONObject("connection").getLong("revision")).put("catalogueHash",r.getJSONObject("connection").optString("catalogueHash","")).put("inputCursor",0).put("inputCount",0).put("phase",job.getString("type").equals("reprice")?"inputs":"setup");
@@ -117,6 +117,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
         }
         if(phase.equals("reprice")){
             JSONObject coverage=s.get(StoreBillingStore.key("coverage",scope,j.getString("day")));if(coverage==null){j.put("phase","next");return "Δεν έχει ληφθεί ακόμη η ημέρα "+j.getString("day")+" · δεν δημιουργήθηκε εικονικό μηδέν";}
+            if(coverage.optBoolean("needsSourceRefresh",false)){j.put("phase","orders");return "Επαλήθευση πηγής μετά την επαναφορά backup · "+j.getString("day");}
             JSONObject retain=new JSONObject();JSONArray shops=stores(s,j);for(int i=0;i<shops.length();i++){JSONObject shop=shops.getJSONObject(i);retain.put(shop.getString("id"),shop.optBoolean("retainOrders",false));}
             int removed=s.reconcile(scope,j.getString("day"),coverage.getString("runId"),retain);
             j.put("sourceAt",coverage.getString("sourceAt")).put("finalPass",coverage.getString("runId")).put("removalCount",removed).put("stageCursor",0).put("phase","stage");return "Επανυπολογισμός αποθηκευμένων στοιχείων χωρίς νέα λήψη Ordexa";
@@ -144,7 +145,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
         JSONArray queue=s.rows(source.getString("scope"),"outbox");
         // Bounded daily pages, immutable snapshots and byte-matched ACK.
         if(queue.length()==0)return false;JSONObject job=queue.getJSONObject(0);
-        if(!job.has("epoch")||!source.getString("generation").equals(job.optString("generation"))) {s.invalidateAck(job.getString("scope"),job.getString("day"));wakeForRefresh(s,job);return false;}same(c,job);
+        if(!job.has("epoch")||!source.getString("generation").equals(job.optString("generation"))) {FleetHttp.getJson(source.getString("worker")+"/api/server/connection-check",SyncService.serverHeaders());s.invalidateAck(job.getString("scope"),job.getString("day"));wakeForRefresh(s,job);return false;}same(c,job);
         JSONArray all=s.snapshotRows(job.getString("scope"),job.getString("runId")),changed=new JSONArray();
         for(int i=0;i<all.length();i++){JSONObject row=all.getJSONObject(i),ack=s.get(StoreBillingStore.key("aggregate-ack",job.getString("scope"),row.getString("businessDay")+":"+row.getString("storeId")));if(ack==null||!ack.optString("hash").equals(StoreBillingStore.resultHash(row)))changed.put(row);}
         JSONObject base=new JSONObject(job.toString());base.remove("worker");base.put("protocol",2).put("count",all.length()).put("changedCount",changed.length());
@@ -186,7 +187,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
                 if(m!=null){int failures=m.optInt("failures",0)+1;m.put("failures",failures).put("error",safe).put("stage",safe).put("nextDue",time+Math.min(3600000L,60000L*(1L<<Math.min(5,failures-1))));
                     boolean definite=e instanceof FleetHttp.HttpStatusException&&((FleetHttp.HttpStatusException)e).statusCode>=400&&((FleetHttp.HttpStatusException)e).statusCode<500&&((FleetHttp.HttpStatusException)e).statusCode!=408&&((FleetHttp.HttpStatusException)e).statusCode!=429;
                     boolean uncertainPublish=j!=null&&"publish".equals(j.optString("phase"))&&!definite&&!message.contains("άδεια εργασίας")&&!message.contains("άλλαξ");
-                    if(!uncertainPublish){if(j!=null)try{progress(c,j,safe,"failed");}catch(Exception ignored){}m.remove("job");}
+                    if(!uncertainPublish){if(j!=null){try{same(c,j);if("sync".equals(j.getString("type"))&&Arrays.asList("catalogue","inputs","hydrate").contains(j.optString("phase")))m.put("localRequest",new JSONObject().put("from",j.getString("from")).put("to",j.getString("to")));}catch(Exception ignored){}try{progress(c,j,safe,"failed");}catch(Exception ignored){}}m.remove("job");}
                     save(s,m);next=m.getLong("nextDue");}
             }catch(Exception ignored){next=time+60000;}
         }finally{if(tracked)ServerWorkTracker.finish("stores");running.set(false);}
