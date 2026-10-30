@@ -60,7 +60,7 @@ jobs:
             if(end<0)break;
             try{events.push(JSON.parse(raw.slice(i,end+1)));i=end;}catch{}
           }
-          const clean=s=>{s=String(s);for(const key of ['FLEET_SERVER_KEY','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID'])if(process.env[key])s=s.replaceAll(process.env[key],'[redacted]');return s.split('\n')[0].slice(0,600);};
+          const clean=s=>{s=String(s);for(const key of ['FLEET_SERVER_KEY','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID'])if(process.env[key])s=s.replaceAll(process.env[key],'[redacted]');const first=s.split('\n')[0];return first.length>800?first.slice(0,160)+' … '+first.slice(-600):first;};
           const selected=events.filter(e=>String(e.event?.request?.url||'').includes(nonce));
           console.log(JSON.stringify({matchingEvents:selected.length,diagnostics:selected.map(e=>({outcome:e.outcome,exceptions:(e.exceptions||[]).map(x=>clean(x.message)),messages:(e.logs||[]).flatMap(x=>x.message||[]).map(clean)}))}));
           if(!selected.length)console.log(JSON.stringify({tailExit:child.exitCode,tailBytes:raw.length,stderrBytes:errors.length,parsedEvents:events.length,tailErrors:(raw+'\n'+errors).split('\n').filter(s=>/ERROR|D1_ERROR|not authorized|permission|authentication|Unauthorized|code:/i.test(s)).map(clean).slice(-8)}));
