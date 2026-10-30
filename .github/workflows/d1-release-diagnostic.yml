@@ -41,13 +41,13 @@ jobs:
           let raw='',errors='';
           child.stdout.on('data',b=>{if(raw.length<1048576)raw+=b.toString();});
           child.stderr.on('data',b=>{if(errors.length<16384)errors+=b.toString();});
-          await delay(8000);
+          await delay(12000);
           try{
             const response=await fetch(process.env.FLEET_WORKER_URL.replace(/\/$/,'')+'/api/server/connection-check?diagnostic='+nonce,{headers:{'X-Fleet-Server-Key':process.env.FLEET_SERVER_KEY,'X-Fleet-Diagnostic':nonce},signal:AbortSignal.timeout(15000)});
             console.log(JSON.stringify({connectionHttp:response.status}));
             await response.body?.cancel();
           }catch(e){console.log(JSON.stringify({requestError:e.name}));}
-          await delay(7000);child.kill('SIGTERM');await delay(2000);
+          await delay(15000);child.kill('SIGTERM');await delay(2000);
           const events=[];
           for(let i=0;i<raw.length;i++){
             if(raw[i]!=='{')continue;
@@ -63,6 +63,6 @@ jobs:
           const clean=s=>{s=String(s);for(const key of ['FLEET_SERVER_KEY','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID'])if(process.env[key])s=s.replaceAll(process.env[key],'[redacted]');return s.split('\n')[0].slice(0,600);};
           const selected=events.filter(e=>String(e.event?.request?.url||'').includes(nonce));
           console.log(JSON.stringify({matchingEvents:selected.length,diagnostics:selected.map(e=>({outcome:e.outcome,exceptions:(e.exceptions||[]).map(x=>clean(x.message)),messages:(e.logs||[]).flatMap(x=>x.message||[]).map(clean)}))}));
-          if(!selected.length)console.log(JSON.stringify({tailDiagnostic:clean(errors.slice(-1000))}));
+          if(!selected.length)console.log(JSON.stringify({tailExit:child.exitCode,tailBytes:raw.length,stderrBytes:errors.length,parsedEvents:events.length,tailErrors:(raw+'\n'+errors).split('\n').filter(s=>/ERROR|D1_ERROR|not authorized|permission|authentication|Unauthorized|code:/i.test(s)).map(clean).slice(-8)}));
           process.exit(0);
           NODE
