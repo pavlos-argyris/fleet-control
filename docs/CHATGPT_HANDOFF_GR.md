@@ -1,5 +1,12 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## Έναρξη δημοσίευσης #52 / 5.58.0 — 30/10/26, 11:28:19 μ.μ. ώρα Ελλάδας
+
+- Ακριβής source/main **7c8a4cbf96c184b5db1a2a7423f3147c1f56ebf4**, tree **ab990c44802dbd8e470ff171050a04e4404a4795**. Exact PR CI41127995097 και exact-main CI41129750722 **success**. Πλήρης πηγή/δύο test-signed APK και όλες οι απαιτούμενες σουίτες έχουν επαληθευτεί.
+- Το artifact-only prepare41129750675 / job124317343725 **success** εκτέλεσε τον κανονικό generator μετά το exact-main CI. Generated requestId **fleet-cfd27ea8-1919-474e-85b8-40883620091c**, requestedAt **2026-10-30T21:25:48.819Z**, modepublish/release5.58.0/source7c8a4cb. Το JSON ανακτήθηκε από το log και επιβεβαιώθηκε byte-exact με Git blob **9b65ea3b603161e325ce56040250e505b0f36a63**.
+- Επιβεβαιώθηκαν αμετάβλητο main7c8a4cb και μηδενικές άλλες ενεργές δημοσιεύσεις. Ακολουθεί μοναδικό request-only commit με parent/source7c8a4cb και μόνο `.github/fleet-publish-request.json`, με expected-SHA lease. Η παρούσα καταγραφή αποθηκεύεται πριν από την εντολή, στον χωριστό docs κλάδο.
+- **Η ενεργοποίηση5.58.0 δεν έχει ακόμη επιβεβαιωθεί.** Επόμενο: παρακολούθηση του ίδιου Publish, αρχικές υπογραφές/activated:true/live byte/source verification. Δεν δημιουργείται δεύτερη request ούτε αλλάζει η δεσμευμένη πηγή. Η εφεδρική λειτουργία αφορά μόνο είσοδο/προβολή· #52/#51 παραμένουν ανοικτά για τις επιχειρησιακές μεταφορές.
+
 ## #52 / 5.58.0 — συγχώνευση και προετοιμασία δημοσίευσης
 
 - Το [PR#55](https://github.com/pavlos-argyris/fleet-control/pull/55) συγχωνεύτηκε από τελικό head **7ebfb1eb0a679d4e307bcb0456d6a89f54892522**. Main/source **7c8a4cbf96c184b5db1a2a7423f3147c1f56ebf4**, tree **ab990c44802dbd8e470ff171050a04e4404a4795**, ταυτόσημο με το πλήρες ελεγμένο τοπικό/PR tree.
