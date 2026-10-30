@@ -111,6 +111,17 @@ public final class StoreBillingSync {
                 JSONObject shop=shops.getJSONObject(i);String id=shop.getString("id");JSONArray own=new JSONArray();for(int n=0;n<terms.length();n++)if(id.equals(terms.getJSONObject(n).getString("storeId")))own.put(terms.getJSONObject(n));
                 JSONObject counts=s.counts(scope,day,id,j.getString("finalPass")),row=StoreBillingEngine.day(id,day,counts.getLong("count"),StoreBillingEngine.termsFor(own,day),j.getString("sourceAt"),counts.getInt("retained"),counts.getInt("reviews"));row.put("storeRevision",shop.getLong("revision")).put("retentionUsed",shop.optBoolean("retainOrders",false));output.put(row);
             }
+            // Persist computed daily totals locally before any remote publication. The
+            // stable day/store key makes a repeated page safe after a network failure.
+            // Cloud publishing remains enabled until the Worker aggregate-only protocol
+            // is deployed; do not silently bypass its existing consistency fences.
+            for(int i=0;i<output.length();i++){
+                JSONObject aggregate=output.getJSONObject(i);
+                String storeId=aggregate.getString("storeId");
+                s.put(StoreBillingStore.key("local-day",j.getString("scope"),day+":"+storeId),
+                    "local_day",j.getString("scope"),storeId,day,
+                    new JSONObject(aggregate.toString()).put("runId",j.getString("runId")),false);
+            }
             post(c,j,"stage",new JSONObject().put("runId",j.getString("runId")).put("day",day).put("rows",output));j.put("stageCursor",end).put("resultCount",shops.length());if(end==shops.length())j.put("phase","removals");return "Υπολογισμός χρεώσεων · "+day+" · "+end+"/"+shops.length();
         }
         if(phase.equals("removals")){
