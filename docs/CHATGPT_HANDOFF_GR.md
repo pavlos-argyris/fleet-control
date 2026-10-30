@@ -1,5 +1,11 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## #52 / 5.58.0 — request-only commit και Publish σε εξέλιξη
+
+- Request-only commit **6d4b8f8f513f8760d8d7dba877a1dfadf2a9ec0a**, μοναδικός parent/source **7c8a4cbf96c184b5db1a2a7423f3147c1f56ebf4**, με μοναδική αλλαγή `.github/fleet-publish-request.json`. Επαληθεύτηκαν compare μίας αλλαγής, parent/tree και byte-exact generated blob9b65ea3b603161e325ce56040250e505b0f36a63. Το main μετακινήθηκε μόνο με expected-SHA lease, χωρίς force.
+- [Publish41131332163](https://github.com/pavlos-argyris/fleet-control/actions/runs/41131332163) ξεκίνησε. **Validate publication request**, job124322725102, **success**. Publish job **124322806220** σε εξέλιξη. Το Check saved source41131332222 του request commit εκτελείται χωριστά· η υποχρεωτική πηγή παραμένει7c8a4cb / exact-main CI41129750722 success.
+- **Δεν έχει επιβεβαιωθεί ενεργοποίηση5.58.0.** Παρακολουθείται μόνο το ίδιο run για αρχικές υπογραφές, activated:true και πλήρη ζωντανή επαλήθευση. Δεν δημιουργείται δεύτερη request. Το main/source/request παραμένει δεσμευμένο μέχρι το τέλος.
+
 ## Έναρξη δημοσίευσης #52 / 5.58.0 — 30/10/26, 11:28:19 μ.μ. ώρα Ελλάδας
 
 - Ακριβής source/main **7c8a4cbf96c184b5db1a2a7423f3147c1f56ebf4**, tree **ab990c44802dbd8e470ff171050a04e4404a4795**. Exact PR CI41127995097 και exact-main CI41129750722 **success**. Πλήρης πηγή/δύο test-signed APK και όλες οι απαιτούμενες σουίτες έχουν επαληθευτεί.
