@@ -52,7 +52,9 @@ public final class StoreBillingSync {
         }if(r.optBoolean("idle",false)){m.put("wake",false).put("nextDue",Math.max(m.optLong("nextDue",0),System.currentTimeMillis()+60000));return;}JSONObject job=r.getJSONObject("job");
         same(c,source);JSONObject j=new JSONObject(source.toString()).put("epoch",r.getString("epoch")).put("operationId",job.getString("id")).put("lease",job.getString("lease")).put("type",job.getString("type")).put("from",job.getString("from")).put("to",job.getString("to")).put("inputRevision",r.getJSONObject("connection").getLong("revision")).put("catalogueHash",r.getJSONObject("connection").optString("catalogueHash","")).put("inputCursor",0).put("inputCount",0).put("phase",job.getString("type").equals("reprice")?"inputs":"setup");
         JSONObject authority=s.get(StoreBillingStore.key("authority",j.getString("scope"),"ledger"));
-        j.put("needsHydrate",authority==null&&!m.optString("archiveEpoch","").equals(j.getString("scope")+":"+j.getString("epoch")+":"+j.getString("generation")));
+        boolean legacyComplete=m.optString("archiveEpoch","").startsWith(j.getString("scope")+":"+j.getString("epoch")+":");
+        if(authority==null&&legacyComplete){authority=new JSONObject().put("complete",true);s.put(StoreBillingStore.key("authority",j.getString("scope"),"ledger"),"authority",j.getString("scope"),"","",authority,false);}
+        j.put("needsHydrate",authority==null);
         m.put("control",new JSONObject().put("scope",j.getString("scope")).put("generation",j.getString("generation")).put("epoch",j.getString("epoch")).put("inputRevision",j.getLong("inputRevision")));if(requested!=null&&j.getString("from").equals(requested.getString("from"))&&j.getString("to").equals(requested.getString("to"))&&j.getString("type").equals("sync"))m.remove("localRequest");
         s.cleanupTemporary(j.getString("scope"));m.put("job",j).put("wake",false).put("error","").put("stage","Έλεγχος συμβατότητας Ordexa");
     }
@@ -137,18 +139,18 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
         }
         throw new Exception("Άγνωστο στάδιο καταστημάτων· επανάλαβε τη διαδικασία.");
     }
-    private static void flush(Context c,StoreBillingStore s)throws Exception{
-        JSONObject source=OrdexaSync.storesContext(c);if(!source.optBoolean("configured"))return;
+    private static boolean flush(Context c,StoreBillingStore s)throws Exception{
+        JSONObject source=OrdexaSync.storesContext(c);if(!source.optBoolean("configured"))return false;
         JSONArray queue=s.rows(source.getString("scope"),"outbox");
-        // One day per interval, bounded pages, immutable snapshot and byte-matched ACK.
-        if(queue.length()==0)return;JSONObject job=queue.getJSONObject(0);
-        if(!job.has("epoch")||!source.getString("generation").equals(job.optString("generation"))) {s.invalidateAck(job.getString("scope"),job.getString("day"));wakeForRefresh(s,job);return;}same(c,job);
+        // Bounded daily pages, immutable snapshots and byte-matched ACK.
+        if(queue.length()==0)return false;JSONObject job=queue.getJSONObject(0);
+        if(!job.has("epoch")||!source.getString("generation").equals(job.optString("generation"))) {s.invalidateAck(job.getString("scope"),job.getString("day"));wakeForRefresh(s,job);return false;}same(c,job);
         JSONArray all=s.snapshotRows(job.getString("scope"),job.getString("runId")),changed=new JSONArray();
         for(int i=0;i<all.length();i++){JSONObject row=all.getJSONObject(i),ack=s.get(StoreBillingStore.key("aggregate-ack",job.getString("scope"),row.getString("businessDay")+":"+row.getString("storeId")));if(ack==null||!ack.optString("hash").equals(StoreBillingStore.resultHash(row)))changed.put(row);}
         JSONObject base=new JSONObject(job.toString());base.remove("worker");base.put("protocol",2).put("count",all.length()).put("changedCount",changed.length());
         try{
             for(int offset=0;offset<changed.length();offset+=32){JSONArray page=new JSONArray();for(int i=offset;i<Math.min(offset+32,changed.length());i++)page.put(changed.getJSONObject(i));JSONObject body=new JSONObject(base.toString()).put("rows",page);JSONObject r=FleetHttp.sendJson(job.getString("worker")+"/api/server/store-billing/aggregate-stage","POST",body,SyncService.serverHeaders());if(!r.optBoolean("saved"))throw new Exception("Aggregate stage unconfirmed");}
-            JSONObject r=FleetHttp.sendJson(job.getString("worker")+"/api/server/store-billing/aggregate-publish","POST",base,SyncService.serverHeaders());if(!r.optBoolean("saved"))throw new Exception("Aggregate publish unconfirmed");s.ackDay(job,all);
+            JSONObject r=FleetHttp.sendJson(job.getString("worker")+"/api/server/store-billing/aggregate-publish","POST",base,SyncService.serverHeaders());if(!r.optBoolean("saved"))throw new Exception("Aggregate publish unconfirmed");s.ackDay(job,all);return true;
         }catch(FleetHttp.HttpStatusException conflict){if(conflict.statusCode==409){s.invalidateAck(job.getString("scope"),job.getString("day"));wakeForRefresh(s,job);}throw conflict;}
     }
     private static void wakeForRefresh(StoreBillingStore s,JSONObject job)throws Exception{JSONObject m=state(s);m.put("historyPending",job.getString("day")).put("wake",true).put("nextDue",0);save(s,m);}
@@ -158,7 +160,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
         try{
             if(OtaManager.shouldYieldForUpdate(c)){next=time+5000;return;}
             s=new StoreBillingStore(fleet);m=state(s);
-            if(time>=publishNext){publishNext=time+300000;try{flush(c,s);m=state(s);m.remove("cloudError");}catch(Exception cloud){m=state(s);m.put("cloudError","Εκκρεμεί δημοσίευση συγκεντρωτικών · ασφαλής επανάληψη");}save(s,m);}JSONObject source=OrdexaSync.storesContext(c);j=m.optJSONObject("job");
+            if(time>=publishNext){publishNext=time+300000;try{long deadline=System.currentTimeMillis()+5000;for(int days=0;days<32&&System.currentTimeMillis()<deadline;days++)if(!flush(c,s))break;m=state(s);m.remove("cloudError");}catch(Exception cloud){m=state(s);m.put("cloudError","Εκκρεμεί δημοσίευση συγκεντρωτικών · ασφαλής επανάληψη");}save(s,m);}JSONObject source=OrdexaSync.storesContext(c);j=m.optJSONObject("job");
             JSONObject signal=s.get("meta:store-billing-wake");long wakeAt=signal==null?0:signal.optLong("at",0);if(wakeAt>m.optLong("lastWakeHandled",0))m.put("wake",true).put("nextDue",0);
             if(!source.getBoolean("configured")||j==null&&!m.optBoolean("wake")&&(!source.getBoolean("enabled")||time<m.optLong("nextDue",0))){next=time+10000;return;}
             if(j!=null&&(!j.getString("scope").equals(source.getString("scope"))||!j.getString("generation").equals(source.getString("generation")))){m.remove("job");j=null;}
@@ -167,7 +169,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
                 String stage=step(c,s,j);m.put("stage",stage).put("error","");ServerWorkTracker.stage("stores","Καταστήματα Ordexa",stage);
                 if(j.optBoolean("hydrated"))m.put("archiveEpoch",j.getString("scope")+":"+j.getString("epoch")+":"+j.getString("generation"));
                 if(j.getString("phase").equals("done")){
-                    m.remove("job");m.put("lastSuccess",OrdexaClient.isoNow()).put("nextDue",time+3600000).put("failures",0).put("error","").put("wake",j.optBoolean("hasPending"));
+                    m.remove("job");if(m.optString("cloudError","").isEmpty())publishNext=Math.min(publishNext,time+1000);m.put("lastSuccess",OrdexaClient.isoNow()).put("nextDue",time+3600000).put("failures",0).put("error","").put("wake",j.optBoolean("hasPending"));
                     if(m.optString("historyPending","").equals(j.getString("from"))&&j.getString("from").equals(j.getString("to")))m.remove("historyPending");
                     if(m.optBoolean("autoCycle")&&source.getBoolean("enabled")){
                         String previous=StoreBillingEngine.addDay(StoreBillingEngine.businessDay(time),-1),old=s.oldestCoverage(j.getString("scope"),previous);if(old.length()>0)m.put("historyPending",old).put("wake",true);m.put("autoCycle",false);
