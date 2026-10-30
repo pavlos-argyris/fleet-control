@@ -114,7 +114,7 @@ public final class SyncService extends Service {
         ordexaPayrollExecutor=Executors.newSingleThreadScheduledExecutor();
         ordexaPayrollExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaPayrollSync.tick(getApplicationContext(),store);}},15,10,TimeUnit.SECONDS);
         storeBillingExecutor=Executors.newSingleThreadScheduledExecutor();
-        storeBillingExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){StoreBillingSync.tick(getApplicationContext(),store);}},20,2,TimeUnit.SECONDS);
+        storeBillingExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){StoreBillingSync.tick(getApplicationContext(),store);}},20000,250,TimeUnit.MILLISECONDS);
         // Connectivity must stay live even during ten parallel local reads,
         // lengthy AI results, Drive backup or a full mirror download.
         pulseExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -362,7 +362,7 @@ public final class SyncService extends Service {
             BackupManager.maybeAutomatic(getApplicationContext(),store);
         } catch(java.util.concurrent.CancellationException paused){p.edit().putString("mirror_stage","Παύση για ενημέρωση · θα συνεχιστεί μετά").apply();}
         catch (Exception error) { p.edit().putString("mirror_error",safeMessage(error)).apply(); }
-        finally { ServerWorkTracker.finish("mirror");mirrorRunning.set(false); }
+        finally { try{BackupManager.maybeAutomatic(getApplicationContext(),store);}catch(Exception ignored){} ServerWorkTracker.finish("mirror");mirrorRunning.set(false); }
     }
     private static String safeMessage(Exception error) { return error.getMessage()==null ? "Δεν ολοκληρώθηκε η ενέργεια." : error.getMessage(); }
     private void invoiceState(String job,String stage,int progress,String error) {

@@ -46,6 +46,9 @@ public final class BackupJobs {
         if(BackupStatus.active(c))throw new IOException("Υπάρχει ήδη backup σε εξέλιξη. Δες το στάδιο και την πρόοδο παρακάτω.");
         JSONObject job=prepare(c,store,"manual","");Transfer transfer=export(c,job,false);transfer.await();return job.getString("fileName");
     }
+    public static JSONObject createLocalAutomatic(Context c,FleetDataStore store)throws Exception{
+        JSONObject job=prepare(c,store,"automatic","");if(!localReady(c,job))throw new IOException("Το τοπικό backup δεν επαληθεύτηκε.");BackupStatus.progress(c,job.getString("id"),"local_ready","Το κρυπτογραφημένο τοπικό backup επαληθεύτηκε · αναμονή επιλογής φακέλου",70,job.optInt("includedDocuments"),job.optInt("expectedDocuments"),0,0,job.getString("fileName"));return job;
+    }
     public static boolean isPreparing(){return preparing.get();}
     public static String lastJob(Context c){return prefs(c).getString(LAST_JOB,"");}
     public static JSONObject requestForUpdate(final Context c,final FleetDataStore store,final String release)throws Exception{

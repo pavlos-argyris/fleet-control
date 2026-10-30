@@ -101,7 +101,6 @@ public final class BackupManager {
         long attempted=preferences.getLong("backup_automatic_attempt",0);
         if(System.currentTimeMillis()-attempted<3600000L)return;
         String folder = preferences.getString(KEY_FOLDER_URI, "");
-        if (folder == null || folder.length() == 0) return;
         java.util.Calendar calendar = java.util.Calendar.getInstance();
         int desiredHour = preferences.getInt(KEY_HOUR, 3);
         String frequency = preferences.getString(KEY_FREQUENCY, "daily");
@@ -112,7 +111,8 @@ public final class BackupManager {
         if (calendar.get(java.util.Calendar.HOUR_OF_DAY) < desiredHour || today.equals(preferences.getString(KEY_LAST_DAY, ""))) return;
         try {
             preferences.edit().putLong("backup_automatic_attempt",System.currentTimeMillis()).apply();
-            createBackup(context, store);
+            if(folder==null||folder.length()==0){JSONObject job=BackupJobs.createLocalAutomatic(context,store);preferences.edit().putString(KEY_LAST_DAY,today).putString(KEY_LAST_TIME,isoNow()).putString(KEY_LAST_RESULT,"Κρυπτογραφημένο τοπικό backup επαληθεύτηκε. Επίλεξε φάκελο για αντίγραφο εκτός συσκευής.").apply();}
+            else createBackup(context, store);
         } catch (Exception error) {
             preferences.edit().putString(KEY_LAST_RESULT, error.getMessage()).apply();
         }

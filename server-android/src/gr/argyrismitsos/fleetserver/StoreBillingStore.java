@@ -63,8 +63,42 @@ public final class StoreBillingStore {
         c=db.rawQuery("SELECT COUNT(*) FROM store_billing_local WHERE scope=? AND kind='observation' AND json_extract(data,'$.review')=1 AND (store_id=? OR json_extract(data,'$.acceptedOrderId') IN(SELECT id FROM store_billing_local WHERE scope=? AND store_id=? AND kind='order')) AND (day=? OR json_extract(data,'$.acceptedOrderId') IN(SELECT id FROM store_billing_local WHERE scope=? AND store_id=? AND day=? AND kind='order'))",new String[]{scope,store,scope,store,day,scope,store,day});int reviews=0;try{if(c.moveToFirst())reviews=c.getInt(0);}finally{c.close();}
         return new JSONObject().put("count",count).put("retained",retained).put("reviews",reviews);
     }
+    public synchronized int pendingCount(){Cursor c=db.rawQuery("SELECT COUNT(*) FROM store_billing_local WHERE kind='outbox'",null);try{return c.moveToFirst()?c.getInt(0):0;}finally{c.close();}}
+    public synchronized void observePage(String scope,JSONArray seen,String run)throws Exception{db.beginTransaction();try{for(int i=0;i<seen.length();i++)observe(scope,seen.getJSONObject(i).getJSONObject("row"),run);db.setTransactionSuccessful();}finally{db.endTransaction();}}
+    public static String resultHash(JSONObject row)throws Exception{JSONObject v=new JSONObject(row.toString());for(String k:new String[]{"sourceLastSuccessAt","computedAt","runId"})v.remove(k);return OrdexaClient.digest(v);}
+    public synchronized JSONArray snapshotRows(String scope,String run)throws Exception{
+        JSONArray out=new JSONArray();Cursor c=db.rawQuery("SELECT data FROM store_billing_local WHERE scope=? AND kind='outbox_row' AND json_extract(data,'$.runId')=? ORDER BY store_id",new String[]{scope,run});try{while(c.moveToNext())out.put(new JSONObject(c.getString(0)));}finally{c.close();}return out;
+    }
+    public synchronized void localCatalogue(String scope,JSONArray shops)throws Exception{
+        db.beginTransaction();try{for(int i=0;i<shops.length();i++){JSONObject row=new JSONObject(shops.getJSONObject(i).toString());String id=key("store",scope,row.getString("sourceShopId"));JSONObject old=get(id);if(old!=null)continue;
+            row.put("id",id).put("revision",0).put("retainOrders",false);put(id,"store",scope,"","",row,false);
+            JSONArray terms=row.getJSONArray("sourceTerms");for(int n=0;n<terms.length();n++){JSONObject t=new JSONObject(terms.getJSONObject(n).toString());String tid=key("local-terms",scope,id+":"+n);t.put("id",tid).put("storeId",id).put("version",1);put(tid,"terms",scope,id,t.optString("effectiveDay"),t,false);}
+        }db.setTransactionSuccessful();}finally{db.endTransaction();}
+    }
+    /** Local result, confirmed absence audit and immutable outbox commit together. */
+    public synchronized void completeDay(JSONObject job)throws Exception{
+        String scope=job.getString("scope"),day=job.getString("day"),run=job.getString("runId");
+        db.beginTransaction();try{
+            db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND day=? AND kind IN ('outbox','outbox_row')",new Object[]{scope,day});
+            Cursor c=db.rawQuery("SELECT store_id,data FROM store_billing_local WHERE scope=? AND day=? AND kind='computed' AND id LIKE ? ORDER BY store_id",new String[]{scope,day,"computed:"+run+":%"});int count=0;
+            try{while(c.moveToNext()){String id=c.getString(0);JSONObject row=new JSONObject(c.getString(1));put(key("local-day",scope,day+":"+id),"local_day",scope,id,day,row,false);row.put("runId",run);put("outbox:"+run+":"+id,"outbox_row",scope,id,day,row,false);count++;}}finally{c.close();}
+            if(count!=job.getInt("resultCount"))throw new IllegalStateException("Incomplete local aggregate snapshot");
+            JSONObject pending=new JSONObject(job.toString());pending.put("day",day).put("sourceAt",job.getString("sourceAt"));put(key("outbox",scope,day),"outbox",scope,"",day,pending,false);
+            commitReconcileRows(scope,day,job.getString("finalPass"));
+            put(key("coverage",scope,day),"coverage",scope,"",day,new JSONObject().put("runId",job.getString("finalPass")).put("sourceAt",job.getString("sourceAt")),false);
+            db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND kind='computed' AND day=?",new Object[]{scope,day});db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
+    public synchronized void invalidateAck(String scope,String day){db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND day=? AND kind='aggregate_ack'",new Object[]{scope,day});}
+    public synchronized void ackDay(JSONObject job,JSONArray all)throws Exception{
+        String scope=job.getString("scope"),day=job.getString("day"),id=key("outbox",scope,day);db.beginTransaction();try{
+            JSONObject current=get(id);if(current==null||!current.getString("runId").equals(job.getString("runId")))return;
+            for(int i=0;i<all.length();i++){JSONObject r=all.getJSONObject(i);put(key("aggregate-ack",scope,day+":"+r.getString("storeId")),"aggregate_ack",scope,r.getString("storeId"),day,new JSONObject().put("hash",resultHash(r)),false);}
+            db.execSQL("DELETE FROM store_billing_local WHERE id=?",new Object[]{id});db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND kind='outbox_row' AND json_extract(data,'$.runId')=?",new Object[]{scope,job.getString("runId")});db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
     public synchronized JSONArray exportRows()throws Exception{
-        JSONArray out=new JSONArray();Cursor c=db.rawQuery("SELECT id,kind,scope,store_id,day,data,dirty FROM store_billing_local WHERE kind IN ('store','terms','order','observation','coverage') ORDER BY id",null);try{while(c.moveToNext())out.put(new JSONObject().put("id",c.getString(0)).put("kind",c.getString(1)).put("scope",c.getString(2)).put("storeId",c.getString(3)).put("day",c.getString(4)).put("data",new JSONObject(c.getString(5))).put("dirty",c.getInt(6)));}finally{c.close();}return out;
+        JSONArray out=new JSONArray();Cursor c=db.rawQuery("SELECT id,kind,scope,store_id,day,data,dirty FROM store_billing_local WHERE kind IN ('store','terms','order','observation','coverage','local_day') ORDER BY id",null);try{while(c.moveToNext())out.put(new JSONObject().put("id",c.getString(0)).put("kind",c.getString(1)).put("scope",c.getString(2)).put("storeId",c.getString(3)).put("day",c.getString(4)).put("data",new JSONObject(c.getString(5))).put("dirty",c.getInt(6)));}finally{c.close();}return out;
     }
     public synchronized JSONArray staged(String scope,String kind,String run,int offset,int limit)throws Exception{
         JSONArray out=new JSONArray();Cursor c=db.rawQuery("SELECT data FROM store_billing_local WHERE scope=? AND kind=? AND json_extract(data,'$.runId')=? ORDER BY id LIMIT ? OFFSET ?",new String[]{scope,kind,run,String.valueOf(limit),String.valueOf(offset)});try{while(c.moveToNext())out.put(new JSONObject(c.getString(0)));}finally{c.close();}return out;
@@ -95,18 +129,18 @@ public final class StoreBillingStore {
     public synchronized JSONArray removals(String scope,String day,String pass,int offset)throws Exception{
         JSONArray out=new JSONArray();Cursor c=db.rawQuery("SELECT data FROM store_billing_local WHERE scope=? AND kind='order' AND day=? AND json_extract(data,'$.pendingDeleteRun')=? ORDER BY id LIMIT 32 OFFSET ?",new String[]{scope,day,pass,String.valueOf(offset)});try{while(c.moveToNext()){JSONObject r=new JSONObject(c.getString(0));out.put(new JSONObject().put("orderId",r.getString("id")).put("storeId",r.getString("storeId")));}}finally{c.close();}return out;
     }
-    public synchronized void commitReconcile(String scope,String day,String pass)throws Exception{
-        db.beginTransaction();try{for(;;){JSONArray rows=removals(scope,day,pass,0);if(rows.length()==0)break;for(int i=0;i<rows.length();i++){
+    public synchronized void commitReconcile(String scope,String day,String pass)throws Exception{db.beginTransaction();try{commitReconcileRows(scope,day,pass);db.setTransactionSuccessful();}finally{db.endTransaction();}}
+    private void commitReconcileRows(String scope,String day,String pass)throws Exception{for(;;){JSONArray rows=removals(scope,day,pass,0);if(rows.length()==0)break;for(int i=0;i<rows.length();i++){
             JSONObject pair=rows.getJSONObject(i),r=get(pair.getString("orderId"));r.put("active",false);r.remove("pendingDeleteRun");put(r.getString("id"),"order",scope,r.getString("storeId"),day,r,false);
             String id=key("observation",scope,r.getString("id")+":deleted:"+pass);JSONObject event=new JSONObject(r.toString()).put("id",id).put("acceptedOrderId",r.getString("id")).put("event","source_deleted").put("review",false).put("observedAt",OrdexaClient.isoNow());put(id,"observation",scope,r.getString("storeId"),day,event,true);
-        }}db.setTransactionSuccessful();}finally{db.endTransaction();}
+        }}
     }
     public synchronized void importArchive(String scope,JSONObject row)throws Exception{
         String kind=row.getString("kind"),id=row.getString("id");JSONObject data=new JSONObject(row.getString("data"));
-        if("publication".equals(kind)){put(key("coverage",scope,row.getString("day")),"coverage",scope,"",row.getString("day"),new JSONObject().put("sourceAt",data.getString("sourceLastSuccessAt")).put("runId",data.optString("sourcePass",data.getString("activeRun")+":p2")),false);return;}
+        if("publication".equals(kind)){if(data.optInt("protocol",1)==2&&get(key("authority",scope,"ledger"))==null)throw new IllegalArgumentException("Το ιστορικό καταστημάτων βρίσκεται στον προηγούμενο Server. Χρειάζεται επαναφορά πλήρους backup πριν δημοσίευση.");put(key("coverage",scope,row.getString("day")),"coverage",scope,"",row.getString("day"),new JSONObject().put("sourceAt",data.getString("sourceLastSuccessAt")).put("runId",data.optString("sourcePass",data.getString("activeRun")+":p2")),false);return;}
         if(!"order".equals(kind)&&!"observation".equals(kind))throw new IllegalArgumentException("Άγνωστη κατηγορία αρχείου καταστημάτων.");
         Cursor c=db.rawQuery("SELECT dirty FROM store_billing_local WHERE id=?",new String[]{id});boolean dirty;try{dirty=c.moveToFirst()&&c.getInt(0)!=0;}finally{c.close();}
-        if(!dirty){data.remove("pendingDeleteRun");put(id,kind,scope,row.getString("store_id"),row.getString("day"),data,false);}
+        if(get(id)==null){data.remove("pendingDeleteRun");put(id,kind,scope,row.getString("store_id"),row.getString("day"),data,false);}
     }
     public synchronized String oldestCoverage(String scope,String before)throws Exception{
         Cursor c=db.rawQuery("SELECT day FROM store_billing_local WHERE scope=? AND kind='coverage' AND day<? ORDER BY json_extract(data,'$.sourceAt'),day LIMIT 1",new String[]{scope,before});try{return c.moveToFirst()?c.getString(0):"";}finally{c.close();}
@@ -117,12 +151,13 @@ public final class StoreBillingStore {
         Set<String> ids=new HashSet<String>();Map<String,String> shops=new HashMap<String,String>();
         for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);for(String k:new String[]{"id","scope","storeId","day"})if(r.getString(k).length()>200)throw new IllegalArgumentException("Μη έγκυρη ταυτότητα καταστημάτων στο backup.");
             String id=r.getString("id"),scope=r.getString("scope"),kind=r.getString("kind");JSONObject data=r.getJSONObject("data");
-            if(!id.matches("[A-Za-z0-9_:-]{1,200}")||!scope.matches("[A-Za-z0-9_:-]{1,100}")||!Arrays.asList("store","terms","order","observation","coverage").contains(kind)||!ids.add(id))throw new IllegalArgumentException("Μη έγκυρη κατηγορία ή διπλή εγγραφή καταστημάτων.");
+            if(!id.matches("[A-Za-z0-9_:-]{1,200}")||!scope.matches("[A-Za-z0-9_:-]{1,100}")||!Arrays.asList("store","terms","order","observation","coverage","local_day").contains(kind)||!ids.add(id))throw new IllegalArgumentException("Μη έγκυρη κατηγορία ή διπλή εγγραφή καταστημάτων.");
             if(data.toString().getBytes("UTF-8").length>32768)throw new IllegalArgumentException("Μεγάλη εγγραφή καταστημάτων στο backup.");
             if(!r.getString("day").isEmpty())OrdexaClient.day(r.getString("day"));
             if(kind.equals("store")){if(!data.getString("id").equals(id)||!(data.get("retainOrders") instanceof Boolean)||!data.getString("sourceShopId").matches("[A-Za-z0-9_:-]{1,100}"))throw new IllegalArgumentException("Μη έγκυρο κατάστημα στο backup.");shops.put(scope+":"+id,data.getString("sourceShopId"));}
             else if(kind.equals("order")||kind.equals("observation")){if(!id.equals(data.getString("id"))||!r.getString("storeId").equals(data.getString("storeId"))||!r.getString("day").equals(data.getString("businessDay"))||!StoreBillingEngine.businessDay(OrdexaClient.instant(data.getString("at"))).equals(r.getString("day"))||data.getString("sourceOrderId").isEmpty()||(kind.equals("order")&&!(data.get("active") instanceof Boolean)))throw new IllegalArgumentException("Μη έγκυρη παραγγελία στο backup.");}
             else if(kind.equals("terms")){if(!id.equals(data.getString("id"))||!r.getString("storeId").equals(data.getString("storeId"))||!r.getString("day").equals(data.getString("effectiveDay")))throw new IllegalArgumentException("Μη έγκυροι όροι στο backup.");if(data.optBoolean("supported")){StoreBillingEngine.day(r.getString("storeId"),"2026-01-01",0,data,"",0,0);}}
+            else if(kind.equals("local_day")){if(!data.getString("storeId").equals(r.getString("storeId"))||!data.getString("businessDay").equals(r.getString("day")))throw new IllegalArgumentException("Invalid local daily result");}
             else{OrdexaClient.instant(data.getString("sourceAt"));if(data.getString("runId").isEmpty())throw new IllegalArgumentException("Μη έγκυρη κάλυψη στο backup.");}
         }
         for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);String kind=r.getString("kind");if(kind.equals("order")||kind.equals("observation")||kind.equals("terms")){String source=shops.get(r.getString("scope")+":"+r.getString("storeId"));if(source==null||(!kind.equals("terms")&&!source.equals(r.getJSONObject("data").getString("sourceShopId"))))throw new IllegalArgumentException("Λείπει το σωστό κατάστημα από το backup.");}}
@@ -131,6 +166,8 @@ public final class StoreBillingStore {
     public synchronized void restore(JSONArray rows)throws Exception{
         // Validate every record before touching the durable archive.
         validateBackup(rows);
-        db.beginTransaction();try{db.execSQL("DELETE FROM store_billing_local");for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);JSONObject data=new JSONObject(r.getJSONObject("data").toString());data.remove("pendingDeleteRun");put(r.getString("id"),r.getString("kind"),r.getString("scope"),r.getString("storeId"),r.getString("day"),data,"order".equals(r.getString("kind"))||"observation".equals(r.getString("kind")));}db.setTransactionSuccessful();}finally{db.endTransaction();}
+        db.beginTransaction();try{db.execSQL("DELETE FROM store_billing_local");for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);JSONObject data=new JSONObject(r.getJSONObject("data").toString());data.remove("pendingDeleteRun");put(r.getString("id"),r.getString("kind"),r.getString("scope"),r.getString("storeId"),r.getString("day"),data,"order".equals(r.getString("kind"))||"observation".equals(r.getString("kind")));}Set<String> scopes=new HashSet<String>();for(int i=0;i<rows.length();i++)scopes.add(rows.getJSONObject(i).getString("scope"));for(String scope:scopes)put(key("authority",scope,"ledger"),"authority",scope,"","",new JSONObject().put("restored",true),false);
+            for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if("local_day".equals(row.getString("kind"))){String scope=row.getString("scope"),day=row.getString("day");put(key("outbox",scope,day),"outbox",scope,"",day,new JSONObject().put("scope",scope).put("day",day).put("runId",UUID.randomUUID().toString()),false);}}
+            db.setTransactionSuccessful();}finally{db.endTransaction();}
     }
 }

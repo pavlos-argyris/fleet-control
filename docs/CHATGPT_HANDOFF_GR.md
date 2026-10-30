@@ -1,5 +1,16 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## Υλοποίηση PR #56 — πρώτο πλήρες λειτουργικό checkpoint — 31/10/2026
+
+SQLite import/atomic local results/outbox, protocol2 aggregate-only D1 με CAS/receipts/dual read, ασφαλής παλιά migration, backup ημερησίων/αναλυτικών και ανεξάρτητος backup scheduler, λιγότερα heartbeat/progress/settings writes. Υποψήφιες Client/Web5.59.0(94), Server2.8.0(52), Worker5.18.0. Μετρήσεις actual Workerd D1 synthetic 1/7/31 ημερών: 678→96,4746→672,21018→2976 (−85,84% για8 καταστήματα/100 παραγγελίες ημερησίως). Αμετάβλητη επανάληψη δεν γράφει ημερήσια αποτελέσματα. Οδηγός `docs/SERVER_PRIMARY_STORE_ORDERS_GR.md`.
+
+Πέρασαν έως τώρα native pipeline/offline/restart, actual D1 protocol2/legacy, native engine/DST, backup jobs/cipher/restore και direct access. Τοπικά κατασκευάστηκαν δύο APK με ΜΟΝΟ δοκιμαστική υπογραφή· δεν παραδίδονται ως production. Το πλήρες check-all επανεκτελείται μετά τη νέα έκδοση (διορθώθηκε το diagnostics workerVersion). Εκκρεμούν final exact PR/main CI, αρχική υπογραφή μέσω Secrets και επιβεβαιωμένη δημοσίευση. Δεν έγινε παραγωγική διαγραφή, restore, Ordexa write, backup παραγωγής ή φυσική εγκατάσταση. Το προηγούμενο5.58 publish41131332163 παραμένει μη επιβεβαιωμένο· ελέγχεται πριν νέα δημοσίευση.
+
+## Ανάληψη Server-first Stores — PR #56 — 31/10/2026
+
+Συνέχιση του `codex/server-primary-store-orders` από `5f0925d`, με ρητή εντολή πλήρους υλοποίησης και αυτόματης δημοσίευσης μόνο μετά επιτυχείς ελέγχους. Διαβάστηκαν AGENTS, checkpoint και Issues #44/#51/#52. Διατηρείται η εργασία direct access. Το προηγούμενο publish #52 δεν έχει επιβεβαιωμένη ενεργοποίηση· πριν νέα δημοσίευση απαιτείται έλεγχος συντονισμού. Στόχος: τοπική ολοκλήρωση, επίμονη ουρά συγκεντρωτικών, Worker χωρίς raw archive dependency, ασφαλή υπάρχοντα backups, μετρήσεις και regression tests. Καμία παραγωγική διαγραφή ή επαναφορά.
+
+
 
 
 ## #52 / PR#55 — αποθηκευμένο source, πρόσθετη κρυπτογράφηση/έλεγχοι

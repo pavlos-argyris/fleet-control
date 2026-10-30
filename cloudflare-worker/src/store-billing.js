@@ -5,6 +5,8 @@ export const STORE_BILLING_COLUMNS=['id','scope','kind','store_id','day','revisi
 export const STORE_BILLING_SCHEMA=`
 CREATE TABLE IF NOT EXISTS store_billing_records(id TEXT PRIMARY KEY,scope TEXT NOT NULL,kind TEXT NOT NULL,store_id TEXT NOT NULL DEFAULT '',day TEXT NOT NULL DEFAULT '',revision INTEGER NOT NULL DEFAULT 1,data TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS store_billing_lookup ON store_billing_records(scope,kind,day,store_id);
+CREATE TABLE IF NOT EXISTS store_billing_aggregate_stage(id TEXT PRIMARY KEY,scope TEXT NOT NULL,store_id TEXT NOT NULL,day TEXT NOT NULL,run_id TEXT NOT NULL,data TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS store_billing_aggregate_run ON store_billing_aggregate_stage(scope,day,run_id);
 CREATE TABLE IF NOT EXISTS store_billing_guards(id TEXT PRIMARY KEY,ok INTEGER CONSTRAINT store_billing_guard CHECK(ok=1));
 `;
 const now=()=>new Date().toISOString(),rows=r=>r.results||[],json=r=>r?{...r,...JSON.parse(r.data)}:null;
@@ -39,8 +41,8 @@ async function control(env,b,D){
  const e=await epoch(env);if(e.restoring)invalid(D,'Η επαναφορά βρίσκεται σε εξέλιξη.',409);
  const scope=ident(b.scope,D,100),generation=ident(b.generation,D,100),city=ident(b.cityId,D,100);number(b.generationAt,D,Number.MAX_SAFE_INTEGER);
  const old=json(await record(env,scopeId(scope)));if(old&&Number(old.generationAt)>b.generationAt)invalid(D,'Παλιότερη συνεδρία Ordexa. Δεν εφαρμόστηκε.',409);
- const data={...(old||{}),id:scopeId(scope),generation,generationAt:b.generationAt,cityId:city,bootstrapComplete:!!old?.bootstrapComplete};delete data.data;delete data.kind;delete data.scope;delete data.store_id;delete data.day;delete data.updated_at;delete data.revision;
- const registered=await env.DB.prepare("INSERT INTO store_billing_records(id,scope,kind,store_id,day,data,updated_at) VALUES(?,?,'connection','','',?,?) ON CONFLICT(id) DO UPDATE SET data=json_set(store_billing_records.data,'$.generation',?,'$.generationAt',?,'$.cityId',?),updated_at=excluded.updated_at WHERE COALESCE(json_extract(store_billing_records.data,'$.generationAt'),0)<=?").bind(scopeId(scope),scope,JSON.stringify(data),now(),generation,b.generationAt,city,b.generationAt).run();if(!registered.meta?.changes)invalid(D,'Νεότερη συνεδρία Ordexa έχει ήδη συνδεθεί.',409);
+ const data={...(old||{}),id:scopeId(scope),generation,generationAt:b.generationAt,cityId:city,bootstrapComplete:!!old?.bootstrapComplete,...(b.protocol===2?{storageMode:'server-primary'}:{})};delete data.data;delete data.kind;delete data.scope;delete data.store_id;delete data.day;delete data.updated_at;delete data.revision;
+ const registered=await env.DB.prepare("INSERT INTO store_billing_records(id,scope,kind,store_id,day,data,updated_at) VALUES(?,?,'connection','','',?,?) ON CONFLICT(id) DO UPDATE SET data=json_set(store_billing_records.data,'$.generation',?,'$.generationAt',?,'$.cityId',?,'$.storageMode',?),updated_at=excluded.updated_at WHERE COALESCE(json_extract(store_billing_records.data,'$.generationAt'),0)<=?").bind(scopeId(scope),scope,JSON.stringify(data),now(),generation,b.generationAt,city,data.storageMode||'legacy',b.generationAt).run();if(!registered.meta?.changes)invalid(D,'Νεότερη συνεδρία Ordexa έχει ήδη συνδεθεί.',409);
  await env.DB.prepare("INSERT INTO fleet_settings(key,value,updated_at) VALUES('store_billing_active_scope',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(scope,now()).run();
  let job=json(await env.DB.prepare("SELECT * FROM store_billing_records WHERE scope IN (?, '') AND kind='operation' AND (json_extract(data,'$.state')='pending' OR (json_extract(data,'$.state')='running' AND updated_at<?)) ORDER BY updated_at LIMIT 1").bind(scope,new Date(Date.now()-900000).toISOString()).first());
  if(!job&&b.allowAuto===false){const current=await record(env,scopeId(scope));return {epoch:e.epoch,connection:{...data,revision:current.revision},idle:true};}
@@ -78,7 +80,7 @@ async function input(env,url,b,D){
  const out=rows(await env.DB.prepare("SELECT rowid cursor,id,scope,kind,store_id,day,revision,CASE WHEN kind='store' THEN json_remove(data,'$.sourceTerms') ELSE data END data,updated_at FROM store_billing_records WHERE scope=? AND kind IN ("+kinds+") AND rowid>? ORDER BY rowid LIMIT 51").bind(b.scope,cursor).all());if((await record(env,scopeId(b.scope)))?.revision!==c.revision)invalid(D,'Οι όροι άλλαξαν κατά τη λήψη.',409);return {rows:out.slice(0,50),hasMore:out.length>50,nextCursor:out[Math.min(50,out.length)-1]?.cursor||cursor,revision:c.revision};
 }
 async function archive(env,b,D){
- await fence(env,b,D);if(!Array.isArray(b.records)||b.records.length>32)invalid(D,'Μεγάλη σελίδα αρχείου.');const statements=[];
+ const c=await fence(env,b,D);if(c.storageMode==='server-primary')invalid(D,'Οι αναλυτικές παραγγελίες αποθηκεύονται μόνο στον Server. Ενημέρωσε το Server APK.',409);if(!Array.isArray(b.records)||b.records.length>32)invalid(D,'Μεγάλη σελίδα αρχείου.');const statements=[];
  for(const r of b.records){ident(r.id,D);ident(r.storeId,D);ordexaDay(r.day);if(!['order','observation'].includes(r.kind)||JSON.stringify(r.data).length>4096||r.data.id!==r.id||r.data.storeId!==r.storeId||r.data.businessDay!==r.day)invalid(D,'Μη έγκυρη εγγραφή παραγγελίας.');
   if(!Number.isFinite(Date.parse(r.data.at))||storeBusinessDay(r.data.at)!==r.day||!r.data.sourceOrderId)invalid(D,'Μη έγκυρος χρόνος παραγγελίας.');
   // Original identity/time stays immutable; active status follows complete native reconciliation.
@@ -87,7 +89,7 @@ async function archive(env,b,D){
  await transaction(env,statements,guard(env,sqlFenceFor(b,D),[scopeId(b.scope),b.generation,b.epoch]));return {saved:true};
 }
 async function stage(env,b,D){
- await fence(env,b,D);ident(b.runId,D);ordexaDay(b.day);if(!Array.isArray(b.rows)||b.rows.length>32)invalid(D,'Μεγάλη σελίδα υπολογισμού.');const statements=[];
+ const c=await fence(env,b,D);if(c.storageMode==='server-primary')invalid(D,'Χρειάζεται δημοσίευση συγκεντρωτικών από τον νέο Server.',409);ident(b.runId,D);ordexaDay(b.day);if(!Array.isArray(b.rows)||b.rows.length>32)invalid(D,'Μεγάλη σελίδα υπολογισμού.');const statements=[];
  for(const r of b.rows){ident(r.storeId,D);if(r.businessDay!==b.day||r.engineVersion!==1||r.cutoffHour!==5||r.timeZone!=='Europe/Athens')invalid(D,'Ασύμβατος υπολογισμός ημέρας.');number(r.orderCount,D,10000000);number(r.storeRevision,D,Number.MAX_SAFE_INTEGER);for(const k of ['orderChargeCents','minimumTopUpCents','totalChargeCents'])if(r[k]!==null)number(r[k],D,Number.MAX_SAFE_INTEGER);
   if(r.totalChargeCents!==null&&r.totalChargeCents!==r.orderChargeCents+r.minimumTopUpCents)invalid(D,'Μη έγκυρο ημερήσιο αποτέλεσμα.');
   statements.push(insert(env,{id:'day:'+b.runId+':'+r.storeId,scope:b.scope,kind:'day',storeId:r.storeId,day:b.day,data:{...r,runId:b.runId}}));
@@ -98,10 +100,10 @@ async function stage(env,b,D){
 async function publish(env,b,D){
  ident(b.runId,D);ordexaDay(b.day);number(b.count,D,2000);number(b.removalCount??0,D,10000000);if(typeof b.sourceAt!=='string'||!Number.isFinite(Date.parse(b.sourceAt)))invalid(D,'Μη έγκυρη κάλυψη πηγής.');
  const removalCount=b.removalCount||0,receiptId='receipt:'+b.runId,receipt=json(await record(env,receiptId));if(receipt){await fence(env,b,D,false);if(receipt.operationId!==b.operationId||receipt.lease!==b.lease||receipt.scope!==b.scope||receipt.sourceAt!==b.sourceAt||receipt.count!==b.count||receipt.removalCount!==removalCount||receipt.businessDay!==b.day||receipt.finalPass!==(b.finalPass||b.runId+':p2'))invalid(D,'Διαφορετικό αποτέλεσμα με ίδια ταυτότητα δημοσίευσης.',409);return {saved:true,complete:true,replayed:true};}
- await fence(env,b,D);
+ const connection=await fence(env,b,D);if(connection.storageMode==='server-primary')invalid(D,'Χρειάζεται δημοσίευση συγκεντρωτικών από τον νέο Server.',409);
  const condition=sqlFenceFor(b,D)+" AND (SELECT COUNT(*) FROM store_billing_records WHERE scope=? AND kind='day' AND day=? AND json_extract(data,'$.runId')=?)=? AND (SELECT COUNT(*) FROM store_billing_records WHERE scope=? AND kind='store')=? AND NOT EXISTS(SELECT 1 FROM store_billing_records d LEFT JOIN store_billing_records s ON s.id=d.store_id AND s.scope=d.scope AND s.kind='store' WHERE d.scope=? AND d.kind='day' AND d.day=? AND json_extract(d.data,'$.runId')=? AND (s.id IS NULL OR s.revision<>json_extract(d.data,'$.storeRevision'))) AND (SELECT COUNT(*) FROM store_billing_records WHERE scope=? AND kind='removal' AND day=? AND json_extract(data,'$.runId')=?)=? AND NOT EXISTS(SELECT 1 FROM store_billing_records r LEFT JOIN store_billing_records o ON o.id=json_extract(r.data,'$.orderId') AND o.scope=r.scope AND o.kind='order' AND o.store_id=r.store_id AND o.day=r.day LEFT JOIN store_billing_records s ON s.id=r.store_id AND s.scope=r.scope AND s.kind='store' WHERE r.scope=? AND r.kind='removal' AND r.day=? AND json_extract(r.data,'$.runId')=? AND (o.id IS NULL OR s.id IS NULL OR COALESCE(json_extract(s.data,'$.retainOrders'),0)<>0))";
  const data={activeRun:b.runId,sourceLastSuccessAt:b.sourceAt,computedAt:now(),complete:true,cutoffHour:5,sourcePass:b.finalPass||b.runId+':p2'};
- const prior=json(await record(env,'publication:'+b.scope+':'+b.day));if(prior&&prior.sourceLastSuccessAt>b.sourceAt)invalid(D,'Παλιότερη λήψη δεν αντικαθιστά νεότερη.',409);
+ const prior=json(await record(env,'publication:'+b.scope+':'+b.day));if(prior&&Date.parse(prior.sourceLastSuccessAt)>Date.parse(b.sourceAt))invalid(D,'Παλιότερη λήψη δεν αντικαθιστά νεότερη.',409);
  await transaction(env,[
   env.DB.prepare("UPDATE store_billing_records SET data=json_set(data,'$.active',json('false')),revision=revision+1,updated_at=? WHERE scope=? AND kind='order' AND id IN(SELECT json_extract(data,'$.orderId') FROM store_billing_records WHERE scope=? AND kind='removal' AND day=? AND json_extract(data,'$.runId')=?)").bind(now(),b.scope,b.scope,b.day,b.runId),
   env.DB.prepare("UPDATE store_billing_records SET kind='deletion_applied',data=json_set(data,'$.appliedAt',?),updated_at=? WHERE scope=? AND kind='removal' AND day=? AND json_extract(data,'$.runId')=?").bind(now(),now(),b.scope,b.day,b.runId),
@@ -110,6 +112,51 @@ async function publish(env,b,D){
   env.DB.prepare("DELETE FROM store_billing_records WHERE scope=? AND kind='day' AND day=? AND json_extract(data,'$.runId')<>?").bind(b.scope,b.day,b.runId)
  ],guard(env,condition,[scopeId(b.scope),b.generation,b.epoch,b.scope,b.day,b.runId,b.count,b.scope,b.count,b.scope,b.day,b.runId,b.scope,b.day,b.runId,removalCount,b.scope,b.day,b.runId]));return {saved:true,complete:true};
 }
+// Version 2: SQLite owns order identity/deletion history. D1 stores compact results.
+async function aggregateFence(env,b,D){
+ const c=await fence(env,b,D,false);number(b.inputRevision,D,Number.MAX_SAFE_INTEGER);ident(b.runId,D);ordexaDay(b.day);
+ if(c.revision!==b.inputRevision)invalid(D,'Οι όροι καταστημάτων άλλαξαν. Απαιτείται νέος τοπικός υπολογισμός.',409);
+ return c;
+}
+function aggregateGuard(env,b){return guard(env,sqlFence+" AND EXISTS(SELECT 1 FROM store_billing_records WHERE id=? AND revision=?)",[scopeId(b.scope),b.generation,b.epoch,scopeId(b.scope),b.inputRevision]);}
+async function aggregateStage(env,b,D){
+ ident(b.runId,D);const receipt=json(await record(env,'aggregate-receipt:'+b.runId));if(receipt){await fence(env,b,D,false);return {saved:true,replayed:true};}
+ await aggregateFence(env,b,D);if(b.protocol!==2||!Array.isArray(b.rows)||b.rows.length>32)invalid(D,'Μη έγκυρη σελίδα συγκεντρωτικών.');
+ const out=[];
+ for(const r of b.rows){
+  ident(r.storeId,D);number(r.storeRevision,D,Number.MAX_SAFE_INTEGER);
+  if(r.businessDay!==b.day||r.engineVersion!==1||r.cutoffHour!==5||r.timeZone!=='Europe/Athens'||typeof r.retentionUsed!=='boolean')invalid(D,'Ασύμβατος υπολογισμός ημέρας.');
+  number(r.orderCount,D,10000000);number(r.retainedOrders,D,10000000);number(r.reviewCount,D,10000000);
+  for(const k of ['orderChargeCents','minimumTopUpCents','totalChargeCents'])if(r[k]!==null)number(r[k],D,Number.MAX_SAFE_INTEGER);
+  if(r.totalChargeCents!==null&&r.totalChargeCents!==r.orderChargeCents+r.minimumTopUpCents)invalid(D,'Μη έγκυρο ημερήσιο αποτέλεσμα.');
+  const s=json(await record(env,r.storeId));if(!s||s.scope!==b.scope||s.kind!=='store'||s.revision!==r.storeRevision||s.retainOrders!==r.retentionUsed)invalid(D,'Οι επιλογές καταστήματος άλλαξαν.',409);
+  out.push({id:'aggregate-stage:'+b.runId+':'+r.storeId,storeId:r.storeId,day:b.day,scope:b.scope,kind:'aggregate_stage',data:{...r,protocol:2,runId:b.runId,inputRevision:b.inputRevision}});
+ }
+ // Retry of an identical page performs no replacement writes (including mirror triggers).
+ const statements=[];for(const r of out){const raw=JSON.stringify(r.data),previous=await env.DB.prepare('SELECT data FROM store_billing_aggregate_stage WHERE id=?').bind(r.id).first();if(previous&&previous.data!==raw)invalid(D,'Αλλοιωμένη επανάληψη συγκεντρωτικών.',409);statements.push(env.DB.prepare("INSERT OR IGNORE INTO store_billing_aggregate_stage(id,scope,store_id,day,run_id,data) VALUES(?,?,?,?,?,?)").bind(r.id,r.scope,r.storeId,r.day,b.runId,raw));}
+ await transaction(env,statements,aggregateGuard(env,b));return {saved:true};
+}
+async function aggregatePublish(env,b,D){
+ number(b.count,D,2000);number(b.changedCount,D,2000);if(b.protocol!==2||b.changedCount>b.count||!Number.isFinite(Date.parse(b.sourceAt)))invalid(D,'Μη έγκυρη κάλυψη συγκεντρωτικών.');ident(b.runId,D);ordexaDay(b.day);
+ const receiptId='aggregate-receipt:'+b.runId,requestHash=await hash({scope:b.scope,generation:b.generation,epoch:b.epoch,revision:b.inputRevision,day:b.day,sourceAt:b.sourceAt,count:b.count,changed:b.changedCount});
+ const receipt=json(await record(env,receiptId));if(receipt){await fence(env,b,D,false);if(receipt.requestHash!==requestHash)invalid(D,'Διαφορετικό αποτέλεσμα με ίδια ταυτότητα δημοσίευσης.',409);return {saved:true,replayed:true};}
+ await aggregateFence(env,b,D);
+ const prior=json(await record(env,'publication:'+b.scope+':'+b.day));if(prior&&Date.parse(prior.sourceLastSuccessAt)>Date.parse(b.sourceAt))invalid(D,'Παλιότερη λήψη δεν αντικαθιστά νεότερη.',409);
+ const staged=rows(await env.DB.prepare("SELECT * FROM store_billing_aggregate_stage WHERE scope=? AND day=? AND run_id=? ORDER BY store_id").bind(b.scope,b.day,b.runId).all());
+ if(staged.length!==b.changedCount)invalid(D,'Ελλιπές συγκεντρωτικό στιγμιότυπο.',409);
+ const merged=rows(await env.DB.prepare("SELECT s.id,s.revision,s.data storeData,COALESCE(n.data,d.data) result FROM store_billing_records s LEFT JOIN store_billing_aggregate_stage n ON n.scope=s.scope AND n.store_id=s.id AND n.day=? AND n.run_id=? LEFT JOIN store_billing_records d ON d.id='aggregate-day:'||s.scope||':'||?||':'||s.id AND d.kind='day' WHERE s.scope=? AND s.kind='store'").bind(b.day,b.runId,b.day,b.scope).all());
+ if(merged.length!==b.count||merged.some(s=>!s.result||JSON.parse(s.result).storeRevision!==s.revision||JSON.parse(s.result).retentionUsed!==JSON.parse(s.storeData).retainOrders))invalid(D,'Ελλιπή ή παλιά αποτελέσματα καταστημάτων.',409);
+ const at=now(),publication={protocol:2,activeRun:b.runId,sourceLastSuccessAt:b.sourceAt,computedAt:at,complete:true,cutoffHour:5,sourcePass:b.finalPass||b.runId+':p2'};
+ const statements=staged.map(r=>insert(env,{id:'aggregate-day:'+b.scope+':'+b.day+':'+r.store_id,scope:b.scope,kind:'day',storeId:r.store_id,day:b.day,data:JSON.parse(r.data)}));
+ statements.push(insert(env,{id:'publication:'+b.scope+':'+b.day,scope:b.scope,kind:'publication',day:b.day,data:publication}),insert(env,{id:receiptId,scope:b.scope,kind:'aggregate_receipt',day:b.day,data:{requestHash}}));
+ statements.push(env.DB.prepare('DELETE FROM store_billing_aggregate_stage WHERE scope=? AND day=? AND run_id=?').bind(b.scope,b.day,b.runId));
+ // CAS covers both the terms and the previous publication, including racing uploads.
+ const cond=sqlFence+" AND EXISTS(SELECT 1 FROM store_billing_records WHERE id=? AND revision=?) AND COALESCE((SELECT data FROM store_billing_records WHERE id=?),'')=?";
+ const priorRecord=await record(env,'publication:'+b.scope+':'+b.day);
+ await transaction(env,statements,guard(env,cond,[scopeId(b.scope),b.generation,b.epoch,scopeId(b.scope),b.inputRevision,'publication:'+b.scope+':'+b.day,priorRecord?.data||'']));
+ return {saved:true,complete:true,changed:b.changedCount};
+}
+
 async function progress(env,b,D){
  await fence(env,b,D);ident(b.operationId,D);if(!['running','completed','failed','paused'].includes(b.state)||typeof b.stage!=='string'||b.stage.length>350)invalid(D,'Μη έγκυρη πρόοδος.');
  const r=await env.DB.prepare("UPDATE store_billing_records SET data=json_set(data,'$.state',?,'$.stage',?,'$.updatedAt',?),updated_at=? WHERE id=? AND scope=? AND kind='operation' AND json_extract(data,'$.lease')=? AND json_extract(data,'$.state')='running'").bind(b.state,b.stage,now(),now(),b.operationId,b.scope,b.lease).run();if(!r.meta?.changes)invalid(D,'Η εργασία άλλαξε ή η άδεια έληξε.',409);const pending=await env.DB.prepare("SELECT 1 ok FROM store_billing_records WHERE scope IN (?, '') AND kind='operation' AND json_extract(data,'$.state')='pending' LIMIT 1").bind(b.scope).first();return {saved:true,hasPending:!!pending};
@@ -143,9 +190,9 @@ async function bulk(request,env,b,actor,D){
 }
 async function listing(env,url,D){
  const {from,to}=range(url.searchParams.get('from'),url.searchParams.get('to'),D),scope=await active(env),cursor=url.searchParams.get('cursor')||'';if(cursor)ident(cursor,D);
- const select="SELECT s.id,s.revision,json_remove(s.data,'$.sourceTerms') data,COUNT(d.id) coveredDays,COALESCE(SUM(json_extract(d.data,'$.orderCount')),0) orderCount,SUM(json_extract(d.data,'$.orderChargeCents')) orderChargeCents,SUM(json_extract(d.data,'$.minimumTopUpCents')) minimumTopUpCents,SUM(json_extract(d.data,'$.totalChargeCents')) totalChargeCents,SUM(CASE WHEN d.id IS NOT NULL AND json_extract(d.data,'$.totalChargeCents') IS NULL THEN 1 ELSE 0 END) missingTerms,SUM(CASE WHEN d.id IS NOT NULL AND (COALESCE(json_extract(d.data,'$.termsId'),'')<>COALESCE((SELECT t.id FROM store_billing_records t WHERE t.scope=s.scope AND t.kind='terms' AND t.store_id=s.id AND t.day<=d.day ORDER BY t.day DESC,CAST(json_extract(t.data,'$.version') AS INTEGER) DESC LIMIT 1),'') OR COALESCE(json_extract(d.data,'$.retentionUsed'),0)<>COALESCE(json_extract(s.data,'$.retainOrders'),0)) THEN 1 ELSE 0 END) pendingDays,COALESCE(SUM(json_extract(d.data,'$.retainedOrders')),0) retainedOrders,COALESCE(SUM(json_extract(d.data,'$.reviewCount')),0) reviewCount FROM store_billing_records s LEFT JOIN store_billing_records p ON p.scope=s.scope AND p.kind='publication' AND p.day BETWEEN ? AND ? LEFT JOIN store_billing_records d ON d.scope=s.scope AND d.kind='day' AND d.store_id=s.id AND d.day=p.day AND json_extract(d.data,'$.runId')=json_extract(p.data,'$.activeRun') WHERE s.scope=? AND s.kind='store'";
+ const select="SELECT s.id,s.revision,json_remove(s.data,'$.sourceTerms') data,COUNT(d.id) coveredDays,COALESCE(SUM(json_extract(d.data,'$.orderCount')),0) orderCount,SUM(json_extract(d.data,'$.orderChargeCents')) orderChargeCents,SUM(json_extract(d.data,'$.minimumTopUpCents')) minimumTopUpCents,SUM(json_extract(d.data,'$.totalChargeCents')) totalChargeCents,SUM(CASE WHEN d.id IS NOT NULL AND json_extract(d.data,'$.totalChargeCents') IS NULL THEN 1 ELSE 0 END) missingTerms,SUM(CASE WHEN d.id IS NOT NULL AND (COALESCE(json_extract(d.data,'$.termsId'),'')<>COALESCE((SELECT t.id FROM store_billing_records t WHERE t.scope=s.scope AND t.kind='terms' AND t.store_id=s.id AND t.day<=d.day ORDER BY t.day DESC,CAST(json_extract(t.data,'$.version') AS INTEGER) DESC LIMIT 1),'') OR COALESCE(json_extract(d.data,'$.retentionUsed'),0)<>COALESCE(json_extract(s.data,'$.retainOrders'),0)) THEN 1 ELSE 0 END) pendingDays,COALESCE(SUM(json_extract(d.data,'$.retainedOrders')),0) retainedOrders,COALESCE(SUM(json_extract(d.data,'$.reviewCount')),0) reviewCount FROM store_billing_records s LEFT JOIN store_billing_records p ON p.scope=s.scope AND p.kind='publication' AND p.day BETWEEN ? AND ? LEFT JOIN store_billing_records d ON d.scope=s.scope AND d.kind='day' AND d.store_id=s.id AND d.day=p.day AND ((json_extract(p.data,'$.protocol')=2 AND json_extract(d.data,'$.protocol')=2) OR (COALESCE(json_extract(p.data,'$.protocol'),1)=1 AND json_extract(d.data,'$.runId')=json_extract(p.data,'$.activeRun'))) WHERE s.scope=? AND s.kind='store'";
  const found=rows(await env.DB.prepare(select+' AND s.id>? GROUP BY s.id ORDER BY s.id LIMIT 51').bind(from,to,scope,cursor).all());
- const totals=await env.DB.prepare("SELECT SUM(json_extract(d.data,'$.orderCount')) orderCount,SUM(json_extract(d.data,'$.totalChargeCents')) totalChargeCents,SUM(CASE WHEN json_extract(d.data,'$.totalChargeCents') IS NULL THEN 1 ELSE 0 END) missingTerms,COUNT(DISTINCT d.day) coveredDays,MIN(json_extract(p.data,'$.sourceLastSuccessAt')) sourceLastSuccessAt FROM store_billing_records p JOIN store_billing_records d ON d.scope=p.scope AND d.kind='day' AND d.day=p.day AND json_extract(d.data,'$.runId')=json_extract(p.data,'$.activeRun') WHERE p.scope=? AND p.kind='publication' AND p.day BETWEEN ? AND ?").bind(scope,from,to).first();
+ const totals=await env.DB.prepare("SELECT SUM(json_extract(d.data,'$.orderCount')) orderCount,SUM(json_extract(d.data,'$.totalChargeCents')) totalChargeCents,SUM(CASE WHEN json_extract(d.data,'$.totalChargeCents') IS NULL THEN 1 ELSE 0 END) missingTerms,COUNT(DISTINCT d.day) coveredDays,MIN(json_extract(p.data,'$.sourceLastSuccessAt')) sourceLastSuccessAt FROM store_billing_records p JOIN store_billing_records d ON d.scope=p.scope AND d.kind='day' AND d.day=p.day AND ((json_extract(p.data,'$.protocol')=2 AND json_extract(d.data,'$.protocol')=2) OR (COALESCE(json_extract(p.data,'$.protocol'),1)=1 AND json_extract(d.data,'$.runId')=json_extract(p.data,'$.activeRun'))) WHERE p.scope=? AND p.kind='publication' AND p.day BETWEEN ? AND ?").bind(scope,from,to).first();
  const jobs=rows(await env.DB.prepare("SELECT data FROM store_billing_records WHERE scope IN (?,'') AND kind='operation' ORDER BY updated_at DESC LIMIT 3").bind(scope).all()).map(r=>{const v=JSON.parse(r.data);delete v.lease;return v;});
  return {scope,inputRevision:(await record(env,scopeId(scope)))?.revision||0,from,to,cutoffHour:5,timeZone:'Europe/Athens',rows:found.slice(0,50).map(r=>({...r,...JSON.parse(r.data),data:undefined})),hasMore:found.length>50,nextCursor:found[Math.min(50,found.length)-1]?.id||cursor,totals,operations:jobs,syncIntervalMs:3600000,resultRevision:(await env.DB.prepare("SELECT MAX(updated_at) revision FROM store_billing_records WHERE scope=? AND kind='publication' AND day BETWEEN ? AND ?").bind(scope,from,to).first())?.revision||''};
 }
@@ -159,6 +206,8 @@ export async function routeStoreBilling(request,env,path,D){
    if(request.method==='POST'&&action==='control')return D.wfJson(await control(env,b,D));
    if(request.method==='GET'&&action==='inputs')return D.wfJson(await input(env,url,b,D));
    if(request.method==='POST'&&action==='catalogue')return D.wfJson(await catalogue(env,b,D));
+   if(request.method==='POST'&&action==='aggregate-stage')return D.wfJson(await aggregateStage(env,b,D));
+   if(request.method==='POST'&&action==='aggregate-publish')return D.wfJson(await aggregatePublish(env,b,D));
    if(request.method==='POST'&&action==='archive')return D.wfJson(await archive(env,b,D));
    if(request.method==='POST'&&action==='stage')return D.wfJson(await stage(env,b,D));
    if(request.method==='POST'&&action==='publish')return D.wfJson(await publish(env,b,D));
