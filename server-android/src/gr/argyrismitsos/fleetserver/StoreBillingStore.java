@@ -78,6 +78,7 @@ public final class StoreBillingStore {
     /** Local result, confirmed absence audit and immutable outbox commit together. */
     public synchronized void completeDay(JSONObject job)throws Exception{
         String scope=job.getString("scope"),day=job.getString("day"),run=job.getString("runId");
+        JSONObject completed=get(key("coverage",scope,day));if(completed!=null&&run.equals(completed.optString("localRun")))return;
         db.beginTransaction();try{
             db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND day=? AND kind IN ('outbox','outbox_row')",new Object[]{scope,day});
             Cursor c=db.rawQuery("SELECT store_id,data FROM store_billing_local WHERE scope=? AND day=? AND kind='computed' AND id LIKE ? ORDER BY store_id",new String[]{scope,day,"computed:"+run+":%"});int count=0;
@@ -85,7 +86,7 @@ public final class StoreBillingStore {
             if(count!=job.getInt("resultCount"))throw new IllegalStateException("Incomplete local aggregate snapshot");
             JSONObject pending=new JSONObject(job.toString());pending.put("day",day).put("sourceAt",job.getString("sourceAt"));put(key("outbox",scope,day),"outbox",scope,"",day,pending,false);
             commitReconcileRows(scope,day,job.getString("finalPass"));
-            put(key("coverage",scope,day),"coverage",scope,"",day,new JSONObject().put("runId",job.getString("finalPass")).put("sourceAt",job.getString("sourceAt")),false);
+            put(key("coverage",scope,day),"coverage",scope,"",day,new JSONObject().put("runId",job.getString("finalPass")).put("localRun",run).put("sourceAt",job.getString("sourceAt")),false);
             db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND kind='computed' AND day=?",new Object[]{scope,day});db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
