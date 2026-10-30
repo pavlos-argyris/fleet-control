@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-cfd27ea8-1919-474e-85b8-40883620091c",
-  "sourceCommit": "7c8a4cbf96c184b5db1a2a7423f3147c1f56ebf4",
-  "releaseVersion": "5.58.0",
-  "requestedAt": "2026-10-30T21:25:48.819Z",
-  "reason": "Εντολή χρήστη: κανονική αυτόματη ενημέρωση GitHub/APK. Πρώτο στάδιο #52: εφεδρική είσοδος και τοπικές προβολές χωρίς D1, μόνο προβολή επιχειρησιακών δεδομένων. Η πλήρης μεταφορά εγγραφών/εισαγωγών παραμένει ανοικτή. Δημοσίευση5.58.0 μετά exact-main CI, με πλήρη πηγή και αρχικές υπογραφές."
+  "requestId": "fleet-940a9567-c6f9-4927-b489-df1caa174006",
+  "sourceCommit": "3e40994f49b98c54d5ca4063fd78ef1653111eb0",
+  "releaseVersion": "5.59.0",
+  "requestedAt": "2026-10-30T23:37:49.998Z",
+  "reason": "Ρητή εντολή χρήστη: άμεση δημοσίευση Fleet 5.59.0 και Server 2.8.0 μετά την πλήρη υλοποίηση PR56 Server-first Ordexa Stores. Η προηγούμενη έκδοση εγκαταστάθηκε χειροκίνητα. Πέρασαν exact PR/main CI, native offline/restart/restore/retention/DST/CAS/Free D1 budget και APK builds. Διατηρούνται αρχικές υπογραφές, πλήρης πηγή και παραγωγικά δεδομένα."
 }
