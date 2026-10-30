@@ -16,6 +16,7 @@ DIST="$PROJECT_ROOT/dist"
 BUILD_TARGET="${1:-all}"
 python3 "$PROJECT_ROOT/scripts/prepare-pdf-viewer.py"
 python3 "$PROJECT_ROOT/scripts/prepare-static-assets.py"
+(cd "$PROJECT_ROOT" && node scripts/prepare-direct-permissions.mjs --check)
 
 if [[ "$BUILD_TARGET" != "all" && "$BUILD_TARGET" != "client" && "$BUILD_TARGET" != "server" ]]; then
   echo "Χρήση: $0 [all|client|server]" >&2

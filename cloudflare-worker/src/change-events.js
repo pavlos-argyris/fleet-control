@@ -1,3 +1,4 @@
+import { DirectRelay } from './direct-relay.js';
 // Signals contain scope names only. All data reads still pass their normal authorization.
 const encoder=new TextEncoder();
 const scopes=['fleet','invoices','workforce','status','stores'];
@@ -47,9 +48,10 @@ export async function publishChanges(env,scope){
  await env.FLEET_EVENTS.get(env.FLEET_EVENTS.idFromName('fleet')).fetch(new Request('https://events.internal/publish',{method:'POST',body:JSON.stringify({scopes:scope})}));
 }
 export class FleetEvents {
- constructor(ctx,env){this.ctx=ctx;this.env=env;if(typeof WebSocketRequestResponsePair!=='undefined')ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping','pong'));}
+ constructor(ctx,env){this.ctx=ctx;this.env=env;this.direct=new DirectRelay(ctx);if(typeof WebSocketRequestResponsePair!=='undefined')ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping','pong'));}
  async fetch(request){
   const url=new URL(request.url);
+  if(url.pathname.startsWith('/direct/'))return this.direct.fetch(request);
   if(url.pathname==='/connect'&&request.headers.get('Upgrade')==='websocket'){
    if(this.ctx.getWebSockets().length>=256)return new Response('Busy',{status:503});
    const pair=new WebSocketPair(),client=pair[0],server=pair[1],until=Number(request.headers.get('X-Fleet-Until'));
@@ -65,8 +67,8 @@ export class FleetEvents {
   }
   return new Response('Not found',{status:404});
  }
- async alarm(){let next=Infinity;for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(!saved||saved.until<=Date.now()){try{ws.close(1000,'renew');}catch{}}else next=Math.min(next,saved.until);}if(Number.isFinite(next))await this.ctx.storage.setAlarm(next);}
- webSocketMessage(ws,message){if(message==='ping')ws.send('pong');else ws.close(1008,'signals only');}
- webSocketClose(ws,code,reason){try{ws.close(code,reason);}catch{}}
- webSocketError(ws){try{ws.close(1011,'reconnect');}catch{}}
+ async alarm(){let next=Infinity;for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(saved?.direct)continue;if(!saved||saved.until<=Date.now()){try{ws.close(1000,'renew');}catch{}}else next=Math.min(next,saved.until);}if(Number.isFinite(next))await this.ctx.storage.setAlarm(next);}
+ webSocketMessage(ws,message){if(ws.deserializeAttachment()?.direct)return this.direct.message(ws,message);if(message==='ping')ws.send('pong');else ws.close(1008,'signals only');}
+ webSocketClose(ws,code,reason){this.direct.failPending(ws);try{ws.close(code,reason);}catch{}}
+ webSocketError(ws){this.direct.failPending(ws);try{ws.close(1011,'reconnect');}catch{}}
 }

@@ -58,6 +58,7 @@ public final class SyncService extends Service {
     public static final String SYNC_NOW="fleet.sync.now", RETRY_INVOICE="fleet.invoice.retry", MIRROR_NOW="fleet.mirror.now";
 
     private FleetDataStore store;
+    private DirectServer directServer;
     private boolean foregroundReady;
 
     @Override
@@ -95,6 +96,8 @@ public final class SyncService extends Service {
             return;
         }
         preferences.edit().putBoolean("service_running", true).apply();
+        try { directServer=new DirectServer(getApplicationContext(),store); directServer.start(); }
+        catch(Exception error) { preferences.edit().putString("direct_access_error","Δεν ξεκίνησε η εφεδρική πρόσβαση. Έλεγξε την εγκατάσταση Server.").apply(); }
         executor = Executors.newSingleThreadScheduledExecutor();
         executor.scheduleWithFixedDelay(new Runnable() {
             @Override
@@ -335,6 +338,7 @@ public final class SyncService extends Service {
     private void refreshSystemMirror(String base,Map<String,String> headers,final SharedPreferences p)throws Exception{refreshSystemMirror(base,headers,p,"sync");}
     private void refreshSystemMirror(String base,Map<String,String> headers,final SharedPreferences p,final String lane) throws Exception {
         JSONObject value=SystemMirror.update(base,headers,store.getFleet(),store.getSystemExport(),new SystemMirror.Progress(){public void stage(String stage){if(OtaManager.shouldYieldForUpdate(getApplicationContext()))throw new java.util.concurrent.CancellationException("Το αντίγραφο θα συνεχιστεί μετά την ενημέρωση.");ServerWorkTracker.stage(lane,"Αντίγραφο προσωπικού και τιμολογίων",stage);p.edit().putString("mirror_stage",stage).apply();}});
+        value.put("sourceWorker",base);
         store.setSystemExport(value);
         p.edit().putString("mirror_error","").putString("mirror_stage","Το αντίγραφο προσωπικού ενημερώθηκε").putLong("mirror_success_ms",System.currentTimeMillis()).apply();
     }
@@ -770,6 +774,7 @@ public final class SyncService extends Service {
 
     @Override
     public void onDestroy() {
+        if (directServer != null) directServer.close();
         if (executor != null) executor.shutdownNow();
         if (pulseExecutor != null) pulseExecutor.shutdownNow();
         if (invoiceExecutor != null) invoiceExecutor.shutdownNow();

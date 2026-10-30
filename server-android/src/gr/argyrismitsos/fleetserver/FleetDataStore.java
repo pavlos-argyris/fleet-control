@@ -170,6 +170,29 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         return readOptionalObject("SELECT value FROM system_state WHERE key='full_export' LIMIT 1", "το αντίγραφο προσωπικού/συστήματος");
     }
 
+    public synchronized JSONObject getDirectSnapshot(String view,int offset,String city,String scope) {
+        // Project in SQLite: login never materializes order/import/history JSON
+        // in the Java heap. Data and age belong to the same SQLite snapshot.
+        List<String> args=new ArrayList<String>();offset=Math.max(0,Math.min(100000,offset));
+        String fields="'app_users',json(COALESCE(json_extract(s.value,'$.workforce.app_users'),'[]'))",page="NULL";
+        if(view.equals("shifts")||view.equals("schedules")){
+            String table=view.equals("shifts")?"ordexa_sessions":"schedules",sort=view.equals("shifts")?"in_at":"start_at";
+            String where=view.equals("shifts")?" WHERE json_extract(j.value,'$.city_id')=?":"";
+            if(view.equals("shifts"))args.add(city);args.add(String.valueOf(offset));
+            fields+=",'"+table+"',json(COALESCE((SELECT json_group_array(json(t.value)) FROM (SELECT j.value FROM json_each(s.value,'$.workforce."+table+"') j"+where+" ORDER BY json_extract(j.value,'$."+sort+"') DESC,j.key DESC LIMIT 50 OFFSET ?) t),'[]'))";
+            if(view.equals("shifts")){fields+=",'ordexa_riders',json(COALESCE(json_extract(s.value,'$.workforce.ordexa_riders'),'[]'))";args.add(city);}
+            page="json_object('offset',"+offset+",'total',(SELECT COUNT(*) FROM json_each(s.value,'$.workforce."+table+"') j"+where+"))";
+        }else if(view.equals("stores")){
+            fields+=",'store_billing_records',json(COALESCE((SELECT json_group_array(json(j.value)) FROM json_each(s.value,'$.workforce.store_billing_records') j WHERE json_extract(j.value,'$.scope')=? AND json_extract(j.value,'$.kind') IN ('store','publication','day')),'[]'))";args.add(scope);
+        }
+        String sql="SELECT json_object('at',s.updated_at,'snapshot',json_object('sourceWorker',json_extract(s.value,'$.sourceWorker'),'workforce',json_object("+fields+"),'directPage',"+page+")) FROM system_state s WHERE s.key='full_export' LIMIT 1";
+        String value=readLargeText(getReadableDatabase(),sql,args.toArray(new String[args.size()]));return value==null?new JSONObject():parseStoredObject(value,"το αντίγραφο εφεδρικής πρόσβασης");
+    }
+
+    public synchronized JSONObject getDirectFleet() {
+        return readOptionalObject("SELECT json_object('bikes',json(COALESCE(json_group_array(json_object('id',id,'name',json_extract(data,'$.name'),'currentKm',json_extract(data,'$.currentKm'),'nextServiceKm',json_extract(data,'$.nextServiceKm'),'lastServiceKm',json_extract(data,'$.lastServiceKm'),'lastCheckedAt',json_extract(data,'$.lastCheckedAt'))),'[]'))) FROM bikes", "τη συνοπτική προβολή στόλου");
+    }
+
     public synchronized String getSystemUpdatedAt() {
         Cursor cursor = getReadableDatabase().rawQuery("SELECT updated_at FROM system_state WHERE key = 'full_export' LIMIT 1", null);
         try {

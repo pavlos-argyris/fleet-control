@@ -100,3 +100,5 @@ try{
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({environment:'Chromium with synthetic API; file Client is not Android WebView',phase:process.env.FLEET_LANDSCAPE_PHASE||'after',report},null,2)+'\n');
  console.log('PASS #3 Chromium/file Client and Web: phone/short phone/tablet, both orientations, full width, Fleet detail/service, schedule/employees/invoices, reachable dialog actions, live drafts retained.');
 }finally{await browser.close();}
+// The standalone emergency entry is part of the Client's responsive surface.
+await import('./test-direct-browser.mjs');
