@@ -1,0 +1,100 @@
+{
+  "roles": {
+    "owner": [
+      "*"
+    ],
+    "manager": [
+      "dashboard.view",
+      "employees.view",
+      "employees.manage",
+      "shifts.view",
+      "shifts.manage",
+      "shifts.vehicle.change",
+      "schedules.view",
+      "schedules.manage",
+      "fleet.view",
+      "fleet.manage",
+      "service.manage",
+      "payroll.view",
+      "reports.view",
+      "alerts.view",
+      "alerts.manage",
+      "stores.view",
+      "stores.manage"
+    ],
+    "payroll_manager": [
+      "dashboard.view",
+      "employees.view",
+      "shifts.view",
+      "schedules.view",
+      "payroll.view",
+      "payroll.manage",
+      "payroll.lock",
+      "reports.view",
+      "audit.view",
+      "alerts.view"
+    ],
+    "fleet_manager": [
+      "dashboard.view",
+      "employees.view",
+      "shifts.view",
+      "fleet.view",
+      "fleet.manage",
+      "service.manage",
+      "reports.view",
+      "alerts.view",
+      "alerts.manage",
+      "shifts.vehicle.change"
+    ],
+    "employee": [
+      "clock_in_out",
+      "select_vehicle",
+      "view_own_history",
+      "request_correction"
+    ]
+  },
+  "all": [
+    "dashboard.view",
+    "employees.view",
+    "employees.manage",
+    "clock_in_out",
+    "select_vehicle",
+    "view_own_history",
+    "view_hours",
+    "view_history",
+    "view_kilometers",
+    "view_pay",
+    "request_correction",
+    "shifts.view",
+    "shifts.manage",
+    "shifts.vehicle.change",
+    "schedules.view",
+    "schedules.manage",
+    "fleet.view",
+    "fleet.manage",
+    "service.manage",
+    "payroll.view",
+    "payroll.manage",
+    "payroll.lock",
+    "reports.view",
+    "alerts.view",
+    "alerts.manage",
+    "audit.view",
+    "backup.manage",
+    "server.manage",
+    "settings.manage",
+    "security.manage",
+    "stores.view",
+    "stores.manage"
+  ],
+  "employee": [
+    "clock_in_out",
+    "select_vehicle",
+    "view_own_history",
+    "view_hours",
+    "view_history",
+    "view_kilometers",
+    "view_pay",
+    "request_correction"
+  ]
+}

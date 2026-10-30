@@ -58,6 +58,7 @@ public final class SyncService extends Service {
     public static final String SYNC_NOW="fleet.sync.now", RETRY_INVOICE="fleet.invoice.retry", MIRROR_NOW="fleet.mirror.now";
 
     private FleetDataStore store;
+    private DirectServer directServer;
     private boolean foregroundReady;
 
     @Override
@@ -95,6 +96,8 @@ public final class SyncService extends Service {
             return;
         }
         preferences.edit().putBoolean("service_running", true).apply();
+        try { directServer=new DirectServer(getApplicationContext(),store); directServer.start(); }
+        catch(Exception error) { preferences.edit().putString("direct_access_error","Δεν ξεκίνησε η εφεδρική πρόσβαση. Έλεγξε την εγκατάσταση Server.").apply(); }
         executor = Executors.newSingleThreadScheduledExecutor();
         executor.scheduleWithFixedDelay(new Runnable() {
             @Override
@@ -770,6 +773,7 @@ public final class SyncService extends Service {
 
     @Override
     public void onDestroy() {
+        if (directServer != null) directServer.close();
         if (executor != null) executor.shutdownNow();
         if (pulseExecutor != null) pulseExecutor.shutdownNow();
         if (invoiceExecutor != null) invoiceExecutor.shutdownNow();

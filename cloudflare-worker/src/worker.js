@@ -1,4 +1,5 @@
 import { recoveryItems, recoveryResult } from './invoice-recovery.js';
+import { routeDirectRelay } from './direct-relay.js';
 import { invoiceReadComparison, READ_FIELDS } from './invoice-read-identity.js';
 import { retryFailedInvoice } from './invoice-retry.js';
 import { routeChangeEvents, publishChanges, changedScopes } from './change-events.js';
@@ -66,6 +67,10 @@ export default {
   async fetch(request, env, context) {
     const startedAt = performanceNow();
     try {
+      // Emergency entry must load while every D1 query is unavailable.
+      if (new URL(request.url).pathname === '/direct.html' && request.method === 'GET') return env.ASSETS.fetch(request);
+      const direct = await routeDirectRelay(request, env);
+      if (direct) return direct;
       await ensureSchema(env);
       if (request.method === "OPTIONS") return withServerTiming(optionsResponse(), startedAt);
       const response=await route(request,env);

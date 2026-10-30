@@ -11,7 +11,7 @@ for p in files:
  out=target/p.name
  if check:assert out.exists() and out.read_bytes()==p.read_bytes(),'Versioned static asset differs: '+p.name
  else:out.write_bytes(p.read_bytes())
-for name in ['index.html','portal.html']:
+for name in ['index.html','portal.html','direct.html']:
  p=public/name;s=p.read_text()
  for file in files:
   s=re.sub(r'((?:src|href)=["\'])\./(?:assets/v[0-9.]+/)?'+re.escape(file.name)+r'(?:\?v=[0-9.]+)?(["\'])',lambda m:m[1]+'./assets/v'+version+'/'+file.name+m[2],s)

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#111827">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self' https://fleet-control.pavlosargyris.workers.dev; object-src 'none'; base-uri 'none'">
+  <title>Fleet Control · Απευθείας Server</title>
+  <link rel="stylesheet" href="./assets/v5.58.0/portal.css">
+  <link rel="stylesheet" href="./assets/v5.58.0/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.58.0/direct-access.css">
+</head>
+<body class="direct-page">
+  <header class="direct-header"><a href="./portal.html" aria-label="Πίσω στην κανονική σύνδεση">← Fleet Control</a><strong>Απευθείας Server</strong></header>
+  <main class="direct-main">
+    <section class="direct-intro"><span class="overline">ΕΦΕΔΡΙΚΗ ΠΡΟΣΒΑΣΗ</span><h1>Τα δεδομένα από τον Server.</h1><p>Σύνδεση και προβολή του τοπικού αντιγράφου ακόμη και όταν η D1 είναι εκτός λειτουργίας.</p><p class="direct-notice">Αυτή η πρόσβαση προσφέρει προβολή. Καταχωρίσεις, διορθώσεις και νέες εισαγωγές εξακολουθούν να χρειάζονται την κανονική σύνδεση. Ο Server πρέπει να παραμένει ανοικτός και συνδεδεμένος στο Internet.</p></section>
+    <form id="directLogin" class="direct-card">
+      <h2>Σύνδεση με τον Server</h2>
+      <label class="field"><span>Κωδικός σύζευξης</span><input id="directPair" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="43" required><small>Server → Ρυθμίσεις → Εφεδρική πρόσβαση. Ο κωδικός σύζευξης δεν αντικαθιστά τον προσωπικό σου κωδικό.</small></label>
+      <label class="field"><span>Username ή email</span><input id="directUsername" autocomplete="username" autocapitalize="none" maxlength="120" required></label>
+      <label class="field"><span>Προσωπικός κωδικός</span><input id="directPassword" type="password" autocomplete="current-password" maxlength="512" required></label>
+      <p id="directError" class="form-error" role="alert"></p>
+      <button id="directLoginButton" class="primary-button large" type="submit">Σύνδεση στον Server</button>
+      <small>Η πρόσβαση ισχύει έως 4 ώρες. Το αντίγραφο δικαιωμάτων πρέπει να είναι των τελευταίων 24 ωρών.</small>
+    </form>
+    <section id="directWorkspace" hidden>
+      <div class="direct-card direct-session"><div><strong id="directName"></strong><p id="directFreshness"></p><small>Τοπικό αντίγραφο · Μόνο προβολή</small></div><button id="directLogout" class="secondary-button" type="button">Αποσύνδεση</button></div>
+      <nav id="directViews" class="direct-tabs" aria-label="Προβολές Server"></nav>
+      <section class="direct-card"><div class="direct-results-head"><h2 id="directTitle">Προβολές</h2><button id="directRefresh" class="secondary-button" type="button">Ανανέωση</button></div><p id="directMessage" role="status" aria-live="polite"></p><div id="directRows"></div><div class="direct-pagination"><button id="directPrevious" class="secondary-button" type="button">Προηγούμενα</button><span id="directPage"></span><button id="directNext" class="secondary-button" type="button">Επόμενα</button></div></section>
+    </section>
+  </main>
+  <script src="./assets/v5.58.0/direct-access.js"></script>
+</body>
+</html>
