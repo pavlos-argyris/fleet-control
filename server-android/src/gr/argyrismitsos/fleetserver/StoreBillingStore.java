@@ -98,7 +98,13 @@ public final class StoreBillingStore {
         }finally{db.endTransaction();}
     }
     public synchronized JSONArray exportRows()throws Exception{
-        JSONArray out=new JSONArray();Cursor c=db.rawQuery("SELECT id,kind,scope,store_id,day,data,dirty FROM store_billing_local WHERE kind IN ('store','terms','order','observation','coverage','local_day') ORDER BY id",null);try{while(c.moveToNext())out.put(new JSONObject().put("id",c.getString(0)).put("kind",c.getString(1)).put("scope",c.getString(2)).put("storeId",c.getString(3)).put("day",c.getString(4)).put("data",new JSONObject(c.getString(5))).put("dirty",c.getInt(6)));}finally{c.close();}return out;
+        // Android CursorWindow can refill a large SELECT. Keep every window in
+        // one SQLite snapshot while imports continue on the other executor.
+        db.beginTransaction();try{
+            JSONArray out=new JSONArray();Cursor c=db.rawQuery("SELECT id,kind,scope,store_id,day,data,dirty FROM store_billing_local WHERE kind IN ('store','terms','order','observation','coverage','local_day') ORDER BY id",null);
+            try{while(c.moveToNext())out.put(new JSONObject().put("id",c.getString(0)).put("kind",c.getString(1)).put("scope",c.getString(2)).put("storeId",c.getString(3)).put("day",c.getString(4)).put("data",new JSONObject(c.getString(5))).put("dirty",c.getInt(6)));}finally{c.close();}
+            db.setTransactionSuccessful();return out;
+        }finally{db.endTransaction();}
     }
     public synchronized JSONArray staged(String scope,String kind,String run,int offset,int limit)throws Exception{
         JSONArray out=new JSONArray();Cursor c=db.rawQuery("SELECT data FROM store_billing_local WHERE scope=? AND kind=? AND json_extract(data,'$.runId')=? ORDER BY id LIMIT ? OFFSET ?",new String[]{scope,kind,run,String.valueOf(limit),String.valueOf(offset)});try{while(c.moveToNext())out.put(new JSONObject(c.getString(0)));}finally{c.close();}return out;
