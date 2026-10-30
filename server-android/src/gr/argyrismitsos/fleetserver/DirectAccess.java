@@ -12,7 +12,7 @@ public final class DirectAccess {
     public interface Storage {
         JSONObject state() throws Exception;
         void save(JSONObject state) throws Exception;
-        JSONObject snapshot() throws Exception;
+        JSONObject snapshot(JSONObject request) throws Exception;
         JSONObject fleet() throws Exception;
         String snapshotAt() throws Exception;
     }
@@ -52,6 +52,10 @@ public final class DirectAccess {
     private static JSONObject publicUser(JSONObject user)throws Exception{return new JSONObject().put("id",id(user)).put("name",user.optString("full_name")).put("role",user.optString("role"));}
     private static void audit(JSONObject state,String action,String user,long now)throws Exception{JSONArray previous=state.optJSONArray("audit"),events=new JSONArray();if(previous!=null)for(int i=Math.max(0,previous.length()-499);i<previous.length();i++)events.put(previous.getJSONObject(i));events.put(new JSONObject().put("action",action).put("userId",user).put("at",now));state.put("audit",events);}
     private static long timestamp(String value){for(String format:new String[]{"yyyy-MM-dd'T'HH:mm:ss.SSSXXX","yyyy-MM-dd'T'HH:mm:ssXXX"})try{java.text.SimpleDateFormat parser=new java.text.SimpleDateFormat(format,Locale.US);parser.setLenient(false);return parser.parse(value).getTime();}catch(Exception ignored){}return 0;}
+    public synchronized boolean claimRequest(String nonce,long now)throws Exception{
+        if(!nonce.matches("[a-f0-9]{32}"))return false;JSONObject state=storage.state(),previous=state.optJSONObject("recentRequests"),recent=new JSONObject();if(previous!=null){Iterator<String> keys=previous.keys();while(keys.hasNext()){String key=keys.next();if(previous.optLong(key)>now-120000L)recent.put(key,previous.getLong(key));}}
+        if(recent.has(nonce)||recent.length()>=1024)return false;recent.put(nonce,now);state.put("recentRequests",recent);storage.save(state);return true;
+    }
     private static JSONArray stores(JSONObject workforce,String scope)throws Exception{
         if(scope.length()==0)return new JSONArray();
         JSONArray all=array(workforce,"store_billing_records"),visible=new JSONArray();Map<String,JSONObject> shops=new HashMap<String,JSONObject>(),publications=new HashMap<String,JSONObject>();
@@ -65,9 +69,17 @@ public final class DirectAccess {
     }
     public synchronized JSONObject handle(JSONObject request,long now)throws Exception {
         String path=request.optString("path"),method=request.optString("method","GET");
-        JSONObject state=storage.state(),snapshot=storage.snapshot(),workforce=snapshot.optJSONObject("workforce");
-        String at=storage.snapshotAt();long sourceAt=timestamp(at);
+        JSONObject state=storage.state();
         if(!state.optBoolean("enabled"))return error(503,"Η απευθείας πρόσβαση είναι απενεργοποιημένη στον Server.");
+        // Reject blocked or unknown sessions before loading any mirror data.
+        if(path.equals("/api/direct-local/login")&&method.equals("POST")){
+            JSONObject supplied=request.optJSONObject("body");String username=supplied==null?"":supplied.optString("username").trim().toLowerCase(Locale.US);JSONObject failures=state.optJSONObject("attempts");
+            if(failures!=null){JSONObject personal=failures.optJSONObject(digest(username)),global=failures.optJSONObject("global");if(personal!=null&&personal.optLong("blocked")>now||global!=null&&global.optLong("blocked")>now)return error(429,"Πολλές αποτυχημένες προσπάθειες. Δοκίμασε ξανά σε 15 λεπτά.");}
+        }else{
+            JSONObject h=request.optJSONObject("headers");String auth=h==null?"":h.optString("Authorization",h.optString("authorization"));String supplied=auth.startsWith("Bearer ")?auth.substring(7):"";JSONObject saved=state.optJSONObject("sessions"),session=saved==null||supplied.length()!=43?null:saved.optJSONObject(digest(supplied));if(session==null||session.optLong("expires")<=now)return error(401,"Η σύνδεση έληξε. Συνδέσου ξανά.");
+        }
+        JSONObject snapshot=storage.snapshot(request),workforce=snapshot.optJSONObject("workforce");
+        String at=storage.snapshotAt();long sourceAt=timestamp(at);
         JSONArray users=array(workforce,"app_users");
         if(users.length()==0)return error(503,"Δεν υπάρχει ολοκληρωμένο τοπικό αντίγραφο χρηστών. Ενημέρωσε πρώτα το αντίγραφο στον Server.");
         if(sourceAt<=0||now-sourceAt>MAX_AUTH_AGE_MS||sourceAt>now+300000L)return error(503,"Το αντίγραφο δικαιωμάτων χρειάζεται ενημέρωση στον Server. Τελευταίο αντίγραφο: "+at);
@@ -112,16 +124,16 @@ public final class DirectAccess {
         else if(view.equals("schedules")){source=array(workforce,"schedules");fields=new String[]{"id","employee_id","vehicle_id","start_at","end_at","status"};}
         else if(view.equals("shifts")){if(snapshot.optString("directCityId").length()==0)return error(503,"Επίλεξε πρώτα την ενεργή πόλη Ordexa στον Server.");source=array(workforce,"ordexa_sessions");fields=new String[]{"id","rider_id","provider_day","in_at","out_at","review","ignored","last_seen"};}
         else{if(snapshot.optString("directStoreScope").length()==0)return error(503,"Η ενεργή σύνδεση καταστημάτων δεν έχει ρυθμιστεί στον Server.");source=stores(workforce,snapshot.optString("directStoreScope"));fields=new String[]{"id","name","blocked","retainOrders","day","updated_at","sourceAt","orderCount","orderChargeCents","minimumTopUpCents","totalChargeCents","reviewCount","retainedOrders"};}
-        int offset=Math.max(0,Math.min(100000,body.optInt("offset"))),limit=50,count=0;
+        int offset=Math.max(0,Math.min(100000,body.optInt("offset"))),limit=50,count=0;JSONObject page=snapshot.optJSONObject("directPage");int skip=page==null?offset:0;
         for(int i=source.length()-1;i>=0;i--){JSONObject row=source.optJSONObject(i);if(row==null)continue;
             if(view.equals("employees")&&!row.isNull("deleted_at"))continue;
             if(view.equals("shifts")&&!snapshot.optString("directCityId").equals(row.optString("city_id")))continue;
-            if(count++<offset)continue;if(rows.length()>=limit)continue;
+            if(count++<skip)continue;if(rows.length()>=limit)continue;
             JSONObject clean=new JSONObject();for(String field:fields)if(row.has(field))clean.put(field,row.get(field));
             if(row.has("employee_id")){JSONObject employee=find(users,"id",row.optString("employee_id"));clean.put("employee_name",employee==null?"":employee.optString("full_name"));}
             if(view.equals("shifts")){JSONArray riders=array(workforce,"ordexa_riders");for(int j=0;j<riders.length();j++){JSONObject rider=riders.getJSONObject(j);if(row.optString("city_id").equals(rider.optString("city_id"))&&row.optString("rider_id").equals(rider.optString("rider_id"))){JSONObject employee=find(users,"id",rider.optString("employee_id"));clean.put("employee_name",employee==null?rider.optString("name"):employee.optString("full_name"));break;}}}
             rows.put(clean);
         }
-        data.put("rows",rows).put("total",count).put("offset",offset).put("hasMore",offset+rows.length()<count);return result(200,data);
+        int total=page==null?count:page.optInt("total");data.put("rows",rows).put("total",total).put("offset",offset).put("hasMore",offset<100000&&offset+rows.length()<total);return result(200,data);
     }
 }

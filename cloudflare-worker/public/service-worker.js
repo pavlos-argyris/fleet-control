@@ -17,6 +17,7 @@ const APP_SHELL = ["shared-requests.js","live-changes.js","fleet-motion.js","fle
   "./portal.html",
   "./direct.html",
   "./direct-access.js",
+  "./direct-crypto.js",
   "./direct-access.css",
   "./portal.css",
   "./portal.js",

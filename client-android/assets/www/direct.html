@@ -17,7 +17,7 @@
     <section class="direct-intro"><span class="overline">ΕΦΕΔΡΙΚΗ ΠΡΟΣΒΑΣΗ</span><h1>Τα δεδομένα από τον Server.</h1><p>Σύνδεση και προβολή του τοπικού αντιγράφου ακόμη και όταν η D1 είναι εκτός λειτουργίας.</p><p class="direct-notice">Αυτή η πρόσβαση προσφέρει προβολή. Καταχωρίσεις, διορθώσεις και νέες εισαγωγές εξακολουθούν να χρειάζονται την κανονική σύνδεση. Ο Server πρέπει να παραμένει ανοικτός και συνδεδεμένος στο Internet.</p></section>
     <form id="directLogin" class="direct-card">
       <h2>Σύνδεση με τον Server</h2>
-      <label class="field"><span>Κωδικός σύζευξης</span><input id="directPair" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="43" required><small>Server → Ρυθμίσεις → Εφεδρική πρόσβαση. Ο κωδικός σύζευξης δεν αντικαθιστά τον προσωπικό σου κωδικό.</small></label>
+      <label class="field"><span>Κωδικός σύζευξης</span><input id="directPair" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256" required><small>Server → Ρυθμίσεις → Εφεδρική πρόσβαση. Επικόλλησε ολόκληρο τον κωδικό ή άνοιξε τη σύνδεση που κοινοποίησε ο Server.</small></label>
       <label class="field"><span>Username ή email</span><input id="directUsername" autocomplete="username" autocapitalize="none" maxlength="120" required></label>
       <label class="field"><span>Προσωπικός κωδικός</span><input id="directPassword" type="password" autocomplete="current-password" maxlength="512" required></label>
       <p id="directError" class="form-error" role="alert"></p>
@@ -30,6 +30,7 @@
       <section class="direct-card"><div class="direct-results-head"><h2 id="directTitle">Προβολές</h2><button id="directRefresh" class="secondary-button" type="button">Ανανέωση</button></div><p id="directMessage" role="status" aria-live="polite"></p><div id="directRows"></div><div class="direct-pagination"><button id="directPrevious" class="secondary-button" type="button">Προηγούμενα</button><span id="directPage"></span><button id="directNext" class="secondary-button" type="button">Επόμενα</button></div></section>
     </section>
   </main>
+  <script src="./assets/v5.58.0/direct-crypto.js"></script>
   <script src="./assets/v5.58.0/direct-access.js"></script>
 </body>
 </html>

@@ -2,7 +2,9 @@
 // No D1 access, stored request bodies, or automatic replay of mutations.
 const MAX_BYTES = 2 * 1024 * 1024;
 const encoder = new TextEncoder();
-const allowedHeaders = ['authorization', 'content-type', 'x-admin-pin', 'x-idempotency-key'];
+export const validDirectPacket = value => value?.v === 1 && /^[a-f0-9]{32}$/.test(value.nonce || '') &&
+  /^[A-Za-z0-9_-]{122}$/.test(value.epk || '') && /^[A-Za-z0-9_-]{16}$/.test(value.iv || '') &&
+  typeof value.ciphertext === 'string' && /^[A-Za-z0-9_-]{22,2097152}$/.test(value.ciphertext);
 const response = (body, status = 200) => Response.json(body, {status, headers: {
   'Cache-Control': 'private, no-store', 'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Fleet-Direct-Key',
@@ -34,7 +36,7 @@ export async function routeDirectRelay(request, env) {
   }
   if (path !== '/api/direct/request' || request.method !== 'POST') return response({error: 'Η διαδρομή δεν βρέθηκε.'}, 404);
   const key = request.headers.get('X-Fleet-Direct-Key') || '';
-  if (!/^[a-zA-Z0-9_-]{43}$/.test(key)) return response({error: 'Χρειάζεται σύζευξη με τον Server.'}, 401);
+  if (!/^[a-f0-9]{64}$/.test(key)) return response({error: 'Χρειάζεται σύζευξη με τον Server.'}, 401);
   if (Number(request.headers.get('Content-Length')) > MAX_BYTES) return response({error: 'Το αίτημα είναι πολύ μεγάλο.'}, 413);
   let raw = '';
   if (request.body) {
@@ -43,15 +45,10 @@ export async function routeDirectRelay(request, env) {
     raw+=decoder.decode();
   }
   let body; try { body = JSON.parse(raw); } catch { return response({error: 'Μη έγκυρο αίτημα.'}, 400); }
-  // API paths only: never an arbitrary URL or an authenticated Server route.
-  if (!/^\/api\/[A-Za-z0-9/_?=&%.,:+-]{1,1800}$/.test(body.path || '') ||
-      /^\/api\/(server|deploy|direct)\//.test(body.path) || !['GET','POST','PUT','DELETE'].includes(body.method))
-    return response({error: 'Μη έγκυρη διαδρομή.'}, 400);
-  const headers = Object.fromEntries(Object.entries(body.headers || {}).filter(([name, value]) =>
-    allowedHeaders.includes(name.toLowerCase()) && typeof value === 'string' && value.length <= 2048));
+  // Only an encrypted packet crosses this relay. Android owns the API allowlist.
+  if (!validDirectPacket(body)) return response({error: 'Μη έγκυρο κρυπτογραφημένο αίτημα.'}, 400);
   return relay.fetch(new Request('https://events.internal/direct/request', {method: 'POST',
-    headers: {'X-Fleet-Direct-Pair': await directHash(key)},
-    body: JSON.stringify({path: body.path, method: body.method, headers, body: body.body ?? null})}));
+    headers: {'X-Fleet-Direct-Pair': key},body: JSON.stringify(body)}));
 }
 
 export class DirectRelay {
@@ -80,7 +77,7 @@ export class DirectRelay {
         this.pending.delete(id);
         resolve(response({error: 'Ο Server δεν απάντησε εγκαίρως. Έλεγξε την κατάσταση πριν επαναλάβεις αποθήκευση.'}, 504));
       }, 25000);
-      this.pending.set(id, {resolve, timer, server});
+      this.pending.set(id, {resolve, timer, server, nonce: body.nonce, epk: body.epk});
       try { server.send(JSON.stringify({type: 'request', id, request: body})); }
       catch { clearTimeout(timer); this.pending.delete(id); resolve(response({error: 'Η σύνδεση με τον Server διακόπηκε.'}, 503)); }
     });
@@ -93,12 +90,10 @@ export class DirectRelay {
     if (!item || item.server !== ws) return;
     this.pending.delete(value.id); clearTimeout(item.timer);
     const payload = value.response;
-    if (!payload || !Number.isInteger(payload.status) || payload.status < 200 || payload.status > 599 || typeof payload.body !== 'string') {
+    if (!validDirectPacket(payload) || payload.nonce !== item.nonce || payload.epk !== item.epk) {
       item.resolve(response({error: 'Μη έγκυρη απόκριση Server.'}, 502)); return;
     }
-    // Session cookies stay local to the Server. The Client uses its local bearer.
-    item.resolve(response({status: payload.status, body: payload.body,
-      snapshotAt: payload.snapshotAt || '', local: true, writable: payload.writable === true}));
+    item.resolve(response(payload));
   }
   failPending(ws) {
     for (const [id, item] of this.pending) if (!ws || item.server === ws) {

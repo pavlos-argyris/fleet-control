@@ -7,6 +7,7 @@ python3 scripts/prepare-static-assets.py --check
 node scripts/prepare-direct-permissions.mjs --check
 node scripts/test-direct-relay.mjs
 node scripts/test-direct-access-native.mjs
+node scripts/test-direct-websocket-native.mjs
 node scripts/test-direct-ui.mjs
 node scripts/check-release-capacity.mjs
 node scripts/test-web-release-inventory.mjs

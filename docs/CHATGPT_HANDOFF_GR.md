@@ -1,6 +1,16 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
 
+
+## #52 / PR#55 — αποθηκευμένο source, πρόσθετη κρυπτογράφηση/έλεγχοι
+
+- Πρώτο λειτουργικό checkpoint [4fdd285a800f2520eb126cfeaf5b86b2f1120354](https://github.com/pavlos-argyris/fleet-control/commit/4fdd285a800f2520eb126cfeaf5b86b2f1120354), tree deaf819b0df9435fe85bb056b88fd93a66a27c8b, [draft PR#55](https://github.com/pavlos-argyris/fleet-control/pull/55). [Exact PR CI41122538059](https://github.com/pavlos-argyris/fleet-control/actions/runs/41122538059) success για αυτό το checkpoint. Δεν είναι ακόμη η τελική πηγή δημοσίευσης.
+- Πλήρες τοπικό check-all του αρχικού checkpoint success και δύο APK με αποκλειστικά δοκιμαστική υπογραφή κατασκευάστηκαν επιτυχώς. Δεν παραδόθηκαν ως συμβατές ενημερώσεις. Η τελική παραγωγική υπογραφή παραμένει στο κανονικό workflow/αρχικά Secrets.
+- Νεότερη σκλήρυνση στον ίδιο κλάδο: φυσικά καρφιτσωμένη P-256 ταυτότητα, AES-GCM με ephemeral ECDH ανά αίτημα, nonce/direction binding, 2λεπτη ισχύς και επίμονη απόρριψη replay. Η ιδιωτική ταυτότητα σφραγίζεται με AndroidKeyStore σε χωριστές μη εξαγόμενες ρυθμίσεις. Το relay μεταφέρει μόνο αδιαφανή πακέτα· δεν λαμβάνει προσωπικούς κωδικούς/tokens/δεδομένα σε καθαρό κείμενο. Τα αρχικά APK signing/server credentials δεν αλλάζουν.
+- Τοπικές προβολές γίνονται πλέον με προβολή/σελιδοποίηση μέσα στη SQLite, ώστε το login να μη δημιουργεί στη Java μνήμη το πλήρες ιστορικό ή αναλυτικές παραγγελίες. Δεδομένα/ηλικία αντιγράφου δεσμεύονται στο ίδιο SQL snapshot, με δέσιμο στο Worker realm και ενεργή πόλη/σύνδεση. Οι βασικές προβολές στόλου αποκλείουν μεγάλα service cells.
+- Πρόσθετοι πραγματικοί έλεγχοι success: Node WebCrypto ↔ πραγματική Java/SQLite για pinned identity, αλλοίωση, λάθος Server και replay μετά restart· πραγματικό Java TLS socket με έγκυρο/λάθος hostname, untrusted CA, αλλοιωμένο upgrade, fragmented UTF-8/ping και masked70KB frame. Προστέθηκε πραγματικός browser έλεγχος στην υπάρχουσα Client landscape suite για desktop/mobile/file Client, με screenshots στον ίδιο required artifact φάκελο.
+- **Εκκρεμή πριν merge/publish:** τελικό check-all/APK build με όλα τα παραπάνω, exact τελικού head PR/main CI και οπτική εξέταση browser αποτελεσμάτων. Η προηγούμενη CI επιτυχία δεν υποκαθιστά τον έλεγχο των νεότερων αλλαγών. Παραμένει μόνο προβολή επιχειρησιακών δεδομένων, όχι πλήρης ανεξαρτησία/μηνιαία επιτάχυνση.
+
 ## #52 — λειτουργικό πρώτο στάδιο εφεδρικής εισόδου / έλεγχοι σε εξέλιξη
 
 - **Νεότερη παράδοση:** ο χρήστης ανακάλεσε την προσωρινή παράδοση APK στη συνομιλία και ζήτησε ξανά κανονική αυτόματη δημοσίευση GitHub/ενημέρωση μέσα στα APK. Δεν ζητούνται ιδιωτικά κλειδιά: το repository είναι δημόσιο και η αρχική υπογραφή γίνεται με τα υπάρχοντα Secrets.
