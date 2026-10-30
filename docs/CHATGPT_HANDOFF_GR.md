@@ -1,5 +1,9 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## Τελικοί έλεγχοι / άμεση νέα δημοσίευση #56 — 31/10/2026
+
+Νεότερη εντολή χρήστη: δημοσίευση απευθείας της νέας έκδοσης· η προηγούμενη εγκαταστάθηκε χειροκίνητα. Δεν αναμένεται ούτε επανεκτελείται το παλιό5.58 publish. Πλήρες τοπικό check-all SUCCESS, δύο δοκιμαστικά υπογεγραμμένα APK SUCCESS, Client packaged manifest SUCCESS, native backup jobs/streaming/retention/restore/direct access SUCCESS. Final PR CI σε εξέλιξη από αποθηκευμένο GitHub source decc53ef5cdef75487608647a65af3565c712ebe· νέα μικρή διόρθωση καλύπτει και το ημερήσιο detail history σε αμετάβλητα protocol2 αποτελέσματα και περιορισμό μόνο των νέων τοπικών automatic-only αντιγράφων (δύο πρόσφατα, υπάρχοντα αποτυχημένα exports διατηρούνται). Η παραγωγική αρχική υπογραφή/ενεργοποίηση δεν έχει ακόμη εκτελεστεί. Μετά το exact τελικό PR/main CI ακολουθεί μοναδικό request-only publish για5.59.0.
+
 ## Υλοποίηση PR #56 — πρώτο πλήρες λειτουργικό checkpoint — 31/10/2026
 
 SQLite import/atomic local results/outbox, protocol2 aggregate-only D1 με CAS/receipts/dual read, ασφαλής παλιά migration, backup ημερησίων/αναλυτικών και ανεξάρτητος backup scheduler, λιγότερα heartbeat/progress/settings writes. Υποψήφιες Client/Web5.59.0(94), Server2.8.0(52), Worker5.18.0. Μετρήσεις actual Workerd D1 synthetic 1/7/31 ημερών: 678→96,4746→672,21018→2976 (−85,84% για8 καταστήματα/100 παραγγελίες ημερησίως). Αμετάβλητη επανάληψη δεν γράφει ημερήσια αποτελέσματα. Οδηγός `docs/SERVER_PRIMARY_STORE_ORDERS_GR.md`.

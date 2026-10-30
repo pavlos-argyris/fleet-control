@@ -226,7 +226,7 @@ export async function routeStoreBilling(request,env,path,D){
   }
   if(request.method==='GET'&&action==='days'){
    const {from,to}=range(url.searchParams.get('from'),url.searchParams.get('to'),D),scope=await active(env),id=ident(url.searchParams.get('storeId'),D);
-   return D.wfJson({rows:rows(await env.DB.prepare("SELECT d.data FROM store_billing_records d JOIN store_billing_records p ON p.scope=d.scope AND p.kind='publication' AND p.day=d.day AND json_extract(p.data,'$.activeRun')=json_extract(d.data,'$.runId') WHERE d.scope=? AND d.kind='day' AND d.store_id=? AND d.day BETWEEN ? AND ? ORDER BY d.day").bind(scope,id,from,to).all()).map(r=>JSON.parse(r.data))});
+   return D.wfJson({rows:rows(await env.DB.prepare("SELECT d.data FROM store_billing_records d JOIN store_billing_records p ON p.scope=d.scope AND p.kind='publication' AND p.day=d.day AND ((json_extract(p.data,'$.protocol')=2 AND json_extract(d.data,'$.protocol')=2) OR (COALESCE(json_extract(p.data,'$.protocol'),1)=1 AND json_extract(p.data,'$.activeRun')=json_extract(d.data,'$.runId'))) WHERE d.scope=? AND d.kind='day' AND d.store_id=? AND d.day BETWEEN ? AND ? ORDER BY d.day").bind(scope,id,from,to).all()).map(r=>JSON.parse(r.data))});
   }
   if(request.method==='GET'&&action==='terms'){const scope=await active(env),id=ident(url.searchParams.get('storeId'),D);return D.wfJson({rows:rows(await env.DB.prepare("SELECT data FROM store_billing_records WHERE scope=? AND kind='terms' AND store_id=? ORDER BY day,CAST(json_extract(data,'$.version') AS INTEGER)").bind(scope,id).all()).map(r=>JSON.parse(r.data))});}
   invalid(D,'Άγνωστη ενέργεια καταστημάτων.',404);

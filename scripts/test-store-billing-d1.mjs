@@ -55,6 +55,7 @@ try{
  ok(await publishAggregate({...aggregate,runId:'unchanged-native',changedCount:0,sourceAt:'2026-10-29T04:00:00Z'}));
  assert.deepEqual((await db.prepare("SELECT data FROM store_billing_records WHERE id LIKE 'aggregate-day:%' ORDER BY id").all()).results,stableBefore,'unchanged results cause no day rewrites');
  assert.equal(ok(await call('/api/admin/store-billing?from='+day+'&to='+day,undefined,token)).totals.orderCount,201,'unchanged stable rows remain visible after new freshness publication');
+ assert.equal(ok(await call('/api/admin/store-billing/days?from='+day+'&to='+day+'&storeId=shop:1',undefined,token)).rows[0].orderCount,100,'daily detail history also reads unchanged stable rows');
  ok(await publishAggregate({...aggregate,runId:'stale-source',changedCount:0}),409);
  await db.prepare("UPDATE store_billing_records SET revision=revision+1 WHERE kind='connection'").run();
  ok(await publishAggregate({...aggregate,runId:'stale-terms',changedCount:0,sourceAt:'2026-10-30T04:00:00Z'}),409);
