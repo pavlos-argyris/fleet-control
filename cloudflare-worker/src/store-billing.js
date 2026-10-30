@@ -122,6 +122,10 @@ function aggregateGuard(env,b){return guard(env,sqlFence+" AND EXISTS(SELECT 1 F
 async function aggregateStage(env,b,D){
  ident(b.runId,D);const receipt=json(await record(env,'aggregate-receipt:'+b.runId));if(receipt){await fence(env,b,D,false);return {saved:true,replayed:true};}
  await aggregateFence(env,b,D);if(b.protocol!==2||!Array.isArray(b.rows)||b.rows.length>32)invalid(D,'Μη έγκυρη σελίδα συγκεντρωτικών.');
+ const ids=b.rows.map(r=>{if(!r||typeof r!=='object')invalid(D,'Μη έγκυρο αποτέλεσμα.');return ident(r.storeId,D);});if(new Set(ids).size!==ids.length)invalid(D,'Διπλό κατάστημα στην ίδια σελίδα.');
+ // Two indexed reads, rather than two per store, stay below the Free D1 call budget.
+ const current=new Map(rows(await env.DB.prepare("SELECT * FROM store_billing_records WHERE id IN(SELECT value FROM json_each(?))").bind(JSON.stringify(ids)).all()).map(r=>[r.id,json(r)]));
+ const previous=new Map(rows(await env.DB.prepare("SELECT id,data FROM store_billing_aggregate_stage WHERE id IN(SELECT value FROM json_each(?))").bind(JSON.stringify(ids.map(id=>'aggregate-stage:'+b.runId+':'+id))).all()).map(r=>[r.id,r.data]));
  const out=[];
  for(const r of b.rows){
   ident(r.storeId,D);number(r.storeRevision,D,Number.MAX_SAFE_INTEGER);
@@ -129,11 +133,11 @@ async function aggregateStage(env,b,D){
   number(r.orderCount,D,10000000);number(r.retainedOrders,D,10000000);number(r.reviewCount,D,10000000);
   for(const k of ['orderChargeCents','minimumTopUpCents','totalChargeCents'])if(r[k]!==null)number(r[k],D,Number.MAX_SAFE_INTEGER);
   if(r.totalChargeCents!==null&&r.totalChargeCents!==r.orderChargeCents+r.minimumTopUpCents)invalid(D,'Μη έγκυρο ημερήσιο αποτέλεσμα.');
-  const s=json(await record(env,r.storeId));if(!s||s.scope!==b.scope||s.kind!=='store'||s.revision!==r.storeRevision||s.retainOrders!==r.retentionUsed)invalid(D,'Οι επιλογές καταστήματος άλλαξαν.',409);
+  const s=current.get(r.storeId);if(!s||s.scope!==b.scope||s.kind!=='store'||s.revision!==r.storeRevision||s.retainOrders!==r.retentionUsed)invalid(D,'Οι επιλογές καταστήματος άλλαξαν.',409);
   out.push({id:'aggregate-stage:'+b.runId+':'+r.storeId,storeId:r.storeId,day:b.day,scope:b.scope,kind:'aggregate_stage',data:{...r,protocol:2,runId:b.runId,inputRevision:b.inputRevision}});
  }
  // Retry of an identical page performs no replacement writes (including mirror triggers).
- const statements=[];for(const r of out){const raw=JSON.stringify(r.data),previous=await env.DB.prepare('SELECT data FROM store_billing_aggregate_stage WHERE id=?').bind(r.id).first();if(previous&&previous.data!==raw)invalid(D,'Αλλοιωμένη επανάληψη συγκεντρωτικών.',409);statements.push(env.DB.prepare("INSERT OR IGNORE INTO store_billing_aggregate_stage(id,scope,store_id,day,run_id,data) VALUES(?,?,?,?,?,?)").bind(r.id,r.scope,r.storeId,r.day,b.runId,raw));}
+ const statements=[];for(const r of out){const raw=JSON.stringify(r.data),prior=previous.get(r.id);if(prior&&prior!==raw)invalid(D,'Αλλοιωμένη επανάληψη συγκεντρωτικών.',409);statements.push(env.DB.prepare("INSERT OR IGNORE INTO store_billing_aggregate_stage(id,scope,store_id,day,run_id,data) VALUES(?,?,?,?,?,?)").bind(r.id,r.scope,r.storeId,r.day,b.runId,raw));}
  await transaction(env,statements,aggregateGuard(env,b));return {saved:true};
 }
 async function aggregatePublish(env,b,D){
