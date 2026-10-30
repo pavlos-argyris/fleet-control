@@ -1,0 +1,37 @@
+{
+  "heartbeat": {
+    "callsWithinMinute": 30,
+    "legacyRowsWritten": 31,
+    "coalescedRowsWritten": 2
+  },
+  "environment": "Synthetic Miniflare/Workerd D1 meta.rows_written, production SQL/indexes and mirror triggers; excludes setup/control/heartbeat and production telemetry",
+  "results": [
+    {
+      "days": 1,
+      "stores": 8,
+      "orders": 100,
+      "legacyRowsWritten": 678,
+      "aggregateRowsWritten": 96,
+      "unchangedRowsWritten": 13,
+      "reductionPercent": 85.84
+    },
+    {
+      "days": 7,
+      "stores": 8,
+      "orders": 700,
+      "legacyRowsWritten": 4746,
+      "aggregateRowsWritten": 672,
+      "unchangedRowsWritten": 91,
+      "reductionPercent": 85.84
+    },
+    {
+      "days": 31,
+      "stores": 8,
+      "orders": 3100,
+      "legacyRowsWritten": 21018,
+      "aggregateRowsWritten": 2976,
+      "unchangedRowsWritten": 403,
+      "reductionPercent": 85.84
+    }
+  ]
+}

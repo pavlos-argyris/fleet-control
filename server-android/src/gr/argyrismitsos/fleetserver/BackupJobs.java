@@ -35,8 +35,8 @@ public final class BackupJobs {
     public static Set<String> pendingStamps(Context c){Set<String> values=new HashSet<String>();File[] files=root(c).listFiles();if(files!=null)for(File f:files)if(f.getName().matches("[a-f0-9-]{36}\\.json"))try{JSONObject job=ServiceDocumentArchive.readJson(f);if(!job.optBoolean("exported")){String name=job.optString("fileName");if(name.startsWith("FleetControl_backup_")&&name.endsWith(".fcbackup"))values.add(name.substring(20,name.length()-9));}}catch(Exception ignored){}return values;}
     private static void cleanupLocal(Context c){
         File[] files=root(c).listFiles();if(files==null)return;Arrays.sort(files,new Comparator<File>(){public int compare(File a,File b){return Long.compare(b.lastModified(),a.lastModified());}});
-        Set<String> references=new HashSet<String>();List<JSONObject> discarded=new ArrayList<JSONObject>();int retained=0;
-        for(File f:files)if(f.getName().matches("[a-f0-9-]{36}\\.json"))try{JSONObject j=ServiceDocumentArchive.readJson(f);if(!j.optBoolean("exported")||retained++<2){references.add(j.optString("dataPath"));references.add(j.optString("docsPath"));}else discarded.add(j);}catch(Exception ignored){}
+        Set<String> references=new HashSet<String>();List<JSONObject> discarded=new ArrayList<JSONObject>();int retained=0,localRetained=0;
+        for(File f:files)if(f.getName().matches("[a-f0-9-]{36}\\.json"))try{JSONObject j=ServiceDocumentArchive.readJson(f);if(j.optBoolean("localOnly")&&!j.optBoolean("exported")?localRetained++<2:!j.optBoolean("exported")||retained++<2){references.add(j.optString("dataPath"));references.add(j.optString("docsPath"));}else discarded.add(j);}catch(Exception ignored){}
         for(JSONObject j:discarded)try{for(String k:new String[]{"dataPath","docsPath"}){String name=j.optString(k);if(name.length()>0&&!references.contains(name)){File f=local(c,name);f.delete();new File(f.getPath()+".json").delete();}}journal(c,j.getString("id")).delete();}catch(Exception ignored){}
         // Only disposable files inside safe-backups; never service originals.
         for(File f:files){String name=f.getName();if(f.isFile()&&(name.endsWith(".part")||((name.endsWith(".fcbackup")||name.endsWith(".fcdocs"))&&!references.contains(name)))){f.delete();new File(f.getPath()+".json").delete();}}
@@ -45,6 +45,9 @@ public final class BackupJobs {
         if(prefs(c).getBoolean(PAUSED,false))throw new IOException("Η αποστολή backup έχει παύσει για την ενημέρωση. Το τοπικό αντίγραφο διατηρείται.");
         if(BackupStatus.active(c))throw new IOException("Υπάρχει ήδη backup σε εξέλιξη. Δες το στάδιο και την πρόοδο παρακάτω.");
         JSONObject job=prepare(c,store,"manual","");Transfer transfer=export(c,job,false);transfer.await();return job.getString("fileName");
+    }
+    public static JSONObject createLocalAutomatic(Context c,FleetDataStore store)throws Exception{
+        JSONObject job=prepare(c,store,"automatic","");if(!localReady(c,job))throw new IOException("Το τοπικό backup δεν επαληθεύτηκε.");job.put("localOnly",true);save(c,job);BackupStatus.progress(c,job.getString("id"),"local_ready","Το κρυπτογραφημένο τοπικό backup επαληθεύτηκε · αναμονή επιλογής φακέλου",70,job.optInt("includedDocuments"),job.optInt("expectedDocuments"),0,0,job.getString("fileName"));return job;
     }
     public static boolean isPreparing(){return preparing.get();}
     public static String lastJob(Context c){return prefs(c).getString(LAST_JOB,"");}

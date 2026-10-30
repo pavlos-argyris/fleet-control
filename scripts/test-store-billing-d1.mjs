@@ -37,5 +37,27 @@ try{
  assert.equal((await db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='store_billing_terms'").first()).n,2,'one retention decision and one atomic price winner');
  assert.equal((await db.prepare('SELECT COUNT(*) n FROM store_billing_guards').first()).n,0);
  await db.prepare("INSERT OR REPLACE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_restore_active','fixture',?)").bind(sourceAt).run();ok(await publish('final',31),409);
+
+ await db.prepare("DELETE FROM fleet_settings WHERE key='ordexa_restore_active'").run();
+ const conn=await db.prepare("SELECT revision FROM store_billing_records WHERE kind='connection'").first();
+ const current=(await db.prepare("SELECT id,revision,data FROM store_billing_records WHERE kind='store' ORDER BY id").all()).results;
+ const aggregate={...ctx,protocol:2,inputRevision:conn.revision,runId:'native-primary',day,count:2,changedCount:2,sourceAt:'2026-10-28T04:00:00Z'};
+ const results=current.map((s,i)=>row(i+1,100+i,s.revision,JSON.parse(s.data).retainOrders));
+ const publishAggregate=b=>post('aggregate-publish',b),stageAggregate=rows=>post('aggregate-stage',{...aggregate,rows});
+ ok(await publishAggregate(aggregate),409); // incomplete snapshot never becomes visible
+ ok(await stageAggregate(results));ok(await stageAggregate(results));
+ ok(await stageAggregate([{...results[0],orderCount:99,orderChargeCents:19800,totalChargeCents:19800}]),409);
+ const rawBefore=(await db.prepare("SELECT COUNT(*) n FROM store_billing_records WHERE kind='order'").first()).n;
+ ok(await publishAggregate(aggregate));assert.equal(ok(await publishAggregate(aggregate)).replayed,true);
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM store_billing_records WHERE kind='order'").first()).n,rawBefore,'aggregate-only publish never changes legacy order records');
+ assert.equal(ok(await call('/api/admin/store-billing?from='+day+'&to='+day,undefined,token)).totals.orderCount,201);
+ const stableBefore=(await db.prepare("SELECT data FROM store_billing_records WHERE id LIKE 'aggregate-day:%' ORDER BY id").all()).results;
+ ok(await publishAggregate({...aggregate,runId:'unchanged-native',changedCount:0,sourceAt:'2026-10-29T04:00:00Z'}));
+ assert.deepEqual((await db.prepare("SELECT data FROM store_billing_records WHERE id LIKE 'aggregate-day:%' ORDER BY id").all()).results,stableBefore,'unchanged results cause no day rewrites');
+ assert.equal(ok(await call('/api/admin/store-billing?from='+day+'&to='+day,undefined,token)).totals.orderCount,201,'unchanged stable rows remain visible after new freshness publication');
+ assert.equal(ok(await call('/api/admin/store-billing/days?from='+day+'&to='+day+'&storeId=shop:1',undefined,token)).rows[0].orderCount,100,'daily detail history also reads unchanged stable rows');
+ ok(await publishAggregate({...aggregate,runId:'stale-source',changedCount:0}),409);
+ await db.prepare("UPDATE store_billing_records SET revision=revision+1 WHERE kind='connection'").run();
+ ok(await publishAggregate({...aggregate,runId:'stale-terms',changedCount:0,sourceAt:'2026-10-30T04:00:00Z'}),409);
  console.log('PASS actual Workerd/D1 stores:32-row archive, default OFF, atomic retention-race rollback, complete publication, selected exception, lost-ACK receipt after lease expiry, changed-receipt rejection, concurrent price CAS/audit and restore fence. Synthetic only.');
 }finally{if(runtime)await runtime.dispose();fs.rmSync(dir,{recursive:true,force:true});}

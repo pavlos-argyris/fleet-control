@@ -1,5 +1,24 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## Πρόσθετη επιβεβαίωση αστοχιών και restore — 31/10/2026
+
+Actual native pipeline SUCCESS και για D1 quota αμέσως μετά control/πριν inputs, με πλήρη τοπική ολοκλήρωση7 ημερών, restart και παράδοση όλων των outboxes. Περιορισμός publish σε μη ολοκληρωμένη legacy migration: απαιτείται πλήρης τοπικός authority marker, αλλιώς read-only connection-check/ανάκτηση πρώτα. Restore μαρκάρει κάλυψη προς επαλήθευση πηγής πριν reprice· actual source-read/count assertion SUCCESS. Η προηγούμενη exact πηγή bd54e563c436a3210f495fa46ea86ab0fd2752e1 πέρασε CI41142375820. Οι νεότερες αλλαγές περνούν νέο exact CI πριν merge/publish.
+
+## Τελικοί έλεγχοι / άμεση νέα δημοσίευση #56 — 31/10/2026
+
+Νεότερη εντολή χρήστη: δημοσίευση απευθείας της νέας έκδοσης· η προηγούμενη εγκαταστάθηκε χειροκίνητα. Δεν αναμένεται ούτε επανεκτελείται το παλιό5.58 publish. Πλήρες τοπικό check-all SUCCESS, δύο δοκιμαστικά υπογεγραμμένα APK SUCCESS, Client packaged manifest SUCCESS, native backup jobs/streaming/retention/restore/direct access SUCCESS. Final PR CI σε εξέλιξη από αποθηκευμένο GitHub source decc53ef5cdef75487608647a65af3565c712ebe· νέα μικρή διόρθωση καλύπτει και το ημερήσιο detail history σε αμετάβλητα protocol2 αποτελέσματα και περιορισμό μόνο των νέων τοπικών automatic-only αντιγράφων (δύο πρόσφατα, υπάρχοντα αποτυχημένα exports διατηρούνται). Πρόσθετη επιτυχής native regression: αναγνώριση πλήρους legacy hydration marker κατά την αναβάθμιση, χωρίς ψευδή απαίτηση backup σε έγκυρο τοπικό ledger· bounded δημοσίευση έως32 ημερών/5s ανά κύκλο και επίσπευση μετά την τοπική ολοκλήρωση. Σκλήρυνση παρτίδων32 καταστημάτων: δύο ομαδικές αναγνώσεις,6/8 συνολικές D1 κλήσεις stage/publish, νέο υποχρεωτικό budget regression. Πέρασαν ξανά actual D1/native pipeline μετά την αλλαγή. Backup export κρατά όλες τις Android CursorWindow αναγνώσεις σε μία SQLite συναλλαγή. Η παραγωγική αρχική υπογραφή/ενεργοποίηση δεν έχει ακόμη εκτελεστεί. Μετά το exact τελικό PR/main CI ακολουθεί μοναδικό request-only publish για5.59.0.
+
+## Υλοποίηση PR #56 — πρώτο πλήρες λειτουργικό checkpoint — 31/10/2026
+
+SQLite import/atomic local results/outbox, protocol2 aggregate-only D1 με CAS/receipts/dual read, ασφαλής παλιά migration, backup ημερησίων/αναλυτικών και ανεξάρτητος backup scheduler, λιγότερα heartbeat/progress/settings writes. Υποψήφιες Client/Web5.59.0(94), Server2.8.0(52), Worker5.18.0. Μετρήσεις actual Workerd D1 synthetic 1/7/31 ημερών: 678→96,4746→672,21018→2976 (−85,84% για8 καταστήματα/100 παραγγελίες ημερησίως). Αμετάβλητη επανάληψη δεν γράφει ημερήσια αποτελέσματα. Οδηγός `docs/SERVER_PRIMARY_STORE_ORDERS_GR.md`.
+
+Πέρασαν έως τώρα native pipeline/offline/restart, actual D1 protocol2/legacy, native engine/DST, backup jobs/cipher/restore και direct access. Τοπικά κατασκευάστηκαν δύο APK με ΜΟΝΟ δοκιμαστική υπογραφή· δεν παραδίδονται ως production. Το πλήρες check-all επανεκτελείται μετά τη νέα έκδοση (διορθώθηκε το diagnostics workerVersion). Εκκρεμούν final exact PR/main CI, αρχική υπογραφή μέσω Secrets και επιβεβαιωμένη δημοσίευση. Δεν έγινε παραγωγική διαγραφή, restore, Ordexa write, backup παραγωγής ή φυσική εγκατάσταση. Το προηγούμενο5.58 publish41131332163 παραμένει μη επιβεβαιωμένο· ελέγχεται πριν νέα δημοσίευση.
+
+## Ανάληψη Server-first Stores — PR #56 — 31/10/2026
+
+Συνέχιση του `codex/server-primary-store-orders` από `5f0925d`, με ρητή εντολή πλήρους υλοποίησης και αυτόματης δημοσίευσης μόνο μετά επιτυχείς ελέγχους. Διαβάστηκαν AGENTS, checkpoint και Issues #44/#51/#52. Διατηρείται η εργασία direct access. Το προηγούμενο publish #52 δεν έχει επιβεβαιωμένη ενεργοποίηση· πριν νέα δημοσίευση απαιτείται έλεγχος συντονισμού. Στόχος: τοπική ολοκλήρωση, επίμονη ουρά συγκεντρωτικών, Worker χωρίς raw archive dependency, ασφαλή υπάρχοντα backups, μετρήσεις και regression tests. Καμία παραγωγική διαγραφή ή επαναφορά.
+
+
 
 
 ## #52 / PR#55 — αποθηκευμένο source, πρόσθετη κρυπτογράφηση/έλεγχοι
