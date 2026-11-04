@@ -108,6 +108,7 @@ public final class OrdexaSync {
             boolean reconnect=input.optBoolean("autoReconnect",p.getBoolean("auto_reconnect",false));if(reconnect&&!p.contains("credentials"))throw new Exception("Καταχώρισε μία φορά τα στοιχεία Ordexa στην ενότητα Στοιχεία σύνδεσης για αυτόματη επανασύνδεση.");
             SharedPreferences.Editor edit=p.edit().putString("city",city).putBoolean("enabled",input.optBoolean("enabled",false)).putLong("attempt",0);
             edit.putBoolean("auto_reconnect",reconnect);
+            if(reconnect&&"credentials_required".equals(p.getString("auth_state","")))edit.putBoolean("auth_blocked",false).putLong("auth_retry_at",0).putString("auth_error","").putString("auth_state","saved");
             if(!city.equals(p.getString("city","")))edit.remove("last_success").putString("stage","Πόλη Ordexa αποθηκευμένη · χρειάζεται συγχρονισμός");
             if(!edit.commit())throw new Exception("Δεν αποθηκεύτηκε η ρύθμιση Ordexa.");return status(c);
         }finally{running.set(false);}
