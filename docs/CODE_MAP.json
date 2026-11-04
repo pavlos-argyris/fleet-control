@@ -207,11 +207,13 @@
       "paths": [
         "server-android/src/gr/argyrismitsos/fleetserver/Backup*.java",
         "server-android/src/gr/argyrismitsos/fleetserver/HistoryMergePolicy.java",
-        "server-android/src/gr/argyrismitsos/fleetserver/ServerWorkTracker.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/ServerWorkTracker.java",
+        "cloudflare-worker/src/backup-recovery-evidence.js"
       ],
       "tests": [
         "scripts/test-backup-*.mjs",
-        "scripts/test-server-backup-browser.mjs"
+        "scripts/test-server-backup-browser.mjs",
+        "scripts/test-backup-recovery-evidence.mjs"
       ],
       "related": [
         "server-foundation",
@@ -219,7 +221,8 @@
         "invoices"
       ],
       "docs": [
-        "docs/BACKUP_OTA_5.51.5_GR.md"
+        "docs/BACKUP_OTA_5.51.5_GR.md",
+        "docs/ISSUE_61_RESTORE_EVIDENCE_GR.md"
       ]
     },
     {
