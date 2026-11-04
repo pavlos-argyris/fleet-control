@@ -1,5 +1,11 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## Έλεγχος αποτυχίας 5.59.0 / PR #57 — 04/11/2026
+
+- **Publish run:** [`41145643277`](https://github.com/pavlos-argyris/fleet-control/actions/runs/41145643277), attempt #4 ολοκληρώθηκε **failure** στις 04/11/2026 18:00:31 UTC. Το `Validate publication request` ήταν success, αλλά το `publish` απέτυχε στο `bash scripts/check-all.sh` → `scripts/test-fleet-operations-ui.mjs:21`, πριν από υπογραφή/ενεργοποίηση. Η σταθερή fixture ημερομηνία `2026-11-01` είχε παρέλθει· η UI ορθά εμφάνισε «Η ημερομηνία πέρασε» αντί του αναμενόμενου «Προγραμματισμένο». Δεν είναι επιβεβαιωμένο παραγωγικό σφάλμα. Η προηγούμενη attempt #3 είχε διαφορετική χρονική αστοχία στο `scripts/test-ordexa-browser.mjs`.
+- **Διορθωτικό branch:** `fix/fleet-559-calendar-stable-tests`, από main `92dcad2b2e224eb615ca5e2c069708895e52287b`, PR [`#57`](https://github.com/pavlos-argyris/fleet-control/pull/57). Commit `de47a51f66b5f58aca42b6d6cdb3a2b601c084ae`: η προγραμματισμένη ημερομηνία test παράγεται 30 ημέρες στο μέλλον· κανένα runtime/API ή production asset δεν άλλαξε. Exact-head CI μετά το docs checkpoint εκκρεμεί· δεν έχει γίνει merge/deploy.
+- **Ασφαλής συνέχεια:** μην επαναλάβεις το παλιό pinned publish με γνωστό failing fixture και μην αντικαταστήσεις τα bytes του [`fleet-v5.59.0`](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.59.0). Μετά το exact PR CI χρειάζεται νέα, συμβατή publication στρατηγική με διακριτό source/version εφόσον απαιτείται, χωρίς bypass CI, χωρίς αλλαγή αρχικών signing keys, χωρίς D1/Ordexa writes ή production restore. `activated:true` / live verification παραμένουν **μη επιβεβαιωμένα**. Παρακολούθηση στο issue #51. Το main δεν τροποποιήθηκε σε αυτό το checkpoint.
+
 ## Πρόσθετη επιβεβαίωση αστοχιών και restore — 31/10/2026
 
 Actual native pipeline SUCCESS και για D1 quota αμέσως μετά control/πριν inputs, με πλήρη τοπική ολοκλήρωση7 ημερών, restart και παράδοση όλων των outboxes. Περιορισμός publish σε μη ολοκληρωμένη legacy migration: απαιτείται πλήρης τοπικός authority marker, αλλιώς read-only connection-check/ανάκτηση πρώτα. Restore μαρκάρει κάλυψη προς επαλήθευση πηγής πριν reprice· actual source-read/count assertion SUCCESS. Η προηγούμενη exact πηγή bd54e563c436a3210f495fa46ea86ab0fd2752e1 πέρασε CI41142375820. Οι νεότερες αλλαγές περνούν νέο exact CI πριν merge/publish.
