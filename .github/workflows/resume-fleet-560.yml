@@ -1,9 +1,6 @@
 name: Resume verified Fleet 5.60.0 activation
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/resume-fleet-560.yml']
 permissions:
   contents: read
   actions: read

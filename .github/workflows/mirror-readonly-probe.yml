@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/mirror-readonly-probe.yml', 'scripts/probe-server-mirror.mjs', 'scripts/tail-server-mirror.mjs', 'scripts/tail-release-upload.mjs']
+    paths: ['.github/workflows/mirror-readonly-probe.yml', 'scripts/probe-server-mirror.mjs', 'scripts/tail-server-mirror.mjs']
 permissions:
   contents: read
 jobs:
@@ -23,15 +23,6 @@ jobs:
           FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
           FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
         run: node scripts/probe-server-mirror.mjs
-      - run: npm ci
-        working-directory: cloudflare-worker
-      - name: Observe only this release upload without raw headers
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          FLEET_RELEASE_TOKEN: ${{ secrets.FLEET_RELEASE_TOKEN }}
-          FLEET_WORKER_NAME: ${{ vars.FLEET_WORKER_NAME }}
-        run: node scripts/tail-release-upload.mjs
       - name: Save counts, HTTP status and Ray IDs only
         if: always()
         uses: actions/upload-artifact@v4
@@ -40,5 +31,3 @@ jobs:
           path: verification/mirror-probe/*.json
           if-no-files-found: error
           retention-days: 7
-
-# Read-only status check for the in-progress Fleet 5.60.0 publication, 2026-11-04.
