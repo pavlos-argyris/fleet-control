@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+# A superseded PR can stop its old CI; main source CI is never cancelled.
+concurrency:
+  group: fleet-source-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -14,6 +18,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: cloudflare-worker/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -32,6 +38,11 @@ jobs:
       - run: npm ci
         working-directory: cloudflare-worker
       - run: bash scripts/check-all.sh
+      - name: Cache pinned Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-fleet-playwright-${{ hashFiles('cloudflare-worker/package-lock.json') }}
       - name: Install browser for navigation verification
         run: npx playwright install chromium
         working-directory: cloudflare-worker
@@ -52,6 +63,8 @@ jobs:
       - run: FLEET_CPU_PHASE=after node scripts/profile-schedule-cpu.mjs
       - name: Save navigation verification images
         if: always()
+        # Screenshots are diagnostics; tests themselves must still pass.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: navigation-motion-verification
@@ -120,6 +133,15 @@ jobs:
           git archive --format=zip --output=verification/source/Fleet_Control_Source.zip HEAD
           git rev-parse HEAD > verification/source/SOURCE_COMMIT.txt
           sha256sum verification/source/Fleet_Control_Source.zip | tee verification/source/SHA256SUMS.txt
+      - name: Explain failed source validation
+        if: failure()
+        run: |
+          {
+            echo '## Fleet full source check failed'
+            echo 'Review the first failing step above; no production release is authorized.'
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Source commit: $GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Save complete source handoff
         uses: actions/upload-artifact@v4
         with:
