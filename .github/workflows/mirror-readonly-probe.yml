@@ -31,3 +31,5 @@ jobs:
           path: verification/mirror-probe/*.json
           if-no-files-found: error
           retention-days: 7
+
+# Read-only status check for the in-progress Fleet 5.60.0 publication, 2026-11-04.
