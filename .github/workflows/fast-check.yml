@@ -30,8 +30,8 @@ jobs:
           {
             echo '## Fleet fast checks failed'
             echo
-            echo 'Run: '\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"
-            echo 'Source commit: '\"`$GITHUB_SHA`\"
+            printf 'Run: %s\\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            printf 'Source commit: `%s`\\n' "$GITHUB_SHA"
             echo 'Fix the failing check before waiting for the full source suite.'
             echo 'No production deployment was performed.'
           } >> "$GITHUB_STEP_SUMMARY"
