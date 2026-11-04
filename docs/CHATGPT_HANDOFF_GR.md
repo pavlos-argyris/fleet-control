@@ -1,5 +1,14 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## PR #65 — πραγματικό exact-head CI / μετρήσεις, 04/11/2026
+
+- Ελεγμένο ενοποιημένο source **`1b652212170bff1549f327316aeb961b4dfe15bb`** με τότε main **`83421c28659b1243e99278a275a4b144ec8a337c`**, GitHub compare: **0 commits behind**, 17 ahead, καθαρή σύγκριση (μόνο 10 αρχεία CI/docs/code-map σε σχέση με το τότε main). Το GitHub PR εμφανίζει 13 changed files ως προς παλαιότερη PR base· τα 3 production-activation/diagnostic paths προϋπήρχαν ήδη στο νεότερο main και **δεν αποτελούν νέα αλλαγή** αυτού του merge.
+- [Fast PR CI #41901630942](https://github.com/pavlos-argyris/fleet-control/actions/runs/41901630942): **success**, job log **19:55:35.569–19:55:46.151 UTC**, περίπου **10,6 δευτ.** από πρώτη έως τελευταία γραμμή log. Πραγματικό `PASS code map: 13 modules` και `PASS fast source gate`.
+- [Full PR source CI #41901630994](https://github.com/pavlos-argyris/fleet-control/actions/runs/41901630994): **success**, job log **19:55:35.932–20:03:31.128 UTC**, περίπου **7 λεπτά 55 δευτ.** από πρώτη έως τελευταία γραμμή log. Πέρασαν `scripts/check-all.sh` και `PASS code map: 13 modules`, actual Workerd/D1, browser suites, native/Java tests, δύο APK με **προσωρινή δοκιμαστική** υπογραφή, Worker **dry-run**, υποχρεωτικό source archive και artifact. Πραγματικά **npm cache hit** και **Playwright cache hit** στο log. Οι χρόνοι αυτοί δεν είναι συγκρίσιμη 3-run στατιστική επιτάχυνσης.
+- Επιθεωρήθηκε το `check.yml`: full tests/build/archive παραμένουν υποχρεωτικά, PR-only cancellation δεν ακυρώνει main checks, best-effort μόνο screenshots. Δεν άλλαξε `release.yml`, release-config, εφαρμογές, παραγωγικά δεδομένα, Ordexa ή κλειδιά. Η **5.60.0 είχε ήδη ενεργοποιηθεί** ανεξάρτητα (`activated:true` από το προϋπάρχον handoff).
+- **Εκκρεμεί** νέο exact-head fast/full CI μετά από αυτή τη docs-only καταγραφή, τελικός έλεγχος main και merge **μόνο PR #65**· κατόπιν επιβεβαίωση exact-main full CI. Δεν επιτρέπεται merge πριν τους νέους ελέγχους. Το παλιό PR #54 παραμένει εκτός συγχώνευσης. Καμία νέα έκδοση APK ή deploy.
+
+
 ## PR #65 — live code map και στοχευμένα tests — 04/11/2026
 
 Νεότερη ρητή εντολή χρήστη «Ωραία κάντο» για χάρτη κώδικα του Fleet. Συνέχεια στον ήδη απομονωμένο κλάδο `codex/ci-fast-safe-pipeline-20261104` / PR #65, όχι νέο PR ούτε επανεκκίνηση publish. Προστέθηκαν `docs/CODE_MAP.json` (13 ενότητες με αληθινές διαδρομές, σχετικές δοκιμές, cross-module links και guides), `docs/CODE_MAP_GR.md` (οδηγίες εντοπισμού αρμόδιων αρχείων), `scripts/code-map.mjs` (στατικός έλεγχος χαρτογράφησης, advisory suggestions για `--paths`/`--base`). Το check εκτελείται πλέον από `scripts/check-fast.sh` και από το mandatory `scripts/check-all.sh`. Τα `AGENTS.md` και `docs/CI_SPEED_SECURITY_GR.md` επιβάλλουν επικαιροποίηση mapping μαζί με κάθε αλλαγή. Δεν αναλύθηκαν κάθε γραμμή/έμμεση σχέση· δεν αντικαθιστά την ανάγνωση επηρεαζόμενου κώδικα και το πλήρες CI.
