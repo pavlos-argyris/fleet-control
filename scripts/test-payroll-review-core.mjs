@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {reviewPayrollAttendance} from '../cloudflare-worker/src/payroll-review-core.js';
+const sh=(id,employeeId,startedAt,endedAt)=>({id,employeeId,startedAt,endedAt});
+const base=sh('s1','c1','2026-11-04T19:00:00+02:00','2026-11-05T02:00:00+02:00');
+const schedule=[{day:'2026-11-04',employeeId:'c1'}];
+let v=reviewPayrollAttendance({shifts:[base],schedule,now:'2026-11-05T09:00:00+02:00'});assert.equal(v.alerts.length,0);assert.equal(v.changesApplied,0);
+v=reviewPayrollAttendance({shifts:[{...base,endedAt:'2026-11-05T02:10:00+02:00'}],schedule,now:'2026-11-05T09:00:00+02:00'});assert(v.alerts.some(a=>a.type==='clock-out-after-close'));
+v=reviewPayrollAttendance({shifts:[],schedule,now:'2026-11-05T09:00:00+02:00'});assert(v.alerts.some(a=>a.type==='missing-clock-in'));
+v=reviewPayrollAttendance({shifts:[{...base,endedAt:null}],schedule,now:'2026-11-06T10:00:00+02:00'});assert(v.alerts.some(a=>a.type==='open-clock-out'));
+v=reviewPayrollAttendance({shifts:[base,{...base,id:'s2',startedAt:'2026-11-04T20:00:00+02:00'}],schedule,now:'2026-11-05T09:00:00+02:00'});assert(v.alerts.some(a=>a.type==='overlap'));assert(v.alerts.some(a=>a.type==='multiple-clock-pairs'));
+const active=Array.from({length:4},(_,i)=>sh('n'+i,'c'+i,'2026-11-04T23:30:00+02:00','2026-11-05T01:30:00+02:00'));
+v=reviewPayrollAttendance({shifts:active,schedule:active.map(x=>({day:'2026-11-04',employeeId:x.employeeId})),now:'2026-11-05T10:00:00+02:00'});assert(v.alerts.some(a=>a.type==='night-capacity-00'));assert(v.alerts.some(a=>a.type==='night-capacity-01'));assert(v.alerts.every(a=>a.day==='2026-11-04'));
+console.log('PASS payroll warnings: missed in/out, overlapping multi-shifts, 02:00 closure, 3/2 night caps, no edits.');

@@ -93,13 +93,15 @@
         "cloudflare-worker/src/ordexa-shift-editor.js",
         "cloudflare-worker/public/ordexa-pay-core.js",
         "cloudflare-worker/public/ordexa-pay-ui.js",
-        "cloudflare-worker/public/ordexa-server-ui.js"
+        "cloudflare-worker/public/ordexa-server-ui.js",
+        "cloudflare-worker/src/payroll-review-core.js"
       ],
       "tests": [
         "scripts/test-ordexa-pay.mjs",
         "scripts/test-ordexa-edit-anytime.mjs",
         "scripts/test-ordexa-server-engine.mjs",
-        "scripts/test-payroll-regressions.mjs"
+        "scripts/test-payroll-regressions.mjs",
+        "scripts/test-payroll-review-core.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -107,7 +109,8 @@
       ],
       "docs": [
         "docs/ORDEXA_SERVER_PAYROLL_5.54.0_GR.md",
-        "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md"
+        "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md",
+        "docs/ISSUE_63_PARALLEL_START_GR.md"
       ]
     },
     {
