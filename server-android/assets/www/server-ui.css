@@ -56,6 +56,8 @@
 .ordexa-panel .server-inner p,.ordexa-panel .ordexa-help{font-size:.75rem;color:var(--server-muted);line-height:1.65}
 .ordexa-panel [data-status],.ordexa-panel [data-stores-status]{font-size:.75rem;line-height:1.65;overflow-wrap:anywhere;background:var(--server-background)}
 .ordexa-panel [data-message]:empty{display:none}
+.ordexa-panel .dialog-buttons{position:static;inset:auto;background:transparent;padding:0;margin:12px 0 0;border:0;box-shadow:none}
+.ordexa-panel [data-message]{scroll-margin-bottom:calc(var(--fleet-server-nav-height,88px) + 24px)}
 .server-shell button,.server-shell summary{scroll-margin-bottom:calc(var(--fleet-server-nav-height,88px) + 24px)}
 .server-shell summary:focus-visible{outline:3px solid #4b76df55;outline-offset:2px;border-radius:12px}
 .server-shell button,.server-shell input,.server-shell select{max-width:100%}
