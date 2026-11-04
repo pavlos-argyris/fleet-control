@@ -16,6 +16,7 @@ done
 echo "::endgroup::"
 
 echo "::group::Tracked source and role rules"
+node scripts/code-map.mjs --check
 python3 scripts/check-source-safety.py
 node scripts/prepare-direct-permissions.mjs --check
 echo "::endgroup::"
