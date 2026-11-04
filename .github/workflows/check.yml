@@ -51,6 +51,7 @@ jobs:
       - run: FLEET_CPU_PHASE=after node scripts/profile-schedule-cpu.mjs
       - name: Save navigation verification images
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: navigation-motion-verification
@@ -117,6 +118,13 @@ jobs:
           git archive --format=zip --output=verification/source/Fleet_Control_Source.zip HEAD
           git rev-parse HEAD > verification/source/SOURCE_COMMIT.txt
           sha256sum verification/source/Fleet_Control_Source.zip | tee verification/source/SHA256SUMS.txt
+      - name: Write failure summary
+        if: failure()
+        run: |
+          echo "## Fleet Control CI failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Review the first failed step in the job logs before retrying. No production deployment is performed by this workflow." >> "$GITHUB_STEP_SUMMARY"
       - name: Save complete source handoff
         uses: actions/upload-artifact@v4
         with:
