@@ -319,6 +319,26 @@
         "docs/CI_SPEED_SECURITY_GR.md",
         "docs/AUTOMATIC_PUBLISH_GR.md"
       ]
+    },
+    {
+      "id": "apk-security-audit",
+      "title": "Read-only Play Protect / Android manifest inventory",
+      "paths": [
+        "scripts/android-manifest-audit.mjs",
+        "server-android/AndroidManifest.xml",
+        "client-android/AndroidManifest.xml"
+      ],
+      "tests": [
+        "scripts/test-android-manifest-audit.mjs"
+      ],
+      "related": [
+        "release-ci",
+        "android-client",
+        "server-foundation"
+      ],
+      "docs": [
+        "docs/ISSUE_8_PLAY_PROTECT_AUDIT_GR.md"
+      ]
     }
   ]
 }
