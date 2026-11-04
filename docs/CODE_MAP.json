@@ -117,11 +117,13 @@
         "server-android/src/gr/argyrismitsos/fleetserver/StoreBilling*.java",
         "cloudflare-worker/src/store-billing.js",
         "cloudflare-worker/public/store-billing.js",
-        "cloudflare-worker/public/store-billing.css"
+        "cloudflare-worker/public/store-billing.css",
+        "cloudflare-worker/src/store-financial-report.js"
       ],
       "tests": [
         "scripts/test-store-billing-*.mjs",
-        "scripts/test-store-primary-budget.mjs"
+        "scripts/test-store-primary-budget.mjs",
+        "scripts/test-store-financial-report.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -130,7 +132,8 @@
       ],
       "docs": [
         "docs/SERVER_PRIMARY_STORE_ORDERS_GR.md",
-        "docs/ISSUE_44_STORES_GR.md"
+        "docs/ISSUE_44_STORES_GR.md",
+        "docs/ISSUE_62_PARALLEL_START_GR.md"
       ]
     },
     {
