@@ -319,6 +319,23 @@
         "docs/CI_SPEED_SECURITY_GR.md",
         "docs/AUTOMATIC_PUBLISH_GR.md"
       ]
+    },
+    {
+      "id": "courier-cash",
+      "title": "Courier cash reconciliation independent of payroll",
+      "paths": [
+        "cloudflare-worker/src/courier-cash-core.js"
+      ],
+      "tests": [
+        "scripts/test-courier-cash-core.mjs"
+      ],
+      "related": [
+        "stores",
+        "shift-payroll"
+      ],
+      "docs": [
+        "docs/ISSUE_60_PARALLEL_START_GR.md"
+      ]
     }
   ]
 }
