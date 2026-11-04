@@ -319,6 +319,24 @@
         "docs/CI_SPEED_SECURITY_GR.md",
         "docs/AUTOMATIC_PUBLISH_GR.md"
       ]
+    },
+    {
+      "id": "system-health",
+      "title": "Server/Ordexa/backup/D1 evidence without polling",
+      "paths": [
+        "cloudflare-worker/src/fleet-health-core.js"
+      ],
+      "tests": [
+        "scripts/test-fleet-health-core.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "worker-core",
+        "backups"
+      ],
+      "docs": [
+        "docs/ISSUE_64_PARALLEL_START_GR.md"
+      ]
     }
   ]
 }
