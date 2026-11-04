@@ -18,10 +18,35 @@ public final class OrdexaClient {
     static final Charset UTF8=Charset.forName("UTF-8");
     public enum Action { LOGIN, ME, CITIES, REPORT }
     interface Transport { JSONObject send(String url,String method,JSONObject body,String token)throws Exception; }
+    interface Session {
+        String currentToken()throws Exception;
+        String renew(String expiredToken)throws Exception;
+        default void rejected()throws Exception{}
+    }
+    static final class HttpFailure extends IOException {
+        final int statusCode;
+        HttpFailure(int status){super(status==401?"Η συνεδρία Ordexa έληξε ή η σύνδεση απορρίφθηκε.":status==403?"Ο λογαριασμός Ordexa δεν έχει πρόσβαση σε αυτή τη λειτουργία.":"Η ανάγνωση Ordexa απέτυχε (HTTP "+status+").");statusCode=status;}
+    }
     private final Transport transport;
     private String token="";
+    private Session session;
     public OrdexaClient(){this(new HttpsTransport());}
     OrdexaClient(Transport transport){this.transport=transport;}
+    void session(Session value){session=value;}
+    private JSONObject authenticatedRead(String url)throws Exception{
+        String used=session==null?token:session.currentToken();
+        boolean renewedOnce=false;
+        if(used.length()==0){if(session==null)throw new IOException("Συνδέσου πρώτα στο Ordexa από τις ρυθμίσεις Server.");used=session.renew(used);renewedOnce=true;}
+        try{return transport.send(url,"GET",null,used);}
+        catch(HttpFailure e){
+            // Only an expired session can trigger one login and one replay.
+            // Permission errors, provider outages and failed replays never loop.
+            if(e.statusCode!=401||session==null)throw e;
+            if(renewedOnce){session.rejected();throw e;}
+            String renewed=session.renew(used);
+            try{return transport.send(url,"GET",null,renewed);}catch(HttpFailure replay){if(replay.statusCode==401)session.rejected();throw replay;}
+        }
+    }
     static String path(Action action,String city,String from,String to)throws Exception{
         if(action==null)throw new IllegalArgumentException("Άγνωστη ενέργεια Ordexa.");
         switch(action){
@@ -63,8 +88,8 @@ public final class OrdexaClient {
     }
     private JSONObject call(Action action,JSONObject body,String city,String from,String to)throws Exception{
         String path=path(action,city,from,to);
-        if(action!=Action.LOGIN&&token.length()==0)throw new IOException("Συνδέσου πρώτα στο Ordexa από τις ρυθμίσεις Server.");
-        return transport.send(ORIGIN+path,action==Action.LOGIN?"POST":"GET",action==Action.LOGIN?body:null,action==Action.LOGIN?"":token);
+        if(action!=Action.LOGIN)return authenticatedRead(ORIGIN+path);
+        return transport.send(ORIGIN+path,"POST",body,"");
     }
     public void token(String value){token=value==null?"":value;}
     public String login(String username,String password)throws Exception{
@@ -104,8 +129,7 @@ public final class OrdexaClient {
     }
     private JSONObject storeRead(String city,String suffix)throws Exception{
         path(Action.REPORT,city,"2026-01-01","2026-01-01");
-        if(token.length()==0)throw new IOException("Συνδέσου πρώτα στο Ordexa από τις ρυθμίσεις Server.");
-        return transport.send(ORIGIN+"/api/cities/"+city+suffix,"GET",null,token);
+        return authenticatedRead(ORIGIN+"/api/cities/"+city+suffix);
     }
     public JSONObject storesSetup(String city)throws Exception{return storeRead(city,"/setup");}
     public JSONObject storesOrders(String city,String from,String to,int page,String shop)throws Exception{
@@ -127,7 +151,7 @@ public final class OrdexaClient {
             if(token.length()>0)connection.setRequestProperty("Authorization","Bearer "+token);
             try{
                 if(login){byte[] bytes=body.toString().getBytes(UTF8);connection.setDoOutput(true);connection.setRequestProperty("Content-Type","application/json");connection.setFixedLengthStreamingMode(bytes.length);try(OutputStream out=connection.getOutputStream()){out.write(bytes);}}
-                int status=connection.getResponseCode();if(status<200||status>=300)throw new IOException(status==401?"Η συνεδρία Ordexa έληξε ή η σύνδεση απορρίφθηκε. Συνδέσου ξανά.":"Η ανάγνωση Ordexa απέτυχε (HTTP "+status+").");
+                int status=connection.getResponseCode();if(status<200||status>=300)throw new HttpFailure(status);
                 ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream input=connection.getInputStream()){byte[] buf=new byte[16384];int n;while((n=input.read(buf))!=-1){if(out.size()+n>8*1024*1024)throw new IOException("Η αναφορά Ordexa ξεπερνά το ασφαλές όριο.");out.write(buf,0,n);}}
                 return new JSONObject(new String(out.toByteArray(),UTF8));
             }finally{connection.disconnect();}

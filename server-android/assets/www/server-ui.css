@@ -1,0 +1,65 @@
+/* Shared Server surfaces: status, backups, updates and settings. */
+.server-shell{--server-green:#166442;--server-green-soft:#e8f5ed;--server-text:#182e25;--server-muted:#53695e;--server-line:#dce6df;--server-background:#f2f5f4;--server-panel:#fff;--ink:var(--server-text);--muted:var(--server-muted);--line:var(--server-line);--canvas:var(--server-background);--mint-dark:var(--server-green);background:var(--server-background)}
+.server-shell .server-header{background:linear-gradient(125deg,#153d2b,#10281d);border-radius:0 0 24px 24px}
+.server-shell .server-content{padding:20px 18px calc(max(72px,var(--fleet-server-nav-height,88px)) + 28px)}
+.server-page-intro{color:var(--server-muted);font-size:.85rem;line-height:1.6;margin:0 0 18px}
+.server-category{font-size:.75rem;font-weight:600;color:var(--server-muted);margin:20px 4px 10px;letter-spacing:.02em}
+.server-group{min-width:0;background:var(--server-panel);border:1px solid var(--server-line);border-radius:16px;margin:0 0 12px;box-shadow:none}
+.server-group>summary{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:17px;min-height:64px;list-style:none;color:var(--server-text);cursor:pointer;touch-action:manipulation}
+.server-group>summary::-webkit-details-marker{display:none}
+.server-group>summary::after{content:'⌄';color:var(--server-muted);font-size:22px;line-height:1;flex:0 0 14px;transform:rotate(0deg)}
+.server-group[open]>summary::after{transform:rotate(180deg)}
+.server-group>summary>span{min-width:0;flex:1}
+.server-group>summary strong{display:block;font-size:.95rem;font-weight:600;overflow-wrap:anywhere}
+.server-group>summary small{display:block;margin-top:3px;font-size:.75rem;color:var(--server-muted);font-weight:400;overflow-wrap:anywhere}
+.server-group>summary .section-heading{margin:0;flex:1;min-width:0;flex-wrap:wrap}
+.server-shell .server-group>summary h2{font-size:1rem;margin:0}
+.server-group-body{padding:0 17px 17px;min-width:0}
+.settings-form .server-group-body{display:grid;gap:13px}
+.server-group-body>.status-list{border:0;border-radius:0;box-shadow:none}
+.server-group-body>.sync-diagnostics,.server-group-body>.ota-card,.server-group-body>.backup-health-card{border:0;box-shadow:none;padding:0;margin:0;background:transparent}
+.server-group-body>.feature-box{box-shadow:none;margin-top:0}
+.server-group-body .server-group{border-radius:12px;background:var(--server-panel);margin-top:14px;margin-bottom:0}
+.server-group-body .server-group>summary{padding:13px;min-height:48px}
+.server-group-body>.primary-action{margin-top:12px}
+.server-shell .primary-action{background:var(--server-green);color:#fff;border-radius:11px}
+.server-shell .primary-action.stop{background:var(--red)}
+.server-shell .secondary-action{color:var(--server-green);border-radius:11px;background:var(--server-panel);border-color:var(--server-line)}
+.server-shell .metrics{gap:8px;margin:0 0 18px}
+.server-shell .metrics>div{background:var(--server-green-soft);border-radius:12px;padding:15px 7px}
+.server-shell .state-badge{background:var(--server-green-soft);color:var(--server-green)}
+.server-shell .state-badge.warn{background:var(--amber-soft);color:var(--amber)}
+.server-shell .device-health-grid>div{background:var(--server-background);border:0}
+.server-shell .settings-form input:not([type=checkbox]),.server-shell .settings-form select{border-color:var(--server-line);font-size:1rem;border-radius:10px;background:var(--server-panel)}
+.server-shell .switch-row{border:0;background:var(--server-background);border-radius:10px}
+.server-shell .switch-row input{flex-shrink:0;width:22px;height:22px;accent-color:var(--server-green)}
+.server-shell .switch-row strong{font-weight:600;font-size:.85rem}
+.server-shell .switch-row small{font-size:.75rem;line-height:1.5}
+.server-shell .settings-actions{margin-top:0;border-radius:10px;box-shadow:none}
+.server-shell .settings-row{min-height:60px}
+.server-shell .settings-row small{font-size:.75rem}
+.server-shell .bottom-nav{background:var(--server-panel)}
+.server-shell .nav-item.active{background:var(--server-green-soft);color:var(--server-green);border-color:transparent}
+.server-shell .ui-server-link{border-radius:14px;box-shadow:none;background:var(--server-panel)}
+.server-shell .ui-server-link small{font-size:.75rem}
+.server-shell .ordexa-panel{margin:0 0 12px}
+.ordexa-auth{display:flex;align-items:flex-start;gap:10px;padding:12px;border-radius:10px;background:var(--server-background);margin-bottom:14px;color:var(--server-text)}
+.ordexa-auth.is-connected{background:var(--server-green-soft);color:var(--server-green)}
+.ordexa-auth.is-warning{background:var(--amber-soft);color:#744b08}
+.ordexa-auth strong,.ordexa-auth small{display:block;overflow-wrap:anywhere}
+.ordexa-auth small{font-size:.75rem;margin-top:3px;line-height:1.6}
+.ordexa-cadence{display:grid;gap:0;margin:0;font-size:.85rem}
+.ordexa-cadence div{display:flex;gap:12px;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--server-line)}
+.ordexa-cadence dt{font-weight:500}.ordexa-cadence dd{margin:0;text-align:right;color:var(--server-muted)}
+.ordexa-panel .server-inner{border-top:1px solid var(--server-line);margin-top:14px}
+.ordexa-panel .server-inner>summary{padding:14px 0;font-size:.85rem;color:var(--server-text);font-weight:600}
+.ordexa-panel .server-inner p,.ordexa-panel .ordexa-help{font-size:.75rem;color:var(--server-muted);line-height:1.65}
+.ordexa-panel [data-status],.ordexa-panel [data-stores-status]{font-size:.75rem;line-height:1.65;overflow-wrap:anywhere;background:var(--server-background)}
+.ordexa-panel [data-message]:empty{display:none}
+.server-shell button,.server-shell summary{scroll-margin-bottom:calc(var(--fleet-server-nav-height,88px) + 24px)}
+.server-shell summary:focus-visible{outline:3px solid #4b76df55;outline-offset:2px;border-radius:12px}
+.server-shell button,.server-shell input,.server-shell select{max-width:100%}
+.server-shell .dialog-buttons,.server-shell .ota-actions{flex-wrap:wrap}
+.server-shell .dialog-buttons>button,.server-shell .ota-actions>button{white-space:normal;overflow-wrap:anywhere;min-width:0}
+@media(max-width:480px){.server-shell .server-content{padding-left:12px;padding-right:12px}.server-group>summary{padding:15px}.server-group-body{padding:0 14px 14px}.server-shell .server-content .section-heading h2{font-size:1.15rem}.server-shell .server-group>summary h2{font-size:1rem}.server-shell .public-link{font-size:.75rem}.server-shell .invoice-processing-copy strong,.server-shell .invoice-processing-copy small{white-space:normal;overflow-wrap:anywhere}.ordexa-cadence div{flex-wrap:wrap}.ordexa-cadence dd{text-align:left}.server-shell .metrics span{font-size:.72rem}}
+@media(max-width:360px){.server-shell .two-fields{grid-template-columns:1fr}.server-shell .ui-server-links{grid-template-columns:1fr}.server-shell .device-health-grid{grid-template-columns:1fr}}
