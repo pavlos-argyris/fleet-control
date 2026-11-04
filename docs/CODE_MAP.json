@@ -319,6 +319,24 @@
         "docs/CI_SPEED_SECURITY_GR.md",
         "docs/AUTOMATIC_PUBLISH_GR.md"
       ]
+    },
+    {
+      "id": "d1-migration",
+      "title": "D1 dependency migration audit (no production writes)",
+      "paths": [
+        "scripts/d1-source-inventory.mjs"
+      ],
+      "tests": [
+        "scripts/test-d1-source-inventory.mjs"
+      ],
+      "related": [
+        "worker-core",
+        "server-foundation",
+        "direct-access"
+      ],
+      "docs": [
+        "docs/ISSUE_59_D1_AUTHORITY_AUDIT_GR.md"
+      ]
     }
   ]
 }
