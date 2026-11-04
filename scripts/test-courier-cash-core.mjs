@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {projectCourierCash} from '../cloudflare-worker/src/courier-cash-core.js';
+const day='2026-11-04',tariffs=[{storeId:'pizza-hot',category:'A',effectiveDay:'2026-01-01',amountCents:200}];
+const order=i=>({id:'o'+i,day,courierId:'c1',storeId:'pizza-hot',category:'A',status:'delivered'});
+let r=projectCourierCash({day,orders:Array.from({length:15},(_,i)=>order(i)),tariffs});
+assert.equal(r.complete,true);assert.equal(r.couriers[0].orders,15);assert.equal(r.couriers[0].dueCents,3000);assert.equal(r.couriers[0].differenceCents,3000);
+r=projectCourierCash({day,orders:[order(1),order(1),{...order(2),status:'cancelled'}],tariffs,receipts:[{id:'r1',day,courierId:'c1',kind:'received',amountCents:200},{id:'r1',day,courierId:'c1',kind:'received',amountCents:200}]});
+assert.equal(r.couriers[0].dueCents,200);assert.equal(r.couriers[0].receivedCents,200);assert.equal(r.couriers[0].differenceCents,0);
+assert.throws(()=>projectCourierCash({day,orders:[order(1),{...order(1),courierId:'c2'}],tariffs}),/Conflicting order/);
+r=projectCourierCash({day,orders:[{...order(1),courierId:''}],tariffs});assert.equal(r.complete,false);assert.equal(r.issues[0].type,'missing-courier');
+r=projectCourierCash({day,orders:[order(1)],tariffs:[]});assert.equal(r.couriers[0].dueCents,null);assert.equal(r.issues[0].type,'missing-tariff');
+r=projectCourierCash({day,orders:[order(1)],tariffs:[...tariffs,{...tariffs[0],effectiveDay:'2026-11-04',amountCents:250}]});assert.equal(r.couriers[0].dueCents,250);
+r=projectCourierCash({day,orders:[],tariffs,receipts:[]});assert.equal(r.couriers.length,0);assert.equal(r.complete,true);
+r=projectCourierCash({day,orders:[order(1)],tariffs,receipts:[{id:'r1',day,courierId:'c1',kind:'received',amountCents:300},{id:'r2',day,courierId:'c1',kind:'reversal',amountCents:100}]});assert.equal(r.couriers[0].receivedCents,200);
+assert.throws(()=>projectCourierCash({day,orders:[order(1)],tariffs:[tariffs[0],{...tariffs[0],amountCents:300}]}),/Ambiguous tariff/);
+console.log('PASS cash core: 0/1/15 orders, effective tariffs, idempotency, reversals, missing IDs, cancellation; no wage mutation.');
