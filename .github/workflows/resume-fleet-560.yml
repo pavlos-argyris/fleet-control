@@ -1,0 +1,78 @@
+name: Resume verified Fleet 5.60.0 activation
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/resume-fleet-560.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: fleet-production-release
+  cancel-in-progress: false
+jobs:
+  activate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 83cc81e78dcd51bb12f74b3fb4ab9977eaab3a42
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Download immutable saved manifest and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .build/saved-release
+          gh release download fleet-v5.60.0 --pattern release-manifest.json --pattern SHA256SUMS.txt --dir .build/saved-release
+      - name: Verify saved source CI and resume only atomic activation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FLEET_RELEASE_TOKEN: ${{ secrets.FLEET_RELEASE_TOKEN }}
+          FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';import crypto from 'node:crypto';
+          import {releaseCapacityError} from './cloudflare-worker/src/release-limits.js';
+          const expected='83cc81e78dcd51bb12f74b3fb4ab9977eaab3a42',repo='pavlos-argyris/fleet-control';
+          if(process.env.GITHUB_REPOSITORY!==repo)throw new Error('Unexpected repository');
+          const raw=fs.readFileSync('.build/saved-release/release-manifest.json');
+          const sum=fs.readFileSync('.build/saved-release/SHA256SUMS.txt','utf8').split(/\r?\n/).map(line=>line.match(/^([a-f0-9]{64})  release-manifest\.json$/)).find(Boolean);
+          if(!sum||crypto.createHash('sha256').update(raw).digest('hex')!==sum[1])throw new Error('Saved manifest checksum mismatch');
+          const manifest=JSON.parse(raw),error=releaseCapacityError(manifest);if(error)throw new Error(error);
+          if(manifest.sourceCommit!==expected||manifest.releaseId!=='v5.60.0-83cc81e78dcd'||manifest.server.version!=='2.9.0'||manifest.server.versionCode!==53||manifest.client.version!=='5.60.0'||manifest.client.versionCode!==95||manifest.web.version!=='5.60.0')throw new Error('Unexpected saved release');
+          for(const [id,sha]of [[41890780098,'0a9b02660ec52a1c933b834b6c0556f1578e5026'],[41892445599,expected]]){
+            const response=await fetch('https://api.github.com/repos/'+repo+'/actions/runs/'+id,{headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(30000)});
+            if(!response.ok)throw new Error('Cannot verify source CI');const run=await response.json();if(run.head_sha!==sha||run.conclusion!=='success')throw new Error('Exact source CI not successful');
+          }
+          const origin='https://fleet-control.pavlosargyris.workers.dev';
+          if(process.env.FLEET_WORKER_URL?.replace(/\/+$/,'')!==origin||!process.env.FLEET_RELEASE_TOKEN)throw new Error('Unexpected activation configuration');
+          fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/release-manifest.json',raw);
+          console.log(JSON.stringify({resuming:true,sourceCommit:expected,releaseId:manifest.releaseId,uploadedFiles:manifest.web.files.length+2,activationTimeoutMs:600000}));
+          const heartbeat=setInterval(()=>console.log('Atomic release verification is still running; the existing active release remains until commit.'),30000);
+          try{
+            const response=await fetch(origin+'/api/deploy/releases/activate',{method:'POST',headers:{Authorization:'Bearer '+process.env.FLEET_RELEASE_TOKEN,'Content-Type':'application/json'},body:JSON.stringify(manifest),redirect:'error',signal:AbortSignal.timeout(600000)});
+            if(!response.ok)throw new Error('Activation failed with HTTP '+response.status);
+            const result=await response.json();if(!result.activated||result.sourceCommit!==expected||result.releaseId!==manifest.releaseId)throw new Error('Activation not confirmed');
+            fs.mkdirSync('verification/activation-resume',{recursive:true});fs.writeFileSync('verification/activation-resume/result.json',JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
+          }finally{clearInterval(heartbeat);}
+          JS
+      - name: Verify live original-signed APK bytes and mirror
+        env:
+          FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
+          FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
+          FLEET_VERIFY_DEPLOYED_SOURCE: 83cc81e78dcd51bb12f74b3fb4ab9977eaab3a42
+          FLEET_REQUIRE_HEALTHY_MIRROR: 'true'
+        run: node scripts/probe-server-mirror.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fleet-560-activation-verification
+          path: |
+            verification/activation-resume/
+            verification/mirror-probe/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,5 +1,12 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## Ενεργοποίηση 5.60.0 — ακριβές σφάλμα και ασφαλές resume, 04/11/2026
+
+Publish41894238516 ολοκληρώθηκε failure: **όλα τα372 αντικείμενα ανέβηκαν και επαληθεύτηκαν** (19:26:25UTC), αλλά POST `/api/deploy/releases/activate` έληξε σε180s επί τέσσερις προσπάθειες. Δεν είναι αποτυχία build/υπογραφής/upload. Read-only probe41898328371 SUCCESS επιβεβαίωσε υγιή D1/mirror και ακόμη ενεργά Client5.57.0/Server2.6.0. Η tail διάγνωση41898732300 είχε0 σχετικά events (η τελευταία activation είχε αρχίσει πριν τη σύνδεση tail), χωρίς permission error. Τα αμετάβλητα υπογεγραμμένα5.60.0/Server2.9.0 και πλήρες source είναι στο GitHub.
+
+Εκκινείται bounded **activation-only resume** του ίδιου manifest, με ακριβή source83cc81e, checksum manifest από το υπάρχον GitHub release, exact PR/main CI gates και το ίδιο serialization/concurrency group. Η μοναδική επιχειρησιακή μεταβολή είναι η ήδη εξουσιοδοτημένη ατομική ενεργοποίηση, αφού ο υπάρχων Worker επανελέγξει όλα τα αντικείμενα. Client timeout600s αντί180s· καμία παράκαμψη hash/έκδοσης/υπογραφής, επανακατασκευή, overwrite, διαγραφή, αλλαγή Ordexa ή νέα έκδοση. Ακολουθεί ζωντανή επαλήθευση APK SHA και προσωπικού. Η ενεργοποίηση δεν έχει ακόμη επιβεβαιωθεί· εκκρεμεί το τελικό αποτέλεσμα.
+
+
 ## PR #58 / Fleet 5.60.0 — δημοσίευση σε εξέλιξη, 04/11/2026
 
 Η εγκεκριμένη υλοποίηση ολοκληρώθηκε και συγχωνεύτηκε: source `83cc81e78dcd51bb12f74b3fb4ab9977eaab3a42`, PR #58. Exact PR CI `41890780098` και exact main CI `41892445599` SUCCESS. Δημοσιεύτηκαν στο GitHub τα υπογεγραμμένα με την αρχική υπογραφή Server2.9.0/Client5.60.0, πλήρες source ZIP, Worker/Web/build inputs και SHA256SUMS: https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.60.0 . Request-only commit `d26b2e5b58448e2698c66573b99bac7dbcb91990` εκκίνησε publish `41894238516`, validation SUCCESS. Η αποστολή/ενεργοποίηση Cloudflare (370 Web αρχεία και δύο APK) παραμένει σε εξέλιξη από19:17UTC· δεν υπάρχει ακόμη επιβεβαιωμένο activated:true/live verification και δεν αναφέρεται ολοκληρωμένη OTA. Έγινε μία read-only δημόσια ανάγνωση client-update και έδειξε ακόμη5.57.0 πριν την ενεργοποίηση. Το περιβάλλον τοπικής εκτέλεσης έπαψε να είναι διαθέσιμο, αλλά όλος ο κώδικας/υπογραφές/source έχουν ήδη αποθηκευτεί στο GitHub.
