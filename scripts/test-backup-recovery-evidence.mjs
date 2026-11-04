@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {recoveryEvidenceGate} from '../cloudflare-worker/src/backup-recovery-evidence.js';
+const sha='a'.repeat(64),requiredDatasets=['fleet','stores','payroll'];
+const archive={sha256:sha,sizeBytes:128,createdAt:'2026-11-04T12:00:00Z',datasets:requiredDatasets};
+const integrity={archiveSha256:sha,authTagValid:true,checksumsValid:true,manifestValid:true};
+const isolatedRestore={isolated:true,productionWrites:false,completed:true,archiveSha256:sha,verifiedAt:'2026-11-04T13:00:00Z',sourceRevalidated:true,rowCountsMatched:true,referentialChecksPassed:true,datasets:requiredDatasets};
+let x=recoveryEvidenceGate({requiredDatasets,archive,integrity});assert.equal(x.evidenceComplete,false);assert(x.blockers.includes('isolated-restore-not-proven'));assert.equal(x.productionRestorePerformed,false);
+x=recoveryEvidenceGate({requiredDatasets,archive,integrity,isolatedRestore});assert.equal(x.evidenceComplete,true);assert.deepEqual(x.blockers,[]);
+x=recoveryEvidenceGate({requiredDatasets,archive:{...archive,datasets:['fleet']},integrity,isolatedRestore});assert(x.blockers.includes('missing-dataset:stores'));assert(x.blockers.includes('missing-dataset:payroll'));
+x=recoveryEvidenceGate({requiredDatasets,archive,integrity:{...integrity,authTagValid:false},isolatedRestore});assert(x.blockers.includes('archive-integrity-unverified'));
+x=recoveryEvidenceGate({requiredDatasets,archive,integrity,isolatedRestore:{...isolatedRestore,isolated:false}});assert(x.blockers.includes('isolated-restore-not-proven'));
+x=recoveryEvidenceGate({requiredDatasets,archive,integrity,isolatedRestore:{...isolatedRestore,rowCountsMatched:false}});assert(x.blockers.includes('restored-data-consistency-unverified'));
+x=recoveryEvidenceGate({requiredDatasets,archive,integrity,isolatedRestore:{...isolatedRestore,archiveSha256:'b'.repeat(64)}});assert(x.blockers.includes('isolated-restore-not-proven'));
+x=recoveryEvidenceGate({requiredDatasets,archive,integrity,isolatedRestore:{...isolatedRestore,productionWrites:true}});assert(x.blockers.includes('isolated-restore-not-proven'));
+console.log('PASS isolated recovery evidence gate: ZIP alone never counts as restore, required coverage, integrity, no production writes.');
