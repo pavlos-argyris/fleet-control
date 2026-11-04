@@ -10,7 +10,7 @@ export function recoveryEvidenceGate({requiredDatasets=[],archive=null,integrity
  if(!integrity||integrity.archiveSha256!==archive?.sha256||integrity.authTagValid!==true||integrity.checksumsValid!==true||integrity.manifestValid!==true)blockers.push('archive-integrity-unverified');
  const cover=Array.isArray(archive?.datasets)?archive.datasets:[];
  for(const dataset of requiredDatasets)if(!cover.includes(dataset))blockers.push('missing-dataset:'+dataset);
- if(!isolatedRestore||isolatedRestore.isolated!==true||isolatedRestore.productionWrites===true||isolatedRestore.completed!==true||isolatedRestore.archiveSha256!==archive?.sha256||!date(isolatedRestore.verifiedAt)||!date(archive?.createdAt)||Date.parse(isolatedRestore.verifiedAt)<Date.parse(archive.createdAt))blockers.push('isolated-restore-not-proven');
+ if(!isolatedRestore||isolatedRestore.isolated!==true||isolatedRestore.productionWrites!==false||isolatedRestore.completed!==true||isolatedRestore.archiveSha256!==archive?.sha256||!date(isolatedRestore.verifiedAt)||!date(archive?.createdAt)||Date.parse(isolatedRestore.verifiedAt)<Date.parse(archive.createdAt))blockers.push('isolated-restore-not-proven');
  if(isolatedRestore?.sourceRevalidated!==true||isolatedRestore?.rowCountsMatched!==true||isolatedRestore?.referentialChecksPassed!==true)blockers.push('restored-data-consistency-unverified');
  if(Array.isArray(isolatedRestore?.datasets)){for(const dataset of requiredDatasets)if(!isolatedRestore.datasets.includes(dataset))blockers.push('restore-dataset-unverified:'+dataset);}
  else if(requiredDatasets.length)blockers.push('restore-datasets-not-reported');
