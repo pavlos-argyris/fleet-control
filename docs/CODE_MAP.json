@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "description": "Human-reviewed feature ownership and advisory targeted tests; full check.yml remains mandatory before merge/publish.",
+  "modules": [
+    {
+      "id": "server-foundation",
+      "title": "Server APK, sync και τοπική SQLite",
+      "paths": [
+        "server-android/src/gr/argyrismitsos/fleetserver/SyncService.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/FleetDataStore.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/FleetHttp.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/FleetSnapshotSync.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/SystemMirror.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/LocalWorkQueue.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/ServerConfig.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/DeviceHealth.java"
+      ],
+      "tests": [
+        "scripts/test-server-snapshot-sync.mjs",
+        "scripts/test-server-system-mirror.mjs",
+        "scripts/test-server-http.mjs",
+        "scripts/test-server-offload-native.mjs"
+      ],
+      "related": [
+        "worker-core",
+        "backups",
+        "direct-access"
+      ],
+      "docs": [
+        "docs/SERVER_OFFLOAD_5.47.0_GR.md"
+      ]
+    },
+    {
+      "id": "worker-core",
+      "title": "Cloudflare Worker, D1, auth, mirror και live",
+      "paths": [
+        "cloudflare-worker/src/worker.js",
+        "cloudflare-worker/src/workforce.js",
+        "cloudflare-worker/src/workforce-core.js",
+        "cloudflare-worker/src/snapshot-store.js",
+        "cloudflare-worker/src/mirror-delta.js",
+        "cloudflare-worker/src/change-events.js",
+        "cloudflare-worker/public/live-changes.js"
+      ],
+      "tests": [
+        "scripts/test-worker-model.mjs",
+        "scripts/test-change-events.mjs",
+        "scripts/test-mirror-compound-limit.mjs",
+        "scripts/test-personnel-d1.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "direct-access",
+        "shift-payroll"
+      ],
+      "docs": [
+        "docs/REQUEST_REDUCTION_5.48.0_GR.md"
+      ]
+    },
+    {
+      "id": "ordexa-attendance",
+      "title": "Ordexa read-only, παρουσίες και αντιστοιχίσεις",
+      "paths": [
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaClient.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaSync.java",
+        "cloudflare-worker/src/ordexa.js",
+        "cloudflare-worker/src/ordexa-core.js",
+        "cloudflare-worker/src/ordexa-server.js",
+        "cloudflare-worker/public/ordexa-ui.js"
+      ],
+      "tests": [
+        "scripts/test-ordexa-core.mjs",
+        "scripts/test-ordexa-native.mjs",
+        "scripts/test-ordexa-lifecycle.mjs",
+        "scripts/test-ordexa-browser.mjs"
+      ],
+      "related": [
+        "shift-payroll",
+        "stores"
+      ],
+      "docs": [
+        "docs/ORDEXA_INTEGRATION_5.52.0_GR.md"
+      ]
+    },
+    {
+      "id": "shift-payroll",
+      "title": "Βάρδιες, μισθοδοσία, πληρωτέες ώρες και editor",
+      "paths": [
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaPayrollEngine.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaPayrollSync.java",
+        "cloudflare-worker/src/ordexa-pay.js",
+        "cloudflare-worker/src/ordexa-edit-guard.js",
+        "cloudflare-worker/src/ordexa-shift-editor.js",
+        "cloudflare-worker/public/ordexa-pay-core.js",
+        "cloudflare-worker/public/ordexa-pay-ui.js",
+        "cloudflare-worker/public/ordexa-server-ui.js"
+      ],
+      "tests": [
+        "scripts/test-ordexa-pay.mjs",
+        "scripts/test-ordexa-edit-anytime.mjs",
+        "scripts/test-ordexa-server-engine.mjs",
+        "scripts/test-payroll-regressions.mjs"
+      ],
+      "related": [
+        "ordexa-attendance",
+        "workforce-schedule"
+      ],
+      "docs": [
+        "docs/ORDEXA_SERVER_PAYROLL_5.54.0_GR.md",
+        "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md"
+      ]
+    },
+    {
+      "id": "stores",
+      "title": "Καταστήματα, χρεώσεις, παραγγελίες και τοπικό ledger",
+      "paths": [
+        "server-android/src/gr/argyrismitsos/fleetserver/StoreBilling*.java",
+        "cloudflare-worker/src/store-billing.js",
+        "cloudflare-worker/public/store-billing.js",
+        "cloudflare-worker/public/store-billing.css"
+      ],
+      "tests": [
+        "scripts/test-store-billing-*.mjs",
+        "scripts/test-store-primary-budget.mjs"
+      ],
+      "related": [
+        "ordexa-attendance",
+        "server-foundation",
+        "backups"
+      ],
+      "docs": [
+        "docs/SERVER_PRIMARY_STORE_ORDERS_GR.md",
+        "docs/ISSUE_44_STORES_GR.md"
+      ]
+    },
+    {
+      "id": "workforce-schedule",
+      "title": "Προσωπικό, πρότυπα βαρδιών, πρόγραμμα, Excel",
+      "paths": [
+        "cloudflare-worker/src/workforce.js",
+        "cloudflare-worker/src/workforce-core.js",
+        "cloudflare-worker/public/schedule-workbook.js",
+        "cloudflare-worker/public/portal.js"
+      ],
+      "tests": [
+        "scripts/test-schedule-*.mjs",
+        "scripts/test-staff-schedule-payroll.mjs",
+        "scripts/test-personnel-migration.mjs"
+      ],
+      "related": [
+        "shift-payroll",
+        "worker-core"
+      ],
+      "docs": [
+        "docs/SCHEDULE_MANAGEMENT_5.51.8_GR.md"
+      ]
+    },
+    {
+      "id": "invoices",
+      "title": "Τιμολόγια, PDF/QR, OCR, ελεγχόμενη επανάληψη",
+      "paths": [
+        "cloudflare-worker/src/invoice-*.js",
+        "cloudflare-worker/public/invoice-*.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/InvoicePipeline.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/LocalInvoiceReader.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/ServiceDocument*.java"
+      ],
+      "tests": [
+        "scripts/test-invoice-*.mjs",
+        "scripts/test-local-invoice-reader.mjs",
+        "scripts/test-pdf-evidence.mjs"
+      ],
+      "related": [
+        "vehicle-service",
+        "backups"
+      ],
+      "docs": [
+        "docs/ISSUE_37_INVOICE_RECOVERY_GR.md"
+      ]
+    },
+    {
+      "id": "vehicle-service",
+      "title": "Μηχανάκια, service, αναφορά μηχανής και ιστορικό",
+      "paths": [
+        "cloudflare-worker/src/service-operations.js",
+        "cloudflare-worker/public/fleet-operations*.js",
+        "cloudflare-worker/public/service-*.js",
+        "cloudflare-worker/public/service-model.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/NextServiceNotes.java"
+      ],
+      "tests": [
+        "scripts/test-fleet-operations-*.mjs",
+        "scripts/test-service-*.mjs",
+        "scripts/test-next-service-model.mjs"
+      ],
+      "related": [
+        "invoices",
+        "workforce-schedule"
+      ],
+      "docs": [
+        "docs/OPERATIONS_UPDATE_5.46.0_GR.md"
+      ]
+    },
+    {
+      "id": "backups",
+      "title": "Backup, encryption, retention, restore",
+      "paths": [
+        "server-android/src/gr/argyrismitsos/fleetserver/Backup*.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/HistoryMergePolicy.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/ServerWorkTracker.java"
+      ],
+      "tests": [
+        "scripts/test-backup-*.mjs",
+        "scripts/test-server-backup-browser.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "stores",
+        "invoices"
+      ],
+      "docs": [
+        "docs/BACKUP_OTA_5.51.5_GR.md"
+      ]
+    },
+    {
+      "id": "direct-access",
+      "title": "Κρυπτογραφημένη απευθείας σύνδεση Server/Client χωρίς D1",
+      "paths": [
+        "server-android/src/gr/argyrismitsos/fleetserver/Direct*.java",
+        "cloudflare-worker/src/direct-relay.js",
+        "cloudflare-worker/public/direct-*.js",
+        "cloudflare-worker/public/direct.html",
+        "scripts/prepare-direct-permissions.mjs"
+      ],
+      "tests": [
+        "scripts/test-direct-*.mjs",
+        "scripts/test-direct-browser.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "worker-core"
+      ],
+      "docs": [
+        "docs/D1_DIRECT_ACCESS_GR.md"
+      ]
+    },
+    {
+      "id": "android-client",
+      "title": "Client APK, webview, προβολές και πλοήγηση",
+      "paths": [
+        "client-android/src/gr/argyrismitsos/fleetcontrol/*.java",
+        "client-android/AndroidManifest.xml",
+        "cloudflare-worker/public/portal.html",
+        "cloudflare-worker/public/fleet-navigation.js",
+        "cloudflare-worker/public/ui-system.css",
+        "cloudflare-worker/public/app.js"
+      ],
+      "tests": [
+        "scripts/test-client-landscape*.mjs",
+        "scripts/test-ui-system*.mjs",
+        "scripts/test-navigation-motion*.mjs"
+      ],
+      "related": [
+        "worker-core",
+        "release-ci"
+      ],
+      "docs": [
+        "docs/UI_SYSTEM_5.51.0_GR.md"
+      ]
+    },
+    {
+      "id": "server-ui",
+      "title": "Οθόνες Server APK, ρυθμίσεις και reconnect",
+      "paths": [
+        "server-android/src/gr/argyrismitsos/fleetserver/MainActivity.java",
+        "server-android/assets/www/server-*.js",
+        "server-android/assets/www/server-*.css",
+        "server-android/assets/www/app.js"
+      ],
+      "tests": [
+        "scripts/test-server-reconnect-*.mjs",
+        "scripts/test-server-settings-recovery.mjs",
+        "scripts/test-server-update-ui.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "ordexa-attendance"
+      ],
+      "docs": [
+        "docs/SERVER_RECONNECT_UI_5.60.0_GR.md"
+      ]
+    },
+    {
+      "id": "release-ci",
+      "title": "GitHub Actions, APK build, υπογραφές και release",
+      "paths": [
+        ".github/workflows/",
+        "scripts/build-android.sh",
+        "scripts/check-all.sh",
+        "scripts/check-fast.sh",
+        "scripts/prepare-release.mjs",
+        "scripts/publish-release.mjs",
+        "scripts/request-publish.mjs",
+        "scripts/validate-publish-request.mjs",
+        "release-config.json"
+      ],
+      "tests": [
+        "scripts/test-publish-request.mjs",
+        "scripts/test-release-transport.mjs",
+        "scripts/test-ota-releases.mjs",
+        "scripts/test-web-release-inventory.mjs"
+      ],
+      "related": [
+        "android-client",
+        "server-foundation",
+        "worker-core"
+      ],
+      "docs": [
+        "docs/CI_SPEED_SECURITY_GR.md",
+        "docs/AUTOMATIC_PUBLISH_GR.md"
+      ]
+    }
+  ]
+}

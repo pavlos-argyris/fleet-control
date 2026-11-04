@@ -1,5 +1,18 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## PR #65 — live code map και στοχευμένα tests — 04/11/2026
+
+Νεότερη ρητή εντολή χρήστη «Ωραία κάντο» για χάρτη κώδικα του Fleet. Συνέχεια στον ήδη απομονωμένο κλάδο `codex/ci-fast-safe-pipeline-20261104` / PR #65, όχι νέο PR ούτε επανεκκίνηση publish. Προστέθηκαν `docs/CODE_MAP.json` (13 ενότητες με αληθινές διαδρομές, σχετικές δοκιμές, cross-module links και guides), `docs/CODE_MAP_GR.md` (οδηγίες εντοπισμού αρμόδιων αρχείων), `scripts/code-map.mjs` (στατικός έλεγχος χαρτογράφησης, advisory suggestions για `--paths`/`--base`). Το check εκτελείται πλέον από `scripts/check-fast.sh` και από το mandatory `scripts/check-all.sh`. Τα `AGENTS.md` και `docs/CI_SPEED_SECURITY_GR.md` επιβάλλουν επικαιροποίηση mapping μαζί με κάθε αλλαγή. Δεν αναλύθηκαν κάθε γραμμή/έμμεση σχέση· δεν αντικαθιστά την ανάγνωση επηρεαζόμενου κώδικα και το πλήρες CI.
+
+Το πρώτο PR #65 fast check στο παλαιότερο checkpoint `abd93d342b3c4aec999aec7697753b39e14df7dd` πέτυχε (run #41899736010), **πριν** τη νέα προσθήκη χάρτη· δεν αποτελεί έλεγχο της νέας πηγής. Αναμένονται νέο exact-head fast/full CI για το τελικό commit και έλεγχος νεότερου main πριν merge. Η χωριστή 5.60.0 activation-only διαδικασία run #41899745743 έχει πλέον GitHub success, χωρίς ανεξάρτητη φυσική εγκατάσταση· η εργασία χαρτογράφησης δεν ξεκίνησε δεύτερη δημοσίευση ούτε άλλαξε APK/release/Worker ή παραγωγικά δεδομένα. Η παλαιότερη καταγραφή CI claim παραμένει παρακάτω.
+
+
+## CI επιτάχυνση / ασφαλής παράδοση — έναρξη 04/11/2026
+
+Εντολή χρήστη: «Θέλω να κάνουμε όσο το δυνατόν πιο γρήγορη αποδοτική και ταυτόχρονα ασφαλή βελτίωση στον τρόπο που διαχειριζόμαστε τις αλλαγές ... να βελτιώσουμε όλα όσα έχεις πει.» Ανάληψη μόνο CI/αναπτυξιακού pipeline, όχι επιχειρησιακού κώδικα, APK version ή παραγωγικής δημοσίευσης. Branch `codex/ci-fast-safe-pipeline-20261104` από ακριβές main `d05e650f2f639d546bc69cf134e24b8336a3cf47`. Το PR #54 είναι παλαιό draft με εσφαλμένα «fast» tests που στην πράξη εκτελούν ολόκληρο `check-all.sh`; απαιτείται νέο PR πάνω στο σημερινό main χωρίς αλλοίωση του PR #54, με cross-reference και αποφυγή διπλής συγχώνευσης. Κατά τον έλεγχο το publish 5.60.0 run #41894238516 παρέμενε in_progress· απαγορεύεται επανεκκίνηση, δεύτερη δημοσίευση ή επέμβαση σε release manifests/keys.
+
+Στόχοι: διακριτό γρήγορο PR gate (source safety, syntax, targeted native-free tests), διατήρηση πλήρους υποχρεωτικού source CI και exact-source publish gate, npm/browser dependency caching με σαφή cache safety, PR-only cancellation παρωχημένων ελέγχων, summary αστοχίας, χρόνο/μετρήσεις και τεκμηρίωση. Πριν από merge απαιτούνται exact-head CI, έλεγχος ενεργής δημοσίευσης/κύριου κλάδου, συμβατότητα με τη νεότερη πηγή και μη αλλαγή signed/release assets. Καμία πραγματική δοκιμή GitHub CI, merge ή deploy δεν έχει ακόμα πραγματοποιηθεί από αυτή την εργασία.
+
 ## ΟΛΟΚΛΗΡΩΘΗΚΕ — Server2.9.0 / Fleet5.60.0, 04/11/2026
 
 - **Επιβεβαιωμένη ενεργοποίηση:** activation-only resume [`41899745743`](https://github.com/pavlos-argyris/fleet-control/actions/runs/41899745743) SUCCESS. Worker απάντησε `activated:true` στις19:44:19UTC για `v5.60.0-83cc81e78dcd`, source `83cc81e78dcd51bb12f74b3fb4ab9977eaab3a42`. Ενεργά Client/Web5.60.0 και Server2.9.0. Το αρχικό publish41894238516 είχε ολοκληρώσει όλα τα372 uploads και απέτυχε μόνο από τέσσερα180s activation timeouts. Το ασφαλές resume χρησιμοποίησε το ίδιο αμετάβλητο manifest/πηγή και όλους τους ελέγχους του Worker· η απόκριση επιβεβαιώθηκε σε περίπου20s. Η ακριβής αιτία των παλιών timeouts δεν τεκμηριώνεται ως σφάλμα του Server ή της D1.

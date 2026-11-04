@@ -1,0 +1,37 @@
+name: Fast source checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+# Superseded PR revisions cancel only this non-production fast job.
+# Publication and required full main-source CI have separate workflows.
+concurrency:
+  group: fleet-fast-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run dependency-free fast source gate
+        run: bash scripts/check-fast.sh
+      - name: Explain failure and next action
+        if: failure()
+        run: |
+          {
+            echo '## Fleet fast checks failed'
+            echo
+            printf 'Run: %s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            printf 'Source commit: `%s`\n' "$GITHUB_SHA"
+            echo 'Fix the failing check before waiting for the full source suite.'
+            echo 'No production deployment was performed.'
+          } >> "$GITHUB_STEP_SUMMARY"
