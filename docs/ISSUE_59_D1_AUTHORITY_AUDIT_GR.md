@@ -1,5 +1,28 @@
 # Issue #59 — απογραφή εξαρτήσεων D1 πριν από απομακρυσμένες εγγραφές
 
+## Κοινός business runtime στη SQLite
+
+Οι υπάρχοντες business handlers γίνονται bundled ES5 asset του υπογεγραμμένου
+Server APK και εκτελούνται interpreted με pinned Rhino 1.9.1. Δεν κατεβαίνει
+κώδικας κατά την εκτέλεση. Το ασφαλές JS περιβάλλον αποκλείει Java/Packages,
+reflection, shell και γενική πρόσβαση αρχείων. Ρητές primitive capabilities
+μεταφέρουν JSON σε typed Android SQLite και native crypto. Κάθε συναλλαγή
+διατηρεί rollback, μεγάλα ιστορικά κελιά διαβάζονται σε bounded slices και ο
+interpreter έχει instruction/time budget. Τα SQL strings προέρχονται μόνο από
+τον bundled κώδικα, ποτέ απευθείας από αίτημα χρήστη.
+
+Το native regression εκτελεί τους πραγματικούς κοινούς handlers σε πραγματική
+SQLite: schema, PBKDF2 login, δημιουργία εργαζομένου, δικαιώματα, άμεση ανάκληση,
+typed binds/injection isolation, atomic rollback, >5 MiB Unicode ιστορικό,
+κλείσιμο cursors, bundle integrity και deadline. Το πραγματικό APK 2.10.2/56
+κατασκευάστηκε με προσωρινή δοκιμαστική υπογραφή. Ο runtime δεν εκτίθεται ακόμη
+στο παραγωγικό API και δεν ενεργοποιεί authority χωρίς πλήρη migration fence.
+
+Server Android 8/API26+ απαιτείται από τον επίσημο Android interpreter. Το
+Client παραμένει συμβατό με την υπάρχουσα ελάχιστη έκδοση. Πριν την ενεργή
+μεταφορά απαιτείται επιπλέον έλεγχος των τοπικών SQLite δυνατοτήτων. Οι πηγές,
+άδειες και ακριβές dependency hash παραδίδονται με το πλήρες source archive.
+
 Πρώτη P0 φάση και πραγματική τοπική προετοιμασία migration. Καμία μεταβολή
 παραγωγικής D1, ενεργοποίηση νέας authority ή αλλαγή λογαριασμών.
 

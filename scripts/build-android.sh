@@ -79,9 +79,13 @@ build_apk() {
   local invoice_jars=()
   if [[ "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
     python3 "$PROJECT_ROOT/scripts/prepare-invoice-dependencies.py" "$work_dir/invoice-deps"
+    python3 "$PROJECT_ROOT/scripts/prepare-business-dependencies.py" "$work_dir/invoice-deps/jars"
+    (cd "$PROJECT_ROOT" && node scripts/build-business-runtime.mjs)
     mkdir -p "$work_dir/assets"
     cp -R "$source_dir/assets/." "$work_dir/assets/"
     cp -R "$work_dir/invoice-deps/assets/." "$work_dir/assets/"
+    mkdir -p "$work_dir/assets/business-runtime"
+    cp "$PROJECT_ROOT/.build/business-runtime/runtime.js" "$PROJECT_ROOT/.build/business-runtime/manifest.json" "$work_dir/assets/business-runtime/"
     asset_dir="$work_dir/assets"
     mapfile -t invoice_jars < <(rg --files "$work_dir/invoice-deps/jars" -g '*.jar' | sort)
     for jar in "${invoice_jars[@]}"; do compile_classpath="$compile_classpath:$jar"; done
@@ -124,7 +128,7 @@ for f in (p/'invoice-deps/jars').glob('*.jar'):
   for n,b in sorted(data.items()):dst.writestr(n,b)
 PY
     mkdir -p "$work_dir/dex"
-    java -cp "$work_dir/invoice-deps/r8.jar" com.android.tools.r8.D8 --release --min-api 23 --lib "$ANDROID_JAR" --output "$work_dir/dex" "$work_dir/program.jar" "${invoice_jars[@]}"
+    java -cp "$work_dir/invoice-deps/r8.jar" com.android.tools.r8.D8 --release --min-api 26 --lib "$ANDROID_JAR" --output "$work_dir/dex" "$work_dir/program.jar" "${invoice_jars[@]}"
     cp "$work_dir/dex/"*.dex "$work_dir/"
   else
     java -jar "$DX_JAR" --dex --output="$work_dir/classes.dex" "$work_dir/classes"

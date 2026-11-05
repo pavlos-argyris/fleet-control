@@ -337,14 +337,20 @@
     },
     {
       "id": "d1-migration",
-      "title": "D1 authority inventory and Server migration preparation",
+      "title": "D1 authority inventory, migration and native business runtime",
       "paths": [
         "scripts/d1-source-inventory.mjs",
+        "server-runtime/*.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/Business*.java",
+        "scripts/build-business-runtime.mjs",
+        "scripts/prepare-business-dependencies.py",
+        "android-build-support/business-dependencies.lock.json",
         "server-android/src/gr/argyrismitsos/fleetserver/ServerAuthorityStage.java",
         "server-android/assets/www/server-authority.js"
       ],
       "tests": [
         "scripts/test-d1-source-inventory.mjs",
+        "scripts/test-business-runtime-native.mjs",
         "scripts/test-server-authority-stage-native.mjs",
         "scripts/test-server-authority-ui.mjs"
       ],

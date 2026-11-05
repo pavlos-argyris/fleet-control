@@ -4,7 +4,8 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const encoder = new TextEncoder();
 export const validDirectPacket = value => value?.v === 1 && /^[a-f0-9]{32}$/.test(value.nonce || '') &&
   /^[A-Za-z0-9_-]{122}$/.test(value.epk || '') && /^[A-Za-z0-9_-]{16}$/.test(value.iv || '') &&
-  typeof value.ciphertext === 'string' && /^[A-Za-z0-9_-]{22,2097152}$/.test(value.ciphertext);
+  typeof value.ciphertext === 'string' && value.ciphertext.length >= 22 && value.ciphertext.length <= MAX_BYTES &&
+  /^[A-Za-z0-9_-]+$/.test(value.ciphertext);
 const response = (body, status = 200) => Response.json(body, {status, headers: {
   'Cache-Control': 'private, no-store', 'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Fleet-Direct-Key',

@@ -1,0 +1,7 @@
+Rhino 1.9.1 — Mozilla JavaScript interpreter, unchanged dependency.
+Source: https://github.com/mozilla/rhino/tree/Rhino1_9_1_Release
+Source archive: https://github.com/mozilla/rhino/archive/refs/tags/Rhino1_9_1_Release.tar.gz
+License: MPL-2.0 with the additional notices in rhino-LICENSE.txt.
+Artifact, version, size and SHA-256: android-build-support/business-dependencies.lock.json.
+Fleet uses the interpreted Android mode. No Java integration, shell, tools,
+runtime code download or user-supplied scripts are enabled.
