@@ -396,10 +396,12 @@
       "paths": [
         "scripts/android-manifest-audit.mjs",
         "server-android/AndroidManifest.xml",
-        "client-android/AndroidManifest.xml"
+        "client-android/AndroidManifest.xml",
+        "server-android/src/gr/argyrismitsos/fleetserver/BootReceiver.java"
       ],
       "tests": [
-        "scripts/test-android-manifest-audit.mjs"
+        "scripts/test-android-manifest-audit.mjs",
+        "scripts/test-server-boot-native.mjs"
       ],
       "related": [
         "release-ci",

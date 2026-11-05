@@ -97,6 +97,7 @@ jobs:
       - run: node scripts/test-invoice-reader-full.mjs
       - run: node scripts/test-invoice-transport.mjs
       - run: node scripts/test-server-ota-policy.mjs
+      - run: node scripts/test-server-boot-native.mjs
       - run: node scripts/test-server-http.mjs
       - run: node scripts/test-server-snapshot-sync.mjs
       - run: node scripts/test-server-system-mirror.mjs

@@ -55,31 +55,51 @@ public final class BackupJobs {
     }
     public static boolean isPreparing(){return preparing.get();}
     public static String lastJob(Context c){return prefs(c).getString(LAST_JOB,"");}
+    private static boolean currentUpdate(Context c,String epoch,String release){
+        SharedPreferences p=prefs(c);
+        if(epoch.length()==0||!epoch.equals(p.getString("ota_pause_epoch",""))||!p.getBoolean("ota_quiescing",false)||p.getBoolean("ota_hold",false))return false;
+        try{return release.equals(new JSONObject(p.getString("ota_ready","")).optString("releaseId"));}catch(Exception e){return false;}
+    }
+    private static void guardUpdate(Context c,String epoch,String release)throws InterruptedIOException{
+        if(epoch!=null&&!currentUpdate(c,epoch,release))throw new InterruptedIOException("Η προετοιμασία της προηγούμενης ενημέρωσης ακυρώθηκε. Η νέα προσπάθεια χρησιμοποιεί δικό της αντίγραφο.");
+    }
     public static JSONObject requestForUpdate(final Context c,final FleetDataStore store,final String release)throws Exception{
         final String epoch=prefs(c).getString("ota_pause_epoch","");
+        if(!currentUpdate(c,epoch,release))return null;
         String id=prefs(c).getString("ota_checkpoint_job","");
         if(id.length()>0){try{JSONObject job=load(c,id);if(release.equals(job.optString("releaseId"))&&epoch.equals(job.optString("pauseEpoch")))return job;}catch(Exception ignored){}}
         if(prefs(c).getString("ota_checkpoint_error","").length()>0)return null;
         if(preparing.compareAndSet(false,true)){
-            preparation.execute(new Runnable(){public void run(){try{JSONObject job=prepareLocked(c,store,"update",release);job.put("pauseEpoch",epoch);save(c,job);synchronized(ServerWorkTracker.class){if(epoch.equals(prefs(c).getString("ota_pause_epoch",""))&&prefs(c).getBoolean("ota_quiescing",false)&&!prefs(c).getBoolean("ota_hold",false))prefs(c).edit().putString("ota_checkpoint_job",job.getString("id")).commit();}if(!prefs(c).getBoolean(PAUSED,false))export(c,job,false);}catch(Exception e){prefs(c).edit().putString("ota_checkpoint_error",message(e)).apply();}finally{preparing.set(false);}}});
+            preparation.execute(new Runnable(){public void run(){try{
+                JSONObject job=prepareLocked(c,store,"update",release,epoch);job.put("pauseEpoch",epoch);save(c,job);
+                synchronized(ServerWorkTracker.class){
+                    if(!currentUpdate(c,epoch,release))return;
+                    prefs(c).edit().putString("ota_checkpoint_job",job.getString("id")).commit();
+                    if(!prefs(c).getBoolean(PAUSED,false))export(c,job,false);
+                }
+            }catch(Exception e){synchronized(ServerWorkTracker.class){if(currentUpdate(c,epoch,release))prefs(c).edit().putString("ota_checkpoint_error",message(e)).apply();}}finally{preparing.set(false);}}});
         }
         return null;
     }
     private static JSONObject prepare(Context c,FleetDataStore store,String kind,String release)throws Exception{if(!preparing.compareAndSet(false,true))throw new IOException("Ολοκληρώνεται ήδη η προετοιμασία άλλου αντιγράφου.");try{return prepareLocked(c,store,kind,release);}finally{preparing.set(false);}}
     private static JSONObject prepareLocked(final Context c,FleetDataStore store,String kind,String release)throws Exception{
+        return prepareLocked(c,store,kind,release,null);
+    }
+    private static JSONObject prepareLocked(final Context c,FleetDataStore store,String kind,final String release,final String epoch)throws Exception{
+        guardUpdate(c,epoch,release);
         cleanupLocal(c);
         final String id=UUID.randomUUID().toString(),stamp=stamp(c);BackupStatus.start(c,id,kind);JSONObject job=new JSONObject().put("id",id).put("kind",kind).put("releaseId",release).put("stamp",stamp).put("fileName","FleetControl_backup_"+stamp+".fcbackup").put("docsName","FleetControl_documents_"+stamp+".fcdocs").put("createdAt",System.currentTimeMillis()).put("localReady",false).put("exported",false);
         try{
             BackupStatus.progress(c,id,"preparing","Ανάγνωση τοπικών δεδομένων και ρυθμίσεων",3,0,0,0,0,"");
-            JSONObject data=BackupManager.preparePayload(c,store),inventory=BackupManager.documentInventory(data);
+            JSONObject data=BackupManager.preparePayload(c,store);guardUpdate(c,epoch,release);JSONObject inventory=BackupManager.documentInventory(data);
             final File dir=root(c);
-            ServiceDocumentArchive.Result archive=ServiceDocumentArchive.create(c,inventory,new File(dir,"archive-cache"),new ServiceDocumentArchive.Progress(){public void stage(String stage,int done,int total,long bytes,long byteTotal,String name){int start=stage.startsWith("Αρχειοθέτηση")?25:10;int percent=start+(int)(15*Math.min(1,byteTotal<=0?0:(double)bytes/byteTotal));BackupStatus.progress(c,id,"preparing",stage,percent,done,total,bytes,byteTotal,name);}});
+            ServiceDocumentArchive.Result archive=ServiceDocumentArchive.create(c,inventory,new File(dir,"archive-cache"),new ServiceDocumentArchive.Progress(){public void stage(String stage,int done,int total,long bytes,long byteTotal,String name)throws Exception{guardUpdate(c,epoch,release);int start=stage.startsWith("Αρχειοθέτηση")?25:10;int percent=start+(int)(15*Math.min(1,byteTotal<=0?0:(double)bytes/byteTotal));BackupStatus.progress(c,id,"preparing",stage,percent,done,total,bytes,byteTotal,name);}});
             data.put("documentsBackup",new JSONObject().put("expected",archive.expected).put("included",archive.included).put("archiveSha256",archive.included>0?archive.sha256:""));
             job.put("expectedDocuments",archive.expected).put("includedDocuments",archive.included).put("missingDocuments",Math.max(0,archive.expected-archive.included)).put("archiveSha256",archive.sha256).put("workforceIncluded",data.optJSONObject("workforce")!=null&&data.optJSONObject("workforce").length()>0);
             if(archive.included>0){
                 File encrypted=new File(dir,archive.sha256+"-"+BackupArchiveVerifier.digest(BackupManager.encryptionKey()).substring(0,12)+".fcdocs");File marker=new File(encrypted.getPath()+".json");boolean reusable=false;String digest="";
                 try{JSONObject known=ServiceDocumentArchive.readJson(marker);digest=known.getString("sha256");reusable=encrypted.isFile()&&encrypted.length()==known.optLong("size")&&digest.equals(BackupCipher.digest(encrypted));}catch(Exception ignored){}
-                if(!reusable){BackupCipher.Result result=BackupCipher.encrypt(archive.file,encrypted,BackupManager.encryptionKey(),new BackupCipher.Progress(){public void bytes(long done,long total){BackupStatus.progress(c,id,"preparing","Κρυπτογράφηση τοπικού πακέτου τιμολογίων",40+(int)(25*Math.min(1,total<=0?0:(double)done/total)),0,0,done,total,"");}});if(!result.plainSha256.equals(archive.sha256))throw new IOException("Το πακέτο τιμολογίων άλλαξε κατά την προετοιμασία.");digest=result.fileSha256;ServiceDocumentArchive.atomicJson(marker,new JSONObject().put("sha256",digest).put("size",result.size));}
+                if(!reusable){BackupCipher.Result result=BackupCipher.encrypt(archive.file,encrypted,BackupManager.encryptionKey(),new BackupCipher.Progress(){public void bytes(long done,long total)throws Exception{guardUpdate(c,epoch,release);BackupStatus.progress(c,id,"preparing","Κρυπτογράφηση τοπικού πακέτου τιμολογίων",40+(int)(25*Math.min(1,total<=0?0:(double)done/total)),0,0,done,total,"");}});if(!result.plainSha256.equals(archive.sha256))throw new IOException("Το πακέτο τιμολογίων άλλαξε κατά την προετοιμασία.");digest=result.fileSha256;ServiceDocumentArchive.atomicJson(marker,new JSONObject().put("sha256",digest).put("size",result.size));}
                 job.put("docsPath",encrypted.getName()).put("docsSha256",digest).put("docsBytes",encrypted.length());
             }
             BackupStatus.progress(c,id,"preparing","Αποθήκευση τοπικού ασφαλούς αντιγράφου",67,archive.included,archive.expected,0,0,"");
@@ -88,12 +108,12 @@ public final class BackupJobs {
             try {
                 // FCB2 adds 12 IV + 16 tag bytes and base64. Preserve the old
                 // 50 MiB reader limit, checking it before building a huge value.
-                long plainBytes=BackupJsonWriter.write(plain,data,((50L*1024*1024-5)/4)*3-28,new BackupJsonWriter.Progress(){public void bytes(long done){BackupStatus.progress(c,id,"preparing","Εγγραφή συμπαγών δεδομένων backup",68,0,0,done,0,"");}});
-                encrypted=BackupCipher.encrypt(plain,file,BackupManager.encryptionKey(),new BackupCipher.Progress(){public void bytes(long done,long total){BackupStatus.progress(c,id,"preparing","Κρυπτογράφηση δεδομένων backup",69,0,0,done,total,"");}});
+                long plainBytes=BackupJsonWriter.write(plain,data,((50L*1024*1024-5)/4)*3-28,new BackupJsonWriter.Progress(){public void bytes(long done)throws IOException{guardUpdate(c,epoch,release);BackupStatus.progress(c,id,"preparing","Εγγραφή συμπαγών δεδομένων backup",68,0,0,done,0,"");}});
+                encrypted=BackupCipher.encrypt(plain,file,BackupManager.encryptionKey(),new BackupCipher.Progress(){public void bytes(long done,long total)throws Exception{guardUpdate(c,epoch,release);BackupStatus.progress(c,id,"preparing","Κρυπτογράφηση δεδομένων backup",69,0,0,done,total,"");}});
                 job.put("plainDataBytes",plainBytes).put("documentsReused",archive.reused).put("prepareMillis",Math.max(0,System.currentTimeMillis()-job.getLong("createdAt")));
             } finally {plain.delete();}
             job.put("dataPath",file.getName()).put("dataBytes",file.length()).put("dataSha256",encrypted.fileSha256).put("localReady",true).put("targetFolder",prefs(c).getString(BackupManager.KEY_FOLDER_URI,""));
-            save(c,job);prefs(c).edit().putString(LAST_JOB,id).commit();BackupStatus.localReady(c,id,archive.expected,archive.included,job.getString("fileName"),job.optBoolean("workforceIncluded"));BackupStatus.progress(c,id,"preparing","Το τοπικό αντίγραφο είναι έτοιμο · αναμονή αποστολής",70,archive.included,archive.expected,0,job.optLong("docsBytes")+job.optLong("dataBytes"),"");return job;
+            guardUpdate(c,epoch,release);save(c,job);prefs(c).edit().putString(LAST_JOB,id).commit();BackupStatus.localReady(c,id,archive.expected,archive.included,job.getString("fileName"),job.optBoolean("workforceIncluded"));BackupStatus.progress(c,id,"preparing","Το τοπικό αντίγραφο είναι έτοιμο · αναμονή αποστολής",70,archive.included,archive.expected,0,job.optLong("docsBytes")+job.optLong("dataBytes"),"");return job;
         }catch(Exception e){BackupStatus.failure(c,id,message(e),false);throw e;}
     }
     public static boolean localReady(Context c,JSONObject job)throws Exception{

@@ -8,6 +8,7 @@ for(const p of ['server-android/AndroidManifest.xml','client-android/AndroidMani
  assert(Number(x.hardening.targetSdkVersion)>=34);
  assert(x.installerPermissions.includes('android.permission.REQUEST_INSTALL_PACKAGES'));
  assert(x.exportedComponents.some(c=>c.type==='activity'&&c.name==='.MainActivity'));
+ assert.deepEqual(x.exportedComponents,[{type:'activity',name:'.MainActivity'}],'only the launcher is externally exported');
  assert.equal(x.verdict.startsWith('undetermined'),true);
 }
 assert.throws(()=>inspectAndroidManifest('<manifest/>'),/Missing application/);

@@ -71,7 +71,7 @@ public final class OtaManager {
                     stage(c, "validating", "Έλεγχος αρχείου και υπογραφής…");
                     OtaInstaller.validate(c, part, info.getInt("versionCode"), info.getString("version"), info.getLong("sizeBytes"), info.getString("sha256"));
                     file(c).delete(); if (!part.renameTo(file(c))) throw new IllegalStateException("Δεν αποθηκεύτηκε η λήψη.");
-                    p.edit().remove("ota_checkpoint_job").remove("ota_checkpoint_error").remove("ota_hold").putString("ota_ready", info.toString()).putString("ota_stage", "waiting").putString("ota_message", "Έτοιμη η έκδοση " + info.getString("version") + ". Θα προηγηθεί backup.").apply();
+                    synchronized(ServerWorkTracker.class){p.edit().remove("ota_checkpoint_job").remove("ota_checkpoint_error").remove("ota_hold").putString("ota_ready", info.toString()).putString("ota_stage", "waiting").putString("ota_message", "Έτοιμη η έκδοση " + info.getString("version") + ". Θα προηγηθεί backup.").apply();}
                 } finally { connection.disconnect(); part.delete(); }
             } catch (Exception error) { stage(c, "failed", error.getMessage() == null ? "Ο έλεγχος OTA θα επαναληφθεί." : error.getMessage()); }
             finally { checking.set(false); }
@@ -83,10 +83,10 @@ public final class OtaManager {
         c.setConnectTimeout(15000); c.setReadTimeout(30000); c.setUseCaches(false);
         c.setRequestProperty("X-Fleet-Server-Key", ServerConfig.SERVER_KEY); return c;
     }
-    public static void requestApply(Context c) { if(!prefs(c).getBoolean("ota_quiescing",false))prefs(c).edit().remove("ota_checkpoint_job").commit();prefs(c).edit().putBoolean("ota_apply_requested", true).putBoolean("ota_hold",false).remove("ota_checkpoint_error").putLong("ota_attempt_at", 0).apply(); }
+    public static void requestApply(Context c) { synchronized(ServerWorkTracker.class){if(!prefs(c).getBoolean("ota_quiescing",false))prefs(c).edit().remove("ota_checkpoint_job").commit();prefs(c).edit().putBoolean("ota_apply_requested", true).putBoolean("ota_hold",false).remove("ota_checkpoint_error").putLong("ota_attempt_at", 0).apply();} }
     private static void enterPause(Context c){SharedPreferences p=prefs(c);if(!p.getBoolean("ota_quiescing",false))p.edit().putString("ota_pause_epoch",java.util.UUID.randomUUID().toString()).putBoolean("ota_quiescing",true).commit();}
     public static void requestForce(Context c){requestApply(c);synchronized(ServerWorkTracker.class){enterPause(c);prefs(c).edit().putBoolean("ota_force_requested",true).commit();}BackupJobs.pauseExports(c);stage(c,"waiting","Ζητήθηκε παύση εργασιών. Η εγκατάσταση θα ξεκινήσει μόνο μετά από ασφαλές σημείο και επαληθευμένο τοπικό backup.");}
-    public static void cancelWait(Context c){if(installationPending(c))return;prefs(c).edit().putBoolean("ota_hold",true).putBoolean("ota_quiescing",false).putBoolean("ota_force_requested",false).putBoolean("ota_apply_requested",false).remove("ota_checkpoint_job").remove("ota_checkpoint_error").commit();BackupJobs.resumePending(c);stage(c,"waiting","Η ενημέρωση αναβλήθηκε. Οι εργασίες συνεχίζονται. Πάτησε Εγκατάσταση ενημέρωσης όταν είσαι έτοιμος.");}
+    public static void cancelWait(Context c){synchronized(ServerWorkTracker.class){if(installationPending(c))return;prefs(c).edit().putBoolean("ota_hold",true).putBoolean("ota_quiescing",false).putBoolean("ota_force_requested",false).putBoolean("ota_apply_requested",false).remove("ota_checkpoint_job").remove("ota_checkpoint_error").commit();}BackupJobs.resumePending(c);stage(c,"waiting","Η ενημέρωση αναβλήθηκε. Οι εργασίες συνεχίζονται. Πάτησε Εγκατάσταση ενημέρωσης όταν είσαι έτοιμος.");}
     public static boolean forceRequested(Context c){return prefs(c).getBoolean("ota_force_requested",false);}
     public static boolean shouldYieldForUpdate(Context c) {
         SharedPreferences p=prefs(c);if(installationPending(c))return true;
