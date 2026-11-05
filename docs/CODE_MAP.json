@@ -294,7 +294,8 @@
       "tests": [
         "scripts/test-server-reconnect-*.mjs",
         "scripts/test-server-settings-recovery.mjs",
-        "scripts/test-server-update-ui.mjs"
+        "scripts/test-server-update-ui.mjs",
+        "scripts/test-server-task-results-native.mjs"
       ],
       "related": [
         "server-foundation",

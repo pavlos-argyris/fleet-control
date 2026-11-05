@@ -249,16 +249,20 @@ public final class MainActivity extends Activity {
             public void run() {
                 boolean critical="backup".equals(event)||"backupRestore".equals(event)||"clientUpload".equals(event)||"webUpload".equals(event)||"releaseActivated".equals(event)||"invoiceResume".equals(event)||"authorityStage".equals(event);
                 String lane="action:"+event;
-                if(critical&&!ServerWorkTracker.begin(getApplicationContext(),lane,"Ενέργεια Server",event.equals("backup")?"Χειροκίνητο backup":event.equals("backupRestore")?"Επαναφορά δεδομένων":"Αποθήκευση αλλαγών")){emitError(event,"Προετοιμάζεται ενημέρωση. Πάτησε Αναβολή ενημέρωσης πριν ξεκινήσεις νέα εργασία.");return;}
+                boolean started=false;
                 try {
+                    if(critical){
+                        if(!ServerWorkTracker.begin(getApplicationContext(),lane,"Ενέργεια Server",event.equals("backup")?"Χειροκίνητο backup":event.equals("backupRestore")?"Επαναφορά δεδομένων":event.equals("authorityStage")?"Προετοιμασία μεταφοράς βάσης":"Αποθήκευση αλλαγών"))throw new IllegalStateException("Προετοιμάζεται ενημέρωση. Πάτησε Αναβολή ενημέρωσης πριν ξεκινήσεις νέα εργασία.");
+                        started=true;
+                    }
                     JSONObject payload = task.run();
                     payload.put("ok", true);
                     if (!requestId.isEmpty()) payload.put("requestId", requestId);
                     emit(event, payload);
                 } catch (Exception error) {
                     if (requestId.isEmpty()) emitError(event, error.getMessage());
-                    else try { emit(event, new JSONObject().put("ok", false).put("requestId", requestId).put("message", error.getMessage()==null?"Η ενέργεια Ordexa απέτυχε.":error.getMessage())); } catch (Exception ignored) {}
-                }finally{if(critical)ServerWorkTracker.finish(lane);}
+                    else try { emit(event, new JSONObject().put("ok", false).put("requestId", requestId).put("message", error.getMessage()==null?"Η ενέργεια Server απέτυχε.":error.getMessage())); } catch (Exception ignored) {}
+                }finally{if(started)ServerWorkTracker.finish(lane);}
             }
         });
     }

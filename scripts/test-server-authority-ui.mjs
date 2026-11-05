@@ -26,10 +26,11 @@ try{
  const second=calls.filter(c=>typeof c==='object').at(-1);assert.equal(second.expectedStageId,status.stageId,'The exact displayed CAS token is passed');
  w.FleetServer.onNativeEvent('authorityStage',{ok:false,requestId:second.requestId,message:'<img src=x onerror=alert(1)> Το προηγούμενο αντίγραφο διατηρείται.'});
  assert.equal(section.querySelector('img'),null);assert.match(section.querySelector('[data-authority-message]').textContent,/προηγούμενο αντίγραφο/);assert.equal(prepare.disabled,false);
+ prepare.click();const blocked=calls.filter(c=>typeof c==='object').at(-1);w.FleetServer.onNativeEvent('authorityStage',{ok:false,requestId:blocked.requestId,message:'Προετοιμάζεται ενημέρωση.'});assert.equal(prepare.disabled,false,'Early OTA rejection releases the pending UI');assert.match(section.querySelector('[data-authority-message]').textContent,/Προετοιμάζεται ενημέρωση/);
  status={...status,businessWritesEnabled:true};refresh.click();assert.equal(prepare.disabled,true,'Unknown/new activation flags do not become false migration success');
  status={...status,businessWritesEnabled:false,preparedAt:Date.now()+3600000};refresh.click();assert.equal(prepare.disabled,true,'Future proof is not accepted');
  w.AndroidServer.getAuthorityStageStatus=()=>{throw Error('fixture');};refresh.click();assert.equal(prepare.disabled,true);assert.match(section.textContent,/Δεν επιβεβαιώθηκε/);
  delete w.AndroidServer.prepareAuthorityStage;refresh.click();assert.match(section.textContent,/νεότερη έκδοση/);
- assert.equal(calls.filter(c=>typeof c==='object').length,2,'Reads/failures never start business writes or another migration');
+ assert.equal(calls.filter(c=>typeof c==='object').length,3,'Reads/failures never start business writes or another migration');
  console.log('PASS Server migration UI: on-demand snapshots, exact CAS token, honest staging/changed-source states, request fencing, safe errors, old bridge fallback, no polling or implicit activation.');
 }finally{w.close();}
