@@ -219,7 +219,9 @@
       "tests": [
         "scripts/test-backup-*.mjs",
         "scripts/test-server-backup-browser.mjs",
-        "scripts/test-backup-recovery-evidence.mjs"
+        "scripts/test-backup-recovery-evidence.mjs",
+        "scripts/test-backup-json-writer-native.mjs",
+        "scripts/test-backup-jobs-native.mjs"
       ],
       "related": [
         "server-foundation",
@@ -228,7 +230,8 @@
       ],
       "docs": [
         "docs/BACKUP_OTA_5.51.5_GR.md",
-        "docs/ISSUE_61_RESTORE_EVIDENCE_GR.md"
+        "docs/ISSUE_61_RESTORE_EVIDENCE_GR.md",
+        "docs/BACKUP_UPDATE_RELIABILITY_GR.md"
       ]
     },
     {

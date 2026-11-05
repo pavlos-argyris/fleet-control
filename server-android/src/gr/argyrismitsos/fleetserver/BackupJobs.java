@@ -18,6 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class BackupJobs {
     private static final AtomicBoolean preparing=new AtomicBoolean(false);
     private static final ExecutorService preparation=Executors.newSingleThreadExecutor();
+    // A folder provider may remain busy for minutes. Waiting for its ACK must
+    // never occupy the executor which creates the pre-update local checkpoint.
+    private static final ExecutorService pendingExports=Executors.newSingleThreadExecutor();
+    private static final AtomicBoolean resuming=new AtomicBoolean(false);
     private static final ThreadPoolExecutor exports=new ThreadPoolExecutor(0,2,60,TimeUnit.SECONDS,new SynchronousQueue<Runnable>());
     private static final ScheduledExecutorService watchdog=Executors.newSingleThreadScheduledExecutor();
     private static final Map<String,Transfer> active=new HashMap<String,Transfer>();
@@ -79,9 +83,16 @@ public final class BackupJobs {
                 job.put("docsPath",encrypted.getName()).put("docsSha256",digest).put("docsBytes",encrypted.length());
             }
             BackupStatus.progress(c,id,"preparing","Αποθήκευση τοπικού ασφαλούς αντιγράφου",67,archive.included,archive.expected,0,0,"");
-            byte[] bytes=BackupManager.encrypt(data.toString(2).getBytes(Charset.forName("UTF-8")));if(bytes.length>50*1024*1024)throw new IOException("Το αρχείο δεδομένων υπερβαίνει το όριο ασφαλούς επαναφοράς 50 MB.");
-            File file=new File(dir,job.getString("fileName")),part=new File(file.getPath()+".part");FileOutputStream output=new FileOutputStream(part);try{output.write(bytes);output.flush();output.getFD().sync();}finally{output.close();}if(!part.renameTo(file))throw new IOException("Δεν ολοκληρώθηκε το τοπικό αρχείο δεδομένων.");
-            job.put("dataPath",file.getName()).put("dataBytes",file.length()).put("dataSha256",BackupCipher.digest(file)).put("localReady",true).put("targetFolder",prefs(c).getString(BackupManager.KEY_FOLDER_URI,""));
+            File file=new File(dir,job.getString("fileName")),plain=new File(dir,"payload-"+id+".json.part");
+            BackupCipher.Result encrypted;
+            try {
+                // FCB2 adds 12 IV + 16 tag bytes and base64. Preserve the old
+                // 50 MiB reader limit, checking it before building a huge value.
+                long plainBytes=BackupJsonWriter.write(plain,data,((50L*1024*1024-5)/4)*3-28,new BackupJsonWriter.Progress(){public void bytes(long done){BackupStatus.progress(c,id,"preparing","Εγγραφή συμπαγών δεδομένων backup",68,0,0,done,0,"");}});
+                encrypted=BackupCipher.encrypt(plain,file,BackupManager.encryptionKey(),new BackupCipher.Progress(){public void bytes(long done,long total){BackupStatus.progress(c,id,"preparing","Κρυπτογράφηση δεδομένων backup",69,0,0,done,total,"");}});
+                job.put("plainDataBytes",plainBytes).put("documentsReused",archive.reused).put("prepareMillis",Math.max(0,System.currentTimeMillis()-job.getLong("createdAt")));
+            } finally {plain.delete();}
+            job.put("dataPath",file.getName()).put("dataBytes",file.length()).put("dataSha256",encrypted.fileSha256).put("localReady",true).put("targetFolder",prefs(c).getString(BackupManager.KEY_FOLDER_URI,""));
             save(c,job);prefs(c).edit().putString(LAST_JOB,id).commit();BackupStatus.localReady(c,id,archive.expected,archive.included,job.getString("fileName"),job.optBoolean("workforceIncluded"));BackupStatus.progress(c,id,"preparing","Το τοπικό αντίγραφο είναι έτοιμο · αναμονή αποστολής",70,archive.included,archive.expected,0,job.optLong("docsBytes")+job.optLong("dataBytes"),"");return job;
         }catch(Exception e){BackupStatus.failure(c,id,message(e),false);throw e;}
     }
@@ -92,7 +103,28 @@ public final class BackupJobs {
     private static File local(Context c,String name)throws Exception{if(name.contains("/")||name.contains("\\")||name.contains(".."))throw new IOException("Μη έγκυρο τοπικό αρχείο backup.");return new File(root(c),name);}
     public static void retry(Context c)throws Exception{String id=BackupStatus.get(c).optString("id",lastJob(c));if(id.length()==0)throw new IOException("Δεν υπάρχει τοπικό αντίγραφο προς επανάληψη.");JSONObject job=load(c,id);if(!localReady(c,job))throw new IOException("Δεν ολοκληρώθηκε το τοπικό αντίγραφο. Πάτησε Δημιουργία backup.");prefs(c).edit().putBoolean(PAUSED,false).apply();job.put("targetFolder",prefs(c).getString(BackupManager.KEY_FOLDER_URI,""));export(c,job,true);}
     public static void pauseExports(Context c){prefs(c).edit().putBoolean(PAUSED,true).commit();List<Transfer> jobs; synchronized(active){jobs=new ArrayList<Transfer>(active.values());}for(Transfer t:jobs)t.cancel("Η αποστολή παύει για την ενημέρωση. Το τοπικό αντίγραφο διατηρείται και θα αποσταλεί ξανά μετά.",true);}
-    public static void resumePending(final Context c){prefs(c).edit().putBoolean(PAUSED,false).apply();preparation.execute(new Runnable(){public void run(){File[] files=root(c).listFiles();if(files==null)return;Arrays.sort(files,new Comparator<File>(){public int compare(File a,File b){return Long.compare(a.lastModified(),b.lastModified());}});for(File f:files){if(!f.getName().matches("[a-f0-9-]{36}\\.json"))continue;try{JSONObject job=ServiceDocumentArchive.readJson(f);if(job.optBoolean("localReady")&&!job.optBoolean("exported"))export(c,job,true).await();}catch(Exception ignored){}}}});}
+    public static void resumePending(final Context c){
+        synchronized(ServerWorkTracker.class){
+            if(prefs(c).getBoolean("ota_quiescing",false))return;
+            prefs(c).edit().putBoolean(PAUSED,false).apply();
+        }
+        if(!resuming.compareAndSet(false,true))return;
+        pendingExports.execute(new Runnable(){public void run(){try{
+            File[] files=root(c).listFiles();if(files==null)return;
+            Arrays.sort(files,new Comparator<File>(){public int compare(File a,File b){return Long.compare(a.lastModified(),b.lastModified());}});
+            for(File f:files){
+                if(!f.getName().matches("[a-f0-9-]{36}\\.json"))continue;
+                try{
+                    JSONObject job=ServiceDocumentArchive.readJson(f);Transfer transfer=null;
+                    synchronized(ServerWorkTracker.class){
+                        if(prefs(c).getBoolean("ota_quiescing",false)||prefs(c).getBoolean(PAUSED,false))break;
+                        if(job.optBoolean("localReady")&&!job.optBoolean("exported"))transfer=export(c,job,true);
+                    }
+                    if(transfer!=null)transfer.await();
+                }catch(Exception ignored){}
+            }
+        }finally{resuming.set(false);}}});
+    }
     private static synchronized Transfer export(Context c,JSONObject original,boolean retry)throws Exception{
         synchronized(active){Transfer previous=active.get(original.getString("id"));if(previous!=null&&!previous.finished.get())return previous;}
         JSONObject job=new JSONObject(original.toString());if(job.optString("targetFolder").length()==0){BackupStatus.failure(c,job.getString("id"),"Το τοπικό αντίγραφο είναι έτοιμο. Διάλεξε φάκελο και πάτησε Επανάληψη αποστολής.",false);throw new IOException("Διάλεξε φάκελο backup για την αποστολή του τοπικού αντιγράφου.");}
