@@ -28,15 +28,17 @@ globalThis.__fleetRequest=function(serialized){
     const privatePath=/^\/api\/(server|deploy|pin|unlock|direct|primary)(\/|$)/.test(url.pathname)||/^\/api\/auth\/(login|bootstrap)$/.test(url.pathname)||url.pathname==='/api/sync'&&value.method!=='GET';
     if(url.protocol!=='https:'||url.origin!==realm||!value.internal&&privatePath)return Response.json({error:'Η ενέργεια απαιτεί τοπική υπηρεσία Server.'},{status:403});
     const headers=new Headers(value.headers||{});if(!value.internal)headers.delete('X-Fleet-Server-Key');
-    const request=new Request(value.url,{method:value.method,headers,body:value.body,form:value.form});
+    const form={};for(const [key,item]of Object.entries(value.form||{}))form[key]=item&&typeof item==='object'&&item.ref?native('file.stat',{ref:item.ref}):item;
+    const body=value.bodyFile?new NativeFile(native('file.stat',{ref:value.bodyFile})):value.body;
+    const request=new Request(value.url,{method:value.method,headers,body,form});
     request.localInternal=value.internal===true;
-    const operation=value.internal?{}:await beginOperation(request,environment,value.form);if(operation.response)return operation.response;
+    const operation=value.internal?{}:await beginOperation(request,environment,form);if(operation.response)return operation.response;
     const dispatch=request=>worker.fetch(request,environment,{waitUntil(){}});
     const response=await routeFeatures(request,environment,dispatch)||await dispatch(request);
     await finishOperation(operation,response,environment);return response;
   })().then(async response=>{
     const output={status:response.status,headers:Object.fromEntries(response.headers)};
-    if(response.data?.__file)output.file={ref:response.data.ref,size:response.data.size,type:response.data.type};else output.body=await response.text();
+    if(response.data?.__file)output.file={ref:response.data.ref,size:response.data.size,type:response.data.type,name:response.data.name,sha256:response.data.sha256};else output.body=await response.text();
     globalThis.__fleetResult=JSON.stringify(output);
   }).catch(()=>{globalThis.__fleetResult=JSON.stringify({status:500,headers:{'content-type':'application/json'},body:JSON.stringify({error:'Η τοπική εργασία δεν ολοκληρώθηκε.'})});});
 };

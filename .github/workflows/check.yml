@@ -119,6 +119,8 @@ jobs:
       - run: node scripts/test-server-system-mirror.mjs
       - run: node scripts/test-server-offload-native.mjs
       - run: python3 scripts/prepare-invoice-dependencies.py .build/backup-test-deps
+      - run: node scripts/test-portable-backup-native.mjs
+      - run: node scripts/test-backup-protection-ui.mjs
       - run: node scripts/test-backup-streaming-native.mjs
       - run: node scripts/test-backup-jobs-native.mjs
       - run: node scripts/test-backup-json-writer-native.mjs

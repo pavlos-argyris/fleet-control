@@ -47,7 +47,7 @@ globalThis.Headers=class{
 class NativeFile{
  constructor(ref){Object.assign(this,ref);this.__file=true;this.size=Number(ref.size||0);this.type=ref.type||'application/octet-stream';this.name=ref.name||'file';}
  async arrayBuffer(){return fromHex(native('file.read',{ref:this.ref,start:0,length:this.size}).hex).buffer;}
- slice(start=0,end=this.size,type=this.type){return new NativeFile({...this,ref:native('file.slice',{ref:this.ref,start,end}).ref,size:Math.max(0,end-start),type});}
+ slice(start=0,end=this.size,type=this.type){start=Math.min(this.size,Math.max(0,start<0?this.size+start:start));end=Math.min(this.size,Math.max(0,end<0?this.size+end:end));end=Math.max(start,end);return new NativeFile({...this,ref:native('file.slice',{ref:this.ref,start,end}).ref,size:end-start,type});}
  async text(){return new TextDecoder().decode(await this.arrayBuffer());}
 }
 globalThis.File=NativeFile;
@@ -58,7 +58,7 @@ globalThis.Blob=class{
 const streamBody=data=>({__fleetStream:true,data,getReader(){let read=false;return{async read(){if(read)return{done:true};read=true;return{done:false,value:bytes(data)};},async cancel(){read=true;}};}});
 globalThis.Request=class{
  constructor(value,options={}){const old=value instanceof Request?value:null;this.url=old?old.url:String(value);this.method=String(options.method||old?.method||'GET').toUpperCase();this.headers=new Headers(options.headers||old?.headers);this.data=Object.hasOwn(options,'body')?options.body:old?.data;if(this.data?.__fleetStream)this.data=this.data.data;this.form=options.form||old?.form;this.signal=options.signal;this.redirect=options.redirect||old?.redirect||'follow';}
- get body(){return this.data==null?null:streamBody(this.data);}async text(){return this.data==null?'':typeof this.data==='string'?this.data:new TextDecoder().decode(this.data);}async json(){return JSON.parse(await this.text());}async arrayBuffer(){return bytes(this.data||'').buffer;}
+ get body(){return this.data?.__file?this.data:this.data==null?null:streamBody(this.data);}async text(){return this.data==null?'':typeof this.data==='string'?this.data:typeof this.data.text==='function'?this.data.text():new TextDecoder().decode(this.data);}async json(){return JSON.parse(await this.text());}async arrayBuffer(){return this.data?.__file?this.data.arrayBuffer():bytes(this.data||'').buffer;}
  async formData(){const map=new Map();for(const [key,value]of Object.entries(this.form||{}))map.set(key,value&&value.ref?new NativeFile(value):String(value));return map;}clone(){return new Request(this);}
 };
 globalThis.Response=class{

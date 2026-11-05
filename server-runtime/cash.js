@@ -40,7 +40,7 @@ async function event(request,env,user){
       store=text(b.storeId,200);category=text(b.category,80);quantity=integer(b.quantity,1,1000000);
       const selected=await env.DB.prepare('SELECT * FROM native_cash_rules WHERE store_id=? AND category=? AND effective_day<=? ORDER BY effective_day DESC,revision DESC LIMIT 1').bind(store,category,businessDay).first();
       if(!selected)throw new NativeError(409,'Δεν υπάρχει κανόνας απόδοσης για το συγκεκριμένο κατάστημα, κατηγορία και ημέρα.');
-      rate=selected.rate_cents;ruleId=selected.id;amount=integer(quantity*rate,0,Number.MAX_SAFE_INTEGER);
+      rate=selected.rate_cents;ruleId=selected.id;amount=integer(quantity*rate,0,100000000);
       if(b.ruleId!==ruleId)throw new NativeError(409,'Άλλαξε η τιμή απόδοσης. Έλεγξε τη νέα τιμή πριν αποθήκευση.','rule_conflict');
     }else amount=integer(b.amountCents,1,100000000);
   }
@@ -49,20 +49,16 @@ async function event(request,env,user){
   await audit(env,request,user,'cash_'+kind,'cash_event',id,null,{kind,businessDay,courierId,storeId:store,category,quantity,rateCents:rate,amountCents:amount,reversesId:reverses},notes);
   return reply({saved:true,id},201);
 }
-export async function cashProjection(env,from,to,courierId=''){
-  const events=list(await env.DB.prepare(`SELECT e.*,o.kind reversed_kind FROM native_cash_events e LEFT JOIN native_cash_events o ON o.id=e.reverses_id WHERE e.business_day BETWEEN ? AND ? ${courierId?'AND e.courier_id=?':''} ORDER BY e.business_day,e.created_at,e.id`).bind(...(courierId?[from,to,courierId]:[from,to])).all());
-  const couriers=new Map();
-  for(const e of events){
-    if(!couriers.has(e.courier_id))couriers.set(e.courier_id,{courierId:e.courier_id,courierName:e.courier_name,orders:0,dueCents:0,receivedCents:0,balanceCents:0,breakdown:[]});
-    const c=couriers.get(e.courier_id),sign=e.kind==='reversal'?-1:1,kind=e.kind==='reversal'?e.reversed_kind:e.kind;
-    if(kind==='assessment'){
-      c.orders+=sign*e.quantity;c.dueCents+=sign*e.amount_cents;
-      let group=c.breakdown.find(r=>r.storeId===e.store_id&&r.category===e.category);if(!group){group={storeId:e.store_id,category:e.category,orders:0,dueCents:0};c.breakdown.push(group);}group.orders+=sign*e.quantity;group.dueCents+=sign*e.amount_cents;
-    }else c.receivedCents+=sign*e.amount_cents;
-    c.balanceCents=c.dueCents-c.receivedCents;
-    for(const n of [c.orders,c.dueCents,c.receivedCents,c.balanceCents])if(!Number.isSafeInteger(n))throw new NativeError(413,'Το ποσό υπερβαίνει το επιτρεπόμενο όριο αναφοράς.');
-  }
-  return {from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,couriers:[...couriers.values()],events,observedAt:stamp()};
+export async function cashProjection(env,from,to,courierId='',{eventOffset=0,eventLimit=200}={}){
+  const where="e.business_day BETWEEN ? AND ? "+(courierId?'AND e.courier_id=?':''),params=courierId?[from,to,courierId]:[from,to];
+  const effective="CASE WHEN e.kind='reversal' THEN o.kind ELSE e.kind END",sign="CASE WHEN e.kind='reversal' THEN -1 ELSE 1 END";
+  const joined="FROM native_cash_events e LEFT JOIN native_cash_events o ON o.id=e.reverses_id WHERE "+where;
+  const groups=list(await env.DB.prepare(`SELECT e.courier_id courierId,MAX(e.courier_name) courierName,SUM(CASE WHEN (${effective})='assessment' THEN (${sign})*e.quantity ELSE 0 END) orders,SUM(CASE WHEN (${effective})='assessment' THEN (${sign})*e.amount_cents ELSE 0 END) dueCents,SUM(CASE WHEN (${effective})='receipt' THEN (${sign})*e.amount_cents ELSE 0 END) receivedCents ${joined} GROUP BY e.courier_id ORDER BY courierName`).bind(...params).all());
+  const breakdown=list(await env.DB.prepare(`SELECT e.courier_id courierId,e.store_id storeId,e.category category,SUM((${sign})*e.quantity) orders,SUM((${sign})*e.amount_cents) dueCents ${joined} AND (${effective})='assessment' GROUP BY e.courier_id,e.store_id,e.category ORDER BY e.store_id,e.category`).bind(...params).all());
+  const total=await env.DB.prepare(`SELECT COUNT(*) n FROM native_cash_events e WHERE ${where}`).bind(...params).first();
+  const events=eventLimit>0?list(await env.DB.prepare(`SELECT e.*,o.kind reversed_kind ${joined} ORDER BY e.business_day,e.created_at,e.id LIMIT ? OFFSET ?`).bind(...params,eventLimit,eventOffset).all()):[];
+  for(const row of groups){row.balanceCents=row.dueCents-row.receivedCents;row.breakdown=breakdown.filter(b=>b.courierId===row.courierId).map(({courierId,...item})=>item);for(const n of [row.orders,row.dueCents,row.receivedCents,row.balanceCents])if(!Number.isSafeInteger(n))throw new NativeError(413,'Το ποσό υπερβαίνει το επιτρεπόμενο όριο αναφοράς.');}
+  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:events.length===total.n,hasMoreEvents:eventOffset+events.length<total.n,observedAt:stamp()};
 }
 export async function routeCash(request,env){
   const url=new URL(request.url);if(!url.pathname.startsWith('/api/native/cash'))return null;
@@ -73,6 +69,6 @@ export async function routeCash(request,env){
     if(request.method==='GET')return reply({rules:list(await env.DB.prepare('SELECT * FROM native_cash_rules ORDER BY store_id,category,effective_day DESC,revision DESC').all()),employees:list(await env.DB.prepare('SELECT id,full_name,active,deleted_at FROM app_users ORDER BY full_name').all()),stores:list(await env.DB.prepare("SELECT store_id,data FROM store_billing_records WHERE kind='store' ORDER BY store_id").all()).map(s=>({id:s.store_id,name:JSON.parse(s.data).name||s.store_id})),automaticOrderMappingVerified:false});
   }
   if(url.pathname==='/api/native/cash/events'&&request.method==='POST')return event(request,env,user);
-  if(url.pathname==='/api/native/cash'&&request.method==='GET'){const {from,to}=range(url);return reply(await cashProjection(env,from,to,text(url.searchParams.get('courierId'),100)));}
+  if(url.pathname==='/api/native/cash'&&request.method==='GET'){const {from,to}=range(url),eventOffset=integer(Number(url.searchParams.get('offset')||0),0,10000000);return reply(await cashProjection(env,from,to,text(url.searchParams.get('courierId'),100),{eventOffset,eventLimit:200}));}
   throw new NativeError(404,'Η ενέργεια ταμείου δεν βρέθηκε.');
 }

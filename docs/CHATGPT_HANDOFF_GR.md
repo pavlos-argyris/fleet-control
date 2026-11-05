@@ -1,5 +1,14 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## Συνεχής υλοποίηση — πλήρες φορητό backup και ιδιωτικά αρχεία — 05/11/2026
+
+- Συνέχεια από επιβεβαιωμένο `ddc0187bd242a8541f5db07936492a529fa590dc`, PR #73 ίδιο branch, main `4d52897b5c4c7feb3bc5cb21b367cf7337c1f6fd`. Exact full42094625275 και Fast42094625263 SUCCESS. Δεν σταματάμε σε αυτό το checkpoint· συνεχίζεται η εγκεκριμένη συνολική υλοποίηση.
+- Νέες πραγματικές διαδρομές `BusinessActor/BusinessObjects`, lifecycle hooks του runtime και files.js: actor/generation-bound chunk transfers, SHA, ιδιωτικά immutable objects, permissions ανά chunk και transactional metadata/GC/pins. Actual native API test με πραγματικά PDF/XLSX downloads SUCCESS.
+- `NativeDatabaseSnapshot`, `NativeBackupBuilder/Reader/RestoreProbe`, portable FCB3/Keystore wrapper και BackupJobs: πλήρης φυσική SQLite μαζί με όλα τα οικονομικά/history/receipts, συνεπές VACUUM, τρία κρυπτογραφημένα matched parts, επαλήθευση όλων των αρχείων και πραγματική απομονωμένη ανάκτηση. Κανονικό fast backup δεν παρουσιάζεται ως καινούργια δοκιμή restore. Κωδικός/ack/CAS και άνοιγμα προστατευμένου αντιγράφου ενσωματώθηκαν στο UI. Retention δεν μετρά μερικό πακέτο βάσης.
+- Actual offline native suites SUCCESS για >5 MiB database cell, αμετάβλητη ενεργή βάση, sessions/identity fencing, full restore των αρχείων, >28 MiB κρυπτογράφηση με heap48 MiB, wrong password/header/kind/corruption/missing parts και cache reuse. Πραγματικό test-signed APK build πέρασε· νέα Server2.10.4/58 μετά τις τελευταίες αλλαγές και exact saved-source CI απαιτούνται. Δοκιμές γίνονται μόνο σε συνθετικές βάσεις/αρχεία, χωρίς production restore ή αλλαγή signing keys.
+- Cash list SQL aggregation/paging και store report paging+revision/known-vs-unknown totals προφυλάσσουν το encrypted relay από μεγάλες απαντήσεις. Οι παραγωγικές οθόνες cash/reports/reviews/health δεν έχουν ολοκληρωθεί ακόμη.
+- Guide `docs/PORTABLE_PRIMARY_BACKUP_GR.md`, code map και mandatory tests ενημερώθηκαν. Εκκρεμούν στον ίδιο ενεργό κύκλο: atomic typed import+objects, native primary lease/service/FleetHttp adapters, παραγωγική recovery handover/UI, fetch transport/drafts/offline και οι λειτουργικές οθόνες, #8 signed-artifact audit και τελική ενιαία έκδοση. Κανένα merge/deploy/primary activation μέχρι να ολοκληρωθούν.
+
 ## Συνεχής ανάπτυξη — native business APIs και writer fence — 05/11/2026
 
 - Το checkpoint `e3c1147c20f8724518e9e643c5fa77d007764973` αποθηκεύτηκε/επιβεβαιώθηκε στο ίδιο PR #73. Exact **Fast42088596580 και full42088596576 SUCCESS**: πραγματικό APK/runtime και πλήρες source archive, ακόμη χωρίς παραγωγική ενεργοποίηση. Η τρέχουσα εντολή παραμένει συνεχής υλοποίηση μέχρι ολοκλήρωση· δεν περιμένουμε επόμενη automation ούτε τελειώνουμε σε αυτό το ορόσημο.

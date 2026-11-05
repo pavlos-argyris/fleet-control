@@ -221,7 +221,12 @@
         "server-android/src/gr/argyrismitsos/fleetserver/Backup*.java",
         "server-android/src/gr/argyrismitsos/fleetserver/HistoryMergePolicy.java",
         "server-android/src/gr/argyrismitsos/fleetserver/ServerWorkTracker.java",
-        "cloudflare-worker/src/backup-recovery-evidence.js"
+        "cloudflare-worker/src/backup-recovery-evidence.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeBackup*.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeDatabaseSnapshot.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/PortableBackupCipher.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/SealedLocalState.java",
+        "server-android/assets/www/backup-protection.js"
       ],
       "tests": [
         "scripts/test-backup-*.mjs",
@@ -230,7 +235,10 @@
         "scripts/test-backup-json-writer-native.mjs",
         "scripts/test-backup-jobs-native.mjs",
         "scripts/test-backup-restore-probe-native.mjs",
-        "scripts/test-server-backup-recovery-ui.mjs"
+        "scripts/test-server-backup-recovery-ui.mjs",
+        "scripts/test-portable-backup-native.mjs",
+        "scripts/test-backup-protection-ui.mjs",
+        "scripts/test-business-runtime-native.mjs"
       ],
       "related": [
         "server-foundation",
@@ -240,7 +248,8 @@
       "docs": [
         "docs/BACKUP_OTA_5.51.5_GR.md",
         "docs/ISSUE_61_RESTORE_EVIDENCE_GR.md",
-        "docs/BACKUP_UPDATE_RELIABILITY_GR.md"
+        "docs/BACKUP_UPDATE_RELIABILITY_GR.md",
+        "docs/PORTABLE_PRIMARY_BACKUP_GR.md"
       ]
     },
     {
@@ -354,7 +363,11 @@
         "scripts/prepare-business-dependencies.py",
         "android-build-support/business-dependencies.lock.json",
         "server-android/src/gr/argyrismitsos/fleetserver/ServerAuthorityStage.java",
-        "server-android/assets/www/server-authority.js"
+        "server-android/assets/www/server-authority.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/BusinessActor.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/BusinessObjects.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeIdentity.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryState.java"
       ],
       "tests": [
         "scripts/test-d1-source-inventory.mjs",

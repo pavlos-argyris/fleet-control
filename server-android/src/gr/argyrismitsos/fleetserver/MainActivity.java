@@ -46,6 +46,7 @@ public final class MainActivity extends Activity {
     private JSONObject pendingRestoreGuard;
     private String pendingRestoreLocalState = "";
     private String pendingRestoreBase = "";
+    private Uri backupReadUri;private String backupReadOperation="",backupUnlockId="",backupReadAttempt="";
 
 
     private void clearRestoreData() { pendingRestoreUri=null;pendingRestoreData=null;pendingRestoreGuard=null;pendingRestoreLocalState="";pendingRestoreBase=""; }
@@ -194,6 +195,7 @@ public final class MainActivity extends Activity {
         result.put("lastBackupResult", preferences.getString(BackupManager.KEY_LAST_RESULT, "Δεν έχει γίνει ακόμη"));
         result.put("backupMetadata",new JSONObject(preferences.getString(BackupManager.KEY_LAST_METADATA,"{}")));
         result.put("backupProgress",BackupStatus.get(this));
+        try{result.put("backupProtection",BackupProtection.state(this).put("available",true));}catch(Exception unavailable){result.put("backupProtection",new JSONObject().put("available",false));}
         result.put("backupVerification",new JSONObject(preferences.getString(BackupManager.KEY_VERIFICATION,"{}")));
         result.put("backupRecoveryTest",new JSONObject(preferences.getString(BackupManager.KEY_RESTORE_TEST,"{}")));
         result.put("canVerifyLastBackup",preferences.getString(BackupManager.KEY_LAST_URI,"").length()>0);
@@ -247,7 +249,7 @@ public final class MainActivity extends Activity {
         executor.submit(new Runnable() {
             @Override
             public void run() {
-                boolean critical="backup".equals(event)||"backupRestore".equals(event)||"clientUpload".equals(event)||"webUpload".equals(event)||"releaseActivated".equals(event)||"invoiceResume".equals(event)||"authorityStage".equals(event);
+                boolean critical="backup".equals(event)||"backupRestore".equals(event)||"clientUpload".equals(event)||"webUpload".equals(event)||"releaseActivated".equals(event)||"invoiceResume".equals(event)||"authorityStage".equals(event)||"backupProtection".equals(event);
                 String lane="action:"+event;
                 boolean started=false;
                 try {
@@ -389,22 +391,28 @@ public final class MainActivity extends Activity {
             });
         }
 
-        @JavascriptInterface public void verifyLastBackup() {
-            runTask("backupVerification",new Task(){@Override public JSONObject run()throws Exception{
-                String uri=preferences.getString(BackupManager.KEY_LAST_URI,"");if(uri.length()==0)throw new IllegalArgumentException("Διάλεξε ένα backup για έλεγχο ή δημιούργησε νέο αντίγραφο.");
-                return BackupManager.verifyAndRemember(getApplicationContext(),Uri.parse(uri));
+        @JavascriptInterface public void verifyLastBackup(){String uri=preferences.getString(BackupManager.KEY_LAST_URI,"");if(uri.isEmpty()){emitError("backupVerification","Διάλεξε ένα backup για έλεγχο.");return;}backupRead(Uri.parse(uri),"backupVerification",null);}
+        @JavascriptInterface public void chooseBackupVerification(){pickFile("*/*",PICK_BACKUP_VERIFY);}
+        @JavascriptInterface public void testLastBackupRestore(){String uri=preferences.getString(BackupManager.KEY_LAST_URI,"");if(uri.isEmpty()){emitError("backupRecoveryTest","Διάλεξε ένα backup για δοκιμή ανάκτησης.");return;}backupRead(Uri.parse(uri),"backupRecoveryTest",null);}
+        @JavascriptInterface public void chooseBackupRecoveryTest(){pickFile("*/*",PICK_BACKUP_RECOVERY_TEST);}
+        @JavascriptInterface public String newBackupRecoveryCode(){return PortableBackupCipher.recoveryCode();}
+        @JavascriptInterface public void configureBackupProtection(final String value){
+            runTask("backupProtection",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{
+                JSONObject body=new JSONObject(value);if(!dashboardSettingsLoaded)throw new IllegalStateException("Περίμενε να φορτωθούν οι αποθηκευμένες ρυθμίσεις.");
+                if(!body.optBoolean("savedCodeAcknowledged"))throw new IllegalArgumentException("Αποθήκευσε τον κωδικό έξω από το κινητό πριν συνεχίσεις.");
+                synchronized(BackupProtection.class){
+                    if(!BackupProtection.state(getApplicationContext()).optString("keyId").equals(body.optString("expectedKeyId")))throw new IllegalStateException("Η προστασία άλλαξε. Ανανέωσε την οθόνη και δοκίμασε ξανά.");
+                    return BackupProtection.configure(getApplicationContext(),body.getString("password"));
+                }
             }});
         }
-        @JavascriptInterface public void chooseBackupVerification() { pickFile("*/*",PICK_BACKUP_VERIFY); }
-
-        @JavascriptInterface public void testLastBackupRestore() {
-            runTask("backupRecoveryTest",new Task(){@Override public JSONObject run()throws Exception{
-                String uri=preferences.getString(BackupManager.KEY_LAST_URI,"");
-                if(uri.length()==0)throw new IllegalArgumentException("Διάλεξε αρχείο ή δημιούργησε πρώτα αντίγραφο ασφαλείας.");
-                return BackupManager.testRestoreBackup(getApplicationContext(),Uri.parse(uri));
-            }});
+        @JavascriptInterface public void submitBackupPassword(String value){
+            try{JSONObject body=new JSONObject(value);final Uri uri;final String operation;
+                synchronized(MainActivity.this){if(backupReadUri==null||backupUnlockId.isEmpty()||!backupUnlockId.equals(body.getString("requestId")))throw new IllegalStateException("Η επιλογή αρχείου άλλαξε. Επίλεξε ξανά το backup.");uri=backupReadUri;operation=backupReadOperation;backupUnlockId="";}
+                String password=body.getString("password");if(password.length()<12||password.length()>256)throw new IllegalArgumentException("Ο κωδικός backup χρειάζεται 12 έως 256 χαρακτήρες.");backupRead(uri,operation,password);
+            }catch(Exception error){emitError("backupPassword",error.getMessage());}
         }
-        @JavascriptInterface public void chooseBackupRecoveryTest() { pickFile("*/*",PICK_BACKUP_RECOVERY_TEST); }
+        @JavascriptInterface public void cancelBackupPassword(){synchronized(MainActivity.this){backupReadUri=null;backupReadOperation="";backupUnlockId="";backupReadAttempt="";}}
 
         @JavascriptInterface public String getAuthorityStageStatus() {
             try{if(!dashboardSettingsLoaded)throw new IllegalStateException();return ServerAuthorityStage.status(store.getReadableDatabase(),preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL)).toString();}
@@ -580,9 +588,9 @@ public final class MainActivity extends Activity {
                 @Override public JSONObject run() throws Exception { return UpdateManager.uploadWebPackage(getApplicationContext(), uri); }
             });
         } else if (requestCode == PICK_BACKUP_VERIFY) {
-            runTask("backupVerification",new Task(){@Override public JSONObject run()throws Exception{return BackupManager.verifyAndRemember(getApplicationContext(),uri);}});
+            backupRead(uri,"backupVerification",null);
         } else if (requestCode == PICK_BACKUP_RECOVERY_TEST) {
-            runTask("backupRecoveryTest",new Task(){@Override public JSONObject run()throws Exception{return BackupManager.testRestoreBackup(getApplicationContext(),uri);}});
+            backupRead(uri,"backupRecoveryTest",null);
         } else if (requestCode == PICK_BACKUP_FILE) {
             runTask("backupPreview", new Task() {
                 @Override public JSONObject run() throws Exception {
@@ -598,6 +606,20 @@ public final class MainActivity extends Activity {
                 }
             });
         }
+    }
+
+    private void backupRead(final Uri uri,final String operation,final String password){
+        final String attempt=java.util.UUID.randomUUID().toString();synchronized(this){backupReadUri=uri;backupReadOperation=operation;backupUnlockId="";backupReadAttempt=attempt;}
+        runTask(operation,attempt,new Task(){public JSONObject run()throws Exception{
+            try{
+                JSONObject result="backupRecoveryTest".equals(operation)?BackupManager.testRestoreBackup(getApplicationContext(),uri,password):BackupManager.verifyAndRemember(getApplicationContext(),uri,password);
+                synchronized(MainActivity.this){if(attempt.equals(backupReadAttempt)&&uri.equals(backupReadUri)&&operation.equals(backupReadOperation)){backupReadUri=null;backupReadOperation="";backupUnlockId="";backupReadAttempt="";}}return result;
+            }catch(Exception error){
+                if(error instanceof PortableBackupCipher.PasswordRequired||password!=null){
+                    synchronized(MainActivity.this){if(attempt.equals(backupReadAttempt)&&uri.equals(backupReadUri)&&operation.equals(backupReadOperation)){backupUnlockId=attempt;emit("backupPassword",new JSONObject().put("ok",true).put("requestId",attempt).put("retry",password!=null).put("message",password!=null?"Δεν ολοκληρώθηκε ο έλεγχος. Έλεγξε τον κωδικό και ότι τα συνοδευτικά αρχεία βρίσκονται στον φάκελο backup.":"Πληκτρολόγησε τον κωδικό με τον οποίο δημιουργήθηκε αυτό το backup."));}}
+                }throw error;
+            }
+        }});
     }
 
     private interface Task {

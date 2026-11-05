@@ -1,4 +1,5 @@
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import vm from 'node:vm';
+import {pdfboxFixture} from './fixtures/pdfbox.mjs';
 import assert from 'node:assert/strict';import {execFileSync} from 'node:child_process';import {createRequire} from 'node:module';
 const root=process.cwd(),temp=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-finance-export-')),out=path.resolve('.build/verification/financial-export');fs.mkdirSync(out,{recursive:true});
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url));
@@ -11,11 +12,7 @@ try{
  const source={from:'2026-11-01',to:'2026-11-30',observedAt:'2026-12-01T08:00:00Z',coverageVerified:false,groups:Array.from({length:86},(_,i)=>({period:'2026-11',storeName:i===0?'=SUM(A1:A2)':'Δοκιμαστικό κατάστημα '+i+' - Αναλυτική περιγραφή με ελληνικά γράμματα',orderCount:i===3?null:18,orderChargeCents:i===3?null:3600,minimumTopUpCents:i===3?null:400,totalChargeCents:i===3?null:4000,coverageVerified:i!==3})),daily:[]};
  const report=api.storeExportSpec(source);fs.writeFileSync(path.join(out,'cash-spec.json'),JSON.stringify(cash));fs.writeFileSync(path.join(out,'stores-spec.json'),JSON.stringify(report));
  const write=(name,value)=>fs.writeFileSync(path.join(temp,name),value);
- write('Log.java','package android.util;public class Log{public static int d(String a,String b){return 0;}public static int d(String a,String b,Throwable c){return 0;}public static int i(String a,String b){return 0;}public static int w(String a,String b){return 0;}public static int w(String a,String b,Throwable c){return 0;}public static int e(String a,String b){return 0;}public static int e(String a,String b,Throwable c){return 0;}public static int v(String a,String b){return 0;}public static boolean isLoggable(String a,int n){return false;}}');
- write('AssetManager.java','package android.content.res;public class AssetManager{private final String root;public AssetManager(String root){this.root=root;}public java.io.InputStream open(String name)throws java.io.IOException{return new java.io.FileInputStream(new java.io.File(root,name));}}');
- write('Context.java','package android.content;public class Context{private final android.content.res.AssetManager assets;public Context(String root){assets=new android.content.res.AssetManager(root);}public android.content.res.AssetManager getAssets(){return assets;}public Context getApplicationContext(){return this;}public java.io.File getCacheDir(){return new java.io.File(System.getProperty("java.io.tmpdir"));}}');
- write('PointF.java','package android.graphics;public class PointF{public float x,y;public PointF(){}public PointF(float x,float y){this.x=x;this.y=y;}}');
- write('Path.java','package android.graphics;public class Path{}');
+ pdfboxFixture(temp);
  write('ExportTest.java',String.raw`import org.json.*;import java.io.*;import java.nio.file.*;import gr.argyrismitsos.fleetserver.FinancialExport;import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
  public class ExportTest{public static void main(String[] args)throws Exception{PDFBoxResourceLoader.init(new android.content.Context(args[0]));for(String name:new String[]{"cash","stores"}){JSONObject spec=new JSONObject(new String(Files.readAllBytes(Paths.get(args[1],name+"-spec.json")),"UTF-8"));FinancialExport.writeXlsx(new File(args[1],name+".xlsx"),spec);FinancialExport.writePdf(new File(args[1],name+".pdf"),spec,new FileInputStream(new File(args[0],"com/tom_roush/pdfbox/resources/ttf/LiberationSans-Regular.ttf")));}System.out.println("PASS real native PDFBox/OOXML writes from the exact shared API export specifications.");}}
  `);

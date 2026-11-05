@@ -23,18 +23,21 @@ public final class BackupCipher {
     private BackupCipher(){}
     public static String digest(File file)throws Exception {MessageDigest digest=MessageDigest.getInstance("SHA-256");InputStream in=new BufferedInputStream(new FileInputStream(file));try{byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)digest.update(b,0,n);}finally{in.close();}return BackupArchiveVerifier.hex(digest.digest());}
     public static Result encrypt(File source,File destination,byte[] key,Progress progress)throws Exception{
+        return encryptFramed(source,destination,key,MAGIC,null,MAX_DOCUMENT_BYTES,progress);
+    }
+    public static Result encryptFramed(File source,File destination,byte[] key,byte[] framing,byte[] aad,long maximum,Progress progress)throws Exception{
         File part=new File(destination.getPath()+".part");File parent=part.getParentFile();if(!parent.isDirectory()&&!parent.mkdirs())throw new IOException("Δεν δημιουργήθηκε ο τοπικός φάκελος backup.");
         MessageDigest plainHash=MessageDigest.getInstance("SHA-256"),fileHash=MessageDigest.getInstance("SHA-256");
         FileOutputStream disk=new FileOutputStream(part);InputStream input=null;Base64OutputStream encoded=null;boolean complete=false;
         try{
-            final java.security.DigestOutputStream digest=new java.security.DigestOutputStream(disk,fileHash);digest.write(MAGIC);
+            final java.security.DigestOutputStream digest=new java.security.DigestOutputStream(disk,fileHash);digest.write(framing);
             OutputStream shield=new FilterOutputStream(digest){@Override public void close()throws IOException{flush();}};
             encoded=new Base64OutputStream(shield,Base64.NO_WRAP);byte[] iv=new byte[12];new SecureRandom().nextBytes(iv);encoded.write(iv);
             // Use the bundled incremental GCM implementation. Android providers
             // are allowed to buffer an entire AEAD message even through streams.
-            GCMModeCipher cipher=GCMBlockCipher.newInstance(AESEngine.newInstance());cipher.init(true,new AEADParameters(new KeyParameter(key),128,iv));byte[] transformed=new byte[65568];
+            GCMModeCipher cipher=GCMBlockCipher.newInstance(AESEngine.newInstance());cipher.init(true,new AEADParameters(new KeyParameter(key),128,iv,aad));byte[] transformed=new byte[65568];
             input=new BufferedInputStream(new FileInputStream(source));byte[] buffer=new byte[65536];int n;long done=0;
-            while((n=input.read(buffer))!=-1){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Η προετοιμασία backup διακόπηκε με ασφάλεια.");done+=n;if(done>MAX_DOCUMENT_BYTES)throw new IOException("Το πακέτο τιμολογίων υπερβαίνει το όριο 256 MB.");plainHash.update(buffer,0,n);int amount=cipher.processBytes(buffer,0,n,transformed,0);encoded.write(transformed,0,amount);if(progress!=null)progress.bytes(done,source.length());}
+            while((n=input.read(buffer))!=-1){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Η προετοιμασία backup διακόπηκε με ασφάλεια.");done+=n;if(done>maximum)throw new IOException("Το πακέτο backup υπερβαίνει το επιτρεπόμενο όριο.");plainHash.update(buffer,0,n);int amount=cipher.processBytes(buffer,0,n,transformed,0);encoded.write(transformed,0,amount);if(progress!=null)progress.bytes(done,source.length());}
             int tail=cipher.doFinal(transformed,0);encoded.write(transformed,0,tail);encoded.close();encoded=null;disk.getFD().sync();disk.close();input.close();input=null;
             if(destination.exists()&&!destination.delete())throw new IOException("Δεν αντικαταστάθηκε το τοπικό αντίγραφο.");if(!part.renameTo(destination))throw new IOException("Δεν ολοκληρώθηκε το τοπικό αντίγραφο.");complete=true;
             return new Result(BackupArchiveVerifier.hex(fileHash.digest()),BackupArchiveVerifier.hex(plainHash.digest()),destination.length());
