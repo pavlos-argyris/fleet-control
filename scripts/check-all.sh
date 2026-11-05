@@ -10,6 +10,7 @@ node scripts/test-backup-recovery-evidence.mjs
 node scripts/test-store-financial-report.mjs
 node scripts/test-payroll-review-core.mjs
 node scripts/test-fleet-health-core.mjs
+node scripts/test-server-health-diagnostics.mjs
 node scripts/test-android-manifest-audit.mjs
 python3 scripts/prepare-static-assets.py --check
 node scripts/prepare-direct-permissions.mjs --check
