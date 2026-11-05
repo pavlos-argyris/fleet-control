@@ -31,6 +31,7 @@ public class AuthorityTest {
    check("not_prepared".equals(ServerAuthorityStage.status(db,BASE).getString("state")),"no invented authority on an existing installation");
    JSONObject workforce=new JSONObject(),ids=new JSONObject();for(String table:ServerAuthorityStage.TABLES){workforce.put(table,new JSONArray());ids.put(table,new JSONArray());}
    workforce.getJSONArray("app_users").put(new JSONObject().put("id","owner").put("role","owner").put("full_name","Συνθετικός εργαζόμενος 🛵")).put(new JSONObject().put("id","employee").put("role","employee"));ids.getJSONArray("app_users").put(101).put(202);
+   for(int i=0;i<5000;i++){workforce.getJSONArray("app_users").put(new JSONObject().put("id","employee-"+i).put("role","employee"));ids.getJSONArray("app_users").put(1000+i);}
    StringBuilder large=new StringBuilder();for(int i=0;i<300000;i++)large.append("Ελληνικά 🛵 ");
    workforce.getJSONArray("payroll_snapshots").put(new JSONObject().put("id","locked").put("status","locked").put("amount_cents",12000).put("history",large.toString()));ids.getJSONArray("payroll_snapshots").put(303);
    JSONObject source=new JSONObject().put("schemaVersion",5).put("sourceWorker",BASE).put("workforce",workforce).put("mirror",new JSONObject().put("epoch","0123456789abcdef0123456789abcdef").put("cursor",44).put("rowIds",ids));
@@ -38,7 +39,7 @@ public class AuthorityTest {
    boolean spaceRejected=false;try{ServerAuthorityStage.prepare(db,BASE,"",0,null);}catch(IOException expected){spaceRejected=true;}check(spaceRejected,"low storage rejected before destructive preparation");
    boolean realmRejected=false;try{ServerAuthorityStage.prepare(db,"https://other.fixture.invalid","",Long.MAX_VALUE,null);}catch(IOException expected){realmRejected=true;}check(realmRejected,"wrong Fleet connection rejected");
    long started=System.currentTimeMillis();JSONObject result=prepare("");
-   check(result.getInt("tables")==ServerAuthorityStage.TABLES.length&&result.getLong("rows")==3,"all tables and original stable row IDs copied");
+   check(result.getInt("tables")==ServerAuthorityStage.TABLES.length&&result.getLong("rows")==5003,"all tables and original stable row IDs copied at realistic row volume");
    check(result.getBoolean("contentCompared")&&!result.getBoolean("businessWritesEnabled")&&result.getBoolean("sourceRevalidationRequired"),"staging never grants write authority");
    check(sha.equals(result.getString("sourcePayloadSha256")),"exact UTF-8 fingerprint including >4 MiB Unicode cell");
    check("12000".equals(scalar("SELECT json_extract(data,'$.amount_cents') FROM server_authority_stage_rows WHERE table_name='payroll_snapshots' AND row_id=303")),"locked historical payroll stays exact");
@@ -46,12 +47,13 @@ public class AuthorityTest {
    String first=stageId();db.close();db=new SQLiteDatabase();check(first.equals(stageId()),"real SQLite candidate survives process storage restart");
    check("prepared".equals(ServerAuthorityStage.status(db,BASE).getString("state")),"restart does not invent migration activation");
    JSONObject bad=new JSONObject(original);bad.getJSONObject("mirror").getJSONObject("rowIds").getJSONArray("app_users").put(1,101);save(bad,"2026-11-05T10:01:00Z");rejected(first);
-   check(first.equals(stageId())&&"3".equals(scalar("SELECT COUNT(*) FROM server_authority_stage_rows")),"duplicate row ID rolls back deletion and partial inserts");
+   check(first.equals(stageId())&&"5003".equals(scalar("SELECT COUNT(*) FROM server_authority_stage_rows")),"duplicate row ID rolls back deletion and partial inserts");
    check("source_changed".equals(ServerAuthorityStage.status(db,BASE).getString("state")),"changed source is explicit, never advertised current");
    save(source,"2026-11-05T10:00:00Z");db.injectedSql="INSERT INTO server_authority_stage_rows";rejected(first);db.injectedSql="";
-   check(first.equals(stageId())&&"3".equals(scalar("SELECT COUNT(*) FROM server_authority_stage_rows")),"SQL/disk-style failure preserves the previous candidate");
+   check(first.equals(stageId())&&"5003".equals(scalar("SELECT COUNT(*) FROM server_authority_stage_rows")),"SQL/disk-style failure preserves the previous candidate");
    boolean interrupted=false;try{ServerAuthorityStage.prepare(db,BASE,first,Long.MAX_VALUE,new ServerAuthorityStage.Progress(){public void stage(String message)throws Exception{if(message.contains("18 /"))throw new InterruptedIOException("simulated OTA safe-point cancellation");}});}catch(InterruptedIOException expected){interrupted=true;}
-   check(interrupted&&first.equals(stageId())&&"3".equals(scalar("SELECT COUNT(*) FROM server_authority_stage_rows")),"mid-copy cancellation rolls back and retains previous candidate");
+   check(interrupted&&first.equals(stageId())&&"5003".equals(scalar("SELECT COUNT(*) FROM server_authority_stage_rows")),"mid-copy cancellation rolls back and retains previous candidate");
+   check("0".equals(scalar("SELECT COUNT(*) FROM server_authority_stage_ids")),"temporary lookup rows are not retained after completion or rollback");
    String second=prepare(first).getString("stageId");check(!second.equals(first),"new successful proof has a new CAS token");rejected(first);check(second.equals(stageId()),"stale admin cannot overwrite newer preparation");
    final String expected=second;final java.util.concurrent.atomic.AtomicInteger successes=new java.util.concurrent.atomic.AtomicInteger(),conflicts=new java.util.concurrent.atomic.AtomicInteger();final CountDownLatch go=new CountDownLatch(1);
    Runnable attempt=new Runnable(){public void run(){try{go.await();prepare(expected);successes.incrementAndGet();}catch(Exception conflict){conflicts.incrementAndGet();}}};Thread a=new Thread(attempt),b=new Thread(attempt);a.start();b.start();go.countDown();a.join();b.join();check(successes.get()==1&&conflicts.get()==1,"two admins produce one commit and one real conflict");
@@ -65,7 +67,7 @@ public class AuthorityTest {
    JSONObject restored=new JSONObject(original).put("schemaVersion",3);save(restored,"2026-11-05T10:06:00Z");check(prepare("").getBoolean("contentCompared"),"compatible backup wrapper v3 still requires and permits a new full preparation");save(source,"2026-11-05T10:00:00Z");
    check("original read-only auth sentinel".equals(scalar("SELECT value FROM settings WHERE key='direct_auth_v1'")),"no business/auth writes in any failure or success path");
    java.nio.file.Files.write(java.nio.file.Paths.get(args[0]+".sha256"),sha.getBytes("UTF-8"));
-   System.out.println("PASS real SQLite migration candidate: all "+ServerAuthorityStage.TABLES.length+" tables, >4 MiB Unicode cell, exact SHA/content/row IDs, restart, low space, wrong realm, duplicate IDs, SQL failure, mid-copy cancellation, stale/two-admin CAS and restore invalidation; existing authority/auth unchanged. Synthetic elapsed "+(System.currentTimeMillis()-started)+" ms.");
+   System.out.println("PASS real SQLite migration candidate: all "+ServerAuthorityStage.TABLES.length+" tables, 5003 rows, >4 MiB Unicode cell, exact SHA/content/row IDs, restart, low space, wrong realm, duplicate IDs, SQL failure, mid-copy cancellation, stale/two-admin CAS and restore invalidation; existing authority/auth unchanged. Synthetic elapsed "+(System.currentTimeMillis()-started)+" ms.");
   }finally{db.close();}
  }
 }`);

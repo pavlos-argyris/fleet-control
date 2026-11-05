@@ -13,6 +13,7 @@ public final class ServerAuthorityStage {
     public interface Progress { void stage(String detail) throws Exception; }
     private static final String KEY="server_authority_stage_v1";
     private static final String ROWS="server_authority_stage_rows";
+    private static final String IDS="server_authority_stage_ids";
     private static final long SAFE_INTEGER=9007199254740991L;
     // Keep this list explicit; a changed Worker export must fail the contract test.
     static final String[] TABLES={"app_users","registered_devices","vehicle_registry","vehicle_archives","shift_templates","schedule_assignments","schedule_week_drafts","schedule_publications","schedule_acknowledgements","schedule_vehicle_waivers","schedules","shifts","vehicle_segments","correction_requests","pay_rules","pay_rule_versions","special_rates","special_rate_assignments","payroll_segments","payroll_periods","payroll_adjustments","payroll_snapshots","system_alerts","alert_rules","audit_log","system_settings","deleted_records","invoice_import_drafts","ordexa_riders","ordexa_imports","ordexa_sessions","ordexa_pay_decisions","ordexa_shift_adjustments","store_billing_records"};
@@ -86,6 +87,7 @@ public final class ServerAuthorityStage {
                 if(bytes<=0||usableBytes<33554432L||bytes>(usableBytes-33554432L)/3)throw new IOException("Δεν υπάρχει αρκετός ελεύθερος χώρος για ασφαλή προετοιμασία. Το προηγούμενο αντίγραφο διατηρείται.");
                 progress(listener,"Προετοιμασία τοπικής βάσης μεταφοράς");
                 db.execSQL("CREATE TABLE IF NOT EXISTS "+ROWS+"(table_name TEXT NOT NULL,row_id INTEGER NOT NULL,data TEXT NOT NULL,PRIMARY KEY(table_name,row_id))");
+                db.execSQL("CREATE TABLE IF NOT EXISTS "+IDS+"(position INTEGER PRIMARY KEY,row_id INTEGER NOT NULL UNIQUE)");
                 db.execSQL("DELETE FROM "+ROWS);
                 String sha=sourceDigest(db,bytes,listener);JSONObject counts=new JSONObject();long total=0;
                 for(int i=0;i<TABLES.length;i++){
@@ -95,12 +97,17 @@ public final class ServerAuthorityStage {
                     long invalid=number(db,"SELECT COUNT(*) FROM system_state s,json_each(s.value,?) j WHERE s.key='full_export' AND j.type<>'object'",new String[]{data})+
                         number(db,"SELECT COUNT(*) FROM system_state s,json_each(s.value,?) j WHERE s.key='full_export' AND (j.type<>'integer' OR j.value<=0 OR j.value>9007199254740991)",new String[]{ids});
                     if(shape!=1||invalid!=0)throw new IOException("Ασυμφωνία εγγραφών ή σταθερών ταυτοτήτων στον πίνακα "+table+".");
-                    db.execSQL("INSERT INTO "+ROWS+"(table_name,row_id,data) SELECT ?,n.value,r.value FROM system_state s,json_each(s.value,?) r JOIN json_each(s.value,?) n ON n.key=r.key WHERE s.key='full_export'",new Object[]{table,data,ids});
-                    String original="SELECT n.value row_id,r.value data FROM system_state s,json_each(s.value,?) r JOIN json_each(s.value,?) n ON n.key=r.key WHERE s.key='full_export'";
+                    db.execSQL("DELETE FROM "+IDS);
+                    db.execSQL("INSERT INTO "+IDS+"(position,row_id) SELECT j.key,j.value FROM system_state s,json_each(s.value,?) j WHERE s.key='full_export'",new Object[]{ids});
+                    // json_each has no key index. Joining two JSON arrays here
+                    // scans the ID array once per row; materialize its index first.
+                    String original="SELECT n.row_id row_id,r.value data FROM system_state s CROSS JOIN json_each(s.value,?) r CROSS JOIN "+IDS+" n WHERE s.key='full_export' AND n.position=r.key";
+                    db.execSQL("INSERT INTO "+ROWS+"(table_name,row_id,data) SELECT ?,row_id,data FROM ("+original+")",new Object[]{table,data});
                     String candidate="SELECT row_id,data FROM "+ROWS+" WHERE table_name=?";
-                    if(number(db,"SELECT COUNT(*) FROM ("+original+" EXCEPT "+candidate+")",new String[]{data,ids,table})!=0||number(db,"SELECT COUNT(*) FROM ("+candidate+" EXCEPT "+original+")",new String[]{table,data,ids})!=0)throw new IOException("Δεν επαληθεύτηκε το πλήρες περιεχόμενο του πίνακα "+table+".");
+                    if(number(db,"SELECT COUNT(*) FROM ("+original+" EXCEPT "+candidate+")",new String[]{data,table})!=0||number(db,"SELECT COUNT(*) FROM ("+candidate+" EXCEPT "+original+")",new String[]{table,data})!=0)throw new IOException("Δεν επαληθεύτηκε το πλήρες περιεχόμενο του πίνακα "+table+".");
                     long rows=number(db,"SELECT COUNT(*) FROM "+ROWS+" WHERE table_name=?",new String[]{table});counts.put(table,rows);total+=rows;
                 }
+                db.execSQL("DELETE FROM "+IDS);
                 if(!"ok".equals(text(db,"PRAGMA quick_check",null)))throw new IOException("Δεν επαληθεύτηκε η ακεραιότητα της τοπικής βάσης.");
                 progress(listener,"Ολοκλήρωση σύγκρισης · καμία αλλαγή της ενεργής κύριας βάσης");
                 JSONObject result=new JSONObject().put("schemaVersion",1).put("stageId",UUID.randomUUID().toString()).put("sourceUpdatedAt",info.getString("updatedAt")).put("realmSha256",digest(base)).put("sourceEpoch",info.getString("epoch")).put("sourceCursor",info.getLong("cursor")).put("sourcePayloadSha256",sha).put("sourceBytes",bytes).put("tableCounts",counts).put("tables",TABLES.length).put("rows",total).put("preparedAt",System.currentTimeMillis()).put("durationMs",Math.max(0,System.currentTimeMillis()-started)).put("contentCompared",true).put("businessWritesEnabled",false);
