@@ -368,15 +368,18 @@
       "id": "system-health",
       "title": "Server/Ordexa/backup/D1 evidence without polling",
       "paths": [
-        "cloudflare-worker/src/fleet-health-core.js"
+        "cloudflare-worker/src/fleet-health-core.js",
+        "server-android/assets/www/server-diagnostics.js"
       ],
       "tests": [
-        "scripts/test-fleet-health-core.mjs"
+        "scripts/test-fleet-health-core.mjs",
+        "scripts/test-server-health-diagnostics.mjs"
       ],
       "related": [
         "server-foundation",
         "worker-core",
-        "backups"
+        "backups",
+        "server-ui"
       ],
       "docs": [
         "docs/ISSUE_64_PARALLEL_START_GR.md"
