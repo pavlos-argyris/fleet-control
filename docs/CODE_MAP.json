@@ -93,13 +93,15 @@
         "cloudflare-worker/src/ordexa-shift-editor.js",
         "cloudflare-worker/public/ordexa-pay-core.js",
         "cloudflare-worker/public/ordexa-pay-ui.js",
-        "cloudflare-worker/public/ordexa-server-ui.js"
+        "cloudflare-worker/public/ordexa-server-ui.js",
+        "cloudflare-worker/src/payroll-review-core.js"
       ],
       "tests": [
         "scripts/test-ordexa-pay.mjs",
         "scripts/test-ordexa-edit-anytime.mjs",
         "scripts/test-ordexa-server-engine.mjs",
-        "scripts/test-payroll-regressions.mjs"
+        "scripts/test-payroll-regressions.mjs",
+        "scripts/test-payroll-review-core.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -107,7 +109,8 @@
       ],
       "docs": [
         "docs/ORDEXA_SERVER_PAYROLL_5.54.0_GR.md",
-        "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md"
+        "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md",
+        "docs/ISSUE_63_PARALLEL_START_GR.md"
       ]
     },
     {
@@ -117,11 +120,13 @@
         "server-android/src/gr/argyrismitsos/fleetserver/StoreBilling*.java",
         "cloudflare-worker/src/store-billing.js",
         "cloudflare-worker/public/store-billing.js",
-        "cloudflare-worker/public/store-billing.css"
+        "cloudflare-worker/public/store-billing.css",
+        "cloudflare-worker/src/store-financial-report.js"
       ],
       "tests": [
         "scripts/test-store-billing-*.mjs",
-        "scripts/test-store-primary-budget.mjs"
+        "scripts/test-store-primary-budget.mjs",
+        "scripts/test-store-financial-report.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -130,7 +135,8 @@
       ],
       "docs": [
         "docs/SERVER_PRIMARY_STORE_ORDERS_GR.md",
-        "docs/ISSUE_44_STORES_GR.md"
+        "docs/ISSUE_44_STORES_GR.md",
+        "docs/ISSUE_62_PARALLEL_START_GR.md"
       ]
     },
     {
@@ -207,11 +213,13 @@
       "paths": [
         "server-android/src/gr/argyrismitsos/fleetserver/Backup*.java",
         "server-android/src/gr/argyrismitsos/fleetserver/HistoryMergePolicy.java",
-        "server-android/src/gr/argyrismitsos/fleetserver/ServerWorkTracker.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/ServerWorkTracker.java",
+        "cloudflare-worker/src/backup-recovery-evidence.js"
       ],
       "tests": [
         "scripts/test-backup-*.mjs",
-        "scripts/test-server-backup-browser.mjs"
+        "scripts/test-server-backup-browser.mjs",
+        "scripts/test-backup-recovery-evidence.mjs"
       ],
       "related": [
         "server-foundation",
@@ -219,7 +227,8 @@
         "invoices"
       ],
       "docs": [
-        "docs/BACKUP_OTA_5.51.5_GR.md"
+        "docs/BACKUP_OTA_5.51.5_GR.md",
+        "docs/ISSUE_61_RESTORE_EVIDENCE_GR.md"
       ]
     },
     {
@@ -318,6 +327,79 @@
       "docs": [
         "docs/CI_SPEED_SECURITY_GR.md",
         "docs/AUTOMATIC_PUBLISH_GR.md"
+      ]
+    },
+    {
+      "id": "d1-migration",
+      "title": "D1 dependency migration audit (no production writes)",
+      "paths": [
+        "scripts/d1-source-inventory.mjs"
+      ],
+      "tests": [
+        "scripts/test-d1-source-inventory.mjs"
+      ],
+      "related": [
+        "worker-core",
+        "server-foundation",
+        "direct-access"
+      ],
+      "docs": [
+        "docs/ISSUE_59_D1_AUTHORITY_AUDIT_GR.md"
+      ]
+    },
+    {
+      "id": "courier-cash",
+      "title": "Courier cash reconciliation independent of payroll",
+      "paths": [
+        "cloudflare-worker/src/courier-cash-core.js"
+      ],
+      "tests": [
+        "scripts/test-courier-cash-core.mjs"
+      ],
+      "related": [
+        "stores",
+        "shift-payroll"
+      ],
+      "docs": [
+        "docs/ISSUE_60_PARALLEL_START_GR.md"
+      ]
+    },
+    {
+      "id": "system-health",
+      "title": "Server/Ordexa/backup/D1 evidence without polling",
+      "paths": [
+        "cloudflare-worker/src/fleet-health-core.js"
+      ],
+      "tests": [
+        "scripts/test-fleet-health-core.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "worker-core",
+        "backups"
+      ],
+      "docs": [
+        "docs/ISSUE_64_PARALLEL_START_GR.md"
+      ]
+    },
+    {
+      "id": "apk-security-audit",
+      "title": "Read-only Play Protect / Android manifest inventory",
+      "paths": [
+        "scripts/android-manifest-audit.mjs",
+        "server-android/AndroidManifest.xml",
+        "client-android/AndroidManifest.xml"
+      ],
+      "tests": [
+        "scripts/test-android-manifest-audit.mjs"
+      ],
+      "related": [
+        "release-ci",
+        "android-client",
+        "server-foundation"
+      ],
+      "docs": [
+        "docs/ISSUE_8_PLAY_PROTECT_AUDIT_GR.md"
       ]
     }
   ]
