@@ -105,6 +105,7 @@ jobs:
       - run: node scripts/test-backup-streaming-native.mjs
       - run: node scripts/test-backup-jobs-native.mjs
       - run: node scripts/test-backup-json-writer-native.mjs
+      - run: node scripts/test-backup-restore-probe-native.mjs
       - run: node scripts/test-backup-retention-native.mjs
       - run: node scripts/test-backup-archive.mjs
       - run: node scripts/test-invoice-sources-native.mjs

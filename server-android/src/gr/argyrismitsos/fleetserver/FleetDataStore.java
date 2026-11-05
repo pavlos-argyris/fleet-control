@@ -27,7 +27,16 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     private static final int MAX_HISTORY = 500;
 
     public FleetDataStore(Context context) {
-        super(context, DB_NAME, null, DB_VERSION);
+        this(context, DB_NAME);
+    }
+
+    // Recovery probes use a fresh database, never the live database or a copy
+    // of its open SQLite connection. The caller owns closing and deleting it.
+    FleetDataStore(Context context, String databaseName) {
+        super(context, databaseName, null, DB_VERSION);
+        if (!DB_NAME.equals(databaseName) && !databaseName.matches("fleet-recovery-probe-[a-f0-9-]{36}\\.db")) {
+            throw new IllegalArgumentException("Μη έγκυρη απομονωμένη βάση ελέγχου.");
+        }
     }
 
     @Override

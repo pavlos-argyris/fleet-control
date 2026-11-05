@@ -43,6 +43,7 @@ public final class BackupManager {
     public static final String KEY_LAST_URI = "last_backup_uri";
     public static final String KEY_LAST_METADATA = "last_backup_metadata";
     public static final String KEY_VERIFICATION = "backup_verification";
+    public static final String KEY_RESTORE_TEST = "backup_isolated_restore_test_v1";
 
     private static final String KEY_EXPORT_LEDGER="backup_export_ledger_v1";
     private static final Object exportLedgerLock=new Object();
@@ -184,7 +185,11 @@ public final class BackupManager {
     }
 
     public static synchronized JSONObject verifyBackup(Context context, Uri uri) throws Exception {
-        JSONObject root=readBackupRoot(context,uri),fleet=root.optJSONObject("fleet");if(fleet==null)fleet=root;
+        return verifyBackup(context,uri,readBackupRoot(context,uri));
+    }
+
+    private static JSONObject verifyBackup(Context context, Uri uri, JSONObject root) throws Exception {
+        JSONObject fleet=root.optJSONObject("fleet");if(fleet==null)fleet=root;
         java.util.Set<String> expected=attachmentKeys(documentInventory(root)),found=new java.util.HashSet<String>();
         org.json.JSONArray bikes=fleet.optJSONArray("bikes");int historyCount=0;
         for(int i=0;i<bikes.length();i++){JSONObject b=bikes.optJSONObject(i);org.json.JSONArray h=b==null?null:b.optJSONArray("history");if(h!=null)historyCount+=h.length();}
@@ -226,6 +231,36 @@ public final class BackupManager {
             JSONObject failed=new JSONObject().put("fileName",queryDisplayName(context,uri)).put("checkedAt",isoNow()).put("readable",false).put("complete",false).put("message",error.getMessage()==null?"Το backup δεν ήταν αναγνώσιμο.":error.getMessage());
             context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_VERIFICATION,failed.toString()).apply();throw error;
         }
+    }
+
+    public static synchronized JSONObject testRestoreBackup(Context context, Uri uri) throws Exception {
+        if(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getBoolean("ota_quiescing",false))
+            throw new IllegalStateException("Προετοιμάζεται ενημέρωση. Περίμενε ή πάτησε Αναβολή πριν από νέα δοκιμή ανάκτησης.");
+        File plain=null;
+        try {
+            JSONObject root=readBackupRoot(context,uri),verification=verifyBackup(context,uri,root);
+            if(!verification.optBoolean("complete"))throw new IllegalArgumentException("Το αντίγραφο είναι ελλιπές. Διόρθωσε πρώτα τα στοιχεία κάλυψης και έλεγξέ το ξανά.");
+            Uri documents=findSiblingDocumentsArchive(context,uri);
+            if(documents!=null){
+                InputStream input=context.getContentResolver().openInputStream(documents);
+                if(input==null)throw new IllegalArgumentException("Το αρχείο τιμολογίων δεν είναι διαθέσιμο.");
+                plain=File.createTempFile("fleet-recovery-archive-",".zip",context.getCacheDir());
+                BackupCipher.decrypt(input,plain,encryptionKey());
+                JSONObject metadata=root.optJSONObject("documentsBackup");
+                String expected=metadata==null?"":metadata.optString("archiveSha256","");
+                if(expected.length()>0&&!expected.equals(BackupArchiveVerifier.digest(plain)))throw new IllegalArgumentException("Το συνοδευτικό αρχείο άλλαξε μετά τον έλεγχο.");
+            }
+            JSONObject result=BackupRestoreProbe.run(context,root,documentInventory(root),plain,verification.getInt("expectedDocuments"));
+            result.put("checkedAt",isoNow()).put("fileName",queryDisplayName(context,uri));
+            if(!context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_RESTORE_TEST,result.toString()).commit())
+                throw new IllegalStateException("Ο έλεγχος ολοκληρώθηκε, αλλά δεν αποθηκεύτηκε το αποτέλεσμα. Επανάλαβε τη δοκιμή.");
+            return result;
+        } catch(Exception error) {
+            JSONObject failed=new JSONObject().put("checkedAt",isoNow()).put("fileName",queryDisplayName(context,uri))
+                .put("isolated",true).put("restoreVerified",false).put("message",error.getMessage()==null?"Η δοκιμή ανάκτησης δεν ολοκληρώθηκε.":error.getMessage());
+            context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_RESTORE_TEST,failed.toString()).commit();
+            throw error;
+        } finally {if(plain!=null)plain.delete();}
     }
 
     public static synchronized JSONObject restoreBackup(Context context, FleetDataStore store, Uri uri) throws Exception {

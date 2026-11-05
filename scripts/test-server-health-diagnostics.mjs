@@ -52,6 +52,19 @@ try{
   assert.equal(h.stores.pendingDays,3);
   assert.equal(h.backupReadCheck.state,'healthy');
   assert.equal(h.backupReadCheck.isolatedRestoreVerified,false,'Readable ZIP never proves restore');
+  assert.equal(h.backupRestoreCheck.state,'unknown');
+  assert.equal(h.backupRestoreCheck.isolatedRestoreVerified,false);
+  const recovered={checkedAt:'2026-11-05T07:10:00Z',isolated:true,restoreVerified:true,sqliteIntegrity:true,contentMatches:true,sourceRevalidationRequired:true};
+  let recoveryHealth=project({...dashboard,backupRecoveryTest:recovered},ordexa,stores,at);
+  assert.equal(recoveryHealth.backupRestoreCheck.state,'healthy');
+  assert.equal(recoveryHealth.backupRestoreCheck.isolatedRestoreVerified,true);
+  assert.equal(recoveryHealth.backupRestoreCheck.sourceRevalidationRequired,true);
+  recoveryHealth=project({...dashboard,backupRecoveryTest:{...recovered,contentMatches:false}},ordexa,stores,at);
+  assert.equal(recoveryHealth.backupRestoreCheck.state,'failed');
+  assert.equal(recoveryHealth.backupRestoreCheck.isolatedRestoreVerified,false);
+  recoveryHealth=project({...dashboard,backupRecoveryTest:{...recovered,checkedAt:'2040-01-01T00:00:00Z'}},ordexa,stores,at);
+  assert.equal(recoveryHealth.backupRestoreCheck.state,'unknown');
+  assert.equal(recoveryHealth.backupRestoreCheck.isolatedRestoreVerified,false);
 
   h=project({...dashboard,serviceRunning:false,health:{networkConnected:false},
     backupVerification:{checkedAt:'2026-11-01T07:00:00Z',complete:true}},

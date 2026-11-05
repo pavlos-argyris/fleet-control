@@ -221,7 +221,9 @@
         "scripts/test-server-backup-browser.mjs",
         "scripts/test-backup-recovery-evidence.mjs",
         "scripts/test-backup-json-writer-native.mjs",
-        "scripts/test-backup-jobs-native.mjs"
+        "scripts/test-backup-jobs-native.mjs",
+        "scripts/test-backup-restore-probe-native.mjs",
+        "scripts/test-server-backup-recovery-ui.mjs"
       ],
       "related": [
         "server-foundation",

@@ -45,6 +45,9 @@
     const backupAge=freshness(checkedAt,now,48*3600000);
     const backupState=backupAge.state==='unknown'?'unknown':
       data.backupVerification.complete===false?'failed':backupAge.state;
+    const recovery=data.backupRecoveryTest||{},recoveryAge=freshness(recovery.checkedAt,now,48*3600000);
+    const recoveryVerified=recovery.isolated===true&&recovery.restoreVerified===true&&recovery.sqliteIntegrity===true&&recovery.contentMatches===true;
+    const recoveryState=recoveryAge.state==='unknown'?'unknown':recoveryVerified?recoveryAge.state:'failed';
     return {
       checkedAt:at,
       service,
@@ -52,6 +55,7 @@
       ordexa:{state:ordexaState,ageMinutes:ordexaAge.ageMinutes,credentialsNeedAttention:ordexaState==='credentials-required'},
       stores:{state:storeState,ageMinutes:storeAge.ageMinutes,pendingDays},
       backupReadCheck:{state:backupState,ageMinutes:backupAge.ageMinutes,isolatedRestoreVerified:false},
+      backupRestoreCheck:{state:recoveryState,ageMinutes:recoveryAge.ageMinutes,isolatedRestoreVerified:recoveryVerified&&recoveryAge.state!=='unknown',sourceRevalidationRequired:recovery.sourceRevalidationRequired===true},
       // This device cannot read a trustworthy D1 account quota from these
       // bridge snapshots. Never treat missing quota data as zero usage.
       d1Quota:{state:'unknown',rowsWritten:null,limit:null}
@@ -99,7 +103,8 @@
     dialog.querySelector('[data-health-ordexa]').textContent=status(h.ordexa.state)+age(h.ordexa.ageMinutes);
     dialog.querySelector('[data-health-stores]').textContent=status(h.stores.state)+age(h.stores.ageMinutes);
     dialog.querySelector('[data-health-outbox]').textContent=h.stores.pendingDays===null?'Άγνωστο':h.stores.pendingDays+' ημέρες σε αναμονή αποστολής';
-    dialog.querySelector('[data-health-backup]').textContent=status(h.backupReadCheck.state)+age(h.backupReadCheck.ageMinutes)+' · Δεν έχει επαληθευτεί δοκιμαστική επαναφορά';
+    dialog.querySelector('[data-health-backup]').textContent=status(h.backupReadCheck.state)+age(h.backupReadCheck.ageMinutes)+(h.backupRestoreCheck.isolatedRestoreVerified?' · Χωριστή δοκιμή ανάκτησης παρακάτω':' · Δεν έχει επαληθευτεί δοκιμαστική επαναφορά');
+    dialog.querySelector('[data-health-recovery]').textContent=status(h.backupRestoreCheck.state)+age(h.backupRestoreCheck.ageMinutes)+(h.backupRestoreCheck.isolatedRestoreVerified?' · Επαληθεύτηκαν τα δεδομένα σε ξεχωριστή βάση':' · Δεν υπάρχει επιτυχής δοκιμή ανάκτησης')+(h.backupRestoreCheck.sourceRevalidationRequired?' · Απαιτείται επανέλεγχος πηγής πριν από παραγωγική λειτουργία':'');
     dialog.querySelector('[data-health-d1]').textContent='Άγνωστο — απαιτούνται πραγματικές μετρήσεις Cloudflare';
     dialog.querySelector('textarea').value=JSON.stringify(r,null,2);
   }
@@ -116,6 +121,7 @@
       '<div class="status-row"><strong>Καταστήματα</strong><span data-health-stores></span></div>'+
       '<div class="status-row"><strong>Αποστολή καταστημάτων</strong><span data-health-outbox></span></div>'+
       '<div class="status-row"><strong>Αναγνωσιμότητα backup</strong><span data-health-backup></span></div>'+
+      '<div class="status-row"><strong>Τελευταία δοκιμή ανάκτησης</strong><span data-health-recovery></span></div>'+
       '<div class="status-row"><strong>Όριο D1</strong><span data-health-d1></span></div>'+
       '</div></section><div class="dialog-buttons"><button type="button" class="secondary-action" data-check>Έλεγχος ξανά</button>'+
       '<button type="button" class="secondary-action" data-sync>Συγχρονισμός τώρα</button>'+

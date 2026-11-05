@@ -1,0 +1,95 @@
+<div id="fleet-server-ui-plan" class="viz-dotted-background">
+  <div class="s-preview-label">Server APK · Πρόταση UI · Δεδομένα επίδειξης</div>
+  <div class="s-phone">
+    <header class="s-header"><div class="s-brand"><span class="s-logo">FC</span><div><h2>Fleet Control</h2><span>Server · Διαχείριση συσκευής</span></div></div><span class="s-header-status">Συνδεδεμένος</span></header>
+    <main id="s-content">
+      <div class="s-heading"><small>ΕΠΟΠΤΕΙΑ SERVER</small><h3>Κατάσταση</h3></div>
+      <section class="s-panel"><div class="s-panel-title"><h4>Υγεία συστήματος</h4><span class="s-pill">Ενημέρωση 11:05</span></div><div class="s-line"><span>Τοπικός Server</span><strong>Λειτουργεί</strong></div><div class="s-line"><span>Παρουσίες Ordexa<small>Συγχρονισμός κάθε 5 λεπτά</small></span><strong>11:05</strong></div><div class="s-line"><span>Καταστήματα<small>Τελευταία πλήρης λήψη</small></span><strong>10:08</strong></div><div class="s-line"><span>Προς αποστολή<small>Παλιότερη εγγραφή: 7 λεπτά</small></span><strong>2</strong></div><div class="s-line"><span>Όρια D1</span><strong>Άγνωστα</strong></div></section>
+      <details class="s-panel"><summary class="cursor-interaction">Προχωρημένα διαγνωστικά</summary><div class="s-line"><span>Διαθέσιμος χώρος</span><strong>8,4 GB</strong></div><div class="s-line"><span>Τελευταία ολοκληρωμένη εργασία</span><strong>11:05</strong></div><button class="s-button cursor-interaction" type="button" data-s-diagnostics>Εξαγωγή διαγνωστικών</button></details>
+      <button type="button" class="s-jump cursor-interaction" data-s-go="backup"><span>Αντίγραφα ασφαλείας<small>Τελευταίο 05:15 · Δοκιμή ανάκτησης 04/11</small></span><span>→</span></button>
+    </main>
+    <div id="s-feedback" aria-live="polite" role="status" hidden></div>
+    <nav class="s-nav" aria-label="Καρτέλες Server"><button class="active cursor-interaction" type="button" data-s-go="status"><i data-lucide="activity" aria-hidden="true"></i>Κατάσταση</button><button class="cursor-interaction" type="button" data-s-go="backup"><i data-lucide="hard-drive-download" aria-hidden="true"></i>Αντίγραφα</button><button class="cursor-interaction" type="button" data-s-go="updates"><i data-lucide="download" aria-hidden="true"></i>Ενημερώσεις</button><button class="cursor-interaction" type="button" data-s-go="settings"><i data-lucide="settings" aria-hidden="true"></i>Ρυθμίσεις</button></nav>
+  </div>
+</div>
+<style>
+#fleet-server-ui-plan{--s-bg:light-dark(#f2f5f4,#14281e);--s-panel:light-dark(#fff,#1c3529);--s-ink:light-dark(#182e25,#e9f5ee);--s-muted:light-dark(#53695e,#b7ccbf);--s-line:light-dark(#dce6df,#3b5547);--s-green:light-dark(#166442,#89d7a9);--s-soft:light-dark(#e8f5ed,#214635);--s-button:light-dark(#166442,#89d7a9);--s-button-ink:light-dark(#fff,#10281d);--s-amber:light-dark(#80540b,#f1ce85);--s-amber-bg:light-dark(#fff3db,#493b23);font:14px/1.5 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--s-ink);padding:16px 10px 20px}
+#fleet-server-ui-plan *{box-sizing:border-box}
+#fleet-server-ui-plan [hidden]{display:none!important}
+#fleet-server-ui-plan .s-preview-label{max-width:420px;margin:0 auto 10px;font-size:12px;color:var(--s-muted)}
+#fleet-server-ui-plan .s-phone{max-width:420px;margin:auto;background:var(--s-bg);border:1px solid var(--s-line);border-radius:24px;overflow:clip}
+#fleet-server-ui-plan .s-header{padding:24px 20px 20px;color:#eff9f2;background:linear-gradient(125deg,#153d2b,#10281d);border-radius:0 0 24px 24px}
+#fleet-server-ui-plan .s-brand{display:flex;gap:12px;align-items:center}
+#fleet-server-ui-plan .s-logo{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:#286346;color:#f2fff7}
+#fleet-server-ui-plan h2{font-weight:500;font-size:23px;letter-spacing:-.035em;margin:0}
+#fleet-server-ui-plan .s-brand span:not(.s-logo){font-size:12px;color:#b9d7c5}
+#fleet-server-ui-plan .s-header-status{display:inline-block;background:#245439;color:#d1f0db;padding:4px 9px;border-radius:7px;margin-top:16px;font-size:11px}
+#fleet-server-ui-plan main{padding:20px 14px;display:grid;gap:14px;min-width:0}
+#fleet-server-ui-plan h3{font-weight:500;font-size:23px;letter-spacing:-.03em;margin:4px 0 0}
+#fleet-server-ui-plan h4{font-size:15px;font-weight:500;margin:0}
+#fleet-server-ui-plan strong{font-weight:500;text-align:right}
+#fleet-server-ui-plan small{display:block;font-size:11px;color:var(--s-muted);margin-top:4px}
+#fleet-server-ui-plan .s-heading>small{color:var(--s-green);font-size:10px;letter-spacing:.12em}
+#fleet-server-ui-plan .s-panel{padding:16px;border:1px solid var(--s-line);border-radius:16px;background:var(--s-panel);min-width:0}
+#fleet-server-ui-plan .s-panel-title{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
+#fleet-server-ui-plan .s-pill{display:inline-block;padding:4px 7px;background:var(--s-soft);color:var(--s-green);font-size:10px;border-radius:6px}
+#fleet-server-ui-plan .s-line{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid var(--s-line);font-size:12px}
+#fleet-server-ui-plan .s-line>span{min-width:0}
+#fleet-server-ui-plan .s-line strong{flex-shrink:0;max-width:54%}
+#fleet-server-ui-plan .s-button{font:inherit;min-height:44px;border:1px solid var(--s-line);border-radius:10px;background:var(--s-panel);color:var(--s-green);padding:10px 12px;font-size:12px;max-width:100%;touch-action:manipulation}
+#fleet-server-ui-plan .s-primary{background:var(--s-button);color:var(--s-button-ink);border-color:var(--s-button)}
+#fleet-server-ui-plan .s-full{width:100%}
+#fleet-server-ui-plan .s-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+#fleet-server-ui-plan .s-jump{display:flex;align-items:center;justify-content:space-between;gap:14px;border:1px solid var(--s-line);border-radius:14px;background:var(--s-panel);color:var(--s-ink);padding:15px;font:inherit;text-align:left;min-height:68px}
+#fleet-server-ui-plan .s-jump small{font-size:11px}
+#fleet-server-ui-plan summary{font-size:14px;min-height:28px;font-weight:500}
+#fleet-server-ui-plan details[open]>summary{margin-bottom:14px}
+#fleet-server-ui-plan .s-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;padding:7px;background:var(--s-panel);border-top:1px solid var(--s-line)}
+#fleet-server-ui-plan .s-nav button{font:inherit;font-size:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:57px;border:0;border-radius:10px;padding:8px 2px;color:var(--s-muted);background:transparent}
+#fleet-server-ui-plan .s-nav button.active{background:var(--s-soft);color:var(--s-green)}
+#fleet-server-ui-plan .s-nav svg{width:18px;height:18px}
+#fleet-server-ui-plan .s-info{padding:11px 12px;background:var(--s-soft);color:var(--s-green);border-radius:10px;font-size:12px;margin-top:12px}
+#fleet-server-ui-plan .s-amber{background:var(--s-amber-bg);color:var(--s-amber)}
+#fleet-server-ui-plan .s-check{display:flex;align-items:flex-start;gap:10px;margin:12px 0;font-size:12px}
+#fleet-server-ui-plan input[type=checkbox]{width:20px;height:20px;margin:0;flex-shrink:0;accent-color:var(--s-green)}
+#fleet-server-ui-plan .s-field{display:grid;gap:6px;font-size:12px;margin:12px 0}
+#fleet-server-ui-plan .s-field input,#fleet-server-ui-plan .s-field select{width:100%;font:inherit;font-size:16px;background:var(--s-panel);color:var(--s-ink);padding:10px;min-height:44px;border:1px solid var(--s-line);border-radius:9px;min-width:0}
+#fleet-server-ui-plan #s-feedback{margin:0 14px 16px;background:var(--s-soft);color:var(--s-green);border-radius:10px;font-size:12px;padding:12px}
+#fleet-server-ui-plan .s-evidence{display:grid;gap:8px;padding-top:12px}
+#fleet-server-ui-plan .s-evidence p{margin:0;font-size:12px}
+#fleet-server-ui-plan .s-pass{color:var(--s-green)}
+#fleet-server-ui-plan .s-caption{margin:12px 0 0;font-size:11px;color:var(--s-muted)}
+#fleet-server-ui-plan button:disabled{opacity:.5}
+@media(max-width:360px){#fleet-server-ui-plan{padding-left:0;padding-right:0}#fleet-server-ui-plan .s-header{padding:20px 15px}#fleet-server-ui-plan main{padding:18px 10px}#fleet-server-ui-plan .s-panel{padding:13px}#fleet-server-ui-plan .s-line{gap:9px}}
+</style>
+<script>
+(()=>{
+const root=document.getElementById('fleet-server-ui-plan'),q=s=>root.querySelector(s),status=q('#s-content').innerHTML;
+let view='status';
+const line=(l,v)=>`<div class="s-line"><span>${l}</span><strong>${v}</strong></div>`;
+const button=(l,a='',primary=false)=>`<button type="button" class="s-button ${primary?'s-primary':''} cursor-interaction" ${a}>${l}</button>`;
+const title=(over,t)=>`<div class="s-heading"><small>${over}</small><h3>${t}</h3></div>`;
+function render(){
+let h=status;
+if(view==='backup')h=title('ΑΣΦΑΛΕΙΑ ΔΕΔΟΜΕΝΩΝ','Αντίγραφα ασφαλείας')+`<section class="s-panel"><div class="s-panel-title"><h4>Τελευταίο αντίγραφο</h4><span class="s-pill">Ολοκληρώθηκε</span></div>${line('Ημερομηνία','05/11 · 05:15')}${line('Κρυπτογράφηση','Ενεργή')}${line('Έλεγχος αρχείου','Επιτυχής')}${line('Δοκιμή ανάκτησης<small>Σε ξεχωριστή δοκιμαστική βάση</small>','04/11 · 05:22')}<div class="s-actions">${button('Δημιουργία τώρα','data-s-backup',true)}${button('Έλεγχος αρχείου','data-s-verify')}</div></section><details class="s-panel" open><summary class="cursor-interaction">Φάκελος, πρόγραμμα και κρυπτογράφηση</summary><div class="s-line"><span>Προορισμός<small>Ήδη επιλεγμένος φάκελος</small></span>${button('Αλλαγή φακέλου','data-s-folder')}</div><label class="s-check"><input type="checkbox" checked><span>Αυτόματα κρυπτογραφημένα αντίγραφα<small>Το υπάρχον πρόγραμμα διατηρείται</small></span></label><label class="s-field">Διατήρηση αντιγράφων<select><option>Χωρίς αυτόματη διαγραφή</option><option>14 πιο πρόσφατα · προαιρετικά</option><option>30 πιο πρόσφατα · προαιρετικά</option></select></label>${button('Ορισμός κωδικού ανάκτησης','data-s-key')}<p class="s-caption">Ο κωδικός ανάκτησης επιτρέπει άνοιγμα και σε νέο κινητό. Φυλάσσεται χωριστά από τα αντίγραφα.</p></details><section class="s-panel"><h4>Έλεγχος πραγματικής ανάκτησης</h4><div class="s-info">Η δοκιμή χρησιμοποιεί ξεχωριστή βάση. Τα ενεργά δεδομένα παραμένουν στη θέση τους.</div><div class="s-actions">${button('Δοκιμαστική ανάκτηση','data-s-restore-test',true)}</div><div id="s-restore-result" class="s-evidence" aria-live="polite" hidden></div></section><details class="s-panel"><summary class="cursor-interaction">Αντικατάσταση συσκευής / επαναφορά</summary><p class="s-caption">Χωριστή διαδικασία με έλεγχο αντιγράφου, δικαιωμάτων και συμβατότητας πριν από επιλογή εφαρμογής στην παραγωγή.</p>${button('Οδηγίες επαναφοράς','data-s-restore-guide')}</details>`;
+if(view==='updates')h=title('ΔΙΑΧΕΙΡΙΣΗ ΕΚΔΟΣΕΩΝ','Ενημερώσεις')+`<section class="s-panel"><div class="s-panel-title"><h4>Fleet Control Server</h4><span class="s-pill">OTA</span></div>${line('Εγκατεστημένη έκδοση','2.9.0')}${line('Πακέτο ενημέρωσης','Επίσημη έκδοση Fleet')}${line('Ακεραιότητα πακέτου','Επαληθευμένη')}${line('Συμβατή υπογραφή','Επαληθευμένη')}<div class="s-info s-amber">Ο έλεγχος Google Play Protect εμφανίζεται από το Android κατά την εγκατάσταση.</div><div class="s-actions">${button('Έλεγχος ενημέρωσης','data-s-update',true)}</div></section><details class="s-panel"><summary class="cursor-interaction">Αλλαγές έκδοσης</summary><p class="s-caption">Κάθε αλλαγή εμφανίζεται σε ξεχωριστή γραμμή. Διατίθενται πλήρης πηγαίος κώδικας και στοιχεία επαλήθευσης.</p></details><details class="s-panel"><summary class="cursor-interaction">Χειροκίνητη μεταφόρτωση</summary><p class="s-caption">Επιλογή συμβατού πακέτου με έλεγχο ακεραιότητας, έκδοσης και υπογραφής.</p></details><details class="s-panel"><summary class="cursor-interaction">Προηγούμενες εκδόσεις</summary><p class="s-caption">Ιστορικό εκδόσεων και διαθέσιμες ενέργειες.</p></details>`;
+if(view==='settings')h=title('ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ','Ρυθμίσεις server')+`<details class="s-panel"><summary class="cursor-interaction">Ordexa · Σύνδεση και συγχρονισμός</summary>${line('Στοιχεία σύνδεσης','Στη συσκευή')}${line('Αυτόματη επανασύνδεση','Ενεργή')}${line('Παρουσίες','Κάθε 5 λεπτά')}${line('Καταστήματα','Ωριαία / χειροκίνητα')}<p class="s-caption">Τα διαπιστευτήρια Ordexa εξαιρούνται από τα αντίγραφα.</p></details><details class="s-panel" open><summary class="cursor-interaction">Fleet · Δεδομένα και πρόσβαση</summary>${line('Κύρια βάση','SQLite στον Server')}${line('Πρόγραμμα / βάρδιες','Στον Server')}${line('Μισθοδοσία / ταμείο','Στον Server')}${line('Μηχανάκια / service','Στον Server')}<div class="s-info">Οι απομακρυσμένες αποθηκεύσεις ολοκληρώνονται με επιβεβαίωση της συσκευής.</div><div class="s-actions">${button('Εγκεκριμένες συσκευές','data-s-devices')}</div></details><details class="s-panel"><summary class="cursor-interaction">Τιμολόγια και επεξεργασία</summary><p class="s-caption">Διατηρούνται η τοπική επεξεργασία και οι υπάρχουσες ρυθμίσεις.</p></details><details class="s-panel"><summary class="cursor-interaction">Πρόγραμμα αντιγράφων</summary><div class="s-actions">${button('Άνοιγμα αντιγράφων','data-s-go="backup"')}</div></details><details class="s-panel"><summary class="cursor-interaction">Λειτουργία, ασφάλεια και διαγνωστικά</summary><div class="s-actions">${button('Κατάσταση συστήματος','data-s-go="status"')}${button('Εξαγωγή διάγνωσης','data-s-diagnostics')}</div></details>`;
+q('#s-content').innerHTML=h;root.querySelectorAll('.s-nav button').forEach(b=>b.classList.toggle('active',b.dataset.sGo===view));if(globalThis.lucide)lucide.createIcons({attrs:{width:18,height:18}});
+}
+function message(t){q('#s-feedback').hidden=false;q('#s-feedback').textContent=t;}
+root.addEventListener('click',e=>{
+const b=e.target.closest('button');if(!b)return;
+if(b.dataset.sGo){view=b.dataset.sGo;q('#s-feedback').hidden=true;render();return;}
+if(b.hasAttribute('data-s-restore-test')){q('#s-restore-result').hidden=false;q('#s-restore-result').innerHTML='<span class="s-pill">Προσομοίωση αποτελέσματος</span><p class="s-pass">✓ Ακεραιότητα και σωστός κωδικός</p><p class="s-pass">✓ Εισαγωγή σε ξεχωριστή SQLite</p><p class="s-pass">✓ Ίδια πλήθη, ιστορικά και οικονομικά σύνολα</p><p class="s-pass">✓ Συμβατότητα έκδοσης / δικαιωμάτων</p>';return;}
+if(b.hasAttribute('data-s-backup'))message('Προσομοίωση: δημιουργία συνεπούς αντιγράφου, κρυπτογράφηση, έλεγχος και τελική επιβεβαίωση αρχείου.');
+if(b.hasAttribute('data-s-verify'))message('Ο έλεγχος αρχείου καλύπτει ακεραιότητα και περιεχόμενα. Η πραγματική ανάκτηση ελέγχεται χωριστά.');
+if(b.hasAttribute('data-s-folder'))message('Προτεινόμενη ροή: επιλογή φακέλου από το Android, έλεγχος πρόσβασης και δοκιμαστική εγγραφή.');
+if(b.hasAttribute('data-s-key'))message('Προτεινόμενη ροή: ορισμός και επιβεβαίωση κωδικού ανάκτησης, δοκιμή ανοίγματος και υπενθύμιση φύλαξης εκτός συσκευής.');
+if(b.hasAttribute('data-s-diagnostics'))message('Προεπισκόπηση διάγνωσης: εκδόσεις, χρόνοι, πλήθη ουρών, χώρος και κατηγορίες σφαλμάτων.');
+if(b.hasAttribute('data-s-update'))message('Προσομοίωση: διατηρείται ο κανονικός ασφαλής μηχανισμός OTA και ο εγκαταστάτης Android.');
+if(b.hasAttribute('data-s-restore-guide'))message('Προτεινόμενα βήματα: νέα συμβατή συσκευή → έλεγχος αντιγράφου → απομονωμένη δοκιμή → χωριστή επιλογή επαναφοράς → νέα σύνδεση Ordexa.');
+if(b.hasAttribute('data-s-devices'))message('Προτεινόμενη προβολή: συσκευή, ρόλος, τελευταία χρήση και ανάκληση. Τα μυστικά παραμένουν στον Server.');
+});
+render();
+})();
+</script>

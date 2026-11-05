@@ -45,6 +45,11 @@ public class JobsTest{
  check(!updateId.isEmpty(),"OTA local checkpoint must prepare while an older folder upload is still blocked");
  check(r.release.getCount()==1,"proof runs before releasing the old provider");
  check(BackupJobs.localReady(c,BackupJobs.load(c,updateId)),"OTA checkpoint really exists and its hashes match");
+ JSONObject updateJob=BackupJobs.load(c,updateId);File plaintext=new File(args[0],"decoded-update.json");
+ BackupCipher.decrypt(new FileInputStream(new File(new File(c.getFilesDir(),"safe-backups"),updateJob.getString("dataPath"))),plaintext,BackupManager.encryptionKey());
+ JSONObject decoded=new JSONObject(new String(Files.readAllBytes(plaintext.toPath()),"UTF-8"));
+ check(decoded.getJSONObject("fleet").similar(store.value.getJSONObject("fleet")),"actual FCB2 checkpoint decrypts to the complete original Fleet payload");
+ check(decoded.getJSONObject("documentsBackup").getInt("included")==1,"checkpoint retains companion coverage");plaintext.delete();
  BackupJobs.pauseExports(c);r.block=false;r.release.countDown();
  System.out.println("PASS actual native backup jobs: durable local checkpoint, sidecar before metadata, success-only 100%, provider failure/retry, unique paired names, safe pause, late-callback fencing, idle watchdog, pending export recovery and OTA preparation independent of slow uploads.");System.exit(0);
  }catch(Throwable t){t.printStackTrace();System.exit(1);}}
