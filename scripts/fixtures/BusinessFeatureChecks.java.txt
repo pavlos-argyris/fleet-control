@@ -1,0 +1,95 @@
+package gr.argyrismitsos.fleetserver;
+import org.json.*;
+import android.database.sqlite.*;
+
+public final class BusinessFeatureChecks {
+    static JSONObject health=new JSONObject();
+    static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
+    static JSONObject body(JSONObject response,int status)throws Exception{
+        check(response.getInt("status")==status,"API status "+response);
+        return new JSONObject(response.getString("body"));
+    }
+    static JSONObject call(String path,String method,JSONObject value,String token)throws Exception{
+        return BusinessTest.call(path,method,value,false,token);
+    }
+    static long count(BusinessSqlite sql,String table)throws Exception{
+        return sql.call("sql.query",new JSONObject().put("sql","SELECT COUNT(*) n FROM "+table)).getJSONArray("results").getJSONObject(0).getLong("n");
+    }
+    public static void run(BusinessSqlite sql,SQLiteDatabase db,String owner,String employee,String courier)throws Exception{
+        long payrollRows=count(sql,"payroll_adjustments"),sourceRows=count(sql,"ordexa_sessions");
+        JSONObject shop=new JSONObject().put("id","fixture-shop").put("name","Συνθετικό κατάστημα");
+        db.execSQL("INSERT INTO store_billing_records(id,scope,kind,store_id,day,revision,data,updated_at) VALUES('fixture-store','report-fixture','store','fixture-shop','',1,?,'2026-11-04T12:00:00Z')",new Object[]{shop.toString()});
+        JSONObject rule=new JSONObject().put("storeId","fixture-shop").put("category","Α").put("effectiveDay","2026-01-01").put("rateCents",200).put("expectedRevision",0);
+        JSONObject savedRule=body(call("/api/native/cash/rules","POST",rule,owner),201).getJSONObject("rule");
+        check(call("/api/native/cash/rules","POST",rule,owner).getInt("status")==409,"stale rule CAS cannot replace a saved rule");
+        JSONObject due=new JSONObject().put("kind","assessment").put("day","2026-11-04").put("courierId",courier).put("storeId","fixture-shop").put("category","Α").put("quantity",15).put("ruleId",savedRule.getString("id")).put("notes","Δοκιμαστική επιβεβαίωση 15 παραγγελιών");
+        String operation=java.util.UUID.randomUUID().toString();
+        JSONObject first=BusinessTest.call("/api/native/cash/events","POST",due,false,owner,operation);
+        body(first,201);check(BusinessTest.call("/api/native/cash/events","POST",due,false,owner,operation).getString("body").equals(first.getString("body")),"cash assessment is idempotent after lost response");
+        JSONObject receipt=new JSONObject().put("kind","receipt").put("day","2026-11-04").put("courierId",courier).put("amountCents",2000).put("notes","Δοκιμαστική παραλαβή");
+        String received=body(call("/api/native/cash/events","POST",receipt,owner),201).getString("id");
+        JSONObject projection=body(call("/api/native/cash?from=2026-11-04&to=2026-11-04","GET",null,owner),200).getJSONArray("couriers").getJSONObject(0);
+        check(projection.getLong("orders")==15&&projection.getLong("dueCents")==3000&&projection.getLong("receivedCents")==2000&&projection.getLong("balanceCents")==1000,"15 x 2 euros, exact cents and separate receipt balance");
+        JSONObject reversal=new JSONObject().put("kind","reversal").put("reversesId",received).put("notes","Διόρθωση δοκιμαστικής παραλαβής");
+        body(call("/api/native/cash/events","POST",reversal,owner),201);check(call("/api/native/cash/events","POST",reversal,owner).getInt("status")==409,"receipt cannot be reversed twice");
+        rule.put("rateCents",250).put("expectedRevision",1);body(call("/api/native/cash/rules","POST",rule,owner),201);
+        projection=body(call("/api/native/cash?from=2026-11-04&to=2026-11-04","GET",null,owner),200).getJSONArray("couriers").getJSONObject(0);
+        check(projection.getLong("dueCents")==3000&&projection.getLong("balanceCents")==3000,"historical assessment retains original rate after rule revision");
+        check(call("/api/native/cash/events","POST",due,owner).getInt("status")==409,"new assessment requires confirmation of revised tariff");
+        check(call("/api/native/cash?from=2026-11-04&to=2026-11-04","GET",null,employee).getInt("status")==401,"revoked courier cannot read cash ledger");
+        boolean immutable=false;try{db.execSQL("UPDATE native_cash_events SET amount_cents=1");}catch(SQLiteException expected){immutable=true;}check(immutable,"cash ledger is append only");
+        db.execSQL("UPDATE app_users SET deleted_at='2026-11-05T12:00:00Z' WHERE id=?",new Object[]{courier});
+        check(body(call("/api/native/cash?from=2026-11-04&to=2026-11-04","GET",null,owner),200).getJSONArray("couriers").getJSONObject(0).getLong("dueCents")==3000,"archived employee retains cash history");
+        check(count(sql,"payroll_adjustments")==payrollRows&&count(sql,"ordexa_sessions")==sourceRows,"cash does not change wages or Ordexa source");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS store_billing_local(id TEXT PRIMARY KEY,kind TEXT NOT NULL,scope TEXT NOT NULL,store_id TEXT NOT NULL DEFAULT '',day TEXT NOT NULL DEFAULT '',data TEXT NOT NULL,dirty INTEGER NOT NULL DEFAULT 1)");
+        local(db,"store","store","fixture-shop","",shop);
+        JSONObject priced=new JSONObject().put("storeId","fixture-shop").put("businessDay","2026-11-04").put("orderCount",18).put("orderChargeCents",3600).put("minimumTopUpCents",400).put("totalChargeCents",4000).put("sourceLastSuccessAt","2026-11-05T04:00:00Z").put("cutoffHour",5).put("timeZone","Europe/Athens").put("termsId","historical-terms").put("billingState","ready");
+        local(db,"day4","local_day","fixture-shop","2026-11-04",priced);
+        local(db,"coverage4","coverage","","2026-11-04",new JSONObject().put("sourceAt","2026-11-05T04:00:00Z").put("localRun","r4"));
+        JSONObject zero=new JSONObject(priced.toString()).put("businessDay","2026-11-05").put("orderCount",0).put("orderChargeCents",0).put("minimumTopUpCents",0).put("totalChargeCents",0).put("sourceLastSuccessAt","2026-11-06T04:00:00Z");
+        local(db,"day5","local_day","fixture-shop","2026-11-05",zero);
+        local(db,"coverage5","coverage","","2026-11-05",new JSONObject().put("sourceAt","2026-11-06T04:00:00Z").put("localRun","r5"));
+        JSONObject report=body(call("/api/native/store-financials?from=2026-11-04&to=2026-11-05&period=week","GET",null,owner),200);
+        check(report.getBoolean("complete")&&report.getJSONArray("groups").getJSONObject(0).getLong("totalChargeCents")==4000&&report.getJSONArray("groups").getJSONObject(0).getLong("orderCount")==18,"weekly report reuses exact daily snapshots and zero-day stays zero");
+        report=body(call("/api/native/store-financials?from=2026-11-04&to=2026-11-06&period=week","GET",null,owner),200);
+        check(!report.getBoolean("complete")&&report.getJSONArray("groups").getJSONObject(0).isNull("totalChargeCents")&&report.getJSONArray("groups").getJSONObject(0).getLong("knownTotalCents")==4000,"missing day is unknown, never a manufactured zero");
+        zero.put("minimumTopUpCents",500).put("totalChargeCents",500);local(db,"day5","local_day","fixture-shop","2026-11-05",zero);
+        report=body(call("/api/native/store-financials?from=2026-11-05&to=2026-11-05","GET",null,owner),200);
+        check(!report.getBoolean("complete")&&report.getJSONArray("issues").getJSONObject(0).getString("reason").contains("μηδενική"),"legacy zero-day charge requires explicit recomputation, no silent historical rewrite");
+        check(call("/api/native/store-financials?from=2026-11-04&to=2026-11-05&scope=another-source","GET",null,owner).getInt("status")==409,"reports cannot mix a previous provider scope");
+        reviewAndHealth(sql,db,owner,courier);
+        System.out.println("PASS native cash/report APIs: real exact-cent ledger, historical rules/CAS, lost-response idempotency, reversal/immutability, archived history, independent wages/source, daily/week coverage, unknown days, zero-day legacy detection and active source isolation.");
+    }
+    static void local(SQLiteDatabase db,String id,String kind,String store,String day,JSONObject data){
+        db.execSQL("INSERT OR REPLACE INTO store_billing_local(id,kind,scope,store_id,day,data,dirty) VALUES(?,?,'report-fixture',?,?,?,0)",new Object[]{id,kind,store,day,data.toString()});
+    }
+    static void reviewAndHealth(BusinessSqlite sql,SQLiteDatabase db,String owner,String courier)throws Exception{
+        String revision=sql.call("sql.query",new JSONObject().put("sql","SELECT value FROM system_settings WHERE key='ordexa_revision'")).getJSONArray("results").getJSONObject(0).getString("value");
+        String epoch=sql.call("sql.query",new JSONObject().put("sql","SELECT epoch||':'||COALESCE((SELECT value FROM fleet_settings WHERE key='ordexa_server_generation'),'') epoch FROM fleet_mirror_state WHERE id=1")).getJSONArray("results").getJSONObject(0).getString("epoch");
+        JSONObject shift=new JSONObject().put("id","review-fixture").put("employeeId",courier).put("employeeName","Συνθετικός διανομέας").put("workDate","2026-11-04").put("actualClockIn","2026-11-04T16:00:00Z").put("actualClockOut","2026-11-04T20:00:00Z").put("payableClockIn","2026-11-04T16:00:00Z").put("payableClockOut","2026-11-04T20:00:00Z").put("payableMinutes",240).put("totalPayCents",2400).put("reasons",new JSONArray()).put("outOfSchedule",true).put("fingerprint","source-1").put("adjustmentRevision",0).put("active",false).put("sourcePending",false);
+        JSONObject payload=new JSONObject().put("shifts",new JSONArray().put(shift)).put("payroll",new JSONObject().put("blockers",new JSONArray())).put("dashboard",new JSONObject());
+        db.execSQL("INSERT INTO ordexa_server_views(week_start,requested_at,input_revision,input_epoch,engine_version,computed_at,source_synced_at,payload) VALUES('2026-11-02','2026-11-05T12:00:00Z',?,?,3,'2026-11-05T12:00:00Z','2026-11-05T12:00:00Z',?)",new Object[]{revision,epoch,payload.toString()});
+        JSONObject queue=body(call("/api/native/payroll-review?week=2026-11-04","GET",null,owner),200),review=queue.getJSONArray("rows").getJSONObject(0);
+        check(!review.getBoolean("blocking")&&review.getLong("totalPayCents")==2400&&queue.getBoolean("sourceFresh"),"out-of-schedule attendance is an advisory review and remains payable");
+        JSONObject decision=new JSONObject().put("week","2026-11-02").put("id",review.getString("id")).put("fingerprint",review.getString("fingerprint")).put("expectedRevision",0).put("decision","keep").put("notes","Ελέγχθηκε η πραγματική παρουσία");
+        JSONObject kept=body(call("/api/native/payroll-review","POST",decision,owner),200);check(!kept.getBoolean("paymentDecisionApplied"),"advisory acknowledgement does not change payable hours");
+        check(body(call("/api/native/payroll-review?week=2026-11-02","GET",null,owner),200).getJSONArray("rows").getJSONObject(0).getBoolean("reviewed"),"review decision persists for exact source and policy fingerprint");
+        check(call("/api/native/payroll-review","POST",decision,owner).getInt("status")==409,"old review CAS cannot replace a later decision");
+        shift.put("fingerprint","source-2");db.execSQL("UPDATE ordexa_server_views SET payload=? WHERE week_start='2026-11-02'",new Object[]{payload.toString()});
+        check(!body(call("/api/native/payroll-review?week=2026-11-02","GET",null,owner),200).getJSONArray("rows").getJSONObject(0).getBoolean("reviewed"),"changed original source reopens review instead of inheriting old approval");
+        db.execSQL("UPDATE ordexa_server_views SET input_revision='stale' WHERE week_start='2026-11-02'");check(!body(call("/api/native/payroll-review?week=2026-11-02","GET",null,owner),200).getBoolean("sourceFresh"),"stale projection cannot pretend its review is current");
+        shift.put("payrollLocked",true);db.execSQL("UPDATE ordexa_server_views SET payload=? WHERE week_start='2026-11-02'",new Object[]{payload.toString()});check(body(call("/api/native/payroll-review?week=2026-11-02","GET",null,owner),200).getJSONArray("rows").length()==0,"locked payroll is not reopened by review queue");
+        boolean immutable=false;try{db.execSQL("DELETE FROM native_payroll_reviews");}catch(SQLiteException expected){immutable=true;}check(immutable,"review audit is versioned, not overwritten");
+
+        health=new JSONObject().put("at","2026-11-05T12:00:00Z").put("serverLastSeenAt","2026-11-05T12:00:00Z").put("ordexaLastSuccessAt","2026-11-04T00:00:00Z").put("storesLastSuccessAt","2026-11-05T12:00:00Z").put("backupLastVerifiedRestoreAt","2026-11-04T12:00:00Z").put("outboxPending",0).put("freeBytes",1024L*1024*1024).put("password","MUST_NOT_EXPORT").put("rawError","MUST_NOT_EXPORT").put("username","MUST_NOT_EXPORT").put("versions",new JSONObject().put("server","fixture").put("business","fixture"));
+        JSONObject first=body(call("/api/native/health","GET",null,owner),200);check(first.getJSONArray("incidents").length()==1&&first.getJSONObject("d1").getString("status").equals("unknown"),"health uses real evidence and never fabricates D1 quota");
+        JSONObject incident=first.getJSONArray("incidents").getJSONObject(0);body(call("/api/native/health","GET",null,owner),200);check(count(sql,"native_health_incidents")==1,"repeated observations coalesce into one incident");
+        JSONObject ack=body(call("/api/native/health/ack","POST",new JSONObject().put("id",incident.getString("id")).put("generation",incident.getInt("generation")).put("notes","MUST_NOT_EXPORT"),owner),200);check(ack.getBoolean("acknowledged")&&!ack.getBoolean("resolved"),"acknowledgement does not claim repair");
+        health.put("ordexaLastSuccessAt",JSONObject.NULL);JSONObject unknown=body(call("/api/native/health","GET",null,owner),200);check(!unknown.getJSONArray("incidents").getJSONObject(0).getBoolean("resolved"),"unknown measurement cannot resolve a real outage");
+        health.put("ordexaLastSuccessAt","2026-11-05T12:00:00Z");JSONObject healthy=body(call("/api/native/health","GET",null,owner),200);check(healthy.getJSONArray("incidents").getJSONObject(0).getBoolean("resolved"),"known healthy evidence resolves the incident");
+        health.put("ordexaLastSuccessAt","2026-11-04T00:00:00Z");JSONObject again=body(call("/api/native/health","GET",null,owner),200);check(again.getJSONArray("incidents").length()==2&&!again.getJSONArray("incidents").getJSONObject(0).getBoolean("acknowledged"),"recurrence has a new generation and new acknowledgement");
+        JSONObject diagnostic=call("/api/native/health/diagnostic","GET",null,owner);check(!diagnostic.getString("body").contains("MUST_NOT_EXPORT")&&!diagnostic.getString("body").contains("ack_by"),"diagnostic allowlist excludes credentials, account identity, raw errors and notes");
+        System.out.println("PASS native payroll-review/health APIs: advisory hours preserved, exact-source decisions/CAS, source-change reopening, locked history, immutable review audit, deduplicated incidents, acknowledgement separated from resolution, unknown evidence and safe diagnostics.");
+    }
+}

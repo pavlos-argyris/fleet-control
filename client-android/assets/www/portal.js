@@ -41,6 +41,7 @@
     "shifts.vehicle.change": "Αλλαγή μηχανής σε βάρδια", "schedules.view": "Προβολή προγράμματος", "schedules.manage": "Διαχείριση προγράμματος",
     "fleet.view": "Προβολή Fleet", "fleet.manage": "Διαχείριση Fleet", "service.manage": "Διαχείριση service",
     "stores.view": "Προβολή καταστημάτων", "stores.manage": "Χρεώσεις και επιλογές καταστημάτων",
+    "cash.view": "Προβολή ταμείου διανομέων", "cash.manage": "Κινήσεις και κανόνες ταμείου διανομέων",
     "payroll.view": "Προβολή μισθοδοσίας", "payroll.manage": "Διαχείριση μισθοδοσίας", "payroll.lock": "Κλείδωμα μισθοδοσίας",
     "reports.view": "Αναφορές", "alerts.view": "Προβολή ειδοποιήσεων", "alerts.manage": "Διαχείριση ειδοποιήσεων",
     "audit.view": "Αρχείο ενεργειών", "backup.manage": "Backup", "server.manage": "Server", "settings.manage": "Ρυθμίσεις", "security.manage": "Ασφάλεια"

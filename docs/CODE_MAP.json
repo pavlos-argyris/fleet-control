@@ -94,14 +94,16 @@
         "cloudflare-worker/public/ordexa-pay-core.js",
         "cloudflare-worker/public/ordexa-pay-ui.js",
         "cloudflare-worker/public/ordexa-server-ui.js",
-        "cloudflare-worker/src/payroll-review-core.js"
+        "cloudflare-worker/src/payroll-review-core.js",
+        "server-runtime/payroll-review.js"
       ],
       "tests": [
         "scripts/test-ordexa-pay.mjs",
         "scripts/test-ordexa-edit-anytime.mjs",
         "scripts/test-ordexa-server-engine.mjs",
         "scripts/test-payroll-regressions.mjs",
-        "scripts/test-payroll-review-core.mjs"
+        "scripts/test-payroll-review-core.mjs",
+        "scripts/test-business-runtime-native.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -121,12 +123,17 @@
         "cloudflare-worker/src/store-billing.js",
         "cloudflare-worker/public/store-billing.js",
         "cloudflare-worker/public/store-billing.css",
-        "cloudflare-worker/src/store-financial-report.js"
+        "cloudflare-worker/src/store-financial-report.js",
+        "server-runtime/reports.js",
+        "server-runtime/exports.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/FinancialExport.java"
       ],
       "tests": [
         "scripts/test-store-billing-*.mjs",
         "scripts/test-store-primary-budget.mjs",
-        "scripts/test-store-financial-report.mjs"
+        "scripts/test-store-financial-report.mjs",
+        "scripts/test-financial-export-native.mjs",
+        "scripts/test-business-runtime-native.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -341,6 +348,7 @@
       "paths": [
         "scripts/d1-source-inventory.mjs",
         "server-runtime/*.js",
+        "cloudflare-worker/src/primary-authority.js",
         "server-android/src/gr/argyrismitsos/fleetserver/Business*.java",
         "scripts/build-business-runtime.mjs",
         "scripts/prepare-business-dependencies.py",
@@ -351,6 +359,7 @@
       "tests": [
         "scripts/test-d1-source-inventory.mjs",
         "scripts/test-business-runtime-native.mjs",
+        "scripts/test-primary-authority.mjs",
         "scripts/test-server-authority-stage-native.mjs",
         "scripts/test-server-authority-ui.mjs"
       ],
@@ -367,10 +376,13 @@
       "id": "courier-cash",
       "title": "Courier cash reconciliation independent of payroll",
       "paths": [
-        "cloudflare-worker/src/courier-cash-core.js"
+        "cloudflare-worker/src/courier-cash-core.js",
+        "server-runtime/cash.js"
       ],
       "tests": [
-        "scripts/test-courier-cash-core.mjs"
+        "scripts/test-courier-cash-core.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-financial-export-native.mjs"
       ],
       "related": [
         "stores",
@@ -385,11 +397,13 @@
       "title": "Server/Ordexa/backup/D1 evidence without polling",
       "paths": [
         "cloudflare-worker/src/fleet-health-core.js",
-        "server-android/assets/www/server-diagnostics.js"
+        "server-android/assets/www/server-diagnostics.js",
+        "server-runtime/health.js"
       ],
       "tests": [
         "scripts/test-fleet-health-core.mjs",
-        "scripts/test-server-health-diagnostics.mjs"
+        "scripts/test-server-health-diagnostics.mjs",
+        "scripts/test-business-runtime-native.mjs"
       ],
       "related": [
         "server-foundation",

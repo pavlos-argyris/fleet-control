@@ -9,6 +9,7 @@ import java.util.*;
 /** D1-shaped operations on actual Android SQLite. SQL comes only from bundled handlers. */
 public final class BusinessSqlite {
     private final SQLiteDatabase db;
+    private boolean requestTransaction;
     public BusinessSqlite(SQLiteDatabase db){this.db=db;}
     private static Object[] values(JSONArray input)throws Exception {
         Object[] result=new Object[input==null?0:input.length()];
@@ -81,6 +82,15 @@ public final class BusinessSqlite {
     }
     public synchronized JSONObject call(String command,JSONObject value)throws Exception {
         long started=System.nanoTime();String sql=value.optString("sql");Object[] args=values(value.optJSONArray("params"));
+        if(command.equals("sql.request.begin")){
+            if(requestTransaction||db.inTransaction())throw new IOException("Η υπηρεσία εξυπηρετεί ήδη άλλη συναλλαγή.");
+            db.beginTransaction();requestTransaction=true;return new JSONObject();
+        }
+        if(command.equals("sql.request.end")){
+            if(!requestTransaction)throw new IOException("Δεν υπάρχει ενεργή συναλλαγή.");
+            try{if(value.optBoolean("commit"))db.setTransactionSuccessful();}finally{try{db.endTransaction();}finally{requestTransaction=false;}}
+            return new JSONObject();
+        }
         if(command.equals("sql.query"))return new JSONObject().put("success",true).put("results",rows(sql,args,value.optBoolean("first"),false));
         if(command.equals("sql.raw"))return new JSONObject().put("rows",rows(sql,args,false,true));
         if(command.equals("sql.run"))return run(sql,args);

@@ -34,7 +34,7 @@ jobs:
       - name: Install ripgrep for Android build scripts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ripgrep
+          sudo apt-get install -y ripgrep poppler-utils
       - run: npm ci
         working-directory: cloudflare-worker
       - run: bash scripts/check-all.sh
@@ -102,6 +102,19 @@ jobs:
       - run: node scripts/test-server-boot-native.mjs
       - run: node scripts/test-server-http.mjs
       - run: node scripts/test-business-runtime-native.mjs
+      - name: Prepare independent financial export validators
+        run: |
+          python3 -m venv .build/financial-python
+          .build/financial-python/bin/pip install --disable-pip-version-check openpyxl==3.1.5 pypdf==6.10.0
+      - run: node scripts/test-financial-export-native.mjs
+        env:
+          FLEET_FINANCE_PYTHON: .build/financial-python/bin/python
+      - name: Save synthetic financial export verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: financial-export-verification
+          path: .build/verification/financial-export/
+          if-no-files-found: error
       - run: node scripts/test-server-snapshot-sync.mjs
       - run: node scripts/test-server-system-mirror.mjs
       - run: node scripts/test-server-offload-native.mjs

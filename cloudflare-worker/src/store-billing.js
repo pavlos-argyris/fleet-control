@@ -90,8 +90,9 @@ async function archive(env,b,D){
 }
 async function stage(env,b,D){
  const c=await fence(env,b,D);if(c.storageMode==='server-primary')invalid(D,'Χρειάζεται δημοσίευση συγκεντρωτικών από τον νέο Server.',409);ident(b.runId,D);ordexaDay(b.day);if(!Array.isArray(b.rows)||b.rows.length>32)invalid(D,'Μεγάλη σελίδα υπολογισμού.');const statements=[];
- for(const r of b.rows){ident(r.storeId,D);if(r.businessDay!==b.day||r.engineVersion!==1||r.cutoffHour!==5||r.timeZone!=='Europe/Athens')invalid(D,'Ασύμβατος υπολογισμός ημέρας.');number(r.orderCount,D,10000000);number(r.storeRevision,D,Number.MAX_SAFE_INTEGER);for(const k of ['orderChargeCents','minimumTopUpCents','totalChargeCents'])if(r[k]!==null)number(r[k],D,Number.MAX_SAFE_INTEGER);
+ for(const r of b.rows){ident(r.storeId,D);if(r.businessDay!==b.day||![1,2].includes(r.engineVersion)||r.cutoffHour!==5||r.timeZone!=='Europe/Athens')invalid(D,'Ασύμβατος υπολογισμός ημέρας.');number(r.orderCount,D,10000000);number(r.storeRevision,D,Number.MAX_SAFE_INTEGER);for(const k of ['orderChargeCents','minimumTopUpCents','totalChargeCents'])if(r[k]!==null)number(r[k],D,Number.MAX_SAFE_INTEGER);
   if(r.totalChargeCents!==null&&r.totalChargeCents!==r.orderChargeCents+r.minimumTopUpCents)invalid(D,'Μη έγκυρο ημερήσιο αποτέλεσμα.');
+  if(r.orderCount===0&&[r.orderChargeCents,r.minimumTopUpCents,r.totalChargeCents].some(n=>n!==0))invalid(D,'Με μηδέν παραγγελίες η χρέωση είναι μηδενική. Χρειάζεται επανυπολογισμός στον Server.');
   statements.push(insert(env,{id:'day:'+b.runId+':'+r.storeId,scope:b.scope,kind:'day',storeId:r.storeId,day:b.day,data:{...r,runId:b.runId}}));
  }
  if(b.removals!==undefined){if(!Array.isArray(b.removals)||b.removals.length>32)invalid(D,'Μεγάλη σελίδα αφαιρέσεων.');for(const r of b.removals){ident(r.orderId,D);ident(r.storeId,D);statements.push(insert(env,{id:'removal:'+b.runId+':'+r.orderId,scope:b.scope,kind:'removal',storeId:r.storeId,day:b.day,data:{runId:b.runId,orderId:r.orderId,storeId:r.storeId,businessDay:b.day}}));}}
@@ -129,10 +130,11 @@ async function aggregateStage(env,b,D){
  const out=[];
  for(const r of b.rows){
   ident(r.storeId,D);number(r.storeRevision,D,Number.MAX_SAFE_INTEGER);
-  if(r.businessDay!==b.day||r.engineVersion!==1||r.cutoffHour!==5||r.timeZone!=='Europe/Athens'||typeof r.retentionUsed!=='boolean')invalid(D,'Ασύμβατος υπολογισμός ημέρας.');
+  if(r.businessDay!==b.day||![1,2].includes(r.engineVersion)||r.cutoffHour!==5||r.timeZone!=='Europe/Athens'||typeof r.retentionUsed!=='boolean')invalid(D,'Ασύμβατος υπολογισμός ημέρας.');
   number(r.orderCount,D,10000000);number(r.retainedOrders,D,10000000);number(r.reviewCount,D,10000000);
   for(const k of ['orderChargeCents','minimumTopUpCents','totalChargeCents'])if(r[k]!==null)number(r[k],D,Number.MAX_SAFE_INTEGER);
   if(r.totalChargeCents!==null&&r.totalChargeCents!==r.orderChargeCents+r.minimumTopUpCents)invalid(D,'Μη έγκυρο ημερήσιο αποτέλεσμα.');
+  if(r.orderCount===0&&[r.orderChargeCents,r.minimumTopUpCents,r.totalChargeCents].some(n=>n!==0))invalid(D,'Με μηδέν παραγγελίες η χρέωση είναι μηδενική. Χρειάζεται επανυπολογισμός στον Server.');
   const s=current.get(r.storeId);if(!s||s.scope!==b.scope||s.kind!=='store'||s.revision!==r.storeRevision||s.retainOrders!==r.retentionUsed)invalid(D,'Οι επιλογές καταστήματος άλλαξαν.',409);
   out.push({id:'aggregate-stage:'+b.runId+':'+r.storeId,storeId:r.storeId,day:b.day,scope:b.scope,kind:'aggregate_stage',data:{...r,protocol:2,runId:b.runId,inputRevision:b.inputRevision}});
  }

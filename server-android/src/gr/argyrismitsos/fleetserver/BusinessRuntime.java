@@ -46,13 +46,17 @@ public final class BusinessRuntime implements java.io.Closeable {
         String serialized=new JSONObject(request.toString()).put("internal",internal).toString();
         if(serialized.getBytes("UTF-8").length>(internal?64:2)*1024*1024)throw new IOException("Το αίτημα υπερβαίνει το επιτρεπόμενο μέγεθος.");
         deadline=System.nanoTime()+Math.min(30000,Math.max(100,budgetMillis))*1000000L;Context c=contexts.enterContext();
+        boolean transaction=false;
         try{
+            host.call("sql.request.begin","{}");transaction=true;
             Function dispatch=(Function)scope.get("__fleetRequest",scope);dispatch.call(c,scope,scope,new Object[]{serialized});c.processMicrotasks();
             Object result=scope.get("__fleetResult",scope);
             if(result==null||result==Undefined.instance||result==Scriptable.NOT_FOUND)throw new IOException("Η τοπική εργασία δεν ολοκληρώθηκε.");
-            return new JSONObject(Context.toString(result));
+            JSONObject response=new JSONObject(Context.toString(result));
+            try{host.call("sql.request.end",new JSONObject().put("commit",response.optInt("status",500)<500).toString());}finally{transaction=false;}
+            return response;
         }catch(RhinoException e){throw new IOException("Η τοπική εργασία Server απέτυχε.");}
-        finally{Context.exit();}
+        finally{try{if(transaction)host.call("sql.request.end","{\"commit\":false}");}finally{Context.exit();}}
     }
     public synchronized JSONObject sandboxStatus()throws Exception {
         deadline=System.nanoTime()+1000000000L;Context c=contexts.enterContext();

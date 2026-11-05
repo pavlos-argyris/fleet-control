@@ -17,6 +17,7 @@ node scripts/test-android-manifest-audit.mjs
 python3 scripts/prepare-static-assets.py --check
 node scripts/prepare-direct-permissions.mjs --check
 node scripts/test-direct-relay.mjs
+node scripts/test-primary-authority.mjs
 node scripts/test-direct-access-native.mjs
 node scripts/test-direct-websocket-native.mjs
 node scripts/test-direct-ui.mjs
