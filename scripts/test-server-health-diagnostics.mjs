@@ -41,7 +41,7 @@ try{
   assert.equal(h.stores.state,'unknown');
   assert.equal(h.stores.pendingDays,null);
   assert.equal(h.backupReadCheck.state,'unknown');
-  assert.deepEqual(h.d1Quota,{state:'unknown',rowsWritten:null,limit:null});
+  assert.deepEqual(JSON.parse(JSON.stringify(h.d1Quota)),{state:'unknown',rowsWritten:null,limit:null});
 
   h=project(dashboard,ordexa,stores,at);
   assert.equal(h.service,'running');
