@@ -336,12 +336,16 @@
     },
     {
       "id": "d1-migration",
-      "title": "D1 dependency migration audit (no production writes)",
+      "title": "D1 authority inventory and Server migration preparation",
       "paths": [
-        "scripts/d1-source-inventory.mjs"
+        "scripts/d1-source-inventory.mjs",
+        "server-android/src/gr/argyrismitsos/fleetserver/ServerAuthorityStage.java",
+        "server-android/assets/www/server-authority.js"
       ],
       "tests": [
-        "scripts/test-d1-source-inventory.mjs"
+        "scripts/test-d1-source-inventory.mjs",
+        "scripts/test-server-authority-stage-native.mjs",
+        "scripts/test-server-authority-ui.mjs"
       ],
       "related": [
         "worker-core",

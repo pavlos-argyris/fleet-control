@@ -247,7 +247,7 @@ public final class MainActivity extends Activity {
         executor.submit(new Runnable() {
             @Override
             public void run() {
-                boolean critical="backup".equals(event)||"backupRestore".equals(event)||"clientUpload".equals(event)||"webUpload".equals(event)||"releaseActivated".equals(event)||"invoiceResume".equals(event);
+                boolean critical="backup".equals(event)||"backupRestore".equals(event)||"clientUpload".equals(event)||"webUpload".equals(event)||"releaseActivated".equals(event)||"invoiceResume".equals(event)||"authorityStage".equals(event);
                 String lane="action:"+event;
                 if(critical&&!ServerWorkTracker.begin(getApplicationContext(),lane,"Ενέργεια Server",event.equals("backup")?"Χειροκίνητο backup":event.equals("backupRestore")?"Επαναφορά δεδομένων":"Αποθήκευση αλλαγών")){emitError(event,"Προετοιμάζεται ενημέρωση. Πάτησε Αναβολή ενημέρωσης πριν ξεκινήσεις νέα εργασία.");return;}
                 try {
@@ -401,6 +401,23 @@ public final class MainActivity extends Activity {
             }});
         }
         @JavascriptInterface public void chooseBackupRecoveryTest() { pickFile("*/*",PICK_BACKUP_RECOVERY_TEST); }
+
+        @JavascriptInterface public String getAuthorityStageStatus() {
+            try{if(!dashboardSettingsLoaded)throw new IllegalStateException();return ServerAuthorityStage.status(store.getReadableDatabase(),preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL)).toString();}
+            catch(Exception error){return "{\"state\":\"unknown\",\"businessWritesEnabled\":false}";}
+        }
+        @JavascriptInterface public void prepareAuthorityStage(final String value) {
+            runTask("authorityStage",ordexaRequestId(value),new Task(){@Override public JSONObject run()throws Exception{
+                if(!dashboardSettingsLoaded)throw new IllegalStateException("Περίμενε να φορτωθούν οι αποθηκευμένες ρυθμίσεις πριν από την προετοιμασία.");
+                JSONObject body=new JSONObject(value);String expected=body.getString("expectedStageId");
+                if(expected.length()>0&&!expected.matches("[a-f0-9-]{36}"))throw new IllegalArgumentException("Ανανέωσε την κατάσταση προετοιμασίας.");
+                final String base=preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL);
+                return ServerAuthorityStage.prepare(store.getWritableDatabase(),base,expected,getFilesDir().getUsableSpace(),new ServerAuthorityStage.Progress(){public void stage(String detail)throws Exception{
+                    if(OtaManager.shouldYieldForUpdate(getApplicationContext())||!base.equals(preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL)))throw new java.io.InterruptedIOException("Η προετοιμασία σταμάτησε με ασφάλεια λόγω ενημέρωσης ή αλλαγής σύνδεσης. Επανάλαβέ την όταν ολοκληρωθεί η αλλαγή.");
+                    ServerWorkTracker.stage("action:authorityStage","Προετοιμασία μεταφοράς βάσης",detail);
+                }});
+            }});
+        }
 
         @JavascriptInterface
         public void chooseBackupFile(String adminPin) {

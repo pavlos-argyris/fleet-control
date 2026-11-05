@@ -1,5 +1,6 @@
 /* Shared Server surfaces: status, backups, updates and settings. */
 .server-shell .backup-recovery-result{margin:0 0 12px;font-size:.85rem;line-height:1.65;overflow-wrap:anywhere;word-break:break-word}
+.server-shell #settingsAuthority p{font-size:.85rem;line-height:1.65;overflow-wrap:anywhere}
 .server-shell{--server-green:#166442;--server-green-soft:#e8f5ed;--server-text:#182e25;--server-muted:#53695e;--server-line:#dce6df;--server-background:#f2f5f4;--server-panel:#fff;--ink:var(--server-text);--muted:var(--server-muted);--line:var(--server-line);--canvas:var(--server-background);--mint-dark:var(--server-green);background:var(--server-background)}
 .server-shell .server-header{background:linear-gradient(125deg,#153d2b,#10281d);border-radius:0 0 24px 24px}
 .server-shell .server-content{padding:20px 18px calc(max(72px,var(--fleet-server-nav-height,88px)) + 28px)}

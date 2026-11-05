@@ -87,6 +87,7 @@ jobs:
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-server-large-storage-native.mjs
+      - run: node scripts/test-server-authority-stage-native.mjs
       - run: node scripts/test-store-billing-native.mjs
       - run: node scripts/test-store-billing-pipeline.mjs
       - run: node scripts/test-ordexa-native.mjs

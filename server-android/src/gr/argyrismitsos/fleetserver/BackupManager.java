@@ -290,6 +290,7 @@ public final class BackupManager {
         }
         JSONObject documentRestore = restoreSiblingDocuments(context, documentInventory(root), uri, root.optJSONObject("documentsBackup"));
         root.put("documentRestore", documentRestore);
+        ServerAuthorityStage.invalidate(store.getWritableDatabase());
         store.mergeFleet(fleet);
         store.setSystemExport(root);
         new StoreBillingStore(store).restore(root.optJSONObject("storeBilling")==null?new JSONArray():root.getJSONObject("storeBilling").getJSONArray("records"));StoreBillingSync.wake(store);
