@@ -1,5 +1,11 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## #64 Server diagnostics — ανάληψη και λειτουργική ενσωμάτωση, 05/11/2026
+- Εντολή χρήστη «Συνέχισε». Ανάληψη στο υπάρχον PR #73 (`codex/roadmap-integration-fleet-561`), exact αρχικό head `ec9cc416c786270033c8263475b999592b113460`. Scope: μόνο Server APK UI `server-android/assets/www/server-diagnostics.js`, καινούριο DOM regression test, `scripts/check-all.sh`, map/docs και handoff. Δεν αγγίζονται D1, credentials, καταγραφές Ordexa ή publication metadata.
+- Στόχος: πραγματικό **read-only** health view από τα ήδη υπάρχοντα native bridge `getDashboard/getOrdexaStatus/getStoreBillingStatus`, με σαφή άγνωστα στοιχεία, stale παρουσίες/καταστήματα, pending store-days και χωριστή **αναγνωσιμότητα backup** (όχι ψευδής απόδειξη restore). Καμία νέα περιοδική ανάγνωση, δικτυακή εγγραφή ή κρυφή αποστολή αναφοράς· μόνο όταν ανοίγει/ανανεώνεται η διάγνωση.
+- Κριτήρια: ελεγμένα δεδομένα μόνο, όχι D1 quota χωρίς πραγματική μέτρηση, καθαρή ασφαλής αναφορά χωρίς στοιχεία λογαριασμού, regression σε JSDOM, fast/full GitHub Actions σε exact head. Να μείνει draft μέχρι να ολοκληρωθούν και τα υπόλοιπα issues και οι πραγματικοί έλεγχοι στη συσκευή. **Σε εξέλιξη**, όχι δημοσίευση.
+
+
 ## PR #73 — ενεργή επέμβαση στο πραγματικό CI, 05/11/2026
 - Η τρέχουσα συνομιλία αναλαμβάνει **άμεση ανάπτυξη** στο ήδη ανοιχτό draft PR #73 / branch `codex/roadmap-integration-fleet-561`, με αρχικό exact head `c949c9f46258174e765134698f54dc17ed9e3436`. Δεν υπάρχει δεύτερος developer που χρειάζεται ανάθεση.
 - Το full CI [#41948741047](https://github.com/pavlos-argyris/fleet-control/actions/runs/41948741047) απέτυχε στο `scripts/test-ordexa-browser.mjs:43`: 0 αντί για 1 ενεργός εργαζόμενος. Η εκτέλεση έγινε 01:31 UTC / 03:31 Αθήνας, μετά το λειτουργικό κλείσιμο 02:00. Το live fixture στηριζόταν στο `Date.now()-3h`, συνεπώς η εξάρτηση από πραγματική ώρα κάνει το browser test μη ντετερμινιστικό.
