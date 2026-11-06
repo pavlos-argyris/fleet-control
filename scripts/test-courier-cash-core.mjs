@@ -43,3 +43,6 @@ await import('./test-cash-pagination.mjs');
 
 // Verify the native cash ledger's SQLite reversal constraints on real SQLite.
 await import('./test-cash-reversal-sqlite.mjs');
+
+// Native SQLite concurrency regression: stale tariff edits never overwrite history.
+await import('./test-cash-rule-cas-sqlite.mjs');
