@@ -88,3 +88,6 @@ public class FrozenV3Test {
  execFileSync('java',['-jar',path.join(root,'.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-classpath',jar,'-d',dir,path.join(dir,'FrozenV3Test.java'),path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenExportV3.java')],{stdio:'inherit'});
  execFileSync('java',['-Xmx64m','-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetserver.FrozenV3Test'],{stdio:'inherit',timeout:20000});
 }finally{fs.rmSync(dir,{recursive:true,force:true});}
+
+// The same mandatory native CI gate also exercises transactional SQLite staging.
+execFileSync(process.execPath,['scripts/test-native-frozen-import-v3.mjs'],{stdio:'inherit',timeout:90000});
