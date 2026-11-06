@@ -1,3 +1,9 @@
+## #60 — πραγματική διόρθωση σελιδοποίησης ταμείου — 06/11/2026
+
+- Συνέχεια στο υπάρχον draft PR #73 / `codex/roadmap-integration-fleet-561`, μετά από ανάγνωση AGENTS, handoff, code map και approved roadmap. Διορθώθηκε στο `server-runtime/cash.js` η ένδειξη `eventsComplete` της πραγματικής native cash αναφοράς: πλέον λαμβάνει υπόψη το `eventOffset`, αντί να θεωρεί ότι κάθε σελίδα πρέπει να περιέχει το σύνολο των κινήσεων. Η ένδειξη `hasMoreEvents` παραμένει συνεπής. Αυτό αποτρέπει ψευδές «μη ολοκληρωμένο» στην τελευταία σελίδα της αναφοράς.
+- Νέο `scripts/test-cash-pagination.mjs` με απομονωμένο συνθετικό DB fixture για πρώτη/μεσαία/τελευταία/κενή/εκτός-εύρους σελίδα. Συνδέθηκε στο υπάρχον υποχρεωτικό `test-courier-cash-core.mjs`. Commits: `f7cef531e99ab54d79d66bfc91e0d5d9aa88b365`, `97ed913b11074d9c094f5205457e6ef7c56a5ca4`, `b123b0bfd4736ecb57e083885ca1b493f325342b`.
+- Exact-head Fast/full CI εκκρεμούν επαλήθευση. Καμία ενεργοποίηση παραγωγής, merge, deploy, restore ή μεταβολή οικονομικών εγγραφών. Επόμενα: πραγματική σύνδεση stable order→courier, δικαιώματα και ολοκλήρωση UI/exports, ασφαλής D1→Server authority, backup/device proofs.
+
 ## #59/#64 — actual SQLite failure regression and idempotent health acknowledgement — 06/11/2026
 
 - Continued existing draft PR #73 / `codex/roadmap-integration-fleet-561` from verified remote HEAD `928b8818c1c1ff363b0b36760c3c0bc13883a630`; no other branch writer observed before changes. Exact Fast CI `42203273611` SUCCESS, full `42203273629` FAILED at `test-native-frozen-import-v3.mjs` because its injected SQL fault searched an **unquoted** table name while the real importer correctly quoted its SQLite identifier. Fixed the actual native test injection target to match the quoted INSERT; no production import/authority logic relaxed. Commit `6ee9ae4061331c0393cb715d7abc7c33dbbb60f4`.
