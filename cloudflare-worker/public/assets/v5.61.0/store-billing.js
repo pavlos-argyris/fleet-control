@@ -5,7 +5,7 @@
  const plus=(d,n)=>new Date(Date.parse(d+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);
  function businessDay(at=Date.now()){const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Athens',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(at)).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));const d=p.year+'-'+p.month+'-'+p.day;return Number(p.hour)<5?plus(d,-1):d;}
  const week=d=>plus(d,-((new Date(d+'T12:00:00Z').getUTCDay()+6)%7)),short=d=>d?new Intl.DateTimeFormat('el-GR',{day:'2-digit',month:'2-digit'}).format(new Date(d+'T12:00:00Z')):'—';
- const money=n=>n==null?'Εκκρεμεί':o.money(n),root=()=>$('#storeBillingRoot'),visible=()=>!!o&&o.state.view==='stores'&&!document.hidden,valid=(token,id)=>o&&o.state.token===token&&id===epoch;
+ const money=n=>n==null?'Εκκρεμεί':o.money(n),root=()=>$('#storeBillingRoot'),visible=()=>!!o&&o.state.view==='stores'&&!document.hidden&&!root()?.hidden,valid=(token,id)=>o&&o.state.token===token&&id===epoch;
  const bounds=()=>({from:$('#storesFrom').value,to:$('#storesTo').value}),query=()=>new URLSearchParams({...bounds(),cursor:cursors[page]||''}).toString();
  const days=()=>Math.round((Date.parse(bounds().to)-Date.parse(bounds().from))/86400000)+1;
  function resetPages(){page=0;cursors=[''];selected.clear();}
@@ -134,5 +134,5 @@
  function load(){if(!o?.can('stores.view'))return;initialize();if(data)render();refresh().catch(error=>notice(error.message,true));}
  function clear(){epoch++;sequence++;clearTimeout(timer);timer=0;data=null;displayedKey='';pending=null;selected.clear();known.clear();refreshRequests.clear();cache.clear();reads.clear();resetPages();if(dialog)dialog.close();root()?.replaceChildren();ready=false;}
  document.addEventListener('visibilitychange',()=>{if(visible())load();else{clearTimeout(timer);timer=0;}});
- window.FleetStoreBillingUI={mount,load,clear,changed:check,businessDay};
+ window.FleetStoreBillingUI={mount,load,clear,changed:check,businessDay,weeklyReport:selection=>{initialize();return selection?.from?exportSelectionWith(selection.storeIds||[],selection.from):exportSelection();}};
 })();

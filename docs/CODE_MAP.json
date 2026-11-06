@@ -95,7 +95,9 @@
         "cloudflare-worker/public/ordexa-pay-ui.js",
         "cloudflare-worker/public/ordexa-server-ui.js",
         "cloudflare-worker/src/payroll-review-core.js",
-        "server-runtime/payroll-review.js"
+        "server-runtime/payroll-review.js",
+        "cloudflare-worker/public/payroll-review-ui.js",
+        "scripts/fixtures/native-management-browser-data.mjs"
       ],
       "tests": [
         "scripts/test-ordexa-pay.mjs",
@@ -103,7 +105,9 @@
         "scripts/test-ordexa-server-engine.mjs",
         "scripts/test-payroll-regressions.mjs",
         "scripts/test-payroll-review-core.mjs",
-        "scripts/test-business-runtime-native.mjs"
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-native-management-ui.mjs",
+        "scripts/test-native-management-browser.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -112,7 +116,8 @@
       "docs": [
         "docs/ORDEXA_SERVER_PAYROLL_5.54.0_GR.md",
         "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md",
-        "docs/ISSUE_63_PARALLEL_START_GR.md"
+        "docs/ISSUE_63_PARALLEL_START_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
       ]
     },
     {
@@ -127,7 +132,9 @@
         "server-runtime/reports.js",
         "server-runtime/exports.js",
         "server-android/src/gr/argyrismitsos/fleetserver/FinancialExport.java",
-        "cloudflare-worker/public/store-weekly-report.js"
+        "cloudflare-worker/public/store-weekly-report.js",
+        "cloudflare-worker/public/store-financial-ui.js",
+        "scripts/fixtures/native-management-browser-data.mjs"
       ],
       "tests": [
         "scripts/test-store-billing-*.mjs",
@@ -137,7 +144,9 @@
         "scripts/test-business-runtime-native.mjs",
         "scripts/test-store-weekly-report.mjs",
         "scripts/test-store-weekly-browser.mjs",
-        "scripts/test-store-alias-cas-sqlite.mjs"
+        "scripts/test-store-alias-cas-sqlite.mjs",
+        "scripts/test-native-management-ui.mjs",
+        "scripts/test-native-management-browser.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -148,7 +157,8 @@
         "docs/SERVER_PRIMARY_STORE_ORDERS_GR.md",
         "docs/ISSUE_44_STORES_GR.md",
         "docs/ISSUE_62_PARALLEL_START_GR.md",
-        "docs/STORES_WEEKLY_5.60.1_GR.md"
+        "docs/STORES_WEEKLY_5.60.1_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
       ]
     },
     {
@@ -432,7 +442,8 @@
         "direct-access"
       ],
       "docs": [
-        "docs/ISSUE_59_D1_AUTHORITY_AUDIT_GR.md"
+        "docs/ISSUE_59_D1_AUTHORITY_AUDIT_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
       ]
     },
     {
@@ -440,7 +451,11 @@
       "title": "Courier cash reconciliation independent of payroll",
       "paths": [
         "cloudflare-worker/src/courier-cash-core.js",
-        "server-runtime/cash.js"
+        "server-runtime/cash.js",
+        "cloudflare-worker/public/cash-ui.js",
+        "cloudflare-worker/public/native-ui-kit.js",
+        "cloudflare-worker/public/native-management.css",
+        "scripts/fixtures/native-management-browser-data.mjs"
       ],
       "tests": [
         "scripts/test-courier-cash-core.mjs",
@@ -448,14 +463,17 @@
         "scripts/test-cash-rule-cas-sqlite.mjs",
         "scripts/test-business-runtime-native.mjs",
         "scripts/test-financial-export-native.mjs",
-        "scripts/test-cash-event-domain-sqlite.mjs"
+        "scripts/test-cash-event-domain-sqlite.mjs",
+        "scripts/test-native-management-ui.mjs",
+        "scripts/test-native-management-browser.mjs"
       ],
       "related": [
         "stores",
         "shift-payroll"
       ],
       "docs": [
-        "docs/ISSUE_60_PARALLEL_START_GR.md"
+        "docs/ISSUE_60_PARALLEL_START_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
       ]
     },
     {
@@ -464,12 +482,16 @@
       "paths": [
         "cloudflare-worker/src/fleet-health-core.js",
         "server-android/assets/www/server-diagnostics.js",
-        "server-runtime/health.js"
+        "server-runtime/health.js",
+        "cloudflare-worker/public/health-ui.js",
+        "scripts/fixtures/native-management-browser-data.mjs"
       ],
       "tests": [
         "scripts/test-fleet-health-core.mjs",
         "scripts/test-server-health-diagnostics.mjs",
-        "scripts/test-business-runtime-native.mjs"
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-native-management-ui.mjs",
+        "scripts/test-native-management-browser.mjs"
       ],
       "related": [
         "server-foundation",
@@ -478,7 +500,8 @@
         "server-ui"
       ],
       "docs": [
-        "docs/ISSUE_64_PARALLEL_START_GR.md"
+        "docs/ISSUE_64_PARALLEL_START_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
       ]
     },
     {

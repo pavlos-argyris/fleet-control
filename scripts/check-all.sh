@@ -13,6 +13,7 @@ node scripts/test-fleet-health-core.mjs
 node scripts/test-server-health-diagnostics.mjs
 node scripts/test-server-authority-ui.mjs
 node scripts/test-primary-transport.mjs
+node scripts/test-native-management-ui.mjs
 node scripts/test-server-primary-ui.mjs
 node scripts/test-server-recovery-ui.mjs
 node scripts/test-server-backup-recovery-ui.mjs

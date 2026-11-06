@@ -1,6 +1,6 @@
 import {webcrypto as crypto,randomUUID,createHash} from 'node:crypto';
 const encode=value=>Buffer.from(value).toString('base64url'),decode=value=>Buffer.from(value,'base64url'),utf8=new TextEncoder();
-export async function primaryGateway(){
+export async function primaryGateway({handler}={}){
   const origin='https://fleet.fixture.invalid',keys=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
   let identity={mode:'active',generation:randomUUID(),realm:origin,publicKey:encode(await crypto.subtle.exportKey('spki',keys.publicKey)),publicSalt:encode(crypto.getRandomValues(new Uint8Array(32))),connected:true};
   identity.fingerprint=createHash('sha256').update(identity.publicKey).digest('hex');
@@ -10,6 +10,7 @@ export async function primaryGateway(){
     requests.push(clear);const url=new URL(clear.url),body=JSON.parse(clear.body||'{}');
     if(held){const promise=held;held=null;await promise;}
     if(deny)return result({error:'revoked'},401);
+    if(handler){const custom=await handler(clear,{result});if(custom)return custom;}
     if(url.pathname==='/api/auth/me')return result({user:{id:'fixture-owner',permissions:['*']}});
     if(url.pathname==='/api/auth/user-login')return result({token:'synthetic-token'});
     if(url.pathname.startsWith('/api/native/files/')){

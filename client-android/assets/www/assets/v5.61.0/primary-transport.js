@@ -10,7 +10,7 @@
   const failure=(status,error,code)=>new Response(JSON.stringify({error,code}),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
   const originKey=origin=>'pin:'+origin;
   const sameIdentity=(a,b)=>a&&b&&['realm','generation','publicKey','publicSalt','fingerprint'].every(key=>a[key]===b[key]);
-  function stateFor(origin){if(!states.has(origin))states.set(origin,{origin,mode:'unknown',at:0,descriptor:null,pin:null,loading:null,trust:null,bindings:new Map(),epoch:0});return states.get(origin);}
+  function stateFor(origin){if(!states.has(origin))states.set(origin,{origin,mode:'unknown',at:0,descriptor:null,pin:null,loading:null,trust:null,bindings:new Map(),intents:new Map(),epoch:0});return states.get(origin);}
   function target(url){
     if(url.protocol!=='https:'||!url.pathname.startsWith('/api/')||exempt.test(url.pathname))return false;
     const config=root.FLEET_CONFIG||{},origins=[config.apiBase,config.legacyApiBase,root.location.origin].filter(Boolean).map(v=>{try{return new URL(v,root.location.href).origin;}catch{return '';}});
@@ -19,7 +19,9 @@
   function report(kind,message,detail={}){
     api.status={kind,message,at:Date.now(),...detail};root.dispatchEvent(new CustomEvent('fleet-primary-state',{detail:api.status}));
     if(!root.document?.body)return;
-    let banner=document.getElementById('fleetPrimaryStatus');if(!banner){banner=document.createElement('div');banner.id='fleetPrimaryStatus';banner.className='fleet-primary-status';banner.setAttribute('role','status');banner.setAttribute('aria-live','polite');document.body.prepend(banner);}
+    try{if(root.parent!==root&&root.parent.document.getElementById('fleetModuleFrame')?.contentWindow===root&&root.parent.FleetPrimary?.frameState){root.parent.FleetPrimary.frameState(api.status,root);return;}}catch{}
+    const portal=document.getElementById('portal'),mount=portal&&!portal.classList.contains('is-hidden')?portal.querySelector('.main-shell')||document.body:document.body;
+    let banner=document.getElementById('fleetPrimaryStatus');if(!banner){banner=document.createElement('div');banner.id='fleetPrimaryStatus';banner.className='fleet-primary-status';banner.setAttribute('role','status');banner.setAttribute('aria-live','polite');}if(banner.parentNode!==mount)mount.prepend(banner);
     banner.dataset.state=kind;banner.textContent=message;banner.hidden=kind==='cloud';
   }
   function trustDialog(identity,previous){
@@ -42,7 +44,7 @@
     const previous=state.pin||(await storage.read(originKey(state.origin)))?.identity;
     if(sameIdentity(previous,identity)){state.pin=previous;return false;}
     const confirm=async()=>{
-      const saved=(await storage.read(originKey(state.origin)))?.identity;if(sameIdentity(saved,identity)){state.pin=saved;return;}
+      const saved=(await storage.read(originKey(state.origin)))?.identity;if(sameIdentity(saved,identity)){if(state.pin&&!sameIdentity(state.pin,saved)){state.epoch++;state.bindings.clear();await storage.clearReads(state.origin);}state.pin=saved;return;}
       report('trust','Χρειάζεται επιβεβαίωση της ταυτότητας Server. Τα προσχέδια διατηρούνται.');
       await trustDialog(identity,previous);await storage.write({id:originKey(state.origin),kind:'pin',origin:state.origin,identity:{realm:identity.realm,generation:identity.generation,publicKey:identity.publicKey,publicSalt:identity.publicSalt,fingerprint:identity.fingerprint}},true);
       state.pin=identity;state.epoch++;state.bindings.clear();await storage.clearReads(state.origin);root.dispatchEvent(new CustomEvent('fleet-primary-authority',{detail:{origin:state.origin,generation:identity.generation,changed:!!previous}}));
@@ -91,12 +93,17 @@
   }
   async function intent(state,identity,who,method,url,body,explicit){
     if(!who)throw Error('Η αποθήκευση χρειάζεται επιβεβαιωμένο λογαριασμό.');
-    const hash=await cipher.hash(JSON.stringify([method,url,body])),records=await storage.all();
+    const hash=await cipher.hash(JSON.stringify([method,url,body])),records=await storage.all(),intentKey=who.actor+'|'+identity.generation+'|'+explicit;
+    if(explicit){
+      const bound=state.intents.get(intentKey),same=records.find(r=>r.kind==='operation'&&r.origin===state.origin&&r.actor===who.actor&&(r.operation===explicit||bound&&r.id===bound.id));
+      if(same&&(same.hash!==hash||same.generation!==identity.generation)){const error=Error('Η αρχική αποθήκευση δεν έχει επιβεβαιωθεί. Έλεγξε το ιστορικό πριν αλλάξεις το περιεχόμενο του προσχεδίου.');error.userAction=true;throw error;}
+      if(same){state.intents.set(intentKey,same);return same;}
+    }
     if(records.some(r=>r.kind==='operation'&&r.origin===state.origin&&r.actor===who.actor&&r.hash===hash&&r.generation!==identity.generation))throw Error('Αυτή η ενέργεια έμεινε ανεπιβεβαίωτη στον προηγούμενο Server. Έλεγξε το ιστορικό πριν από νέα καταχώριση.');
     const id='operation:'+state.origin+':'+identity.generation+':'+who.actor+':'+hash,prior=await storage.read(id);
-    if(prior){if(explicit&&prior.operation!==explicit)throw Error('Υπάρχει ανεπιβεβαίωτη ίδια καταχώριση. Επανάλαβε από το αρχικό προσχέδιο.');return prior;}
+    if(prior){if(explicit)state.intents.set(intentKey,prior);return prior;}
     if(explicit&&!UUID.test(explicit))throw Error('Μη έγκυρη ταυτότητα ενέργειας.');
-    const value=await storage.claim({id,kind:'operation',origin:state.origin,generation:identity.generation,actor:who.actor,hash,path:new URL(url).pathname.split('/').slice(0,4).join('/'),method,operation:explicit||crypto.randomUUID(),at:Date.now()});if(explicit&&value.operation!==explicit)throw Error('Υπάρχει ανεπιβεβαίωτη ίδια καταχώριση. Επανάλαβε από το αρχικό προσχέδιο.');return value;
+    const value=await storage.claim({id,kind:'operation',origin:state.origin,generation:identity.generation,actor:who.actor,hash,path:new URL(url).pathname.split('/').slice(0,4).join('/'),method,operation:explicit||crypto.randomUUID(),at:Date.now()});if(explicit)state.intents.set(intentKey,value);return value;
   }
   const base64=value=>{let text='';for(const byte of value)text+=String.fromCharCode(byte);return btoa(text);};
   async function checkedPacket(state,identity,request,signal){const result=await packet(state,identity,request,signal);if(result.status<200||result.status>=300){const error=Error(JSON.parse(result.body||'{}').error||'Η μεταφορά αρχείου δεν ολοκληρώθηκε.');error.response=result;throw error;}return JSON.parse(result.body||'{}');}
@@ -151,7 +158,7 @@
       const epoch=state.epoch,who=write?await binding(state,identity,request.headers,request.signal):null,value=await payload(request);
       if(write){operation=await intent(state,identity,who,request.method,request.url,value.normalized,request.headers.get('X-Fleet-Operation'));headers['x-fleet-operation']=operation.operation;}
       const body=await wirePayload(state,identity,headers,value,request.signal),result=await packet(state,identity,{url:request.url,method:request.method,headers,...body},request.signal);
-      if(epoch!==state.epoch)return failure(409,'Η συνεδρία άλλαξε. Το προσχέδιο διατηρήθηκε· έλεγξε ξανά την καταχώριση.','session_changed');
+      if(epoch!==state.epoch||!sameIdentity((await storage.read(originKey(state.origin)))?.identity,identity))return failure(409,'Η συνεδρία ή η ταυτότητα Server άλλαξε. Το προσχέδιο διατηρήθηκε· έλεγξε ξανά την καταχώριση.','session_changed');
       const principal=await rememberPrincipal(state,identity,request.headers,result),response=await reconstruct(state,identity,headers,result,request.signal);
       if(epoch!==state.epoch)return failure(409,'Η συνεδρία άλλαξε. Το προσχέδιο διατηρήθηκε· έλεγξε ξανά την καταχώριση.','session_changed');
       let code='';try{code=JSON.parse(result.body||'{}').code||'';}catch{}
@@ -159,6 +166,7 @@
       if(request.method==='GET'&&response.status===200&&response.headers.get('Content-Type')?.includes('json')&&!request.url.includes('/api/native/files/')){
         try{const key=await cacheKey(state,identity,request.headers,request.url,principal),body=key&&await response.clone().text();if(key&&body.length<=8*1024*1024){await storage.write({id:key.id,kind:'cache',origin:state.origin,generation:identity.generation,actor:key.who.actor,principal:key.who.principal,at:Date.now(),bytes:encoder.encode(body).length,body,headers:{'Content-Type':'application/json','X-Fleet-Primary-Generation':identity.generation}});await storage.trim();}}catch{/* Read cache is optional; the authenticated response remains usable. */}
       }
+      if(epoch!==state.epoch||!sameIdentity((await storage.read(originKey(state.origin)))?.identity,identity)){await storage.clearReads(state.origin,principal?.actor);return failure(409,'Η συνεδρία ή η ταυτότητα Server άλλαξε. Το προσχέδιο διατηρήθηκε.','session_changed');}
       report('online','Server συνδεδεμένος · '+new Date().toLocaleTimeString('el-GR'),{origin:state.origin,generation:identity.generation});return response;
     }catch(error){
       state.at=0;if(error.response)return reconstruct(state,identity,headers,error.response,request.signal);
@@ -185,4 +193,5 @@
   async function pendingOperations(){const actors=new Set([...states.values()].flatMap(s=>[...s.bindings.values()].map(b=>s.origin+'|'+b.actor)));return(await storage.all()).filter(v=>v.kind==='operation'&&actors.has(v.origin+'|'+v.actor)).map(({origin,generation,actor,operation,at,path,method})=>({origin,generation,actor,operation,at,path,method}));}
   const api={status:{kind:'unknown'},fetch:fetchPrimary,registerOrigin(value){try{const url=new URL(value||root.location.href,root.location.href);if(url.protocol==='https:')registered.add(url.origin);}catch{}},protects:()=>[...states.values()].some(s=>s.mode!=='cloud'||s.pin),async prepare(input){const url=new URL(String(input),root.location.href);if(!target(url))return false;try{return(await descriptor(stateFor(url.origin))).mode!=='cloud';}catch{return true;}},generation:origin=>states.get(origin||new URL(root.FLEET_CONFIG?.apiBase||root.location.href).origin)?.pin?.generation||'',async clearReads(){await storage.clearReads();},async clearSession(){for(const state of states.values()){state.bindings.clear();state.epoch++;}for(const value of await storage.all())if(value.kind==='cache'||value.kind==='binding')await storage.remove(value.id);root.dispatchEvent(new CustomEvent('fleet-primary-pending'));},pending:pendingOperations,async resolvePending(operation,decision){if(!['already_saved','not_found'].includes(decision))throw Error('Διάλεξε το αποτέλεσμα ελέγχου.');const allowed=(await pendingOperations()).some(r=>r.operation===operation);if(!allowed)throw Error('Η εκκρεμότητα δεν ανήκει στον συνδεδεμένο λογαριασμό.');const record=(await storage.all()).find(r=>r.kind==='operation'&&r.operation===operation);if(!record)throw Error('Η εκκρεμότητα άλλαξε. Ανανέωσε την προβολή.');await storage.claim({...record,id:'resolved-operation:'+operation,kind:'resolved-operation',decision,reviewedAt:Date.now()});await storage.remove(record.id);root.dispatchEvent(new CustomEvent('fleet-primary-pending'));}};
   root.FleetPrimary=api;root.fetch=fetchPrimary;root.addEventListener('fleet-shared-invalidation',()=>api.clearReads().catch(()=>{}));
+  api.frameState=(value,source)=>{if(document.getElementById('fleetModuleFrame')?.contentWindow===source&&value&&typeof value.message==='string')report(value.kind,value.message,{origin:value.origin,generation:value.generation,dataAt:value.dataAt});};
 })(window);

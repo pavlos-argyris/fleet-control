@@ -47,6 +47,7 @@ jobs:
         run: npx playwright install chromium
         working-directory: cloudflare-worker
       - run: node scripts/test-primary-transport-browser.mjs
+      - run: node scripts/test-native-management-browser.mjs
       - run: node scripts/test-store-billing-browser.mjs
       - run: node scripts/test-store-weekly-browser.mjs
       - run: node scripts/test-navigation-motion-browser.mjs
@@ -73,6 +74,7 @@ jobs:
           name: navigation-motion-verification
           path: |
             .build/primary-transport-browser/
+            .build/native-management-browser/
             verification/navigation-motion/
             verification/next-service/
             verification/ui-system/

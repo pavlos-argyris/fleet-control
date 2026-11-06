@@ -4,10 +4,10 @@ const assertDay=d=>{if(typeof d!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(d)||!Num
 const addDays=(d,n)=>new Date(Date.parse(d+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);
 const validMoney=(n,label)=>{if(n===null)return null;if(!Number.isSafeInteger(n)||n<0)throw new TypeError('Invalid '+label);return n;};
 const sum=(a,b)=>{const s=a+b;if(!Number.isSafeInteger(s))throw new RangeError('Reporting sum overflow');return s;};
-const periodKey=(day,period)=>period==='day'?day:period==='month'?day.slice(0,7):addDays(day,-((new Date(day+'T12:00:00Z').getUTCDay()+6)%7));
+const periodKey=(day,period,from)=>period==='range'?from:period==='day'?day:period==='month'?day.slice(0,7):addDays(day,-((new Date(day+'T12:00:00Z').getUTCDay()+6)%7));
 export function aggregateStoreFinancials({daily=[],from,to,period='day',aliases={}}={}){
  assertDay(from);assertDay(to);if(from>to)throw new RangeError('Invalid range');
- if(!['day','week','month'].includes(period)||!Array.isArray(daily)||!aliases||Array.isArray(aliases)||typeof aliases!=='object')throw new TypeError('Invalid reporting input');
+ if(!['day','week','month','range'].includes(period)||!Array.isArray(daily)||!aliases||Array.isArray(aliases)||typeof aliases!=='object')throw new TypeError('Invalid reporting input');
  const seen=new Map(),groups=new Map();
  for(const row of daily){
   if(!row||typeof row.storeId!=='string'||!row.storeId||typeof row.day!=='string')throw new TypeError('Invalid store/day');
@@ -23,8 +23,8 @@ export function aggregateStoreFinancials({daily=[],from,to,period='day',aliases=
   if(total!==null&&order!==null&&topup!==null&&total!==sum(order,topup))throw new Error('Daily components do not balance');
   const canonical=Object.hasOwn(aliases,storeId)?aliases[storeId]:storeId;
   if(typeof canonical!=='string'||!canonical||canonical.length>180)throw new TypeError('Invalid explicit store alias');
-  const key=JSON.stringify([periodKey(day,period),canonical]);
-  if(!groups.has(key))groups.set(key,{period:periodKey(day,period),storeId:canonical,sourceStoreIds:[],days:0,orderCount:0,orderChargeCents:0,minimumTopUpCents:0,totalChargeCents:0,incompleteDays:0});
+  const key=JSON.stringify([periodKey(day,period,from),canonical]);
+  if(!groups.has(key))groups.set(key,{period:periodKey(day,period,from),storeId:canonical,sourceStoreIds:[],days:0,orderCount:0,orderChargeCents:0,minimumTopUpCents:0,totalChargeCents:0,incompleteDays:0});
   const g=groups.get(key);if(!g.sourceStoreIds.includes(storeId))g.sourceStoreIds.push(storeId);
   g.days++;g.orderCount=sum(g.orderCount,count);
   if(order===null||topup===null||total===null){g.incompleteDays++;continue;}

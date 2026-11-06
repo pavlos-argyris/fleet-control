@@ -52,12 +52,22 @@ public final class BusinessFeatureChecks {
         local(db,"coverage5","coverage","","2026-11-05",new JSONObject().put("sourceAt","2026-11-06T04:00:00Z").put("localRun","r5"));
         JSONObject report=body(call("/api/native/store-financials?from=2026-11-04&to=2026-11-05&period=week","GET",null,owner),200);
         check(report.getBoolean("complete")&&report.getJSONArray("groups").getJSONObject(0).getLong("totalChargeCents")==4000&&report.getJSONArray("groups").getJSONObject(0).getLong("orderCount")==18,"weekly report reuses exact daily snapshots and zero-day stays zero");
+        JSONObject wholeRange=body(call("/api/native/store-financials?from=2026-11-04&to=2026-11-05&period=range","GET",null,owner),200);check(wholeRange.getJSONArray("groups").length()==1&&wholeRange.getJSONArray("groups").getJSONObject(0).getLong("totalChargeCents")==4000&&wholeRange.getJSONArray("stores").length()==1,"arbitrary-range totals and explicit store catalogue reuse exact source snapshots");
         report=body(call("/api/native/store-financials?from=2026-11-04&to=2026-11-06&period=week","GET",null,owner),200);
         check(!report.getBoolean("complete")&&report.getJSONArray("groups").getJSONObject(0).isNull("totalChargeCents")&&report.getJSONArray("groups").getJSONObject(0).getLong("knownTotalCents")==4000,"missing day is unknown, never a manufactured zero");
         zero.put("minimumTopUpCents",500).put("totalChargeCents",500);local(db,"day5","local_day","fixture-shop","2026-11-05",zero);
         report=body(call("/api/native/store-financials?from=2026-11-05&to=2026-11-05","GET",null,owner),200);
         check(!report.getBoolean("complete")&&report.getJSONArray("issues").getJSONObject(0).getString("reason").contains("μηδενική"),"legacy zero-day charge requires explicit recomputation, no silent historical rewrite");
         check(call("/api/native/store-financials?from=2026-11-04&to=2026-11-05&scope=another-source","GET",null,owner).getInt("status")==409,"reports cannot mix a previous provider scope");
+        local(db,"alias-store","store","fixture-alias","",new JSONObject().put("id","fixture-alias").put("name","Συνθετικό δεύτερο κατάστημα"));
+        JSONObject alias=new JSONObject().put("sourceId","fixture-alias").put("targetId","fixture-shop").put("expectedRevision",0).put("notes","Explicit fixture identity");
+        body(call("/api/native/store-financials/alias?scope=report-fixture","POST",alias,owner),200);
+        body(call("/api/native/store-financials/alias?scope=report-fixture","POST",new JSONObject(alias.toString()).put("targetId","").put("remove",true).put("expectedRevision",1),owner),200);
+        check(call("/api/native/store-financials/alias?scope=report-fixture","POST",alias,owner).getInt("status")==409,"removed alias retains revision tombstone; stale first-insert draft cannot bypass CAS");
+        JSONObject reverseAlias=new JSONObject().put("sourceId","fixture-shop").put("targetId","fixture-alias").put("expectedRevision",0).put("notes","Removed alias can become an independent target");
+        body(call("/api/native/store-financials/alias?scope=report-fixture","POST",reverseAlias,owner),200);
+        body(call("/api/native/store-financials/alias?scope=report-fixture","POST",new JSONObject(reverseAlias.toString()).put("targetId","").put("remove",true).put("expectedRevision",1),owner),200);
+        JSONObject aliasReport=body(call("/api/native/store-financials?from=2026-11-04&to=2026-11-04&period=range","GET",null,owner),200);check(aliasReport.getJSONArray("groups").length()==2,"cleared aliases preserve separate source-store identities and historical daily rows");
         reviewAndHealth(sql,db,owner,courier);
         System.out.println("PASS native cash/report APIs: real exact-cent ledger, historical rules/CAS, lost-response idempotency, reversal/immutability, archived history, independent wages/source, daily/week coverage, unknown days, zero-day legacy detection and active source isolation.");
     }
