@@ -1,3 +1,9 @@
+## #59 — native SQLite BLOB test fixture correction — 06/11/2026
+
+- Το exact full CI `42200461094` στο `4ad062ef62458171a8d1d0fad56c29c32d54eb35` απέτυχε στο νέο `test-native-frozen-import-v3.mjs`: ο κοινός Python/SQLite test RPC δεν μετέτρεπε Java `byte[]` (JSON array) σε sqlite3 BLOB bind, άρα η Python επέστρεφε `Error binding parameter 5: type 'list' is not supported`. Ο native decoder test πέρασε· τα προηγούμενα check-all/browser/native stage tests πέρασαν έως αυτό το σημείο. Πρόκειται για ελλιπή **test fixture**, όχι απόδειξη ότι Android SQLite αποτυγχάνει.
+- Διορθώθηκε **μόνο στο απομονωμένο test RPC** η μετατροπή JSON byte array σε `sqlite3.Binary(bytes(...))`, χωρίς αλλαγή production SQL, security ή business data. Commit `84019745a95243099134f27bdcbef94cee19057e`; exact Fast/full CI χρειάζονται νέα ολοκλήρωση πριν από claim επιτυχίας.
+- Το PR #73 παραμένει draft/NOT READY. Ούτε merge/deploy ούτε ενεργή migration/restore ή signing αλλαγή.
+
 ## #59/#61 — πλήρης byte comparison και ακύρωση frozen proof σε restore — 06/11/2026
 
 - Συνέχεια της νέας `NativeFrozenImportV3`: κάθε αποθηκευμένο INTEGER συγκρίνεται ως ακριβές decimal, REAL με SQLite 17-digit roundtrip/Java binary64 bits, TEXT και BLOB **byte προς byte** με bounded SQLite 32 KiB slices, εκτός από τους ελέγχους τύπου και πλήθους. Η υποψήφια SQLite παραμένει ανενεργή.
