@@ -37,3 +37,6 @@ assert.equal(r.complete,false);assert.equal(r.issues[0].type,'missing-tariff');
 assert.throws(()=>projectCourierCash({day,participatingStoreIds:'all'}),/participatingStoreIds/);
 assert.throws(()=>projectCourierCash({day,participatingStoreIds:['']}),/participating store/);
 console.log('PASS cash core: 0/1/15 orders, effective tariffs, idempotency, reversals, missing IDs, cancellation; no wage mutation.');
+
+// Exercise the native cash ledger's paginated report alongside the projection.
+await import('./test-cash-pagination.mjs');
