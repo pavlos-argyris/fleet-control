@@ -126,6 +126,12 @@ public final class ServerAuthorityStage {
     /** The candidate is derivative. A restore must require a fresh preparation. */
     public static void invalidate(SQLiteDatabase db) {
         db.execSQL("DELETE FROM settings WHERE key=?",new Object[]{KEY});
+        // A production restore must also revoke any newer frozen-import proof.
+        // Candidate rows are disposable; never touch active business tables.
+        Cursor exists=db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='server_primary_frozen_v3_meta'",null);
+        try {
+            if(exists.moveToFirst())db.execSQL("DELETE FROM server_primary_frozen_v3_meta");
+        } finally { exists.close(); }
         // Keep disposable rows for the next atomic replacement; no live data is touched.
     }
 }
