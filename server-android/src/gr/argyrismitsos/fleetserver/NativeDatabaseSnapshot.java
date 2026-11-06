@@ -12,7 +12,11 @@ public final class NativeDatabaseSnapshot {
     public static final Object OBJECT_LIFECYCLE_LOCK=new Object();
     public static final String STATE_SCHEMA=NativePrimarySchema.STATE;
     private static final String PINS="CREATE TABLE IF NOT EXISTS native_backup_pins(capture_id TEXT NOT NULL,local_name TEXT NOT NULL,PRIMARY KEY(capture_id,local_name));";
-    private static final Set<String> EPHEMERAL=new HashSet<String>(Arrays.asList("auth_sessions","fleet_sessions","auth_login_attempts","fleet_pin_attempts","native_file_transfers","native_object_gc","native_backup_pins"));
+    private static final Set<String> EPHEMERAL=new HashSet<String>(Arrays.asList("auth_sessions","fleet_sessions","auth_login_attempts","fleet_pin_attempts","native_file_transfers","native_object_gc","native_backup_pins","native_event_outbox"));
+    public interface CaptureTask{Capture capture()throws Exception;}
+    public interface Coordinator{Capture capture(CaptureTask task)throws Exception;}
+    private static volatile Coordinator coordinator;
+    public static void setCoordinator(Coordinator value){coordinator=value;}
     public static final class Capture {
         public final String id;public final File file;public final JSONObject manifest;public final JSONArray objects;
         Capture(String id,File file,JSONObject manifest,JSONArray objects){this.id=id;this.file=file;this.manifest=manifest;this.objects=objects;}
@@ -48,7 +52,10 @@ public final class NativeDatabaseSnapshot {
             database.execSQL("PRAGMA application_id="+APPLICATION_ID);database.setTransactionSuccessful();
         }finally{database.endTransaction();}
     }
-    public static Capture create(SQLiteDatabase live,File directory)throws Exception{
+    public static Capture create(final SQLiteDatabase live,final File directory)throws Exception{
+        Coordinator value=coordinator;return value==null?createDirect(live,directory):value.capture(new CaptureTask(){public Capture capture()throws Exception{return createDirect(live,directory);}});
+    }
+    private static Capture createDirect(SQLiteDatabase live,File directory)throws Exception{
         requireCapabilities(live);if(live.inTransaction())throw new IOException("Περίμενε την ολοκλήρωση της τρέχουσας συναλλαγής πριν από backup.");
         if(!directory.exists()&&!directory.mkdirs())throw new IOException("Δεν δημιουργήθηκε ο ιδιωτικός χώρος backup βάσης.");
         final String id=UUID.randomUUID().toString();File snapshot=new File(directory,id+".sqlite");boolean complete=false;SQLiteDatabase copy=null;

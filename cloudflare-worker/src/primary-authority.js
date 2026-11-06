@@ -284,7 +284,7 @@ export class PrimaryAuthority {
     if(typeof raw!=='string'||raw.length>4*1024*1024){try{ws.close(1009,'too large');}catch{}return;}
     const saved=ws.deserializeAttachment();if(saved?.generation!==this.state.generation||this.state.mode!=='active'){try{ws.close(1008,'authority changed');}catch{}return;}
     let value;try{value=JSON.parse(raw);}catch{return;}
-    if(value.type==='changes'){if(Array.isArray(value.scopes)&&value.scopes.length<=16)this.onChanges(value.scopes);return;}
+    if(value.type==='changes'){if(Array.isArray(value.scopes)&&value.scopes.length<=16){this.onChanges(value.scopes);if(ID.test(value.id||''))ws.send(JSON.stringify({type:'changes-ack',id:value.id}));}return;}
     if(value.type==='lease'){ws.send(JSON.stringify({type:'lease',nonce:value.nonce,generation:this.state.generation,leaseMs:30000}));return;}
     const item=this.pending.get(value.id);if(!item||item.server!==ws||!validDirectPacket(value.response)||value.response.nonce!==item.packet.nonce||value.response.epk!==item.packet.epk)return;
     clearTimeout(item.timer);this.pending.delete(value.id);item.resolve(primaryJson(value.response));

@@ -8,7 +8,7 @@ import java.util.*;
 
 /** Private immutable object versions and bounded, actor-bound transfer handles. */
 public final class BusinessObjects {
-    public static final long MAX_FILE=15L*1024*1024;
+    public static final long MAX_FILE=15L*1024*1024,MAX_RESPONSE=64L*1024*1024;
     public static final String SCHEMA=
         "CREATE TABLE IF NOT EXISTS native_objects(key TEXT PRIMARY KEY,local_name TEXT NOT NULL,name TEXT NOT NULL,content_type TEXT NOT NULL,size INTEGER NOT NULL,sha256 TEXT NOT NULL,http_metadata TEXT NOT NULL,custom_metadata TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT);\n"+
         "CREATE TABLE IF NOT EXISTS native_file_transfers(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,generation TEXT NOT NULL,kind TEXT NOT NULL,local_name TEXT NOT NULL,document_root INTEGER NOT NULL DEFAULT 0,name TEXT NOT NULL,content_type TEXT NOT NULL,size INTEGER NOT NULL,sha256 TEXT NOT NULL,received INTEGER NOT NULL DEFAULT 0,complete INTEGER NOT NULL DEFAULT 0,expires_at INTEGER NOT NULL,source_url TEXT NOT NULL DEFAULT '',permission TEXT NOT NULL DEFAULT '');\n"+
@@ -17,13 +17,16 @@ public final class BusinessObjects {
     private final SQLiteDatabase db;
     private final BusinessSqlite sql;
     private final File documents,temporary;
-    private String actor="",generation="",sourceUrl="";
+    private String actor="",generation="",sourceUrl="",security="";
     public BusinessObjects(SQLiteDatabase db,File documents,File temporary)throws Exception{
         this.db=db;this.sql=new BusinessSqlite(db);this.documents=documents;this.temporary=temporary;
         if(!documents.exists()&&!documents.mkdirs()||!temporary.exists()&&!temporary.mkdirs())throw new IOException("Δεν δημιουργήθηκε ο ιδιωτικός χώρος αρχείων.");
         sql.call("sql.exec",new JSONObject().put("sql",SCHEMA));
+        JSONArray columns=sql.call("sql.query",new JSONObject().put("sql","PRAGMA table_info(native_file_transfers)")).getJSONArray("results");boolean found=false;for(int i=0;i<columns.length();i++)if(columns.getJSONObject(i).getString("name").equals("security_hash"))found=true;
+        if(!found)db.execSQL("ALTER TABLE native_file_transfers ADD COLUMN security_hash TEXT NOT NULL DEFAULT ''");
     }
-    public void context(String actor,String generation,String sourceUrl){this.actor=actor;this.generation=generation;this.sourceUrl=sourceUrl;}
+    public void context(String actor,String generation,String sourceUrl){this.actor=actor;this.generation=generation;this.sourceUrl=sourceUrl;this.security="";}
+    public void security(String fingerprint)throws IOException{if(!fingerprint.isEmpty()&&!fingerprint.matches("[a-f0-9]{64}"))throw new IOException("Μη έγκυρη τρέχουσα ταυτότητα αρχείου.");this.security=fingerprint;}
     private JSONObject row(String statement,Object...args)throws Exception{JSONArray rows=sql.call("sql.query",new JSONObject().put("sql",statement).put("params",new JSONArray(Arrays.asList(args))).put("first",true)).getJSONArray("results");return rows.length()==0?null:rows.getJSONObject(0);}
     private static String clean(String text,int max){return text.replaceAll("[\\x00-\\x1f\\x7f]","").substring(0,Math.min(max,text.replaceAll("[\\x00-\\x1f\\x7f]","").length()));}
     private static String extension(String type){return "application/pdf".equals(type)?".pdf":"image/png".equals(type)?".png":"image/webp".equals(type)?".webp":"image/jpeg".equals(type)?".jpg":".bin";}
@@ -34,16 +37,17 @@ public final class BusinessObjects {
     }
     private static String digest(File file)throws Exception{MessageDigest hash=MessageDigest.getInstance("SHA-256");try(InputStream input=new BufferedInputStream(new FileInputStream(file))){byte[] buffer=new byte[65536];int n;while((n=input.read(buffer))!=-1)hash.update(buffer,0,n);}return BusinessPrimitives.hex(hash.digest());}
     private JSONObject transfer(String reference)throws Exception{
-        if(actor.isEmpty()||!reference.matches("[a-f0-9-]{36}(?::[0-9]+:[0-9]+)?"))throw new IOException("Χρειάζεται έγκυρη ιδιωτική αναφορά αρχείου.");
-        String[] parts=reference.split(":");JSONObject value=row("SELECT * FROM native_file_transfers WHERE id=? AND actor_id=? AND generation=? AND expires_at>?",parts[0],actor,generation,System.currentTimeMillis());
+        if(actor.isEmpty()||security.isEmpty()||!reference.matches("[a-f0-9-]{36}(?::[0-9]+:[0-9]+)?"))throw new IOException("Χρειάζεται έγκυρη ιδιωτική αναφορά αρχείου.");
+        String[] parts=reference.split(":");JSONObject value=row("SELECT * FROM native_file_transfers WHERE id=? AND actor_id=? AND generation=? AND security_hash=? AND expires_at>?",parts[0],actor,generation,security,System.currentTimeMillis());
         if(value==null)throw new IOException("Η ιδιωτική αναφορά αρχείου έληξε. Άνοιξε ξανά το αρχείο.");
         long start=0,length=value.getLong("size");if(parts.length==3){start=Long.parseLong(parts[1]);length=Long.parseLong(parts[2]);if(start<0||length<0||start>value.getLong("size")||length>value.getLong("size")-start)throw new IOException("Μη έγκυρο τμήμα αρχείου.");}
         return value.put("slice_start",start).put("slice_size",length).put("ref",reference);
     }
     private static JSONObject info(JSONObject value)throws Exception{return new JSONObject().put("ref",value.getString("ref")).put("size",value.getLong("slice_size")).put("name",value.getString("name")).put("type",value.getString("content_type")).put("sha256",value.getString("sha256")).put("complete",value.getInt("complete")==1).put("received",value.getLong("received")).put("sourceUrl",value.getString("source_url")).put("permission",value.getString("permission"));}
     private JSONObject register(File file,boolean documentRoot,String name,String type,String sha,String kind,String permission)throws Exception{
-        String id=UUID.randomUUID().toString();if(actor.isEmpty())throw new IOException("Δεν επιβεβαιώθηκε ο χρήστης αρχείου.");
-        db.execSQL("INSERT INTO native_file_transfers(id,actor_id,generation,kind,local_name,document_root,name,content_type,size,sha256,received,complete,expires_at,source_url,permission) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",new Object[]{id,actor,generation,kind,file.getName(),documentRoot?1:0,clean(name,240),type,file.length(),sha,file.length(),1,System.currentTimeMillis()+900000,sourceUrl,permission});
+        String id=UUID.randomUUID().toString();if(actor.isEmpty()||security.isEmpty())throw new IOException("Δεν επιβεβαιώθηκε ο χρήστης αρχείου.");
+        if(!documentRoot){JSONObject quota=row("SELECT COALESCE(SUM(size),0) bytes FROM native_file_transfers WHERE document_root=0 AND expires_at>?",System.currentTimeMillis());if(file.length()>MAX_RESPONSE||quota.getLong("bytes")+file.length()>256L*1024*1024)throw new IOException("Πολλές εκκρεμείς μεταφορές. Κλείσε τις παλιές αναφορές και δοκίμασε ξανά.");}
+        db.execSQL("INSERT INTO native_file_transfers(id,actor_id,generation,kind,local_name,document_root,name,content_type,size,sha256,received,complete,expires_at,source_url,permission,security_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",new Object[]{id,actor,generation,kind,file.getName(),documentRoot?1:0,clean(name,240),type,file.length(),sha,file.length(),1,System.currentTimeMillis()+900000,sourceUrl,permission,security});
         return info(transfer(id));
     }
     public JSONObject importFile(File source,String name,String type)throws Exception{
@@ -73,13 +77,19 @@ public final class BusinessObjects {
         try(InputStream in=new BufferedInputStream(new FileInputStream(source));FileOutputStream out=new FileOutputStream(target)){byte[] buffer=new byte[65536];int n;while((n=in.read(buffer))!=-1)out.write(buffer,0,n);out.getFD().sync();}
     }
     public JSONObject call(String command,JSONObject value)throws Exception{
+        if(command.equals("file.security")){security(value.getString("fingerprint"));return new JSONObject();}
+        if(command.equals("response.file")){
+            byte[] bytes=value.getString("text").getBytes("UTF-8");if(bytes.length>MAX_RESPONSE)throw new IOException("Η απάντηση είναι πολύ μεγάλη. Επίλεξε μικρότερο διάστημα.");
+            File file=exportTarget("bin");boolean saved=false;try{try(FileOutputStream output=new FileOutputStream(file)){output.write(bytes);output.getFD().sync();}JSONObject result=register(file,false,"response.json",value.getString("type"),BusinessRuntime.sha256(bytes),"response","");saved=true;return result;}finally{if(!saved)file.delete();}
+        }
+        if(command.equals("files.release")){JSONObject record=transfer(value.getString("ref"));db.execSQL("DELETE FROM native_file_transfers WHERE id=?",new Object[]{record.getString("id")});return new JSONObject().put("released",true);}
         if(command.equals("files.start")){
             String id=value.getString("id"),sha=value.getString("sha256"),name=clean(value.getString("name"),240),type=clean(value.getString("type"),100);long size=value.getLong("size");
-            if(!id.matches("[a-f0-9-]{36}")||!sha.matches("[a-f0-9]{64}")||size<1||size>MAX_FILE||actor.isEmpty())throw new IOException("Μη έγκυρη μεταφορά αρχείου.");
+            if(!id.matches("[a-f0-9-]{36}")||!sha.matches("[a-f0-9]{64}")||size<1||size>MAX_FILE||actor.isEmpty()||security.isEmpty())throw new IOException("Μη έγκυρη μεταφορά αρχείου.");
             JSONObject prior=row("SELECT actor_id,generation,size,sha256 FROM native_file_transfers WHERE id=?",id);if(prior!=null){if(!actor.equals(prior.getString("actor_id"))||!generation.equals(prior.getString("generation"))||size!=prior.getLong("size")||!sha.equals(prior.getString("sha256")))throw new IOException("Η ταυτότητα μεταφοράς έχει διαφορετικό αρχείο.");return info(transfer(id));}
             JSONObject quota=row("SELECT COALESCE(SUM(size),0) bytes FROM native_file_transfers WHERE kind='upload' AND expires_at>?",System.currentTimeMillis());if(quota.getLong("bytes")+size>256L*1024*1024)throw new IOException("Υπάρχουν πολλές εκκρεμείς μεταφορές. Περίμενε και δοκίμασε ξανά.");
             File file=privateFile(false,id+".part");try(FileOutputStream output=new FileOutputStream(file)){output.getFD().sync();}
-            db.execSQL("INSERT INTO native_file_transfers(id,actor_id,generation,kind,local_name,name,content_type,size,sha256,expires_at) VALUES(?,?,?,'upload',?,?,?,?,?,?)",new Object[]{id,actor,generation,file.getName(),name,type,size,sha,System.currentTimeMillis()+3600000});return info(transfer(id));
+            db.execSQL("INSERT INTO native_file_transfers(id,actor_id,generation,kind,local_name,name,content_type,size,sha256,expires_at,security_hash) VALUES(?,?,?,'upload',?,?,?,?,?,?,?)",new Object[]{id,actor,generation,file.getName(),name,type,size,sha,System.currentTimeMillis()+3600000,security});return info(transfer(id));
         }
         if(command.equals("files.append")){
             JSONObject record=transfer(value.getString("ref"));if(!record.getString("kind").equals("upload"))throw new IOException("Η αναφορά δεν είναι μεταφόρτωση.");long offset=value.getLong("offset"),received=record.getLong("received");byte[] bytes=Base64.getDecoder().decode(value.getString("data"));if(bytes.length<1||bytes.length>262144||offset<0||offset>received||bytes.length>record.getLong("size")-offset)throw new IOException("Μη έγκυρο τμήμα μεταφοράς.");File file=privateFile(false,record.getString("local_name"));
@@ -93,6 +103,9 @@ public final class BusinessObjects {
             JSONObject record=transfer(value.getString("ref"));File file=privateFile(record.getInt("document_root")==1,record.getString("local_name"));if(record.getLong("received")!=record.getLong("size")||file.length()!=record.getLong("size")||!digest(file).equals(record.getString("sha256")))throw new IOException("Δεν συμφωνούν τα δεδομένα ή το αποτύπωμα αρχείου. Επανάλαβε τη μεταφορά.");db.execSQL("UPDATE native_file_transfers SET complete=1 WHERE id=?",new Object[]{record.getString("id")});return info(transfer(record.getString("id")));
         }
         if(command.equals("file.stat"))return info(transfer(value.getString("ref")));
+        if(command.equals("file.text")){
+            JSONObject record=transfer(value.getString("ref"));long length=record.getLong("slice_size");if(record.getInt("complete")!=1||length>MAX_RESPONSE)throw new IOException("Μη έγκυρο ή μεγάλο κείμενο αρχείου.");byte[] bytes=new byte[(int)length];try(RandomAccessFile input=new RandomAccessFile(privateFile(record.getInt("document_root")==1,record.getString("local_name")),"r")){input.seek(record.getLong("slice_start"));input.readFully(bytes);}return new JSONObject().put("text",new String(bytes,"UTF-8"));
+        }
         if(command.equals("file.slice")){
             JSONObject record=transfer(value.getString("ref"));long start=value.getLong("start"),end=value.getLong("end"),size=record.getLong("slice_size");if(start<0||end<start||end>size)throw new IOException("Μη έγκυρο τμήμα αρχείου.");return new JSONObject().put("ref",record.getString("id")+":"+(record.getLong("slice_start")+start)+":"+(end-start));
         }
@@ -116,6 +129,14 @@ public final class BusinessObjects {
         synchronized(NativeDatabaseSnapshot.OBJECT_LIFECYCLE_LOCK){
         JSONArray pending=sql.call("sql.query",new JSONObject().put("sql","SELECT g.local_name FROM native_object_gc g WHERE NOT EXISTS(SELECT 1 FROM native_objects o WHERE o.local_name=g.local_name AND o.deleted_at IS NULL) AND NOT EXISTS(SELECT 1 FROM native_backup_pins p WHERE p.local_name=g.local_name) AND NOT EXISTS(SELECT 1 FROM native_file_transfers f WHERE f.document_root=1 AND f.local_name=g.local_name AND f.expires_at>?) LIMIT 25").put("params",new JSONArray().put(System.currentTimeMillis()))).getJSONArray("results");
         for(int i=0;i<pending.length();i++){String name=pending.getJSONObject(i).getString("local_name");File file=privateFile(true,name);if(!file.exists()||file.delete())db.execSQL("DELETE FROM native_object_gc WHERE local_name=?",new Object[]{name});}
+        }
+    }
+    /** Metadata is removed first; immutable documents are never deleted here. */
+    public void collectExpiredTransfers()throws Exception{
+        long now=System.currentTimeMillis();db.execSQL("DELETE FROM native_file_transfers WHERE expires_at<=?",new Object[]{now});
+        File[] files=temporary.listFiles();if(files==null)return;int removed=0;
+        for(File file:files){if(removed>=50)break;String name=file.getName();if(!name.matches("[a-f0-9-]{36}\\.(part|pdf|xlsx|bin)")||file.lastModified()>now-60000)continue;
+            if(row("SELECT id FROM native_file_transfers WHERE local_name=? AND document_root=0 LIMIT 1",name)==null&&file.delete())removed++;
         }
     }
 }

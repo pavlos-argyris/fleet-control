@@ -48,7 +48,7 @@ class NativeFile{
  constructor(ref){Object.assign(this,ref);this.__file=true;this.size=Number(ref.size||0);this.type=ref.type||'application/octet-stream';this.name=ref.name||'file';}
  async arrayBuffer(){return fromHex(native('file.read',{ref:this.ref,start:0,length:this.size}).hex).buffer;}
  slice(start=0,end=this.size,type=this.type){start=Math.min(this.size,Math.max(0,start<0?this.size+start:start));end=Math.min(this.size,Math.max(0,end<0?this.size+end:end));end=Math.max(start,end);return new NativeFile({...this,ref:native('file.slice',{ref:this.ref,start,end}).ref,size:end-start,type});}
- async text(){return new TextDecoder().decode(await this.arrayBuffer());}
+ async text(){return native('file.text',{ref:this.ref}).text;}
 }
 globalThis.File=NativeFile;
 globalThis.Blob=class{
@@ -73,7 +73,7 @@ globalThis.Intl={DateTimeFormat:class{
 }};
 globalThis.performance={now:()=>native('clock',{}).millis};
 globalThis.console={log(){},info(){},warn(){},error(){native('diagnostic',{code:'business-handler-error'});}};
-globalThis.fetch=async(value,options)=>{const req=new Request(value,options);const result=native('http.read',{url:req.url,method:req.method,headers:Object.fromEntries(req.headers)});return new Response(result.body??'',{status:result.status,headers:result.headers});};
+globalThis.fetch=async(value,options)=>{const req=new Request(value,options);const result=native('http.read',{url:req.url,method:req.method,headers:Object.fromEntries(req.headers)});return new Response(result.bodyFile?new NativeFile(result.bodyFile):result.body??'',{status:result.status,headers:result.headers});};
 globalThis.AbortController=class{constructor(){this.signal={aborted:false};}abort(){this.signal.aborted=true;}};
 globalThis.AbortSignal={timeout:()=>({aborted:false})};
 export {bytes,hex,fromHex,NativeFile};

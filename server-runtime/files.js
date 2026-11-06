@@ -10,6 +10,7 @@ export async function routeFiles(request,env,dispatch){
     if(action==='chunk')return reply(native('files.append',{ref:body.ref,offset:body.offset,data:body.data}));
     return reply(native('files.finish',{ref:body.ref}));
   }
+  if(url.pathname==='/api/native/files/release'&&request.method==='POST')return reply(native('files.release',{ref:(await request.json()).ref}));
   if(request.method==='GET'){
     const ref=url.pathname.slice('/api/native/files/'.length);if(!/^[a-f0-9-]{36}$/.test(ref))throw new NativeError(400,'Μη έγκυρη ιδιωτική αναφορά αρχείου.');
     const info=native('file.stat',{ref});

@@ -375,7 +375,13 @@
         "server-android/src/gr/argyrismitsos/fleetserver/NativePrimarySchema.java",
         "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryPromotion.java",
         "server-android/src/gr/argyrismitsos/fleetserver/PrimaryCipher.java",
-        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryLease.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryLease.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeBusinessEngine.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryGuard.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryService.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePublicRead.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/FleetApplication.java",
+        "scripts/fixtures/BusinessPrimaryChecks.java.txt"
       ],
       "tests": [
         "scripts/test-d1-source-inventory.mjs",

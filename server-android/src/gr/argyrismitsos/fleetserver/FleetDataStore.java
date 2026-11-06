@@ -81,6 +81,8 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     }
 
     public synchronized JSONObject getFleet() throws JSONException {
+        SQLiteDatabase database=getReadableDatabase();
+        if(nativePrimary(database)){String data=readLargeText(database,"SELECT data FROM fleet_snapshot WHERE id=1");JSONObject fleet=parseStoredObject(data,"ο κύριος στόλος Server");if(fleet.optJSONArray("bikes")==null)throw new IllegalStateException("Δεν φορτώθηκε ο κύριος στόλος Server.");return fleet;}
         JSONArray bikes = new JSONArray();
         SQLiteDatabase db = getReadableDatabase();
         // Only small identifiers enter the cursor; read each JSON as a scalar.
@@ -108,6 +110,12 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         JSONObject result = new JSONObject();
         result.put("bikes", bikes.length());
         result.put("historyEntries", history);
+        if(nativePrimary(getReadableDatabase())){
+            String[] names={"users","schedules","shifts","activeShifts","openAlerts","payrollPeriods"};
+            String[] selects={"SELECT COUNT(*) FROM app_users WHERE deleted_at IS NULL","SELECT COUNT(*) FROM schedules","SELECT COUNT(*) FROM shifts","SELECT COUNT(*) FROM shifts WHERE status='active'","SELECT COUNT(*) FROM system_alerts WHERE resolved=0","SELECT COUNT(*) FROM payroll_periods"};
+            for(int i=0;i<names.length;i++)result.put(names[i],Long.parseLong(readLargeText(getReadableDatabase(),selects[i])));
+            result.put("primaryDatabase",true);return result;
+        }
         JSONObject system = getSystemExport();
         JSONObject workforce = system.optJSONObject("workforce");
         result.put("users", arrayLength(workforce, "app_users"));
@@ -119,6 +127,7 @@ public final class FleetDataStore extends SQLiteOpenHelper {
         result.put("systemMirrorTime", getSystemUpdatedAt());
         return result;
     }
+    private static boolean nativePrimary(SQLiteDatabase db){if(readLargeText(db,"SELECT name FROM sqlite_master WHERE type='table' AND name='native_primary_state'")==null)return false;String phase=readLargeText(db,"SELECT phase FROM native_primary_state WHERE id=1");return java.util.Arrays.asList("prepared","active","needs_recovery","recovering").contains(phase);}
 
     private int arrayLength(JSONObject parent, String key) {
         if (parent == null || parent.optJSONArray(key) == null) return 0;

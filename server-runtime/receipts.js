@@ -1,6 +1,5 @@
 import {authenticateExternal} from '../cloudflare-worker/src/workforce.js';
-const encoder=new TextEncoder();
-const digest=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(text))),b=>b.toString(16).padStart(2,'0')).join('');
+import {digest,principalSecurity} from './security.js';
 const json=(error,status,code)=>Response.json({error,code},{status});
 export const RECEIPT_SCHEMA="CREATE TABLE IF NOT EXISTS native_operation_receipts(actor_id TEXT NOT NULL,operation_id TEXT NOT NULL,request_hash TEXT NOT NULL,security_hash TEXT NOT NULL,response TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(actor_id,operation_id));";
 
@@ -14,8 +13,7 @@ export async function beginOperation(request,env,form){
   const normalized={};
   for(const [key,value]of Object.entries(form||{}))normalized[key]=value&&typeof value==='object'&&value.ref?{name:value.name,type:value.type,size:value.size,sha256:value.sha256}:value;
   const requestHash=await digest(JSON.stringify([request.method,request.url,await request.clone().text(),normalized]));
-  const user=await env.DB.prepare('SELECT role,permissions,password_hash,password_salt,force_logout_after,updated_at FROM app_users WHERE id=?').bind(actor.user_id).first();
-  const securityHash=await digest(JSON.stringify([user,actor.permissions]));
+  const securityHash=await principalSecurity(env,actor);
   const prior=await env.DB.prepare('SELECT request_hash,security_hash,response FROM native_operation_receipts WHERE actor_id=? AND operation_id=?').bind(actor.user_id,id).first();
   if(prior){
     if(prior.request_hash!==requestHash)return{response:json('Η ίδια ενέργεια έχει διαφορετικό περιεχόμενο. Το προσχέδιο διατηρήθηκε.',409,'operation_conflict')};

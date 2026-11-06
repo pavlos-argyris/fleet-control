@@ -129,3 +129,11 @@ resolution αποθηκεύονται χωριστά, επανεμφάνιση �
 Η recovery reservation χρειάζεται root capability του FCB3 και τοπικά verifiedrestore/documents/accountsreview. Σταματά την παλιά σύνδεση και τα παλιά signedchallenges, περιμένει31s, απαιτεί νέο verifiedbackup και ενεργοποιεί νέο publickey/generation με περιστροφή capability. Χαμένα ACK είναι idempotent. Αν αποτύχει δεύτερη συσκευή πριν το τέλος, το capability του ήδη καταχωρισμένου candidatebackup μπορεί να δεσμεύσει τρίτη identity· η παλιά reservation παύει να ισχύει. Η authorizingcapability παραμένει έγκυρη έως τη νέα επιτυχή ολοκλήρωση, μετά αποσύρεται. Δεν ανακτώνται private devicekeys από backup.
 
 Οι παραπάνω είναι πραγματικοί helpers/controls με actual Java/Workerd tests, **όχι ακόμη πλήρης λειτουργική recovery/primary υπηρεσία**. Native controller, protected responsechunk transport, atomic coldstart restore και UI ακολουθούν πριν τη δημοσίευση. Καμία παραγωγική μεταφορά/επαναφορά δεν εκτελέστηκε.
+
+## Native service/Host — 06/11/2026
+
+`NativeBusinessEngine` είναι ο πραγματικός Host και χρησιμοποιείται πλέον απευθείας από το υποχρεωτικό JVM/SQLite test. Το `NativePrimaryService` τον συνδέει στο SyncService/Application, με ξεχωριστό socket reader/heartbeat, bounded business executor και monotonic lease που περιλαμβάνει deep sleep. `NativePrimaryGuard` επανελέγχει durable phase/realm/generation και το ίδιο connection epoch πριν τη συναλλαγή και πριν το commit. Το αρχείο που καταγράφει το συμβάν και η απόδειξη λειτουργίας αποθηκεύονται στην ίδια SQLite transaction· τα scope-only signals έχουν durable outbox/ACK.
+
+Μεγάλη JSON απάντηση μεταφέρεται μέσω actor/generation/current-security-bound response handle και262KiB chunks με SHA. Η native text ανάγνωση αποφεύγει το hex materialization. Upload/bodyFile/form/download handles επανελέγχουν το ίδιο fingerprint της τρέχουσας εγγραφής λογαριασμού/δικαιωμάτων σε κάθε αίτημα. Η αποδέσμευση handle δεν διαγράφει το immutable private document.
+
+Η τοπική παρεμβολή HTTP και η διακοπή legacy mirror/direct δεν ενεργοποιούν από μόνες τους migration: ο native controller, η πραγματική ανάκτηση και ο Client/Web fetch adapter παραμένουν επόμενες εργασίες πριν από παραγωγική ενεργοποίηση. Δεν έγινε παραγωγική μεταφορά ή restore.

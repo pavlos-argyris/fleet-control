@@ -77,6 +77,18 @@ public class FleetHttpTest {
     sequence(503, 200);
     File file = new File(args[0], "invoice.pdf"); FleetHttp.downloadToFile(url, file, headers);
     check("%PDF-test".equals(new String(Files.readAllBytes(file.toPath()))), "download corrupt"); connections(2, "GET");
+    sequence();FleetHttp.installLocalTransport(new FleetHttp.LocalTransport(){
+      public JSONObject request(String address,String method,JSONObject body,Map<String,String> h,InputStream input,long length,String type,JSONObject form,String field)throws Exception{if(input!=null)input.close();return new JSONObject().put("native",true).put("method",method);}
+      public boolean download(String address,File target,Map<String,String> h)throws Exception{Files.write(target.toPath(),"native-private-file".getBytes("UTF-8"));return true;}
+    });
+    check(FleetHttp.getJson(url,headers).getBoolean("native"),"GET bypasses cloud");check(FleetHttp.sendJson(url,"POST",new JSONObject(),headers).getBoolean("native"),"mutation bypasses cloud");
+    check(FleetHttp.putStream(url,new ByteArrayInputStream(new byte[]{1}),1,"application/pdf",headers).getBoolean("native"),"stream bypasses cloud");
+    check(FleetHttp.putInvoice(url,file,new JSONObject(),headers).getBoolean("native"),"invoice multipart bypasses cloud");FleetHttp.downloadToFile(url,file,headers);check(new String(Files.readAllBytes(file.toPath())).equals("native-private-file"),"private native download");check(opened.isEmpty(),"all business transports opened zero cloud connections");
+    FleetHttp.installLocalTransport(new FleetHttp.LocalTransport(){
+      public JSONObject request(String address,String method,JSONObject body,Map<String,String> h,InputStream input,long length,String type,JSONObject form,String field)throws Exception{throw new IOException("native offline");}
+      public boolean download(String address,File target,Map<String,String> h)throws Exception{throw new IOException("native offline");}
+    });
+    try{FleetHttp.sendJson(url,"POST",new JSONObject(),headers);throw new AssertionError("offline primary accepted");}catch(IOException expected){}check(opened.isEmpty(),"offline primary never falls back to D1");FleetHttp.installLocalTransport(null);
     System.out.println("OK actual Java HTTP: bounded 503 GET retries, no auth/mutation retries, connection cleanup, redirect protection, PDF download and trace diagnostics.");
   }
 }`);

@@ -162,6 +162,7 @@ public final class MainActivity extends Activity {
             result.put("dataReadError", dataReadError);
         }
         result.put("serverVersion", ServerConfig.SERVER_VERSION);
+        result.put("primary",NativePrimaryService.get(this).status());
         result.put("ota", OtaManager.state(getApplicationContext()));
         result.put("workerUrl", preferences.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL));
         result.put("serviceRunning", preferences.getBoolean("service_running", false));
