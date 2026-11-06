@@ -19,17 +19,18 @@ public class FrozenV3Test {
   .put(new JSONObject().put("name","empty").put("notnull",1))
   .put(new JSONObject().put("name","nullable").put("notnull",0))
   .put(new JSONObject().put("name","unicode").put("notnull",1))
-  .put(new JSONObject().put("name","safe").put("notnull",1))); }
+  .put(new JSONObject().put("name","safe").put("notnull",1))
+  .put(new JSONObject().put("name","real").put("notnull",1))); }
  static JSONObject page()throws Exception{return new JSONObject().put("schemaVersion",3).put("generation","gen-1").put("table","cash_fixture");}
  static JSONObject row()throws Exception{
   JSONArray meta=new JSONArray().put(new JSONObject().put("name","big").put("type","integer").put("decimal","9223372036854775807"))
    .put(new JSONObject().put("name","blob").put("type","blob").put("bytes",4))
    .put(new JSONObject().put("name","empty").put("type","blob").put("bytes",0))
    .put(JSONObject.NULL).put(new JSONObject().put("name","unicode").put("type","text").put("bytes",90000))
-   .put(JSONObject.NULL);
+   .put(JSONObject.NULL).put(new JSONObject().put("name","real").put("type","real").put("decimal","1.0"));
   return new JSONObject().put("_primaryRowid",1).put("_primaryOversize",meta.toString())
    .put("big",JSONObject.NULL).put("blob",JSONObject.NULL).put("empty",JSONObject.NULL)
-   .put("nullable",JSONObject.NULL).put("unicode",JSONObject.NULL).put("safe",9007199254740991L);
+   .put("nullable",JSONObject.NULL).put("unicode",JSONObject.NULL).put("safe",9007199254740991L).put("real",JSONObject.NULL);
  }
  static NativeFrozenExportV3.CellReader reader() {
   return (table,rowid,column,offset,size)->{
@@ -50,12 +51,23 @@ public class FrozenV3Test {
   ok(((byte[])decoded.get("empty")).length==0 && decoded.get("nullable")==null,"empty BLOB differs from SQL NULL");
   ok(((String)decoded.get("unicode")).length()==90000,"multi-chunk deferred text");
   ok(((Long)decoded.get("safe"))==9007199254740991L,"safe integer");
+  ok(decoded.get("real") instanceof Double && ((Double)decoded.get("real")).doubleValue()==1.0,"REAL 1.0 stays REAL");
+  JSONObject fractional=new JSONObject(row().toString());JSONArray fm=new JSONArray(fractional.getString("_primaryOversize"));
+  fm.getJSONObject(6).put("decimal","0.10000000000000001");fractional.put("_primaryOversize",fm.toString());
+  ok(Double.doubleToLongBits((Double)NativeFrozenExportV3.decode(inventory,table,page,fractional,reader()).get("real"))==Double.doubleToLongBits(0.1),"REAL fraction binary64");
+  fm.getJSONObject(6).put("decimal","1.0e-300");fractional.put("_primaryOversize",fm.toString());
+  ok((Double)NativeFrozenExportV3.decode(inventory,table,page,fractional,reader()).get("real")==1e-300,"REAL exponent");
+  fm.getJSONObject(6).put("decimal","NaN");fractional.put("_primaryOversize",fm.toString());
+  fail(()->NativeFrozenExportV3.decode(inventory,table,page,fractional,reader()),"reject NaN REAL");
+  fm.getJSONObject(6).put("decimal","1.0e9999");fractional.put("_primaryOversize",fm.toString());
+  fail(()->NativeFrozenExportV3.decode(inventory,table,page,fractional,reader()),"reject infinite REAL");
   JSONObject signedRow=new JSONObject(row().toString()).put("safe",-9007199254740991L);
   ok(((Long)NativeFrozenExportV3.decode(inventory,table,page,signedRow,reader()).get("safe"))==-9007199254740991L,"negative signed safe integer");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),new JSONObject(page().toString()).put("schemaVersion",2),row(),reader()),"reject stale v2");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),new JSONObject(page().toString()).put("generation","other"),row(),reader()),"reject generation mismatch");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),new JSONObject(row().toString()).put("big",5),reader()),"reject inline/deferred conflict");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),new JSONObject(row().toString()).put("safe",9007199254740992L),reader()),"reject unsafe inline integer");
+  fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),new JSONObject(row().toString()).put("real",1.0),reader()),"reject REAL descriptor conflict");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),new JSONObject(row().toString()).put("safe",JSONObject.NULL),reader()),"reject missing NOT NULL");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),new JSONObject(row().toString()).put("_primaryRowid",0),reader()),"reject zero rowid");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),new JSONObject(row().toString()).put("rogue","unexpected"),reader()),"reject unknown field");

@@ -1,3 +1,8 @@
+## #59 — frozen export REAL storage-class preservation — 06/11/2026
+
+- Από επιβεβαιωμένο `ace548611424f150388efb02b1674f1ecb006d18` στο ίδιο draft PR #73, προστέθηκε typed REAL descriptor στον Worker frozen export v3: SQLite `typeof(real)` και `printf('%!.17g',...)` διατηρούν την binary64 τιμή και τον τύπο ακόμη για `1.0` που το JSON θα έκανε INTEGER. Ο native decoder απορρίπτει untyped doubles, malformed/NaN/overflow REAL και διαβάζει μόνο πεπερασμένα typed REAL. Workerd/D1 και Java tests περιλαμβάνουν 1.0, 0.1 και 1e-300, χωρίς παραγωγικά δεδομένα.
+- Απαιτείται exact Fast/full CI στο νέο SHA· δεν υλοποιήθηκε ακόμη transactional importer, production writer lease, migration activation ή πραγματική δοκιμή συσκευής. Καμία συγχώνευση/δημοσίευση/αλλαγή signing keys.
+
 ## #59 — αυστηρός native decoder frozen D1 export v3 — 06/11/2026
 
 - Στο υπάρχον draft PR #73 προστέθηκε `NativeFrozenExportV3`: strict typed αποκωδικοποίηση παγωμένων σελίδων D1 με generation/schema/table/column/rowid validation, ακριβή signed 64-bit integers, πραγματικά BLOB (και κενό x''), NULL, UTF-8 με έλεγχο, bounded 32 KiB cell slices και αποτροπή μεγάλης δέσμευσης μνήμης (>8 MiB ανά κελί). Κακό ή ασύμβατο chunk απορρίπτεται χωρίς σιωπηλή μετατροπή δεδομένων. Native regression προστέθηκε στο υποχρεωτικό full CI.

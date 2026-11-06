@@ -114,6 +114,18 @@ public final class NativeFrozenExportV3 {
                 throw invalid("integer bounds");
             return Long.valueOf(value.longValueExact());
         }
+        if (kind.equals("real")) {
+            if (descriptor.has("bytes")) throw invalid("REAL descriptor");
+            String decimal=required(descriptor,"decimal");
+            if (decimal.length()>80 || !decimal.matches("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?")
+                || (!decimal.contains(".") && !decimal.contains("e") && !decimal.contains("E")))
+                throw invalid("REAL decimal");
+            double value;
+            try { value=Double.parseDouble(decimal); }
+            catch (NumberFormatException error) { throw invalid("REAL decimal"); }
+            if (!Double.isFinite(value)) throw invalid("non-finite REAL");
+            return Double.valueOf(value);
+        }
         if (!kind.equals("text") && !kind.equals("blob")) throw invalid("deferred type");
         long exactSize=safeNumber(descriptor.opt("bytes"),"cell bytes");
         if (exactSize>MAX_CELL_BYTES || (kind.equals("text") && exactSize<=4096)) throw invalid("cell size");
@@ -176,14 +188,11 @@ public final class NativeFrozenExportV3 {
                 value=inline;
             } else if (inline instanceof Number) {
                 Number number=(Number)inline;
-                if (number instanceof Double || number instanceof Float) {
-                    double real=number.doubleValue();
-                    if (!Double.isFinite(real)) throw invalid("non-finite REAL");
-                    value=Double.valueOf(real);
-                } else {
-                    long integer=signedSafeNumber(number);
-                    value=Long.valueOf(integer);
-                }
+                // A REAL must carry an explicit storage-class descriptor.
+                // Accepting a JSON double here could silently round an INTEGER.
+                if (number instanceof Double || number instanceof Float) throw invalid("untyped REAL");
+                long integer=signedSafeNumber(number);
+                value=Long.valueOf(integer);
             } else throw invalid("inline type");
             if (value==null && (definition.optInt("notnull",0)!=0 || definition.optInt("pk",0)!=0))
                 throw invalid("non-null column");

@@ -20,8 +20,8 @@ try{
  await db.prepare('INSERT INTO unlisted_business_data(id,payload) VALUES(?,?)').bind('fixture',largePayload).run();
  // Frozen exports must preserve exact 64-bit cents/IDs and the BLOB storage
  // class. JavaScript Number coercion or a NULL/deferred mix-up is data loss.
- await db.prepare('CREATE TABLE typed_business_fixture(id INTEGER PRIMARY KEY,big_positive INTEGER NOT NULL,big_negative INTEGER NOT NULL,small_blob BLOB NOT NULL,empty_blob BLOB NOT NULL,null_blob BLOB,safe_integer INTEGER NOT NULL)').run();
- await db.prepare("INSERT INTO typed_business_fixture VALUES(1,9223372036854775807,-9007199254740992,x'00FF8001',x'',NULL,9007199254740991)").run();
+ await db.prepare('CREATE TABLE typed_business_fixture(id INTEGER PRIMARY KEY,big_positive INTEGER NOT NULL,big_negative INTEGER NOT NULL,small_blob BLOB NOT NULL,empty_blob BLOB NOT NULL,null_blob BLOB,safe_integer INTEGER NOT NULL,real_one REAL NOT NULL,real_fraction REAL NOT NULL,real_exponent REAL NOT NULL)').run();
+ await db.prepare("INSERT INTO typed_business_fixture VALUES(1,9223372036854775807,-9007199254740992,x'00FF8001',x'',NULL,9007199254740991,1.0,0.1,1e-300)").run();
  const keys=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']),publicKey=Buffer.from(await crypto.subtle.exportKey('spki',keys.publicKey)).toString('base64url');
  const input=()=>({generation:crypto.randomUUID(),ticket:Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),publicKey,publicSalt:Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),recoveryHash:'a'.repeat(64),username:'primary.owner',password:'Primary-Fixture-2026!'});
  let migration=input();
@@ -70,6 +70,12 @@ try{
  assert.equal(meta('big_positive').decimal,'9223372036854775807','max SQLite signed integer must not round in D1 JSON');
  assert.equal(typedRow.big_negative,null);assert.equal(meta('big_negative').decimal,'-9007199254740992');
  assert.equal(typedRow.safe_integer,9007199254740991,'safe integers stay inline');
+ for(const [name,number] of [['real_one',1.0],['real_fraction',0.1],['real_exponent',1e-300]]){
+   assert.equal(typedRow[name],null,'REAL never travels as untyped JSON number: '+name);
+   assert.equal(meta(name).type,'real');
+   assert.equal(Number(meta(name).decimal),number,'REAL binary64 round-trip: '+name);
+ }
+ assert.match(meta('real_one').decimal,/\\./,'REAL 1.0 retains storage class');
  assert.equal(typedRow.small_blob,null);assert.equal(meta('small_blob').type,'blob');assert.equal(meta('small_blob').bytes,4);
  assert.equal(typedRow.empty_blob,null);assert.equal(meta('empty_blob').type,'blob');assert.equal(meta('empty_blob').bytes,0);
  assert.equal(typedRow.null_blob,null);assert.equal(meta('null_blob'),undefined,'SQL NULL is not an empty BLOB');

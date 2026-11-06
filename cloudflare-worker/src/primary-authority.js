@@ -135,9 +135,13 @@ export async function routePrimary(request,env,helpers={}){
       const blob=c=>`typeof("${c.name}")='blob'`;
       const longText=c=>`typeof("${c.name}")='text' AND length(CAST("${c.name}" AS BLOB))>4096`;
       const unsafeInt=c=>`typeof("${c.name}")='integer' AND ("${c.name}">9007199254740991 OR "${c.name}"< -9007199254740991)`;
-      const deferred=c=>`(${blob(c)} OR ${longText(c)} OR ${unsafeInt(c)})`;
+      // SQLite REAL 1.0 is serialized by JSON as 1; inline transfer would
+      // silently turn its storage class into INTEGER on the Android importer.
+      // 17 significant digits preserve finite binary64 round trips.
+      const real=c=>`typeof("${c.name}")='real'`;
+      const deferred=c=>`(${blob(c)} OR ${longText(c)} OR ${unsafeInt(c)} OR ${real(c)})`;
       const fields=columns.map(c=>`CASE WHEN ${deferred(c)} THEN NULL ELSE "${c.name}" END AS "${c.name}"`).join(',');
-      const metadata=columns.map(c=>`CASE WHEN ${unsafeInt(c)} THEN json_object('name','${c.name}','type','integer','decimal',CAST("${c.name}" AS TEXT)) WHEN (${blob(c)} OR ${longText(c)}) THEN json_object('name','${c.name}','bytes',length(CAST("${c.name}" AS BLOB)),'type',typeof("${c.name}")) ELSE NULL END`).join(',');
+      const metadata=columns.map(c=>`CASE WHEN ${unsafeInt(c)} THEN json_object('name','${c.name}','type','integer','decimal',CAST("${c.name}" AS TEXT)) WHEN ${real(c)} THEN json_object('name','${c.name}','type','real','decimal',printf('%!.17g',"${c.name}")) WHEN (${blob(c)} OR ${longText(c)}) THEN json_object('name','${c.name}','bytes',length(CAST("${c.name}" AS BLOB)),'type',typeof("${c.name}")) ELSE NULL END`).join(',');
       const data=rows(await env.DB.prepare(`SELECT rowid AS _primaryRowid,${fields},json_array(${metadata}) AS _primaryOversize FROM ${table} WHERE rowid>? ORDER BY rowid LIMIT ?`).bind(after,limit+1).all());
       const page=data.slice(0,limit);
       if(page.some(r=>!Number.isSafeInteger(r._primaryRowid)||r._primaryRowid<=after))return failure(409,'Η ταυτότητα εγγραφής δεν μεταφέρεται με ασφάλεια.');
