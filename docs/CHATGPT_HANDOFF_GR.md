@@ -1,5 +1,13 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## #59 — πλήρης D1 writer fence και μεταφορά μεγάλων κελιών — 06/11/2026
+
+- Συνέχεια από επιβεβαιωμένο `caa0ff54fbdcc1c86d739765d75dcf3fcf314fb9`, draft PR #73. Το προηγούμενο exact Fast `42103691968` και full `42103691860` ήταν SUCCESS. Το νέο source CI για αυτή την αλλαγή είναι **εκκρεμές** μέχρι να επιβεβαιωθεί ξεχωριστά.
+- Πραγματική διόρθωση στο `primary-authority.js`: ο writer fence καλύπτει **όλους** τους υπάρχοντες business πίνακες D1, ακόμη κι αν λείπουν από την παλιά στατική απογραφή. Νέος πίνακας μεταξύ απογραφής και atomic batch αποτρέπει τη μεταφορά. Το cloud-only `fleet_releases` παραμένει διαθέσιμο για OTA metadata και δεν μετατρέπεται σε business writer. Το νέο δυναμικό inventory δεν παραλείπει σιωπηρά άγνωστους business πίνακες.
+- Το παγωμένο export δίνει bounded pages με `hasMore` και πραγματικά μεγάλα TEXT/BLOB μέσω `/api/primary/cell` σε hex slices ≤32 KiB, με διακριτή ένδειξη deferred/NULL, byte length και SQLite type. Ελέγχεται η μορφή table/column/rowid/offset και το μέγεθος της απάντησης. Schema export v2: ο τελικός native importer **πρέπει** να υλοποιήσει ακριβή επανασύνθεση/typed validation και δεν επιτρέπεται activation πριν γίνει.
+- Το `test-primary-authority.mjs` επεκτάθηκε με Workerd/D1 race νέου πίνακα, μη-δηλωμένο business ledger, φραγή παλιών writes, πλήρες Unicode large-cell roundtrip και μη έγκυρα ranges/columns. Απαιτείται exact νέο CI. Καμία αλλαγή production D1/Ordexa, merge, deploy ή signing keys. Οι υπόλοιπες λειτουργίες/UI, πραγματική συσκευή και κοινή έκδοση παραμένουν εκκρεμή.
+
+
 ## Συνεχής υλοποίηση — πλήρες φορητό backup και ιδιωτικά αρχεία — 05/11/2026
 
 - Συνέχεια από επιβεβαιωμένο `ddc0187bd242a8541f5db07936492a529fa590dc`, PR #73 ίδιο branch, main `4d52897b5c4c7feb3bc5cb21b367cf7337c1f6fd`. Exact full42094625275 και Fast42094625263 SUCCESS. Δεν σταματάμε σε αυτό το checkpoint· συνεχίζεται η εγκεκριμένη συνολική υλοποίηση.

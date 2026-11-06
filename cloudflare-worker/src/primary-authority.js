@@ -34,7 +34,23 @@ async function ownerPassword(env,body){
   const hash=[...new Uint8Array(bits)].map(b=>b.toString(16).padStart(2,'0')).join('');
   return HASH.test(user.password_hash)&&await directHash(hash)===await directHash(user.password_hash)?user:null;
 }
-async function existingTables(env){return rows(await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all()).map(r=>r.name).filter(t=>PRIMARY_TABLES.includes(t));}
+// The original table allowlist is not an exhaustive inventory of mutable D1
+// tables. Fence every business table, including previously unknown tables.
+// Release distribution and D1's own migration metadata stay cloud-managed.
+const PRIMARY_CLOUD_CONTROL=new Set(['fleet_primary_fence','fleet_releases','d1_migrations']);
+const PRIMARY_NON_EXPORT=new Set(['fleet_mirror_state','fleet_mirror_changes','auth_sessions','auth_login_attempts','fleet_sessions','fleet_pin_attempts']);
+const SQL_NAME=/^[A-Za-z_][A-Za-z0-9_]{0,120}$/;
+async function existingTables(env){
+  const names=rows(await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()).map(r=>r.name);
+  if(names.some(name=>!SQL_NAME.test(name)))throw Error('Unsupported D1 table name: migration refused');
+  return names.filter(name=>!PRIMARY_CLOUD_CONTROL.has(name));
+}
+async function exportTables(env){return (await existingTables(env)).filter(name=>!PRIMARY_NON_EXPORT.has(name));}
+async function exportColumns(env,table){
+  const columns=rows(await env.DB.prepare(`PRAGMA table_info(${table})`).all());
+  if(!columns.length||columns.some(c=>!SQL_NAME.test(c.name)||['_primaryRowid','_primaryOversize'].includes(c.name)))throw Error('Unsupported D1 column name: migration refused');
+  return columns;
+}
 
 async function fence(env,user,ticketHash){
   const tables=await existingTables(env),commands=[
@@ -42,7 +58,9 @@ async function fence(env,user,ticketHash){
     env.DB.prepare("INSERT OR IGNORE INTO fleet_primary_fence(id) VALUES(1)")
   ];
   for(const table of tables)for(const event of ['INSERT','UPDATE','DELETE'])commands.push(env.DB.prepare(`CREATE TRIGGER IF NOT EXISTS primary_fence_${table}_${event.toLowerCase()} BEFORE ${event} ON ${table} WHEN (SELECT mode FROM fleet_primary_fence WHERE id=1) IN ('fenced','active') BEGIN SELECT RAISE(ABORT,'fleet_primary_writer_fenced'); END;`));
-  commands.push(env.DB.prepare("UPDATE fleet_primary_fence SET mode='fenced',ticket_hash=? WHERE id=1 AND mode='cloud' AND ticket_hash<>? AND EXISTS(SELECT 1 FROM app_users WHERE id=? AND role='owner' AND active=1 AND login_enabled=1 AND deleted_at IS NULL AND password_hash=? AND password_salt=?)").bind(ticketHash,'cancelled:'+ticketHash,user.id,user.password_hash,user.password_salt));
+  // A table created between enumeration and the atomic D1 batch must prevent
+  // activation of a partial fence, even if the owner's password is unchanged.
+  commands.push(env.DB.prepare("UPDATE fleet_primary_fence SET mode='fenced',ticket_hash=? WHERE id=1 AND mode='cloud' AND ticket_hash<>? AND EXISTS(SELECT 1 FROM app_users WHERE id=? AND role='owner' AND active=1 AND login_enabled=1 AND deleted_at IS NULL AND password_hash=? AND password_salt=?) AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('fleet_primary_fence','fleet_releases','d1_migrations') AND name NOT IN (SELECT value FROM json_each(?)))").bind(ticketHash,'cancelled:'+ticketHash,user.id,user.password_hash,user.password_salt,JSON.stringify(tables)));
   const result=await env.DB.batch(commands);return !!result[result.length-1]?.meta?.changes;
 }
 
@@ -101,13 +119,35 @@ export async function routePrimary(request,env,helpers={}){
     if(verified.mode!=='preparing'||!verified.fenced)return failure(409,'Η τελική εξαγωγή απαιτεί ολοκληρωμένη φραγή παλιών εγγραφών.');
     const frozen=await env.DB.prepare("SELECT mode,ticket_hash FROM fleet_primary_fence WHERE id=1").first();if(frozen?.mode!=='fenced'||frozen.ticket_hash!==verified.ticketHash)return failure(409,'Δεν επιβεβαιώθηκε η παλιά βάση.');
     if(path==='/api/primary/inventory'&&request.method==='GET'){
-      const names=(await existingTables(env)).filter(t=>PRIMARY_DATA_TABLES.includes(t)),results=await env.DB.batch(names.flatMap(name=>[env.DB.prepare(`PRAGMA table_info(${name})`),env.DB.prepare(`SELECT COUNT(*) rows,COALESCE(MAX(rowid),0) lastRow FROM ${name}`)]));
+      const names=await exportTables(env),results=await env.DB.batch(names.flatMap(name=>[env.DB.prepare(`PRAGMA table_info(${name})`),env.DB.prepare(`SELECT COUNT(*) rows,COALESCE(MAX(rowid),0) lastRow FROM ${name}`)]));
       const tables=names.map((name,index)=>({name,columns:rows(results[index*2]).map(c=>({name:c.name,type:c.type,notnull:c.notnull,pk:c.pk})),...rows(results[index*2+1])[0]}));
-      return primaryJson({schemaVersion:1,generation:verified.generation,realm:verified.realm,tables});
+      return primaryJson({schemaVersion:2,generation:verified.generation,realm:verified.realm,tables,excludedTables:[...PRIMARY_NON_EXPORT,...PRIMARY_CLOUD_CONTROL]});
     }
     if(path==='/api/primary/rows'&&request.method==='GET'){
-      const table=url.searchParams.get('table'),after=Number(url.searchParams.get('after')||0);if(!PRIMARY_DATA_TABLES.includes(table)||!Number.isSafeInteger(after)||after<0)return failure(400,'Μη έγκυρη σελίδα μεταφοράς.');
-      const data=rows(await env.DB.prepare(`SELECT rowid _primaryRowid,* FROM ${table} WHERE rowid>? ORDER BY rowid LIMIT 25`).bind(after).all());return primaryJson({table,rows:data,next:data.length?data[data.length-1]._primaryRowid:after});
+      const table=url.searchParams.get('table'),after=Number(url.searchParams.get('after')||0),limit=Number(url.searchParams.get('limit')||10);
+      if(!(await exportTables(env)).includes(table)||!Number.isSafeInteger(after)||after<0||!Number.isSafeInteger(limit)||limit<1||limit>25)return failure(400,'Μη έγκυρη σελίδα μεταφοράς.');
+      const columns=await exportColumns(env,table);
+      // Large text/BLOB values travel in bounded byte slices. A separate
+      // descriptor distinguishes a real NULL from a deferred cell.
+      const large=c=>`typeof("${c.name}") IN ('text','blob') AND length(CAST("${c.name}" AS BLOB))>4096`;
+      const fields=columns.map(c=>`CASE WHEN ${large(c)} THEN NULL ELSE "${c.name}" END AS "${c.name}"`).join(',');
+      const metadata=columns.map(c=>`CASE WHEN ${large(c)} THEN json_object('name','${c.name}','bytes',length(CAST("${c.name}" AS BLOB)),'type',typeof("${c.name}")) ELSE NULL END`).join(',');
+      const data=rows(await env.DB.prepare(`SELECT rowid AS _primaryRowid,${fields},json_array(${metadata}) AS _primaryOversize FROM ${table} WHERE rowid>? ORDER BY rowid LIMIT ?`).bind(after,limit+1).all());
+      const page=data.slice(0,limit);
+      if(page.some(r=>!Number.isSafeInteger(r._primaryRowid)||r._primaryRowid<=after))return failure(409,'Η ταυτότητα εγγραφής δεν μεταφέρεται με ασφάλεια.');
+      const result={schemaVersion:2,generation:verified.generation,table,rows:page,next:page.length?page[page.length-1]._primaryRowid:after,hasMore:data.length>limit};
+      if(utf8.encode(JSON.stringify(result)).length>1500000)return failure(413,'Η σελίδα είναι μεγάλη. Επανάλαβε με μικρότερο limit.');
+      return primaryJson(result);
+    }
+    if(path==='/api/primary/cell'&&request.method==='GET'){
+      const table=url.searchParams.get('table'),column=url.searchParams.get('column'),rowid=Number(url.searchParams.get('rowid')),offset=Number(url.searchParams.get('offset')),size=Number(url.searchParams.get('size')||32768);
+      if(!(await exportTables(env)).includes(table)||!Number.isSafeInteger(rowid)||rowid<=0||!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(size)||size<1||size>32768||offset>Number.MAX_SAFE_INTEGER-size)return failure(400,'Μη έγκυρο τμήμα μεταφοράς.');
+      if(!(await exportColumns(env,table)).some(c=>c.name===column))return failure(400,'Μη έγκυρη στήλη μεταφοράς.');
+      const value=await env.DB.prepare(`SELECT typeof("${column}") kind,length(CAST("${column}" AS BLOB)) bytes,hex(substr(CAST("${column}" AS BLOB),?,?)) chunk FROM ${table} WHERE rowid=?`).bind(offset+1,size,rowid).first();
+      if(!value)return failure(404,'Η εγγραφή μεταφοράς δεν βρέθηκε.');
+      if(!['text','blob'].includes(value.kind))return failure(400,'Η στήλη δεν είναι κείμενο ή δυαδικά δεδομένα.');
+      if(offset>=value.bytes)return failure(416,'Το τμήμα είναι εκτός ορίων.');
+      return primaryJson({schemaVersion:2,generation:verified.generation,table,rowid,column,offset,bytes:value.bytes,kind:value.kind,hex:value.chunk,complete:offset+value.chunk.length/2>=value.bytes});
     }
     if(path==='/api/primary/document'&&request.method==='POST'){
       const b=await smallBody(request);if(typeof b.key!=='string'||b.key.length>500)return failure(400,'Μη έγκυρο τιμολόγιο.');

@@ -13,6 +13,11 @@ try{
  const call=async(...args)=>{const r=await raw(...args);return{status:r.status,data:await r.json()};};
  const ok=(r,status=200)=>{assert.equal(r.status,status,JSON.stringify(r.data));return r.data;};
  ok(await call('/api/status'));ok(await call('/api/auth/bootstrap',{username:'primary.owner',password:'Primary-Fixture-2026!',fullName:'Συνθετικός ιδιοκτήτης'}));
+ // A business table omitted by an old static inventory must not remain writable
+ // or disappear from the final frozen export. Use multi-byte large-cell data.
+ const largePayload='Κ'.repeat(90000);
+ await db.prepare('CREATE TABLE unlisted_business_data(id TEXT PRIMARY KEY,payload TEXT NOT NULL)').run();
+ await db.prepare('INSERT INTO unlisted_business_data(id,payload) VALUES(?,?)').bind('fixture',largePayload).run();
  const keys=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']),publicKey=Buffer.from(await crypto.subtle.exportKey('spki',keys.publicKey)).toString('base64url');
  const input=()=>({generation:crypto.randomUUID(),ticket:Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),publicKey,publicSalt:Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),recoveryHash:'a'.repeat(64),username:'primary.owner',password:'Primary-Fixture-2026!'});
  let migration=input();
@@ -25,17 +30,41 @@ try{
  const raced=await routePrimary(new Request('https://fixture/api/primary/prepare',{method:'POST',headers:{'X-Fleet-Server-Key':serverKey},body:JSON.stringify(migration)}),env);
  assert.equal(raced.status,409);assert.equal((await db.prepare('SELECT mode FROM fleet_primary_fence WHERE id=1').first()).mode,'cloud');
  await db.prepare("UPDATE app_users SET password_hash=? WHERE username='primary.owner'").bind(originalHash).run();
+ // Simulate a CREATE TABLE by a concurrent old request after the table scan.
+ let schemaRace=true;
+ const racedSchemaEnv={SERVER_KEY:serverKey,FLEET_EVENTS:hub,DB:{prepare:db.prepare.bind(db),batch:async queries=>{if(schemaRace){schemaRace=false;await db.prepare('CREATE TABLE raced_business_data(id TEXT PRIMARY KEY)').run();}return db.batch(queries);}}};
+ const schemaRaced=await routePrimary(new Request('https://fixture/api/primary/prepare',{method:'POST',headers:{'X-Fleet-Server-Key':serverKey},body:JSON.stringify(migration)}),racedSchemaEnv);
+ assert.equal(schemaRaced.status,409,'new table during fence is a migration conflict');
+ assert.equal((await db.prepare('SELECT mode FROM fleet_primary_fence WHERE id=1').first()).mode,'cloud');
+ await db.prepare('DROP TABLE raced_business_data').run();
  const prepared=ok(await call('/api/primary/prepare',migration));assert.equal(prepared.fenced,true);assert.equal(prepared.mode,'preparing');
  const ticket={'X-Fleet-Primary-Ticket':migration.ticket};
  await assert.rejects(db.prepare("UPDATE app_users SET full_name='late stale cloud writer' WHERE username='primary.owner'").run(),/fleet_primary_writer_fenced/);
  await assert.rejects(db.prepare("INSERT INTO fleet_operations VALUES('late','fixture','late','{}','pending','now',NULL)").run(),/fleet_primary_writer_fenced/);
+ await assert.rejects(db.prepare("UPDATE unlisted_business_data SET payload='stale' WHERE id='fixture'").run(),/fleet_primary_writer_fenced/);
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' AND name LIKE 'primary_fence_fleet_releases_%'").first()).n,0,'cloud release metadata remains outside business writer fence');
  assert.equal((await call('/api/auth/user-login',{username:'primary.owner',password:'Primary-Fixture-2026!'})).status,503);
- const inventory=ok(await call('/api/primary/inventory',null,ticket));assert(inventory.tables.length>30);assert(!inventory.tables.some(t=>t.name==='auth_sessions'),'old cloud sessions are never imported');
+ const inventory=ok(await call('/api/primary/inventory',null,ticket));assert.equal(inventory.schemaVersion,2);assert(inventory.tables.length>30);assert(!inventory.tables.some(t=>t.name==='auth_sessions'),'old cloud sessions are never imported');
+ assert(inventory.tables.some(t=>t.name==='unlisted_business_data'&&t.rows===1),'unknown business rows are exported rather than silently lost');
+ assert(!inventory.tables.some(t=>t.name==='fleet_releases'),'cloud OTA metadata stays in distribution');
  const users=ok(await call('/api/primary/rows?table=app_users',null,ticket)).rows;assert.equal(users.length,1);assert.equal(users[0].full_name,'Συνθετικός ιδιοκτήτης');
  assert.equal((await call('/api/primary/rows?table=app_users%3BDROP%20TABLE%20app_users',null,ticket)).status,400);
+ const frozen=ok(await call('/api/primary/rows?table=unlisted_business_data',null,ticket));
+ assert.equal(frozen.schemaVersion,2);assert.equal(frozen.rows.length,1);assert.equal(frozen.rows[0].payload,null);
+ const deferred=JSON.parse(frozen.rows[0]._primaryOversize).find(c=>c?.name==='payload');
+ assert.equal(deferred.bytes,Buffer.byteLength(largePayload));assert.equal(deferred.type,'text');
+ const parts=[];for(let offset=0;offset<deferred.bytes;offset+=32768){
+   const part=ok(await call('/api/primary/cell?table=unlisted_business_data&column=payload&rowid='+frozen.rows[0]._primaryRowid+'&offset='+offset+'&size=32768',null,ticket));
+   assert.equal(part.offset,offset);assert.equal(part.bytes,deferred.bytes);parts.push(Buffer.from(part.hex,'hex'));
+ }
+ assert.equal(Buffer.concat(parts).toString('utf8'),largePayload,'byte slices round-trip large Unicode exactly');
+ assert.equal((await call('/api/primary/cell?table=unlisted_business_data&column=payload%3BDROP&rowid=1&offset=0',null,ticket)).status,400);
+ assert.equal((await call('/api/primary/cell?table=unlisted_business_data&column=payload&rowid=1&offset='+deferred.bytes,null,ticket)).status,416);
+ assert.equal((await call('/api/primary/rows?table=unlisted_business_data&limit=26',null,ticket)).status,400);
  const control=hub.get(hub.idFromName('fleet')),reserve=await control.fetch('https://internal/primary/start-abort',{method:'POST',body:JSON.stringify({ticketHash:prepared.ticketHash})});assert.equal(reserve.status,200);
  assert.equal((await call('/api/primary/activate',{contentHash:'b'.repeat(64),restoreVerified:true,documentsVerified:true},ticket)).status,409,'abort reservation excludes activation');
  ok(await call('/api/primary/abort',{},ticket));assert.equal(ok(await call('/api/primary/descriptor')).mode,'cloud');
+ await db.prepare("UPDATE unlisted_business_data SET payload=payload WHERE id='fixture'").run();
  await db.prepare("UPDATE app_users SET full_name='Συνθετικός ιδιοκτήτης' WHERE username='primary.owner'").run();
  migration=input();ok(await call('/api/primary/prepare',migration));const activeTicket={'X-Fleet-Primary-Ticket':migration.ticket};
  assert.equal((await call('/api/primary/activate',{contentHash:'b'.repeat(64),restoreVerified:false,documentsVerified:true},activeTicket)).status,409);
@@ -57,5 +86,5 @@ try{
  const oldDirect=await call('/api/direct/request',packet,{'X-Fleet-Direct-Key':'a'.repeat(64)});assert.equal(oldDirect.status,409,'stale legacy authorization is disabled after handover');
  const lease=new Promise(resolve=>ws.addEventListener('message',event=>{if(event.data==='pong')return;const value=JSON.parse(event.data);if(value.type==='lease')resolve(value);}));ws.send(JSON.stringify({type:'lease',nonce:'fixture-renewal'}));assert.equal((await lease).generation,migration.generation);ws.close(1000,'test complete');
  await assert.rejects(db.prepare("UPDATE fleet_snapshot SET version=999 WHERE id=1").run(),/fleet_primary_writer_fenced/);
- console.log('PASS actual Workerd/D1/Durable Object: owner recheck race, atomic old-writer fence, paged exact export, session exclusion, abort/activation exclusion, lost-ACK replay, sealed P-256 registration, legacy revocation, opaque encrypted relay, lease renewal, offline/no-D1 static and request paths.');
+ console.log('PASS actual Workerd/D1/Durable Object: owner and new-table race rejection, all-business-table atomic fence, bounded paged export and exact large Unicode cell slices, session exclusion, abort/activation exclusion, lost-ACK replay, sealed P-256 registration, legacy revocation, opaque encrypted relay, lease renewal, offline/no-D1 static and request paths.');
 }finally{await runtime?.dispose();fs.rmSync(dir,{recursive:true,force:true});}
