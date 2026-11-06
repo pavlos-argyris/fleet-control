@@ -8,6 +8,14 @@ import {storeSqliteFixture} from './fixtures/native-store-sqlite.mjs';
 const root=process.cwd(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-frozen-import-v3-'));
 try {
   const fixtures=storeSqliteFixture(dir);
+  // The shared Python SQLite fixture predates BLOB bind support: JSON-java
+  // represents byte[] as a JSON array. Decode only bind parameters to bytes;
+  // production Android SQLite already binds byte[] natively.
+  const rpc=path.join(dir,'sqlite_rpc.py'),python=fs.readFileSync(rpc,'utf8');
+  const marker="q.get('args',[])";
+  assert(python.includes(marker),'Expected isolated SQLite RPC fixture contract');
+  fs.writeFileSync(rpc,python.replace(marker,
+   "[sqlite3.Binary(bytes((int(x)&255) for x in v)) if isinstance(v,list) else v for v in q.get('args',[])]"));
   fs.writeFileSync(path.join(dir,'FrozenImportTest.java'),String.raw`package gr.argyrismitsos.fleetserver;
 import android.database.*;import android.database.sqlite.*;import org.json.*;
 import java.io.*;import java.util.*;
