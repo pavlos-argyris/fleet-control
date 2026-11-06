@@ -40,3 +40,6 @@ console.log('PASS cash core: 0/1/15 orders, effective tariffs, idempotency, reve
 
 // Exercise the native cash ledger's paginated report alongside the projection.
 await import('./test-cash-pagination.mjs');
+
+// Verify the native cash ledger's SQLite reversal constraints on real SQLite.
+await import('./test-cash-reversal-sqlite.mjs');
