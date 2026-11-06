@@ -64,6 +64,8 @@ public class FrozenV3Test {
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),bad,reader()),"reject 64-bit overflow");
   bad=new JSONObject(row().toString());m=new JSONArray(bad.getString("_primaryOversize"));m.getJSONObject(1).put("bytes",NativeFrozenExportV3.MAX_CELL_BYTES+1);bad.put("_primaryOversize",m.toString());
   final JSONObject tooBig=bad;fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),tooBig,reader()),"reject oversized cell before allocation");
+  bad=new JSONObject(row().toString());m=new JSONArray(bad.getString("_primaryOversize"));m.getJSONObject(1).put("bytes",4294967296L);bad.put("_primaryOversize",m.toString());
+  final JSONObject wrapped=bad;fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),wrapped,reader()),"reject length overflow before integer cast");
   System.out.println("PASS native frozen D1 export v3: exact 64-bit, BLOB/empty/NULL, bounded Unicode, generation, malformed/overflow/cell-size rejection.");
  }
 }

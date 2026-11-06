@@ -103,8 +103,9 @@ public final class NativeFrozenExportV3 {
             return Long.valueOf(value.longValueExact());
         }
         if (!kind.equals("text") && !kind.equals("blob")) throw invalid("deferred type");
-        int size=(int)safeNumber(descriptor.opt("bytes"),"cell bytes");
-        if (size>MAX_CELL_BYTES || (kind.equals("text") && size<=4096)) throw invalid("cell size");
+        long exactSize=safeNumber(descriptor.opt("bytes"),"cell bytes");
+        if (exactSize>MAX_CELL_BYTES || (kind.equals("text") && exactSize<=4096)) throw invalid("cell size");
+        int size=(int)exactSize;
         if (size>0 && reader==null) throw invalid("missing cell reader");
         ByteArrayOutputStream output=new ByteArrayOutputStream(Math.min(size,CHUNK_BYTES));
         for (int offset=0;offset<size;offset+=CHUNK_BYTES) {
