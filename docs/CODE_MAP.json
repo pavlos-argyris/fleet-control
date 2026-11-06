@@ -133,7 +133,8 @@
         "scripts/test-store-primary-budget.mjs",
         "scripts/test-store-financial-report.mjs",
         "scripts/test-financial-export-native.mjs",
-        "scripts/test-business-runtime-native.mjs"
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-store-alias-cas-sqlite.mjs"
       ],
       "related": [
         "ordexa-attendance",
