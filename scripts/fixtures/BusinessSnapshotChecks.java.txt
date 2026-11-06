@@ -7,11 +7,12 @@ public final class BusinessSnapshotChecks {
     public static void run(SQLiteDatabase db,BusinessSqlite sql,File directory)throws Exception{
         db.execSQL(NativeDatabaseSnapshot.STATE_SCHEMA);
         db.execSQL("INSERT INTO native_primary_state(id,phase,realm,generation,owner_id) VALUES(1,'active','https://fleet.fixture.invalid','11111111-1111-4111-8111-111111111111','synthetic-owner')");
+        db.execSQL("CREATE TABLE server_primary_frozen_v3_fixture(value TEXT)");db.execSQL("INSERT INTO server_primary_frozen_v3_fixture VALUES('derived candidate')");
         long sessions=count(sql,"auth_sessions"),cash=count(sql,"native_cash_events"),receipts=count(sql,"native_operation_receipts"),reviews=count(sql,"native_payroll_reviews");
         NativeDatabaseSnapshot.Capture captured=NativeDatabaseSnapshot.create(db,directory);check(captured.file.length()>5*1024*1024,"real SQLite snapshot includes >5 MiB historical cell without JSON materialization");
         check(count(sql,"auth_sessions")==sessions&&count(sql,"native_cash_events")==cash&&count(sql,"native_operation_receipts")==receipts,"live sessions and business rows are unchanged by snapshot sanitation");
         SQLiteDatabase target=SQLiteDatabase.openDatabase(captured.file.getAbsolutePath(),null,SQLiteDatabase.OPEN_READWRITE);try{
-            BusinessSqlite copy=new BusinessSqlite(target);check(count(copy,"auth_sessions")==0&&count(copy,"native_file_transfers")==0,"portable snapshot excludes live sessions and private handles");
+            BusinessSqlite copy=new BusinessSqlite(target);check(copy.call("sql.query",new JSONObject().put("sql","SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='server_primary_frozen_v3_fixture'")).getJSONArray("results").getJSONObject(0).getInt("n")==0,"derived frozen candidates excluded from physical backup, without modifying the live source");check(count(sql,"server_primary_frozen_v3_fixture")==1,"live candidate unchanged by snapshot cleanup");check(count(copy,"auth_sessions")==0&&count(copy,"native_file_transfers")==0,"portable snapshot excludes live sessions and private handles");
             check(count(copy,"native_cash_events")==cash&&count(copy,"native_operation_receipts")==receipts&&count(copy,"native_payroll_reviews")==reviews,"cash, receipts and versioned review audit all survive in exact typed SQLite");
             JSONObject state=copy.call("sql.query",new JSONObject().put("sql","SELECT phase,generation FROM native_primary_state WHERE id=1")).getJSONArray("results").getJSONObject(0);check(state.getString("phase").equals("needs_recovery")&&state.getString("generation").isEmpty(),"restored DB never reactivates the previous Server identity");
         }finally{target.close();}

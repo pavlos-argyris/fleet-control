@@ -103,3 +103,16 @@ resolution αποθηκεύονται χωριστά, επανεμφάνιση �
 
 Οι συνθετικοί έλεγχοι δεν αποτελούν παραγωγικό backup, εγκατάσταση σε φυσική
 συσκευή, Play Protect απόφαση ή επιβεβαιωμένη ενεργοποίηση της μεταφοράς.
+
+
+## Ατομική εισαγωγή canonical δεδομένων — 06/11/2026
+
+Ο υπάρχων `NativeFrozenImportV3` παραμένει απομονωμένος staging importer. Πλέον αποθηκεύει επιπλέον SHA-256 **όλου του τυποποιημένου περιεχομένου**, με table/column order, stable rowids, NULL, 64bit INTEGER, binary64 REAL, ακριβές UTF-8 και BLOB. `NativeFrozenDigest` το επαληθεύει ξανά απευθείας στη SQLite με τμήματα32KiB, ακόμη για μεγάλο cell που δεν χωρά σε CursorWindow.
+
+Ο νέος `NativePrimaryPromotion` αντιγράφει το ελεγμένο candidate στην ήδη δημιουργημένη **pinned native business schema**, σε μία πραγματική συναλλαγή. Απαιτεί τα tables του υπογεγραμμένου runtime manifest, συμβατά columns/constraints, ίδιο realm/generation/επιβεβαιωμένο owner και αποθηκευμένο content hash. Άγνωστο/ασύμβατο schema απορρίπτεται. Τοπικά bikes/settings/queues/order ledgers δεν αποτελούν στόχο εισαγωγής. Δεν εκτελείται SQL από το cloud.
+
+Προσωρινά αναστέλλονται μόνο τα ήδη εγκατεστημένα bundled triggers μέσα στην ίδια συναλλαγή, και επανεγκαθίστανται πριν από commit. Έλεγχος όλων των τελικών values/types/hash, canonical constraints, foreign keys/integrity και ενεργού owner προηγείται της αποθήκευσης phase`prepared`. Οι παλιές συνεδρίες αφαιρούνται, το παράγωγο mirror epoch αλλάζει και κλειδωμένα ποσά/audit αντιγράφονται ακριβώς. Οποιαδήποτε αστοχία/ακύρωση αναιρεί και αντιγραφές και triggers και phase. Replay μετά από χαμένο ACK συγκρίνει ξανά τον πραγματικό προορισμό· ενεργό primary δεν επιτρέπεται να αντικατασταθεί.
+
+Το `prepared` **δεν ενεργοποιεί business writes**. Ο native controller εξακολουθεί να χρειάζεται authenticated Worker fence, διακοπή τοπικών pipelines σε ασφαλές σημείο, πλήρη αντιγραφή ιδιωτικών αρχείων, προστατευμένο backup και πραγματική δοκιμή ανάκτησης, activation και τρέχον lease. Αυτή η διασύνδεση/transport/UI είναι ακόμη σε ανάπτυξη, δεν έγινε παραγωγική μεταφορά. Τα παράγωγα frozen staging tables αφαιρούνται από το φυσικό αντίγραφο backup ώστε να μη διπλασιάζουν το πλήρες canonical ιστορικό.
+
+`test-native-primary-promotion.mjs`: actual SQLite >5MiB Unicode, ακριβές64bit/REAL/BLOB/NULL, αλλοίωση candidate, SQL fault, διακοπή μετά την πραγματική αντιγραφή, canonical unique constraint, audit trigger rollback, τοπικές εκκρεμότητες, sessions, lostACK, ενεργή generation. Ανεξάρτητος Python SHA-256 oracle ανοίγει την τελική SQLite και επιβεβαιώνει όλο το hash, όχι μόνο έναν counter. Νέο exact saved-source CI απαιτείται πριν από αποδοχή έκδοσης.

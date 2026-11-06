@@ -10,7 +10,7 @@ import java.util.*;
 public final class NativeDatabaseSnapshot {
     public static final int APPLICATION_ID=0x464c5450;
     public static final Object OBJECT_LIFECYCLE_LOCK=new Object();
-    public static final String STATE_SCHEMA="CREATE TABLE IF NOT EXISTS native_primary_state(id INTEGER PRIMARY KEY CHECK(id=1),phase TEXT NOT NULL,realm TEXT NOT NULL,generation TEXT NOT NULL DEFAULT '',owner_id TEXT NOT NULL DEFAULT '',data_hash TEXT NOT NULL DEFAULT '',imported_at TEXT NOT NULL DEFAULT '',proof_sha TEXT NOT NULL DEFAULT '',source_revision TEXT NOT NULL DEFAULT '');";
+    public static final String STATE_SCHEMA=NativePrimarySchema.STATE;
     private static final String PINS="CREATE TABLE IF NOT EXISTS native_backup_pins(capture_id TEXT NOT NULL,local_name TEXT NOT NULL,PRIMARY KEY(capture_id,local_name));";
     private static final Set<String> EPHEMERAL=new HashSet<String>(Arrays.asList("auth_sessions","fleet_sessions","auth_login_attempts","fleet_pin_attempts","native_file_transfers","native_object_gc","native_backup_pins"));
     public static final class Capture {
@@ -37,6 +37,8 @@ public final class NativeDatabaseSnapshot {
         database.beginTransaction();try{
             for(String name:EPHEMERAL)if(table(sql,name))database.execSQL("DELETE FROM "+identifier(name));
             for(String name:new String[]{"server_authority_stage_rows","server_authority_stage_ids","server_authority_stage_state","native_migration_rows","native_migration_inventory"})if(table(sql,name))database.execSQL("DROP TABLE "+identifier(name));
+            JSONArray candidates=query(sql,"SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'server_primary_frozen_v3_%'").getJSONArray("results");
+            for(int i=0;i<candidates.length();i++){String name=candidates.getJSONObject(i).getString("name");if(name.startsWith("server_primary_frozen_v3_"))database.execSQL("DROP TABLE "+identifier(name));}
             // The old mirrored export is derivable from the canonical typed DB.
             // Work queues and local order ledgers remain intact.
             if(table(sql,"system_state"))database.execSQL("DELETE FROM system_state WHERE key='full_export'");

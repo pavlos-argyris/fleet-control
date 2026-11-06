@@ -89,6 +89,7 @@ jobs:
       - run: node scripts/test-server-large-storage-native.mjs
       - run: node scripts/test-server-authority-stage-native.mjs
       - run: node scripts/test-native-frozen-export-v3.mjs
+      - run: node scripts/test-native-primary-promotion.mjs
       - run: node scripts/test-server-task-results-native.mjs
       - run: node scripts/test-store-billing-native.mjs
       - run: node scripts/test-store-billing-pipeline.mjs
@@ -120,6 +121,7 @@ jobs:
       - run: node scripts/test-server-system-mirror.mjs
       - run: node scripts/test-server-offload-native.mjs
       - run: python3 scripts/prepare-invoice-dependencies.py .build/backup-test-deps
+      - run: node scripts/test-backup-write-buffering-native.mjs
       - run: node scripts/test-portable-backup-native.mjs
       - run: node scripts/test-backup-protection-ui.mjs
       - run: node scripts/test-backup-streaming-native.mjs

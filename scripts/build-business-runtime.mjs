@@ -3,6 +3,7 @@ import path from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
+import {PRIMARY_DATA_TABLES} from '../cloudflare-worker/src/primary-authority.js';
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url));
 const esbuild=await import(pathToFileURL(require.resolve('esbuild')).href);
 const babel=await import(pathToFileURL(require.resolve('@babel/core')).href);
@@ -13,5 +14,5 @@ const output=path.resolve('.build/business-runtime');fs.mkdirSync(output,{recurs
 const sourceHash=createHash('sha256');for(const input of Object.keys(built.metafile.inputs).sort()){sourceHash.update(input+'\n');sourceHash.update(fs.readFileSync(input));}
 const code='/* Fleet bundled business handlers. Bundled code only; no runtime downloads. */\n'+result.code+'\n';
 fs.writeFileSync(path.join(output,'runtime.js'),code);
-fs.writeFileSync(path.join(output,'manifest.json'),JSON.stringify({schema:1,sourceSha256:sourceHash.digest('hex'),bundleSha256:createHash('sha256').update(code).digest('hex'),rhinoVersion:'1.9.1',bytes:Buffer.byteLength(code)},null,2)+'\n');
+fs.writeFileSync(path.join(output,'manifest.json'),JSON.stringify({schema:1,sourceSha256:sourceHash.digest('hex'),bundleSha256:createHash('sha256').update(code).digest('hex'),rhinoVersion:'1.9.1',bytes:Buffer.byteLength(code),requiredMigrationTables:PRIMARY_DATA_TABLES},null,2)+'\n');
 console.log('Prepared shared business handlers for the native interpreter ('+Buffer.byteLength(code)+' bytes).');

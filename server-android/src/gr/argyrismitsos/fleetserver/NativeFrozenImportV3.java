@@ -31,6 +31,9 @@ public final class NativeFrozenImportV3 {
     private static final int PAGE_LIMIT = 10;
     private static final long MAX_SAFE = 9007199254740991L;
     private NativeFrozenImportV3() {}
+    static String candidateName(String original)throws IOException{return PREFIX+name(original);}
+    static String metadataTable(){return META;}
+
 
     private static IOException invalid(String what) {
         return new IOException("Frozen SQLite v3 import rejected: " + what);
@@ -190,6 +193,8 @@ public final class NativeFrozenImportV3 {
                     + "inventory_sha256 TEXT NOT NULL,rows_count INTEGER NOT NULL,"
                     + "tables_count INTEGER NOT NULL,staged_at INTEGER NOT NULL,"
                     + "business_writes_enabled INTEGER NOT NULL DEFAULT 0 CHECK(business_writes_enabled=0))");
+                if(scalar(db,"SELECT COUNT(*) FROM pragma_table_info('"+META+"') WHERE name='content_sha256'",null)==0)db.execSQL("ALTER TABLE "+META+" ADD COLUMN content_sha256 TEXT NOT NULL DEFAULT ''");
+                MessageDigest content=NativeFrozenDigest.start();
                 long total = 0;
                 for (int t = 0; t < tables.length(); t++) {
                     JSONObject definition = tables.getJSONObject(t);
@@ -242,6 +247,7 @@ public final class NativeFrozenImportV3 {
                             for (Object value : decoded.values()) args[index++] = value;
                             db.execSQL(sql, args);
                             checkStoredTypes(db, target, rowid, decoded);
+                            NativeFrozenDigest.row(content,original,rowid,decoded);
                             after = rowid;
                             count++;
                         }
@@ -264,7 +270,9 @@ public final class NativeFrozenImportV3 {
                     + "(id,generation,inventory_sha256,rows_count,tables_count,staged_at,business_writes_enabled)"
                     + " VALUES(1,?,?,?,?,?,0)",
                     new Object[]{generation,hash,total,tables.length(),System.currentTimeMillis()});
-                JSONObject result = new JSONObject().put("generation",generation)
+                String contentSha256=NativeFrozenDigest.finish(content);
+                db.execSQL("UPDATE "+META+" SET content_sha256=? WHERE id=1",new Object[]{contentSha256});
+                JSONObject result = new JSONObject().put("generation",generation).put("contentSha256",contentSha256)
                     .put("inventorySha256",hash).put("tables",tables.length())
                     .put("rows",total).put("businessWritesEnabled",false)
                     .put("contentRevalidationRequired",true).put("restoreProbeRequired",true);

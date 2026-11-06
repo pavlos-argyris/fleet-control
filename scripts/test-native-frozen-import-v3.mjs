@@ -148,6 +148,7 @@ public class FrozenImportTest {
    ...fixtures,path.join(dir,'FrozenImportTest.java'),
    path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenExportV3.java'),
    path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenImportV3.java'),
+   path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenDigest.java'),
    path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/ServerAuthorityStage.java')],{stdio:'inherit'});
   execFileSync('java',['-Xmx192m','-Dfixture.rpc='+path.join(dir,'sqlite_rpc.py'),
    '-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetserver.FrozenImportTest',

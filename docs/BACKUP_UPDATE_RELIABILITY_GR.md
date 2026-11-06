@@ -87,3 +87,12 @@ SQL failure, με καθαρισμό των προσωρινών δεδομέν�
 προσθέτει κάλυψη σε export, restore probe και regression πριν ενεργοποίηση.
 Παραμένουν επόμενα μέρη του #61 η φορητή ρύθμιση κωδικού ανάκτησης και η
 ολοκλήρωση πολιτικής διατήρησης/αντικατάστασης συσκευής με πραγματική δοκιμή.
+
+
+## Διορθωμένη ομαδική εγγραφή κρυπτογραφημένων bytes — 06/11/2026
+
+Το exact full CI42222259364 στο83582e4 απέτυχε με90s timeout στο πραγματικό portable backup test. Αναπαραγωγή στην πραγματική `BackupCipher.encryptFramed`: το close-shield `FilterOutputStream` δεν προωθούσε `write(byte[],off,len)` απευθείας. Η προεπιλογή της Java καλεί `write(int)` ανά byte, με αντίστοιχη ενημέρωση digest και εγγραφή αρχείου.
+
+Το νέο regression μετρά την πραγματική `FileOutputStream` έξοδο, αλλάζοντας **μόνο τον constructor του test adapter**, χωρίς να αντικαθιστά cipher/streams. Για256KiB, baseline FAIL:349.564 scalar writes/1 bulk. Με την πραγματική διόρθωση: PASS:4 scalar writes/50 bulk, ίδιο encrypted SHA και επιτυχές authenticated FCB2 round-trip. Δεν αλλάζουν κωδικός, format, IV/tag, προστασία ακεραιότητας, fsync ή όρια. Το >28MiB portable test πέρασε ξανά με heap48MiB και το αρχικό90s timeout· δεν αυξήθηκε το timeout για να κρυφτεί το πρόβλημα.
+
+Η επίδραση σε χρόνο και κατανάλωση στην πραγματική συσκευή/πάροχο φακέλου μένει να μετρηθεί. Η τοπική μέτρηση αφορά αριθμό εγγραφών, όχι εγγυημένη ταχύτητα τηλεφώνου. Server2.10.5(code59), ακόμη υποψήφια έκδοση στο draftPR73.

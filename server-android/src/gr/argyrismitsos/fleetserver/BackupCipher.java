@@ -31,7 +31,13 @@ public final class BackupCipher {
         FileOutputStream disk=new FileOutputStream(part);InputStream input=null;Base64OutputStream encoded=null;boolean complete=false;
         try{
             final java.security.DigestOutputStream digest=new java.security.DigestOutputStream(disk,fileHash);digest.write(framing);
-            OutputStream shield=new FilterOutputStream(digest){@Override public void close()throws IOException{flush();}};
+            OutputStream shield=new FilterOutputStream(digest){
+                // FilterOutputStream's default bulk method calls write(int) for
+                // every byte. Forward chunks directly, retaining the open file
+                // until Base64 finishes and its final bytes can be fsynced.
+                @Override public void write(byte[] bytes,int offset,int length)throws IOException{out.write(bytes,offset,length);}
+                @Override public void close()throws IOException{flush();}
+            };
             encoded=new Base64OutputStream(shield,Base64.NO_WRAP);byte[] iv=new byte[12];new SecureRandom().nextBytes(iv);encoded.write(iv);
             // Use the bundled incremental GCM implementation. Android providers
             // are allowed to buffer an entire AEAD message even through streams.
