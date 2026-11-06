@@ -395,7 +395,13 @@
         "server-android/assets/www/server-primary.js",
         "server-android/assets/www/server-recovery.js",
         "scripts/fixtures/NativeMigrationFlowTest.java.txt",
-        "scripts/fixtures/NativeColdRestoreChecks.java.txt"
+        "scripts/fixtures/NativeColdRestoreChecks.java.txt",
+        "cloudflare-worker/public/primary-crypto.js",
+        "cloudflare-worker/public/primary-storage.js",
+        "cloudflare-worker/public/primary-pending.js",
+        "cloudflare-worker/public/primary-transport.js",
+        "cloudflare-worker/public/primary-transport.css",
+        "scripts/fixtures/primary-browser-gateway.mjs"
       ],
       "tests": [
         "scripts/test-d1-source-inventory.mjs",
@@ -411,7 +417,9 @@
         "scripts/test-primary-state-atomic.mjs",
         "scripts/test-server-primary-ui.mjs",
         "scripts/test-server-recovery-ui.mjs",
-        "scripts/test-server-primary-browser.mjs"
+        "scripts/test-server-primary-browser.mjs",
+        "scripts/test-primary-transport.mjs",
+        "scripts/test-primary-transport-browser.mjs"
       ],
       "related": [
         "worker-core",

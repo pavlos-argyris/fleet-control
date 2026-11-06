@@ -3,6 +3,7 @@
 
   const config = window.FLEET_CONFIG || {};
   const apiBase = String(config.apiBase || (location.protocol === "file:" ? "" : location.origin)).replace(/\/$/, "");
+  window.FleetPrimary?.registerOrigin(apiBase);
   const TOKEN_PERSIST = "fleet-control-auth-token";
   const TOKEN_SESSION = "fleet-control-session-token";
   const DEVICE_KEY = "fleet-control-device-id";
@@ -74,7 +75,7 @@
   };
 
   const state = {
-    previewSession:false, cacheAt:0, token: loadToken(), user: null, view: "dashboard", employees: [], vehicles: [], alerts: [],
+    lastReadOnly:false, previewSession:false, cacheAt:0, token: loadToken(), user: null, view: "dashboard", employees: [], vehicles: [], alerts: [],
     shifts: [], schedules: [], payroll: null, report: null, selectedReport: "shifts", pinResolver: null,
     simpleResolver: null, lastStatus: null, completion: null, allPermissions: [], rolePermissions: {}, payRules: [],
     viewLoadedAt: {}, weekData: null, scheduleBuilderMode: "shift", templateEditingId: null,
@@ -250,6 +251,8 @@
       if (response.ok) throw new Error("Ο Server δεν επέστρεψε έγκυρα δεδομένα. Τα υπάρχοντα δεδομένα διατηρούνται· δοκίμασε ξανά.");
       payload = {};
     }
+    state.lastReadOnly=response.headers.get("X-Fleet-ReadOnly")==="1";
+    if(state.lastReadOnly){state.previewSession=true;state.cacheAt=Number(response.headers.get("X-Fleet-Cache-At"))||state.cacheAt;renderCacheStatus();}
     recordApiTiming(path, response, startedAt);
     if (!response.ok) {
       if (response.status === 401 && settings.keepSession !== true && requestToken===state.token) {
@@ -559,7 +562,7 @@
       state.user = me.user;
       applyAuthMetadata(me);
       try { localStorage.setItem(USER_CACHE, JSON.stringify(state.user)); } catch (error) {}
-      state.previewSession=false;startLiveChanges();
+      state.previewSession=state.lastReadOnly;if(!state.previewSession)startLiveChanges();
       if(showedCache){renderNavigation();applyRoleChrome();state.viewLoadedAt={};goTo(availableNavigation().some(item=>item.id===state.view)?state.view:state.user.role==="employee"?"employee-home":"dashboard");}else showPortal();
       renderCacheStatus();
     } catch (error) {

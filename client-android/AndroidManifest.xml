@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="gr.argyrismitsos.fleetcontrol"
-    android:versionCode="96"
+    android:versionCode="97"
     android:versionName="5.61.0">
 
     <uses-permission android:name="android.permission.INTERNET" />

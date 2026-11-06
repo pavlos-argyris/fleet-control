@@ -9,7 +9,7 @@ export const PRIMARY_TABLES=[...new Set([...MIRROR_TABLES,
 ])].sort();
 export const PRIMARY_DATA_TABLES=PRIMARY_TABLES.filter(t=>!['auth_sessions','auth_login_attempts','fleet_sessions','fleet_pin_attempts'].includes(t));
 const utf8=new TextEncoder(),ID=/^[a-f0-9-]{36}$/,HASH=/^[a-f0-9]{64}$/;
-export const primaryJson=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type, Authorization, X-Fleet-Server-Key, X-Fleet-Primary-Ticket, X-Fleet-Primary-Proof','Access-Control-Allow-Methods':'GET, POST, OPTIONS','X-Content-Type-Options':'nosniff'}});
+export const primaryJson=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type, Authorization, X-Fleet-Server-Key, X-Fleet-Primary-Ticket, X-Fleet-Primary-Proof','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Expose-Headers':'X-Fleet-Primary-Protocol','X-Fleet-Primary-Protocol':'1','X-Content-Type-Options':'nosniff'}});
 const failure=(status,error)=>primaryJson({error},status);
 const coordinator=env=>env.FLEET_EVENTS?.get(env.FLEET_EVENTS.idFromName('fleet'));
 const invoke=(env,path,body)=>coordinator(env).fetch(new Request('https://events.internal/primary/'+path,{method:'POST',body:JSON.stringify(body||{})}));

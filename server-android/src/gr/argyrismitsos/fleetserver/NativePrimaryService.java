@@ -125,7 +125,7 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
     private static JSONObject sanitize(JSONObject clear,String realm)throws Exception{
         String method=clear.getString("method").toUpperCase(Locale.US);if(!Arrays.asList("GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS").contains(method))throw new IOException("Invalid method");
         URL url=new URL(clear.getString("url"));if(!origin(url).equals(realm)||!url.getPath().startsWith("/api/"))throw new IOException("Invalid primary request realm");
-        JSONObject headers=new JSONObject(),supplied=clear.optJSONObject("headers");if(supplied!=null){Iterator<String> names=supplied.keys();while(names.hasNext()){String name=names.next();if(Arrays.asList("authorization","cookie","content-type","x-fleet-operation","x-fleet-pin-session","x-admin-pin","x-fleet-pin","x-fleet-client-key","x-fleet-local-ocr").contains(name.toLowerCase(Locale.US)))headers.put(name,supplied.getString(name));}}
+        JSONObject headers=new JSONObject(),supplied=clear.optJSONObject("headers");if(supplied!=null){Iterator<String> names=supplied.keys();while(names.hasNext()){String name=names.next();if(Arrays.asList("authorization","cookie","content-type","x-fleet-operation","x-fleet-pin-session","x-admin-pin","x-fleet-pin","x-fleet-client-key","x-fleet-local-ocr","x-idempotency-key").contains(name.toLowerCase(Locale.US)))headers.put(name,supplied.getString(name));}}
         JSONObject request=new JSONObject().put("url",clear.getString("url")).put("method",method).put("headers",headers);
         for(String field:new String[]{"body","bodyFile","form"})if(clear.has(field))request.put(field,clear.get(field));return request;
     }

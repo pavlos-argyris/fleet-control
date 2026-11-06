@@ -6,8 +6,9 @@ export async function principalSecurity(env,actor){
 }
 /** Each consumption uses the current account, including password/role revocation. */
 export async function bindFileSecurity(request,env){
-  let fingerprint='';
+  let fingerprint='',actorId='';
   if(request.localInternal)fingerprint=await digest('native-internal');
-  else try{fingerprint=await principalSecurity(env,await authenticateExternal(request,env));}catch{}
+  else try{const actor=await authenticateExternal(request,env);fingerprint=await principalSecurity(env,actor);actorId=actor.user_id;}catch{}
   globalThis.FleetHost('file.security',{fingerprint});
+  return {fingerprint,actorId};
 }

@@ -53,6 +53,7 @@ jobs:
       - run: node scripts/test-invoice-auto-browser.mjs
       - run: node scripts/test-ordexa-browser.mjs
       - run: node scripts/test-server-backup-browser.mjs
+      - run: node scripts/test-primary-transport-browser.mjs
       - run: node scripts/test-server-primary-browser.mjs
       - run: node scripts/test-server-reconnect-browser.mjs
       - run: node scripts/test-staff-schedule-browser.mjs
@@ -70,6 +71,7 @@ jobs:
         with:
           name: navigation-motion-verification
           path: |
+            .build/primary-transport-browser/
             verification/navigation-motion/
             verification/next-service/
             verification/ui-system/

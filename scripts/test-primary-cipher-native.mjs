@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {spawn,execFileSync} from 'node:child_process';import {createInterface} from 'node:readline';import {backupBase64Fixture} from './fixtures/backup-base64.mjs';
+import assert from 'node:assert/strict';import vm from 'node:vm';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {spawn,execFileSync} from 'node:child_process';import {createInterface} from 'node:readline';import {backupBase64Fixture} from './fixtures/backup-base64.mjs';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-primary-crypto-')),root=process.cwd();let child;
 try{
  const files=backupBase64Fixture(dir),jar=path.join(root,'vendor/json-java/json-20240303.jar');
@@ -22,6 +22,17 @@ try{
  for(let i=0;i<12;i++){const nonce=crypto.randomUUID(),challenge={nonce,message:'fleet-primary-connect-v1|'+identity.realm+'|'+identity.generation+'|'+nonce},result=await ask({op:'proof',identity,challenge});assert.equal(result.ok,true);assert.equal(bytes(result.result.signature).length,64,'DER signature converted to required P1363');assert.equal(await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},verify,bytes(result.result.signature),utf8.encode(challenge.message)),true);}
  assert.equal((await ask({op:'proof',identity,challenge:{nonce:crypto.randomUUID(),message:'different signing domain'}})).ok,false,'No arbitrary signing oracle');
  assert.equal((await ask({op:'seal',identity,packet:request,response:{body:'X'.repeat(1400001)}})).ok,false,'Oversized unchunked response fails closed');
+ const browser=vm.createContext({crypto,TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,btoa,atob,Date,JSON,Error});vm.runInContext(fs.readFileSync('cloudflare-worker/public/primary-crypto.js','utf8'),browser);
+ const shipped=browser.FleetPrimaryCrypto,description={...identity,mode:'active',fingerprint:await shipped.hash(identity.publicKey)};
+ await shipped.descriptor(description,identity.realm);
+ const shippedClear={url:clear.url,method:clear.method,headers:clear.headers,body:clear.body},sealed=await shipped.seal(description,shippedClear),opened=await ask({op:'open',identity,packet:sealed.packet,now:Date.now()});
+ assert.equal(opened.ok,true);for(const key of Object.keys(shippedClear))assert.deepEqual(opened.result[key],shippedClear[key]);
+ const javaResponse=(await ask({op:'seal',identity,packet:sealed.packet,response:expected})).result;
+ assert.deepEqual(JSON.parse(JSON.stringify(await sealed.open(javaResponse))),expected,'Shipped Client/Web code interoperates with actual production Java in both directions');
+ await assert.rejects(()=>sealed.open({...javaResponse,nonce:'0'.repeat(32)}));await assert.rejects(()=>sealed.open({...javaResponse,epk:epk}));await assert.rejects(()=>sealed.open({...javaResponse,ciphertext:sealed.packet.ciphertext,iv:sealed.packet.iv}));
+ await assert.rejects(()=>shipped.descriptor({...description,fingerprint:'0'.repeat(64)},identity.realm));await assert.rejects(()=>shipped.descriptor({...description,realm:'https://wrong.invalid'},identity.realm));
+ await assert.rejects(()=>shipped.seal(description,{...shippedClear,body:'x'.repeat(1400001)}));
+
  child.stdin.end();await new Promise((resolve,reject)=>child.on('exit',code=>code===0?resolve():reject(Error('Java exited '+code))));
  console.log('PASS actual Java/WebCrypto primary transport: exact bidirectional ECDH/AES-GCM, realm/generation/salt/direction/nonce binding, old-domain separation, timestamp/tamper/size rejection, P1363 ECDSA registration and bounded signing context.');
 }finally{child?.kill();fs.rmSync(dir,{recursive:true,force:true});}

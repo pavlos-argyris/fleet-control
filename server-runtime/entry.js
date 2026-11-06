@@ -24,6 +24,7 @@ globalThis.__fleetInit=function(configuration){
 };
 globalThis.__fleetRequest=function(serialized){
   globalThis.__fleetResult=null;
+  globalThis.__fleetPrincipal={fingerprint:'',actorId:''};
   globalThis.__fleetExternalRequest=JSON.parse(serialized).internal!==true;
   globalThis.__fleetChunkResponse=new URL(JSON.parse(serialized).url).pathname.startsWith('/api/native/files/');
   (async()=>{
@@ -32,7 +33,7 @@ globalThis.__fleetRequest=function(serialized){
     if(url.protocol!=='https:'||url.origin!==realm||!value.internal&&privatePath)return Response.json({error:'Η ενέργεια απαιτεί τοπική υπηρεσία Server.'},{status:403});
     const headers=new Headers(value.headers||{});if(!value.internal)headers.delete('X-Fleet-Server-Key');
     const authorizationRequest=new Request(value.url,{method:value.method,headers});authorizationRequest.localInternal=value.internal===true;
-    await bindFileSecurity(authorizationRequest,environment);
+    globalThis.__fleetPrincipal=await bindFileSecurity(authorizationRequest,environment);
     const form={};for(const [key,item]of Object.entries(value.form||{}))form[key]=item&&typeof item==='object'&&item.ref?native('file.stat',{ref:item.ref}):item;
     const body=value.bodyFile?new NativeFile(native('file.stat',{ref:value.bodyFile})):value.body;
     const request=new Request(value.url,{method:value.method,headers,body,form});
@@ -43,6 +44,7 @@ globalThis.__fleetRequest=function(serialized){
     await finishOperation(operation,response,environment);return response;
   })().then(async response=>{
     const output={status:response.status,headers:Object.fromEntries(response.headers)};
+    if(globalThis.__fleetPrincipal.actorId){output.headers['x-fleet-principal']=globalThis.__fleetPrincipal.fingerprint;output.headers['x-fleet-actor']=globalThis.__fleetPrincipal.actorId;}
     if(response.data?.__file)output.file={ref:response.data.ref,size:response.data.size,type:response.data.type,name:response.data.name,sha256:response.data.sha256};
     else{
       const body=await response.text();

@@ -52,6 +52,8 @@ public class BusinessTest{
    JSONObject bootstrap=call("/api/auth/bootstrap","POST",owner,true,null);check(bootstrap.getInt("status")==200||bootstrap.getInt("status")==201,"owner bootstrap "+bootstrap);
    JSONObject login=call("/api/auth/user-login","POST",new JSONObject().put("username","owner.fixture").put("password","Fixture-Secret-2026!").put("deviceId","native-fixture"),false,null);check(login.getInt("status")==200,"actual PBKDF2 native login "+login);String token=new JSONObject(login.getString("body")).getString("token");
    JSONObject staff=call("/api/admin/employees","GET",null,false,token);check(staff.getInt("status")==200,"native authenticated staff API");
+   check(staff.getJSONObject("headers").getString("x-fleet-principal").matches("[a-f0-9]{64}")&&!staff.getJSONObject("headers").getString("x-fleet-actor").isEmpty(),"authenticated encrypted response identifies current account/security revision");
+   check(!call("/api/status","GET",null,false,null).getJSONObject("headers").has("x-fleet-actor"),"principal cannot leak into a later public request");
    JSONObject created=call("/api/admin/employees","POST",new JSONObject().put("fullName","Δοκιμή διανομέα").put("username","rider.fixture").put("password","Rider-Fixture-2026!").put("role","employee"),false,token);check(created.getInt("status")==201,"actual staff mutation "+created);
    String riderId=new JSONObject(created.getString("body")).getJSONObject("employee").getString("id");
    String operation=java.util.UUID.randomUUID().toString();JSONObject noLogin=new JSONObject().put("fullName","Συνθετική καταχώριση").put("loginEnabled",false);
