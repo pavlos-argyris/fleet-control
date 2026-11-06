@@ -1,3 +1,7 @@
+## #59 — REAL Workerd regression correction — 06/11/2026
+
+- Το exact full CI `42192001709` στο `cc2fd1f26f192a85db9758d81c32e7705b8c4f79` απέτυχε επειδή το Workerd/D1 επέστρεψε σωστά `real_one.decimal='1.0'`, αλλά το test είχε διπλό escape σε regex και έψαχνε αντί για τελεία την ακολουθία backslash+οποιοδήποτε. Fast `42192001673` SUCCESS. Η assertion αντικαταστάθηκε με σαφή `includes('.')` και απαιτείται νέο exact full CI. Καμία αλλοίωση δεδομένων ή παραγωγική ενεργοποίηση.
+
 ## #59 — frozen export REAL storage-class preservation — 06/11/2026
 
 - Από επιβεβαιωμένο `ace548611424f150388efb02b1674f1ecb006d18` στο ίδιο draft PR #73, προστέθηκε typed REAL descriptor στον Worker frozen export v3: SQLite `typeof(real)` και `printf('%!.17g',...)` διατηρούν την binary64 τιμή και τον τύπο ακόμη για `1.0` που το JSON θα έκανε INTEGER. Ο native decoder απορρίπτει untyped doubles, malformed/NaN/overflow REAL και διαβάζει μόνο πεπερασμένα typed REAL. Workerd/D1 και Java tests περιλαμβάνουν 1.0, 0.1 και 1e-300, χωρίς παραγωγικά δεδομένα.

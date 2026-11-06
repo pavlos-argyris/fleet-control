@@ -75,7 +75,7 @@ try{
    assert.equal(meta(name).type,'real');
    assert.equal(Number(meta(name).decimal),number,'REAL binary64 round-trip: '+name);
  }
- assert.match(meta('real_one').decimal,/\\./,'REAL 1.0 retains storage class');
+ assert(meta('real_one').decimal.includes('.'),'REAL 1.0 retains storage class');
  assert.equal(typedRow.small_blob,null);assert.equal(meta('small_blob').type,'blob');assert.equal(meta('small_blob').bytes,4);
  assert.equal(typedRow.empty_blob,null);assert.equal(meta('empty_blob').type,'blob');assert.equal(meta('empty_blob').bytes,0);
  assert.equal(typedRow.null_blob,null);assert.equal(meta('null_blob'),undefined,'SQL NULL is not an empty BLOB');
