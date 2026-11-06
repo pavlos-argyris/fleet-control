@@ -85,7 +85,19 @@ public final class BusinessFeatureChecks {
         health=new JSONObject().put("at","2026-11-05T12:00:00Z").put("serverLastSeenAt","2026-11-05T12:00:00Z").put("ordexaLastSuccessAt","2026-11-04T00:00:00Z").put("storesLastSuccessAt","2026-11-05T12:00:00Z").put("backupLastVerifiedRestoreAt","2026-11-04T12:00:00Z").put("outboxPending",0).put("freeBytes",1024L*1024*1024).put("password","MUST_NOT_EXPORT").put("rawError","MUST_NOT_EXPORT").put("username","MUST_NOT_EXPORT").put("versions",new JSONObject().put("server","fixture").put("business","fixture"));
         JSONObject first=body(call("/api/native/health","GET",null,owner),200);check(first.getJSONArray("incidents").length()==1&&first.getJSONObject("d1").getString("status").equals("unknown"),"health uses real evidence and never fabricates D1 quota");
         JSONObject incident=first.getJSONArray("incidents").getJSONObject(0);body(call("/api/native/health","GET",null,owner),200);check(count(sql,"native_health_incidents")==1,"repeated observations coalesce into one incident");
-        JSONObject ack=body(call("/api/native/health/ack","POST",new JSONObject().put("id",incident.getString("id")).put("generation",incident.getInt("generation")).put("notes","MUST_NOT_EXPORT"),owner),200);check(ack.getBoolean("acknowledged")&&!ack.getBoolean("resolved"),"acknowledgement does not claim repair");
+        JSONObject ackRequest=new JSONObject().put("id",incident.getString("id")).put("generation",incident.getInt("generation")).put("notes","MUST_NOT_EXPORT");
+        JSONObject ack=body(call("/api/native/health/ack","POST",ackRequest,owner),200);
+        check(ack.getBoolean("acknowledged")&&!ack.getBoolean("resolved"),"acknowledgement does not claim repair");
+        JSONObject repeated=new JSONObject(ackRequest.toString()).put("notes","MUST_NOT_REPLACE");
+        check(body(call("/api/native/health/ack","POST",repeated,owner),200).getBoolean("acknowledged"),"duplicate acknowledgement is idempotent");
+        JSONObject storedAck=sql.call("sql.query",new JSONObject().put("sql","SELECT notes,ack_by,ack_at FROM native_health_incidents WHERE id=?")
+            .put("params",new JSONArray().put(incident.getString("id")))).getJSONArray("results").getJSONObject(0);
+        check(storedAck.getString("notes").equals("MUST_NOT_EXPORT")&&storedAck.getString("ack_by").length()>0
+            &&storedAck.getString("ack_at").length()>0,"second acknowledgement cannot replace the original actor, time or note");
+        check(call("/api/native/health/ack","POST",new JSONObject().put("id",incident.getString("id")).put("generation",0),owner).getInt("status")==400,
+            "invalid generation is rejected before any health mutation");
+        check(call("/api/native/health/ack","POST",new JSONObject().put("id",incident.getString("id")).put("generation",incident.getInt("generation")+1),owner).getInt("status")==409,
+            "stale health generation cannot acknowledge a different incident");
         health.put("ordexaLastSuccessAt",JSONObject.NULL);JSONObject unknown=body(call("/api/native/health","GET",null,owner),200);check(!unknown.getJSONArray("incidents").getJSONObject(0).getBoolean("resolved"),"unknown measurement cannot resolve a real outage");
         health.put("ordexaLastSuccessAt","2026-11-05T12:00:00Z");JSONObject healthy=body(call("/api/native/health","GET",null,owner),200);check(healthy.getJSONArray("incidents").getJSONObject(0).getBoolean("resolved"),"known healthy evidence resolves the incident");
         health.put("ordexaLastSuccessAt","2026-11-04T00:00:00Z");JSONObject again=body(call("/api/native/health","GET",null,owner),200);check(again.getJSONArray("incidents").length()==2&&!again.getJSONArray("incidents").getJSONObject(0).getBoolean("acknowledged"),"recurrence has a new generation and new acknowledgement");
