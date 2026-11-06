@@ -1,3 +1,8 @@
+## #60 — isolated native cash assessment/receipt domain guard — 06/11/2026 19:00 Αθήνας (σε εξέλιξη)
+
+- Νέος απομονωμένος branch `codex/issue60-cash-domain-guard-20261106` από το επιβεβαιωμένο PR #73 HEAD `e7305d816d7415e04c9d158112aabdadfe694098`, χωρίς εγγραφή στον κοινό ενεργό κλάδο #73 ή στο #74. Το exact Fast 42238887492 και full 42238887541 στο αρχικό HEAD ήταν SUCCESS· #74 Fast42248412577 και full42248412576 SUCCESS στο δικό του SHA. Παραμένουν draft/χωρίς deploy.
+- Αποκλειστικό scope: πραγματικό SQLite trigger domain validation για νέες cash assessment/receipt κινήσεις (ποσότητα×τιμή=ποσό, μη κενό κατάστημα/κατηγορία, καθαρό receipt), με απομονωμένα SQLite tests. Δεν αλλάζουν ήδη καταχωρισμένα οικονομικά δεδομένα, μισθοδοσία ή authority. Έπειτα exact-head CI, draft PR με base τον integration branch #73 και καταγραφή εκκρεμοτήτων.
+
 ## Ενεργή συνέχεια — native Host/service και μεγάλα δεδομένα — 06/11/2026
 
 - Συνέχεια στο ίδιο draft PR #73 / `codex/roadmap-integration-fleet-561`, από αποθηκευμένο `950cb2226f02a8034750f6d12d04dfa621f58fdd`. Fast42235386512 SUCCESS, full42235386501 FAILED στο ακριβές version assertion: diagnostics workerVersion5.18.3 αλλά release-config5.18.4. Διορθώθηκε μαζί με το νέο candidate Worker5.18.5 (package/lock/diagnostics), Server2.10.7(61), κοινή5.61.0. Δεν χαλάρωσε assertion.
