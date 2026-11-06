@@ -148,7 +148,7 @@
           <div id="backupLiveBar" class="ota-progress" role="progressbar" aria-label="Πρόοδος backup" aria-valuemin="0" aria-valuemax="100"><span id="backupLiveFill"></span></div>
           <p id="backupProgressDetail"></p><p id="backupProgressTiming"></p><p id="backupProgressSafety"></p><p id="backupProgressError" class="backup-health-warning" role="status"></p>
           <div class="dialog-buttons"><button id="retryBackupExport" class="secondary-action" type="button" hidden="">Επανάληψη αποστολής</button></div>
-          <small>Το ποσοστό αφορά τα στάδια προετοιμασίας και εγγραφής, όχι εκτίμηση του χρόνου που απομένει. Το 100% εμφανίζεται αφού ολοκληρωθεί η εγγραφή και των δύο αρχείων.</small>
+          <small>Το ποσοστό αφορά τα στάδια προετοιμασίας και εγγραφής, όχι εκτίμηση του χρόνου που απομένει. Το 100% εμφανίζεται αφού ολοκληρωθεί η εγγραφή όλων των συνοδευτικών αρχείων.</small>
         </article>
         <button id="backupNow" class="primary-action" type="button">Δημιουργία backup τώρα</button>
         <details class="server-group" id="portableBackupSettings"><summary><span><strong>Κωδικός ανάκτησης</strong><small>Άνοιγμα αντιγράφων και σε άλλο κινητό Server</small></span></summary><div class="server-group-body"><p id="portableBackupState" role="status">Φόρτωση προστασίας…</p><button id="configurePortableBackup" type="button" class="secondary-action">Ρύθμιση κωδικού</button><p>Κράτησε τον κωδικό εκτός κινητού. Αν αλλάξει, τα παλαιότερα αντίγραφα χρειάζονται τον παλιό κωδικό. Για ανάκτηση πλήρους κύριας βάσης χρειάζονται μαζί τα αρχεία .fcbackup, .fcdb και, όταν υπάρχουν τιμολόγια, .fcdocs.</p></div></details>
@@ -275,6 +275,8 @@
   <script src="./backup-protection.js"></script>
   <script src="./server-diagnostics.js"></script>
   <script src="./server-authority.js"></script>
+  <script src="./server-primary.js"></script>
+  <script src="./server-recovery.js"></script>
   <script src="./ordexa-server.js"></script>
   <script src="./server-ui.js"></script>
 

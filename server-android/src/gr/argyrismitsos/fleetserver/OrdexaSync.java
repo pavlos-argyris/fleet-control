@@ -17,6 +17,7 @@ public final class OrdexaSync {
     private static final java.util.concurrent.atomic.AtomicBoolean running=new java.util.concurrent.atomic.AtomicBoolean();
     private static final Object authLock=new Object();
     private static SharedPreferences prefs(Context c){return c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);}
+    static void clearForRecovery(Context c)throws Exception{if(!prefs(c).edit().clear().putString("auth_state","unconfigured").commit())throw new java.io.IOException("Δεν ακυρώθηκε η παλιά τοπική συνεδρία Ordexa.");}
     private static void begin()throws Exception{if(!running.compareAndSet(false,true))throw new Exception("Υπάρχει ήδη ενέργεια Ordexa σε εξέλιξη. Περίμενε να ολοκληρωθεί.");}
     private static javax.crypto.SecretKey key()throws Exception{
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");store.load(null);

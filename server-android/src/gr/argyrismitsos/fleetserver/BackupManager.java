@@ -125,7 +125,7 @@ public final class BackupManager {
     }
 
     private static JSONObject readBackupRoot(Context context,Uri uri)throws Exception{return readBackupRoot(context,uri,null);}
-    private static JSONObject readBackupRoot(Context context,Uri uri,String password)throws Exception{
+    static JSONObject readBackupRoot(Context context,Uri uri,String password)throws Exception{
         InputStream raw=context.getContentResolver().openInputStream(uri);if(raw==null)throw new IllegalArgumentException("Το αρχείο backup δεν είναι διαθέσιμο.");
         java.io.PushbackInputStream input=new java.io.PushbackInputStream(new java.io.BufferedInputStream(raw),5);File plain=null;JSONObject root;boolean portable=false;
         try{
@@ -192,7 +192,7 @@ public final class BackupManager {
 
     public static synchronized JSONObject verifyBackup(Context context,Uri uri)throws Exception{return verifyBackup(context,uri,null);}
     public static synchronized JSONObject verifyBackup(Context context,Uri uri,String password)throws Exception{return verifyBackup(context,uri,readBackupRoot(context,uri,password),password);}
-    private static NativeBackupReader.Prepared readNative(final Context context,final Uri uri,JSONObject root,final String password)throws Exception{
+    static NativeBackupReader.Prepared readNative(final Context context,final Uri uri,JSONObject root,final String password)throws Exception{
         try(final BackupEnvelope envelope=BackupEnvelope.open(context)){
             return NativeBackupReader.open(root,context.getCacheDir(),new NativeBackupReader.Source(){public InputStream open(String kind)throws Exception{Uri sibling=findSiblingPart(context,uri,kind);return sibling==null?null:context.getContentResolver().openInputStream(sibling);}},new NativeBackupReader.Decoder(){public File decrypt(InputStream input,File file,String kind)throws Exception{return envelope.decrypt(input,file,kind,password);}});
         }

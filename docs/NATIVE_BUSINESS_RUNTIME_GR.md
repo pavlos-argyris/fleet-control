@@ -137,3 +137,11 @@ resolution αποθηκεύονται χωριστά, επανεμφάνιση �
 Μεγάλη JSON απάντηση μεταφέρεται μέσω actor/generation/current-security-bound response handle και262KiB chunks με SHA. Η native text ανάγνωση αποφεύγει το hex materialization. Upload/bodyFile/form/download handles επανελέγχουν το ίδιο fingerprint της τρέχουσας εγγραφής λογαριασμού/δικαιωμάτων σε κάθε αίτημα. Η αποδέσμευση handle δεν διαγράφει το immutable private document.
 
 Η τοπική παρεμβολή HTTP και η διακοπή legacy mirror/direct δεν ενεργοποιούν από μόνες τους migration: ο native controller, η πραγματική ανάκτηση και ο Client/Web fetch adapter παραμένουν επόμενες εργασίες πριν από παραγωγική ενεργοποίηση. Δεν έγινε παραγωγική μεταφορά ή restore.
+
+## Ελεγχόμενη μετάβαση και cold recovery — 06/11/2026
+
+Η νέα native ροή εκτελεί fence, source comparison, canonical promotion, πλήρη ιδιωτικά αρχεία, πραγματικό προστατευμένο backup/isolated restore και signed probe πριν ενεργοποίηση. Το ίδιο durable evidence επαναλαμβάνει μόνο την τελική ενεργοποίηση όταν χάθηκε η απάντηση. Τα απαιτούμενα tables προέρχονται από το pinned runtime manifest. Άγνωστο schema, source drift, missing referenced PDFs, αποτυχία hash/backup/probe αποκλείουν activation.
+
+Η παραγωγική ανάκτηση προετοιμάζει αποκρυπτογραφημένη authenticated SQLite και όλα τα αρχεία σε ιδιωτικό χώρο, με keys/root capabilities μόνο σε χωριστό Android-sealed pending record. Το journal περιέχει manifest/hash/transaction ID. Η επόμενη εκκίνηση σταματά πριν ανοίξει ο κανονικός helper, και responsive native screen εφαρμόζει σε background συνεπή αλλαγή directories main/WAL/SHM και docs. Process death συνεχίζει από journal· ordinary failure αποκαθιστά original directories και private settings. Η νέα συσκευή μένει recovering μέχρι νέο verified backup και remote handoverfinish.
+
+Οι πραγματικοί JVM/filesystem/SQLite/encrypted-bundle έλεγχοι καλύπτουν migration και20 cold interruption scenarios. Android Keystore, directory fsync και helper-process restart απαιτούν πραγματική συσκευή. Client/Web transport και νέα οικονομικά/health UI παραμένουν υπό ανάπτυξη· η παρούσα καταγραφή δεν ισοδυναμεί με παραγωγική ενεργοποίηση.

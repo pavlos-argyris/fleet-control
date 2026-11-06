@@ -1,0 +1,74 @@
+package gr.argyrismitsos.fleetserver;
+import android.content.Context;import android.database.sqlite.*;import org.json.*;import java.io.*;import java.nio.file.*;import java.util.*;
+
+/** Actual typed SQLite import, production runtime schema, private PDFs and encrypted isolated recovery. */
+public final class NativeMigrationFlowTest {
+    static SQLiteDatabase source,target;static BusinessSqlite sql;static JSONObject identity,inventory,manifest,lastBackup;static NativeBusinessEngine engine;static Context context;static File sourceFiles,bundle;static String code;static int prepareCount,backupCount,activateCount,probeCount;static boolean active;
+    static final String REALM="https://fleet.fixture.invalid",GEN="99999999-1111-4111-8111-111111111111",PEPPER="ppppppppppppppppppppppppppppppppppppppppppp";
+    static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
+    static JSONArray query(String statement,Object...args)throws Exception{return sql.call("sql.query",new JSONObject().put("sql",statement).put("params",new JSONArray(Arrays.asList(args)))).getJSONArray("results");}
+    static JSONObject table(String name)throws Exception{JSONArray tables=inventory.getJSONArray("tables");for(int i=0;i<tables.length();i++)if(tables.getJSONObject(i).getString("name").equals(name))return tables.getJSONObject(i);throw new IOException("unknown source table");}
+    static Map<String,String> params(String path)throws Exception{Map<String,String> result=new HashMap<>();int at=path.indexOf('?');if(at>=0)for(String part:path.substring(at+1).split("&")){String[] pair=part.split("=",2);result.put(pair[0],java.net.URLDecoder.decode(pair[1],"UTF-8"));}return result;}
+    static JSONObject page(String path)throws Exception{
+        Map<String,String> params=params(path);String name=params.get("table");JSONObject info=table(name);long after=Long.parseLong(params.get("after"));int limit=Integer.parseInt(params.get("limit"));JSONArray raw=query("SELECT rowid _primaryRowid,* FROM \""+name+"\" WHERE rowid>? ORDER BY rowid LIMIT ?",after,limit),rows=new JSONArray();JSONArray columns=info.getJSONArray("columns");
+        for(int i=0;i<raw.length();i++){JSONObject original=raw.getJSONObject(i),row=new JSONObject().put("_primaryRowid",original.getLong("_primaryRowid"));JSONArray markers=new JSONArray();for(int c=0;c<columns.length();c++){String column=columns.getJSONObject(c).getString("name");Object value=original.get(column),marker=JSONObject.NULL;
+            if(value instanceof Double||value instanceof Float){marker=new JSONObject().put("name",column).put("type","real").put("decimal",value.toString());value=JSONObject.NULL;}
+            else if(value instanceof Number&&Math.abs(((Number)value).longValue())>9007199254740991L){marker=new JSONObject().put("name",column).put("type","integer").put("decimal",value.toString());value=JSONObject.NULL;}
+            else if(value instanceof JSONArray){JSONArray bytes=(JSONArray)value;StringBuilder hex=new StringBuilder();for(int b=0;b<bytes.length();b++){int n=bytes.getInt(b)&255;hex.append(Character.forDigit(n>>>4,16)).append(Character.forDigit(n&15,16));}marker=new JSONObject().put("name",column).put("type","blob").put("bytes",bytes.length()).put("hex",hex.toString());value=JSONObject.NULL;}
+            row.put(column,value);markers.put(marker);
+        }row.put("_primaryOversize",markers.toString());rows.put(row);}
+        long next=rows.length()==0?after:rows.getJSONObject(rows.length()-1).getLong("_primaryRowid");return new JSONObject().put("schemaVersion",3).put("generation",GEN).put("table",name).put("rows",rows).put("next",next).put("hasMore",next<info.getLong("lastRow"));
+    }
+    static JSONArray objects()throws Exception{
+        JSONArray rows=query("SELECT * FROM native_objects WHERE deleted_at IS NULL ORDER BY key"),result=new JSONArray();for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);result.put(new JSONObject().put("key",row.getString("key")).put("size",row.getLong("size")).put("etag",row.getString("sha256")).put("httpMetadata",new JSONObject(row.getString("http_metadata"))).put("customMetadata",new JSONObject(row.getString("custom_metadata"))));}return result;
+    }
+    static NativeMigrationCoordinator.Cloud cloud=new NativeMigrationCoordinator.Cloud(){
+        public JSONObject json(String path,String method,JSONObject body)throws Exception{
+            if(path.equals("/prepare")){prepareCount++;check(body.getString("username").equals("synthetic.owner")&&body.getString("password").equals("synthetic-owner-password"),"only flat owner credentials are sent");check(!body.has("privateKey")&&!body.has("nativeRecovery")&&!body.has("recoveryToken"),"private identity/root never reaches cloud control");return new JSONObject().put("mode","preparing").put("fenced",true).put("generation",GEN).put("realm",REALM).put("publicKey",identity.getString("publicKey")).put("publicSalt",identity.getString("publicSalt"));}
+            if(path.equals("/seed"))return new JSONObject().put("schemaVersion",1).put("realm",REALM).put("generation",GEN).put("publicKey",identity.getString("publicKey")).put("publicSalt",identity.getString("publicSalt")).put("ownerId",query("SELECT id FROM app_users WHERE role='owner' LIMIT 1").getJSONObject(0).getString("id")).put("authPepper",PEPPER).put("eventSigningKey","fixture-events-at-least-thirty-two-bytes");
+            if(path.equals("/inventory"))return inventory;
+            if(path.startsWith("/rows?"))return page(path);
+            if(path.equals("/objects"))return new JSONObject().put("objects",objects()).put("cursor",JSONObject.NULL);
+            if(path.equals("/activate")){activateCount++;check(backupCount==1&&probeCount>=1&&lastBackup.getJSONObject("nativeProof").getBoolean("restoreVerified"),"activation follows actual encrypted backup/isolated recovery and signed-probe port");check(body.getBoolean("restoreVerified")&&body.getBoolean("documentsVerified"),"proof gates forwarded");active=true;if(activateCount==1)throw new IOException("synthetic lost activation ACK");return new JSONObject().put("active",true).put("generation",GEN).put("contentHash",body.getString("contentHash"));}
+            throw new IOException("unexpected cloud migration path "+path);
+        }
+        public void document(JSONObject file,File destination)throws Exception{JSONObject original=query("SELECT local_name FROM native_objects WHERE key=?",file.getString("key")).getJSONObject(0);Files.copy(new File(sourceFiles,original.getString("local_name")).toPath(),destination.toPath(),StandardCopyOption.REPLACE_EXISTING);}
+        public void signedProbe(JSONObject value)throws Exception{probeCount++;check(value.getString("generation").equals(GEN),"probe uses exactly prepared identity");}
+    };
+    static NativeMigrationCoordinator.Steps steps=new NativeMigrationCoordinator.Steps(){
+        public JSONObject initialBackup(){return new JSONObject().put("localReady",true).put("workforceIncluded",true).put("missingDocuments",0);}
+        public JSONObject initialize(JSONObject value)throws Exception{
+            target.execSQL("CREATE TABLE IF NOT EXISTS store_billing_local(id TEXT PRIMARY KEY,kind TEXT NOT NULL,scope TEXT NOT NULL,store_id TEXT NOT NULL DEFAULT '',day TEXT NOT NULL DEFAULT '',data TEXT NOT NULL,dirty INTEGER NOT NULL DEFAULT 1)");target.execSQL("INSERT OR IGNORE INTO store_billing_local VALUES('local-original','order','local-scope','','','{\"retained\":true}',1)");
+            engine=new NativeBusinessEngine(target,new File(context.getFilesDir(),"service-documents"),new File(context.getCacheDir(),"transfers"),new JSONObject(value.toString()).put("serverKey","fixture-server-at-least-thirty-two-bytes"),code,manifest.getString("bundleSha256"),new NativeBusinessEngine.Authority(){public void beforeRequest(JSONObject r,boolean i){}public void beforeCommit(JSONObject r,boolean i){}},(command,data,objects)->{throw new IOException("unexpected Android port "+command);});
+            JSONObject response=engine.request(new JSONObject().put("url",REALM+"/api/status").put("method","GET").put("headers",new JSONObject().put("X-Fleet-Server-Key","fixture-server-at-least-thirty-two-bytes")),true,30000);check(response.getInt("status")==200,"production pinned runtime initializes target schema");return manifest;
+        }
+        public JSONObject verifiedBackup()throws Exception{
+            backupCount++;String id=UUID.randomUUID().toString();JSONObject recovery=new JSONObject().put("schemaVersion",1).put("realm",REALM).put("authPepper",PEPPER).put("recoveryToken",identity.getString("recoveryToken")).put("ownerId",identity.getString("ownerId")).put("sourceGeneration",GEN).put("sourceFingerprint","a".repeat(64));
+            try(BackupEnvelope envelope=new BackupEnvelope(PortableBackupCipher.create("Synthetic migration recovery code 2026!"),new byte[32])){lastBackup=NativeBackupBuilder.prepare(context,target,bundle,id,new JSONObject().put("workerUrl",REALM),recovery,envelope,(label,done,total)->{}).put("id",id);return lastBackup;}
+        }
+        public boolean backupStillValid(JSONObject evidence)throws Exception{return lastBackup!=null&&lastBackup.getString("id").equals(evidence.getString("backupJobId"))&&NativeDatabaseSnapshot.digest(new File(bundle,lastBackup.getString("dataPath"))).equals(evidence.getString("manifestSha256"));}
+        public void saveIdentity(JSONObject value){identity=value;}
+        public void progress(String label){}
+    };
+    public static void main(String[] args)throws Exception{
+        source=new SQLiteDatabase(args[0]);sql=new BusinessSqlite(source);code=new String(Files.readAllBytes(Paths.get(args[1])),"UTF-8");manifest=new JSONObject(new String(Files.readAllBytes(Paths.get(args[2])),"UTF-8"));context=new Context(args[3]);sourceFiles=new File(args[4]);bundle=new File(context.getFilesDir(),"safe-backups");bundle.mkdirs();com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(new Context(args[5]));
+        target=new SQLiteDatabase(new File(context.getFilesDir(),"migrated.sqlite").getPath());
+        try{
+            JSONArray tables=new JSONArray(),required=manifest.getJSONArray("requiredMigrationTables");
+            for(int t=0;t<required.length();t++){String name=required.getString(t);JSONArray columns=query("PRAGMA table_info(\""+name+"\")");check(columns.length()>0,"actual required source table exists "+name);JSONObject count=query("SELECT COUNT(*) n,COALESCE(MAX(rowid),0) last FROM \""+name+"\"").getJSONObject(0);JSONArray schema=new JSONArray();for(int c=0;c<columns.length();c++){JSONObject column=columns.getJSONObject(c);schema.put(new JSONObject().put("name",column.getString("name")).put("type",column.getString("type")).put("notnull",column.getInt("notnull")).put("pk",column.getInt("pk")));}tables.put(new JSONObject().put("name",name).put("columns",schema).put("rows",count.getLong("n")).put("lastRow",count.getLong("last")));}
+            inventory=new JSONObject().put("schemaVersion",3).put("realm",REALM).put("generation",GEN).put("tables",tables);
+            identity=new JSONObject().put("realm",REALM).put("generation",GEN).put("publicKey","p".repeat(122)).put("publicSalt","s".repeat(43)).put("migrationTicket","t".repeat(43)).put("recoveryToken","r".repeat(43));
+            boolean lost=false;try{NativeMigrationCoordinator.migrate(target,identity,new JSONObject().put("username","synthetic.owner").put("password","synthetic-owner-password"),context.getCacheDir(),new File(context.getFilesDir(),"service-documents"),cloud,steps);}catch(IOException expected){check(expected.getMessage().contains("lost activation"),"only the intended final ACK is lost: "+expected);lost=true;}
+            check(lost&&active&&NativePrimaryState.read(target).getString("phase").equals("prepared"),"lost cloud activation ACK does not falsely activate native writer");check(backupCount==1&&lastBackup.getJSONObject("nativeProof").getBoolean("documentsVerified"),"complete real FCB3 bundle and isolated SQLite/private-file recovery before activation");
+            JSONObject result=NativeMigrationCoordinator.migrate(target,identity,new JSONObject(),context.getCacheDir(),new File(context.getFilesDir(),"service-documents"),cloud,steps);check(result.getBoolean("active")&&NativePrimaryState.read(target).getString("phase").equals("active"),"same evidence safely finishes an unknown activation");check(prepareCount==1&&backupCount==1&&activateCount==2,"resume neither re-imports nor reissues owner authentication/backup");
+            BusinessSqlite targetSql=new BusinessSqlite(target);JSONObject raw=targetSql.call("sql.query",new JSONObject().put("sql","SELECT data FROM store_billing_local WHERE id='local-original'")).getJSONArray("results").getJSONObject(0);check(raw.getString("data").equals("{\"retained\":true}"),"raw local order ledger preserved by full promotion");check(targetSql.call("sql.query",new JSONObject().put("sql","SELECT COUNT(*) n FROM auth_sessions")).getJSONArray("results").getJSONObject(0).getInt("n")==0,"all imported sessions invalidated");
+            check(targetSql.call("sql.query",new JSONObject().put("sql","SELECT COUNT(*) n FROM native_objects WHERE deleted_at IS NULL")).getJSONArray("results").getJSONObject(0).getInt("n")==objects().length(),"every actual source PDF was copied into private immutable storage");
+            File restored=new File(context.getCacheDir(),"cold-source.sqlite");
+            try(BackupEnvelope envelope=new BackupEnvelope(PortableBackupCipher.create("Synthetic migration recovery code 2026!"),new byte[32])){
+                File rootFile=new File(context.getCacheDir(),"cold-root.json");envelope.decrypt(new FileInputStream(new File(bundle,lastBackup.getString("dataPath"))),rootFile,"data","Synthetic migration recovery code 2026!");JSONObject root=new JSONObject(new String(Files.readAllBytes(rootFile.toPath()),"UTF-8"));envelope.decrypt(new FileInputStream(new File(bundle,lastBackup.getString("databasePath"))),restored,"database","Synthetic migration recovery code 2026!");
+                NativeColdRestoreChecks.run(new File(context.getCacheDir(),"cold-cases"),restored,root.getJSONObject("nativeDatabase"),new File(context.getFilesDir(),"service-documents"),identity.getString("ownerId"));
+            }
+            System.out.println("PASS production migration coordinator with actual pinned shared schema, every required typed source table, source digest/promotion, original private PDFs, real three-part FCB3/isolated recovery, retained local orders, revoked sessions and lost activation ACK/resume. Cloud control/probe are explicit test ports; real DO/TLS proofs run separately.");
+        }finally{if(engine!=null)engine.close();target.close();source.close();}
+    }
+}

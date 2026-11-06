@@ -28,7 +28,7 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
     private volatile Thread businessThread;
     private NativeBusinessEngine engine;
     private NativePrimaryGuard guard;
-    private String engineGeneration="";
+    private String engineGeneration="",engineConfiguration="";
     private NativePrimaryService(Context context){this.context=context;store=new FleetDataStore(context);heartbeat.scheduleWithFixedDelay(new Runnable(){public void run(){tick();}},1,10,TimeUnit.SECONDS);}
     private SharedPreferences prefs(){return context.getSharedPreferences(BackupManager.PREFS,Context.MODE_PRIVATE);}
     private static String origin(URL url)throws Exception{if(!url.getProtocol().equals("https")||url.getUserInfo()!=null||url.getRef()!=null)throw new IOException("Χρειάζεται έγκυρη διεύθυνση HTTPS Fleet.");return "https://"+url.getHost()+(url.getPort()<0||url.getPort()==443?"":":"+url.getPort());}
@@ -49,11 +49,11 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
     }
     private String asset(String name)throws Exception{try(InputStream input=context.getAssets().open("business-runtime/"+name);ByteArrayOutputStream output=new ByteArrayOutputStream()){byte[] buffer=new byte[65536];int n;while((n=input.read(buffer))!=-1){if(output.size()+n>8*1024*1024)throw new IOException("Μη έγκυρος ενσωματωμένος κώδικας.");output.write(buffer,0,n);}return new String(output.toByteArray(),"UTF-8");}}
     private void engine(JSONObject identity)throws Exception{
-        String gen=identity.getString("generation");if(engine!=null&&gen.equals(engineGeneration))return;if(engine!=null)engine.close();
+        String gen=identity.getString("generation"),configuration=BusinessRuntime.sha256((identity.getString("realm")+"|"+gen+"|"+identity.getString("authPepper")+"|"+identity.optString("eventSigningKey")).getBytes("UTF-8"));if(engine!=null&&configuration.equals(engineConfiguration))return;if(engine!=null)engine.close();
         guard=new NativePrimaryGuard(store.getWritableDatabase(),lease,identity.getString("realm"),gen);
         JSONObject config=new JSONObject(identity.toString()).put("serverKey",ServerConfig.SERVER_KEY);
         JSONObject manifest=new JSONObject(asset("manifest.json"));
-        engine=new NativeBusinessEngine(store.getWritableDatabase(),new File(context.getFilesDir(),"service-documents"),new File(context.getCacheDir(),"business-files"),config,asset("runtime.js"),manifest.getString("bundleSha256"),guard,new NativeBusinessEngine.Ports(){public JSONObject call(String command,JSONObject value,BusinessObjects objects)throws Exception{return port(command,value,objects);}});engineGeneration=gen;
+        engine=new NativeBusinessEngine(store.getWritableDatabase(),new File(context.getFilesDir(),"service-documents"),new File(context.getCacheDir(),"business-files"),config,asset("runtime.js"),manifest.getString("bundleSha256"),guard,new NativeBusinessEngine.Ports(){public JSONObject call(String command,JSONObject value,BusinessObjects objects)throws Exception{return port(command,value,objects);}});engineGeneration=gen;engineConfiguration=configuration;
     }
     private JSONObject port(String command,JSONObject value,BusinessObjects objects)throws Exception{
         if(command.equals("store.context")){

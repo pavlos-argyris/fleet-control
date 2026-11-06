@@ -7,7 +7,7 @@ export function businessSqliteFixture(dir){
 c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True,isolation_level=None) if len(sys.argv)>2 and sys.argv[2]=='ro' else sqlite3.connect(sys.argv[1],isolation_level=None)
 for line in sys.stdin:
  try:
-  q=json.loads(line);r=c.execute(q['sql'],q.get('args',[]))
+  q=json.loads(line);r=c.execute(q['sql'],[sqlite3.Binary(bytes((int(x)&255) for x in v)) if isinstance(v,list) else (float(v['__fleet_sqlite_real__']) if isinstance(v,dict) and set(v)=={'__fleet_sqlite_real__'} else v) for v in q.get('args',[])])
   rows=[[{'$blob':base64.b64encode(v).decode()} if isinstance(v,bytes) else v for v in row] for row in r.fetchall()]
   print(json.dumps({'rows':rows,'columns':[v[0] for v in r.description] if r.description else []},ensure_ascii=False),flush=True)
  except Exception as e:print(json.dumps({'error':str(e)}),flush=True)
@@ -15,6 +15,7 @@ for line in sys.stdin:
  write('Cursor.java',String.raw`package android.database;import org.json.*;public class Cursor{
  public static final int FIELD_TYPE_NULL=0,FIELD_TYPE_INTEGER=1,FIELD_TYPE_FLOAT=2,FIELD_TYPE_STRING=3,FIELD_TYPE_BLOB=4;public static int opened,largeRows;protected final JSONArray rows,columns;protected int at=-1;
  public Cursor(JSONObject result){rows=result.getJSONArray("rows");columns=result.getJSONArray("columns");opened++;}
+ public int getInt(int i){return (int)getLong(i);}public boolean isNull(int i){return value(i)==JSONObject.NULL;}
  public String[] getColumnNames(){String[] c=new String[columns.length()];for(int i=0;i<c.length;i++)c[i]=columns.getString(i);return c;}
  public int getColumnCount(){return columns.length();}public int getCount(){return rows.length();}
  public boolean moveToFirst(){at=-1;return moveToNext();}public boolean moveToNext(){if(++at>=rows.length())return false;long bytes=0;JSONArray row=rows.getJSONArray(at);for(int i=0;i<row.length();i++)bytes+=String.valueOf(row.get(i)).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;if(bytes>2*1024*1024){largeRows++;throw new android.database.sqlite.SQLiteException("Row too big to fit into CursorWindow");}return true;}
@@ -30,7 +31,8 @@ for line in sys.stdin:
  public interface CursorFactory{Cursor newCursor(SQLiteDatabase d,SQLiteCursorDriver driver,String table,SQLiteQuery q);}private final Process child;private final BufferedReader input;private final BufferedWriter output;private boolean transaction,success;public int queries;
  public SQLiteDatabase(String path)throws Exception{this(path,false);}
  public SQLiteDatabase(String path,boolean readonly)throws Exception{child=new ProcessBuilder("python3","-u",System.getProperty("fixture.rpc"),path,readonly?"ro":"rw").redirectError(ProcessBuilder.Redirect.INHERIT).start();input=new BufferedReader(new InputStreamReader(child.getInputStream(),"UTF-8"));output=new BufferedWriter(new OutputStreamWriter(child.getOutputStream(),"UTF-8"));}
- public synchronized JSONObject query(String sql,JSONArray args){try{queries++;output.write(new JSONObject().put("sql",sql).put("args",args).toString());output.newLine();output.flush();JSONObject r=new JSONObject(input.readLine());if(r.has("error"))throw new SQLiteException(r.getString("error"));return r;}catch(IOException e){throw new SQLiteException(e.toString());}}
+ public synchronized JSONObject query(String sql,JSONArray args){try{queries++;JSONArray exact=new JSONArray();for(int i=0;i<args.length();i++){Object v=args.get(i);exact.put(v instanceof Double||v instanceof Float?new JSONObject().put("__fleet_sqlite_real__",v.toString()):v);}args=exact;output.write(new JSONObject().put("sql",sql).put("args",args).toString());output.newLine();output.flush();JSONObject r=new JSONObject(input.readLine());if(r.has("error"))throw new SQLiteException(r.getString("error"));return r;}catch(IOException e){throw new SQLiteException(e.toString());}}
+ public Cursor rawQuery(String sql,String[] args){JSONArray values=new JSONArray();if(args!=null)for(String v:args)values.put(v);return new Cursor(query(sql,values));}
  public Cursor rawQueryWithFactory(CursorFactory f,String sql,String[] args,String editTable){return f.newCursor(this,new SQLiteCursorDriver(){},editTable,new SQLiteQuery(this,sql));}
  public void execSQL(String sql){query(sql,new JSONArray());}public void execSQL(String sql,Object[] args){query(sql,new JSONArray(args));}
  public boolean inTransaction(){return transaction;}public void beginTransaction(){execSQL("BEGIN IMMEDIATE");transaction=true;success=false;}public void setTransactionSuccessful(){success=true;}public void endTransaction(){try{execSQL(success?"COMMIT":"ROLLBACK");}finally{transaction=false;success=false;}}

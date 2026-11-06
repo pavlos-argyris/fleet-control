@@ -25,7 +25,7 @@ public class ContextWrapper extends Context{final Context base;public ContextWra
 public abstract class SQLiteOpenHelper {
  private SQLiteDatabase db;private final Context context;private final String name;
  public SQLiteOpenHelper(Context c,String n,Object factory,int version){context=c;name=n;}
- public SQLiteDatabase getReadableDatabase(){return getWritableDatabase();}
+ public void setWriteAheadLoggingEnabled(boolean enabled){}public SQLiteDatabase getReadableDatabase(){return getWritableDatabase();}
  public SQLiteDatabase getWritableDatabase(){if(db==null){System.setProperty("fixture.db",context.getDatabasePath(name).getPath());db=new SQLiteDatabase();onCreate(db);if(name.startsWith("fleet-recovery-probe-")&&Boolean.getBoolean("fixture.fail.probe"))db.injectedSql="quick_check";}return db;}
  public abstract void onCreate(SQLiteDatabase db);public abstract void onUpgrade(SQLiteDatabase db,int a,int b);public void close(){if(db!=null)db.close();}
 }`);

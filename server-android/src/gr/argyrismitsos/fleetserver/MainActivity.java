@@ -35,6 +35,7 @@ public final class MainActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 205;
     private static final int PICK_BACKUP_VERIFY = 206;
     private static final int PICK_BACKUP_RECOVERY_TEST = 207;
+    private static final int PICK_PRIMARY_RECOVERY = 208;
     private WebView webView;
     private FleetDataStore store;
     private SharedPreferences preferences;
@@ -59,9 +60,12 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(Color.rgb(7, 28, 35));
         getWindow().setNavigationBarColor(Color.rgb(7, 28, 35));
-        store = new FleetDataStore(getApplicationContext());
         preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
         executor = Executors.newSingleThreadExecutor();
+        if(NativeColdRuntime.blocked(this)){
+            NativeRecoveryStartup.show(this,executor,new Runnable(){public void run(){NativePrimaryService.install(getApplicationContext());recreate();}});return;
+        }
+        store = new FleetDataStore(getApplicationContext());
         setDefaults();
         OtaManager.resumeAfterRestart(getApplicationContext());
         requestNotificationPermissionIfNeeded();
@@ -317,6 +321,7 @@ public final class MainActivity extends Activity {
                 if (!dashboardSettingsLoaded || !input.optBoolean("settingsLoaded", false)) throw new IllegalStateException("Οι αποθηκευμένες ρυθμίσεις δεν έχουν φορτωθεί. Δοκίμασε ξανά χωρίς αλλαγή τιμών.");
                 String workerUrl = input.optString("workerUrl", ServerConfig.DEFAULT_WORKER_URL).trim().replaceAll("/+$", "");
                 if (!workerUrl.matches("^https://[^\\s/]+(?:/.*)?$")) throw new IllegalArgumentException("Η διεύθυνση πρέπει να αρχίζει με https://");
+                JSONObject primary=NativePrimaryState.read(store.getReadableDatabase());if(!primary.optString("phase","cloud").equals("cloud")&&!workerUrl.equals(primary.optString("realm")))throw new IllegalStateException("Η διεύθυνση της κύριας βάσης αλλάζει μόνο μέσα από ελεγχόμενη μεταφορά ή ανάκτηση.");
                 String backupFrequency = input.optString("backupFrequency", "daily");
                 if (!"weekdays".equals(backupFrequency) && !"weekly".equals(backupFrequency)) backupFrequency = "daily";
                 boolean saved = preferences.edit()
@@ -413,7 +418,17 @@ public final class MainActivity extends Activity {
                 String password=body.getString("password");if(password.length()<12||password.length()>256)throw new IllegalArgumentException("Ο κωδικός backup χρειάζεται 12 έως 256 χαρακτήρες.");backupRead(uri,operation,password);
             }catch(Exception error){emitError("backupPassword",error.getMessage());}
         }
-        @JavascriptInterface public void cancelBackupPassword(){synchronized(MainActivity.this){backupReadUri=null;backupReadOperation="";backupUnlockId="";backupReadAttempt="";}}
+        @JavascriptInterface public void cancelBackupPassword(){String operation;synchronized(MainActivity.this){operation=backupReadOperation;backupReadUri=null;backupReadOperation="";backupUnlockId="";backupReadAttempt="";}try{emit("backupPasswordCancelled",new JSONObject().put("operation",operation));}catch(Exception ignored){}}
+
+        @JavascriptInterface public String getPrimaryMigrationStatus(){try{return NativeMigrationController.status(getApplicationContext()).toString();}catch(Exception error){return "{\"phase\":\"unknown\",\"error\":\"Δεν διαβάστηκε η κατάσταση της κύριας βάσης.\"}";}}
+        @JavascriptInterface public void startPrimaryMigration(final String value){runTask("primaryMigration",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{if(!dashboardSettingsLoaded)throw new IllegalStateException("Περίμενε να φορτωθούν οι ρυθμίσεις του Server.");return NativeMigrationController.migrate(getApplicationContext(),new JSONObject(value));}});}
+        @JavascriptInterface public void cancelPrimaryMigration(){NativeMigrationController.cancel();}
+        @JavascriptInterface public void abortPrimaryMigration(final String value){runTask("primaryMigrationAbort",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{if(!new JSONObject(value).optBoolean("confirmed"))throw new IllegalStateException("Επιβεβαίωσε την ακύρωση από την οθόνη μεταφοράς.");return NativeMigrationController.abort(getApplicationContext());}});}
+        @JavascriptInterface public String getPrimaryRecoveryStatus(){try{return NativeRecoveryController.status(getApplicationContext()).toString();}catch(Exception error){return "{\"phase\":\"unknown\",\"error\":\"Δεν φορτώθηκε η κατάσταση ανάκτησης.\"}";}}
+        @JavascriptInterface public void choosePrimaryRecoveryFile(){runOnUiThread(new Runnable(){public void run(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType("*/*");intent.addCategory(Intent.CATEGORY_OPENABLE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(intent,PICK_PRIMARY_RECOVERY);}});}
+        @JavascriptInterface public void preparePrimaryRecovery(final String value){runTask("primaryRecoveryPrepare",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return NativeRecoveryController.prepare(getApplicationContext(),new JSONObject(value));}});}
+        @JavascriptInterface public void finishPrimaryRecovery(final String value){runTask("primaryRecoveryFinish",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return NativeRecoveryController.finish(getApplicationContext());}});}
+        @JavascriptInterface public void restartForPrimaryRecovery(){runOnUiThread(new Runnable(){public void run(){try{if(!NativeColdRuntime.core(getApplicationContext()).state().optString("phase").equals("ready"))throw new IllegalStateException();stopServerService();startActivity(new Intent(MainActivity.this,NativeRestartActivity.class).putExtra("previousPid",android.os.Process.myPid()));}catch(Exception error){emitError("primaryRecoveryPrepare","Η επανεκκίνηση δεν είναι ακόμη έτοιμη. Έλεγξε την κατάσταση ανάκτησης.");}}});}
 
         @JavascriptInterface public String getAuthorityStageStatus() {
             try{if(!dashboardSettingsLoaded)throw new IllegalStateException();return ServerAuthorityStage.status(store.getReadableDatabase(),preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL)).toString();}
@@ -568,6 +583,7 @@ public final class MainActivity extends Activity {
             if (requestCode == PICK_WEB_PACKAGE) emitError("webUpload", "Η επιλογή αρχείου ακυρώθηκε.");
             if (requestCode == PICK_BACKUP_VERIFY) emitError("backupVerification", "Ο έλεγχος ακυρώθηκε. Δεν έγινε επαναφορά.");
             if (requestCode == PICK_BACKUP_RECOVERY_TEST) emitError("backupRecoveryTest", "Η δοκιμή ανάκτησης ακυρώθηκε. Τα ενεργά δεδομένα διατηρήθηκαν.");
+            if (requestCode == PICK_PRIMARY_RECOVERY) emitError("primaryRecoveryPreview", "Η επιλογή backup ακυρώθηκε. Δεν έγινε επαναφορά.");
             if (requestCode == PICK_BACKUP_FILE) {
                 pendingRestorePin = "";
                 emitError("backupRestore", "Η επιλογή backup ακυρώθηκε.");
@@ -592,6 +608,8 @@ public final class MainActivity extends Activity {
             backupRead(uri,"backupVerification",null);
         } else if (requestCode == PICK_BACKUP_RECOVERY_TEST) {
             backupRead(uri,"backupRecoveryTest",null);
+        } else if (requestCode == PICK_PRIMARY_RECOVERY) {
+            backupRead(uri,"primaryRecoveryPreview",null);
         } else if (requestCode == PICK_BACKUP_FILE) {
             runTask("backupPreview", new Task() {
                 @Override public JSONObject run() throws Exception {
@@ -613,7 +631,7 @@ public final class MainActivity extends Activity {
         final String attempt=java.util.UUID.randomUUID().toString();synchronized(this){backupReadUri=uri;backupReadOperation=operation;backupUnlockId="";backupReadAttempt=attempt;}
         runTask(operation,attempt,new Task(){public JSONObject run()throws Exception{
             try{
-                JSONObject result="backupRecoveryTest".equals(operation)?BackupManager.testRestoreBackup(getApplicationContext(),uri,password):BackupManager.verifyAndRemember(getApplicationContext(),uri,password);
+                JSONObject result="primaryRecoveryPreview".equals(operation)?NativeRecoveryController.preview(getApplicationContext(),uri,password):"backupRecoveryTest".equals(operation)?BackupManager.testRestoreBackup(getApplicationContext(),uri,password):BackupManager.verifyAndRemember(getApplicationContext(),uri,password);
                 synchronized(MainActivity.this){if(attempt.equals(backupReadAttempt)&&uri.equals(backupReadUri)&&operation.equals(backupReadOperation)){backupReadUri=null;backupReadOperation="";backupUnlockId="";backupReadAttempt="";}}return result;
             }catch(Exception error){
                 if(error instanceof PortableBackupCipher.PasswordRequired||password!=null){
@@ -636,7 +654,7 @@ public final class MainActivity extends Activity {
     }
     private void finishBackNavigation(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
 
-    @Override protected void onResume() { super.onResume(); OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
+    @Override protected void onResume() { super.onResume();if(NativeColdRuntime.blocked(this))return;OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
     @Override protected void onPause() { OtaInstaller.pause(this); super.onPause(); }
 
     @Override

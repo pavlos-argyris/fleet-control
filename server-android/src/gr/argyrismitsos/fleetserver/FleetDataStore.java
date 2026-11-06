@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public final class FleetDataStore extends SQLiteOpenHelper {
+public final class FleetDataStore extends SQLiteOpenHelper implements java.io.Closeable {
     private static final String DB_NAME = "fleet-control-server.db";
     private static final int DB_VERSION = 2;
     private static final int MAX_HISTORY = 500;
@@ -34,6 +34,7 @@ public final class FleetDataStore extends SQLiteOpenHelper {
     // of its open SQLite connection. The caller owns closing and deleting it.
     FleetDataStore(Context context, String databaseName) {
         super(context, databaseName, null, DB_VERSION);
+        setWriteAheadLoggingEnabled(true);
         if (!DB_NAME.equals(databaseName) && !databaseName.matches("fleet-recovery-probe-[a-f0-9-]{36}\\.db")) {
             throw new IllegalArgumentException("Μη έγκυρη απομονωμένη βάση ελέγχου.");
         }

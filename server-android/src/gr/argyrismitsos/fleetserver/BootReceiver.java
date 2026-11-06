@@ -14,6 +14,7 @@ public final class BootReceiver extends BroadcastReceiver {
         if (intent == null) return;
         String action = intent.getAction();
         if (!Intent.ACTION_BOOT_COMPLETED.equals(action) && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) return;
+        if(NativeColdRuntime.blocked(context))return;
         SharedPreferences preferences = context.getSharedPreferences(BackupManager.PREFS, Context.MODE_PRIVATE);
         if (!preferences.getBoolean("automatic_start", true)) return;
         Intent service = new Intent(context, SyncService.class);

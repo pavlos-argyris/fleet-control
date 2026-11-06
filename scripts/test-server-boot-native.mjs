@@ -14,6 +14,7 @@ try {
     'Build.java':'package android.os;public class Build{public static class VERSION{public static int SDK_INT=23;}}',
     'BackupManager.java':'package gr.argyrismitsos.fleetserver;public class BackupManager{public static final String PREFS="fixture";}',
     'SyncService.java':'package gr.argyrismitsos.fleetserver;public class SyncService{}',
+    'NativeColdRuntime.java':'package gr.argyrismitsos.fleetserver;import android.content.Context;public class NativeColdRuntime{public static boolean pending;public static boolean blocked(Context c){return pending;}}',
     'BootTest.java':String.raw`import android.content.*;import android.os.Build;import gr.argyrismitsos.fleetserver.BootReceiver;
 public class BootTest{
  static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
@@ -27,7 +28,8 @@ public class BootTest{
    check(sdk>=26?c.foreground==1&&c.background==0:c.background==1&&c.foreground==0,"correct service API for SDK "+sdk);
    c=new Context();c.automatic=false;receiver.onReceive(c,new Intent(action));check(c.background+c.foreground==0,"automatic start off remains off");
   }
-  System.out.println("PASS native boot guard: only boot/own-package replacement, null/unknown actions rejected before any side effect, existing automatic-start preference and SDK23/34 service branches preserved.");
+  gr.argyrismitsos.fleetserver.NativeColdRuntime.pending=true;Context blocked=new Context();receiver.onReceive(blocked,new Intent(Intent.ACTION_BOOT_COMPLETED));check(blocked.background+blocked.foreground==0,"pending cold restore never starts a foreground service before verified apply");
+  System.out.println("PASS native boot guard: only boot/own-package replacement, null/unknown actions rejected before any side effect, pending cold restore blocks service launch, existing automatic-start preference and SDK23/34 service branches preserved.");
  }
 }`
   };

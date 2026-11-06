@@ -5,6 +5,11 @@ import android.content.Context;import android.util.Base64;import org.json.*;
 public final class BackupProtection {
     private static final String NAME="backup.protection",ALIAS="fleet.backup.protection.v1";
     private BackupProtection(){}
+    static JSONObject snapshot(Context context)throws Exception{return SealedLocalState.read(context,NAME,ALIAS);}
+    static void restore(Context context,JSONObject saved)throws Exception{if(saved.length()==0)SealedLocalState.remove(context,NAME);else SealedLocalState.write(context,NAME,ALIAS,saved);}
+    static JSONObject candidate(String password)throws Exception{
+        try(PortableBackupCipher.Material material=PortableBackupCipher.create(password)){byte[] key=material.key();try{return new JSONObject().put("parameters",material.parameters).put("derivedKey",Base64.encodeToString(key,Base64.NO_WRAP)).put("configuredAt",new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX",java.util.Locale.US).format(new java.util.Date()));}finally{java.util.Arrays.fill(key,(byte)0);}}
+    }
     public static PortableBackupCipher.Material material(Context context)throws Exception{
         JSONObject saved=SealedLocalState.read(context,NAME,ALIAS);if(saved.length()==0)return null;
         byte[] key=Base64.decode(saved.getString("derivedKey"),Base64.NO_WRAP);try{return new PortableBackupCipher.Material(saved.getJSONObject("parameters"),key);}finally{java.util.Arrays.fill(key,(byte)0);}

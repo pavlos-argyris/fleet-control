@@ -381,7 +381,21 @@
         "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryService.java",
         "server-android/src/gr/argyrismitsos/fleetserver/NativePublicRead.java",
         "server-android/src/gr/argyrismitsos/fleetserver/FleetApplication.java",
-        "scripts/fixtures/BusinessPrimaryChecks.java.txt"
+        "scripts/fixtures/BusinessPrimaryChecks.java.txt",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeMigrationCoordinator.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeMigrationController.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeMigrationTransport.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeColdRestore.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeColdRuntime.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeRecoveryController.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeRecoveryInstall.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeRecoveryStartup.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeRestartActivity.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeWorkGate.java",
+        "server-android/assets/www/server-primary.js",
+        "server-android/assets/www/server-recovery.js",
+        "scripts/fixtures/NativeMigrationFlowTest.java.txt",
+        "scripts/fixtures/NativeColdRestoreChecks.java.txt"
       ],
       "tests": [
         "scripts/test-d1-source-inventory.mjs",
@@ -394,7 +408,10 @@
         "scripts/test-native-primary-promotion.mjs",
         "scripts/test-primary-cipher-native.mjs",
         "scripts/test-primary-lease-native.mjs",
-        "scripts/test-primary-state-atomic.mjs"
+        "scripts/test-primary-state-atomic.mjs",
+        "scripts/test-server-primary-ui.mjs",
+        "scripts/test-server-recovery-ui.mjs",
+        "scripts/test-server-primary-browser.mjs"
       ],
       "related": [
         "worker-core",

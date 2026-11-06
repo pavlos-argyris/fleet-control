@@ -92,10 +92,13 @@ public final class NativeDatabaseSnapshot {
         try{verifyOpened(new BusinessSqlite(db),manifest);return new JSONObject().put("integrityVerified",true).put("restoreVerified",false).put("databaseSha256",manifest.getString("sha256")).put("tables",manifest.getJSONArray("tables").length());}finally{db.close();}
     }
     private static void verifyOpened(BusinessSqlite sql,JSONObject manifest)throws Exception{
+        verifyOpened(sql,manifest,"","");
+    }
+    private static void verifyOpened(BusinessSqlite sql,JSONObject manifest,String realm,String generation)throws Exception{
         integrity(sql);
         if(first(sql,"PRAGMA application_id").getInt("application_id")!=APPLICATION_ID||!inventory(sql).getString("schemaInventorySha256").equals(manifest.getString("schemaInventorySha256")))throw new IOException("Δεν συμφωνούν οι πίνακες/εγγραφές της βάσης backup.");
         for(String name:EPHEMERAL)if(table(sql,name)&&first(sql,"SELECT COUNT(*) n FROM "+identifier(name)).getLong("n")!=0)throw new IOException("Το backup περιλαμβάνει ενεργές προσωρινές συνεδρίες.");
-        JSONObject state=first(sql,"SELECT phase,generation,realm FROM native_primary_state WHERE id=1");if(state==null||!state.getString("phase").equals("needs_recovery")||!state.getString("generation").isEmpty())throw new IOException("Το backup δεν έχει ασφαλή κατάσταση ανάκτησης.");
+        JSONObject state=first(sql,"SELECT phase,generation,realm,data_hash FROM native_primary_state WHERE id=1");boolean valid=state!=null&&(generation.isEmpty()?state.optString("phase").equals("needs_recovery")&&state.optString("generation").isEmpty():state.optString("phase").equals("recovering")&&generation.equals(state.optString("generation"))&&realm.equals(state.optString("realm"))&&manifest.getString("sha256").equals(state.optString("data_hash")));if(!valid)throw new IOException("Το backup δεν έχει ασφαλή κατάσταση ανάκτησης.");
         JSONArray actual=query(sql,"SELECT key,local_name,name,content_type,size,sha256 FROM native_objects WHERE deleted_at IS NULL ORDER BY key").getJSONArray("results"),expected=manifest.getJSONArray("objects");
         if(actual.length()!=expected.length())throw new IOException("Η κάλυψη ιδιωτικών αρχείων δεν συμφωνεί με τη βάση backup.");
         Set<String> keys=new HashSet<String>(),names=new HashSet<String>();
@@ -104,6 +107,10 @@ public final class NativeDatabaseSnapshot {
             for(String key:new String[]{"key","local_name","name","content_type","size","sha256"})if(!row.get(key).toString().equals(object.get(key).toString()))throw new IOException("Διαφορετικά στοιχεία ιδιωτικού αρχείου στη βάση backup.");
             if(!BusinessObjects.validLocalName(object.getString("local_name"))||!object.getString("sha256").matches("[a-f0-9]{64}")||object.getLong("size")<=0||!keys.add(object.getString("key"))||!names.add(object.getString("local_name")))throw new IOException("Μη έγκυρος κατάλογος ιδιωτικών αρχείων backup.");
         }
+    }
+    /** After the one journalled state transition, only counts/schema/session/object evidence may differ in bytes. */
+    public static void verifyRecovering(File file,JSONObject manifest,String realm,String generation)throws Exception{
+        SQLiteDatabase database=SQLiteDatabase.openDatabase(file.getPath(),null,SQLiteDatabase.OPEN_READONLY);try{verifyOpened(new BusinessSqlite(database),manifest,realm,generation);}finally{database.close();}
     }
     public static JSONObject verifyIsolated(File source,JSONObject manifest,File directory)throws Exception{
         verifyReadOnly(source,manifest);
