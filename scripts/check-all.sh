@@ -18,6 +18,7 @@ node scripts/test-server-primary-ui.mjs
 node scripts/test-server-recovery-ui.mjs
 node scripts/test-server-backup-recovery-ui.mjs
 node scripts/test-android-manifest-audit.mjs
+node scripts/test-apk-audit-core.mjs
 python3 scripts/prepare-static-assets.py --check
 node scripts/prepare-direct-permissions.mjs --check
 node scripts/test-direct-relay.mjs

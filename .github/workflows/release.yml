@@ -126,6 +126,14 @@ jobs:
           FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
         run: bash scripts/build-android.sh all
       - run: node scripts/verify-apks.mjs
+      - run: node scripts/audit-apk-history.mjs --production
+      - name: Save original-signed APK security comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-security-comparison
+          path: .build/verification/apk-security/
+          if-no-files-found: error
       - run: node scripts/prepare-release.mjs
       - run: python3 scripts/write-release-notes.py .build/release-notes.md
       - run: node scripts/publish-release.mjs --dry-run

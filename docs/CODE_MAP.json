@@ -506,16 +506,20 @@
     },
     {
       "id": "apk-security-audit",
-      "title": "Read-only Play Protect / Android manifest inventory",
+      "title": "Actual signed APK history, compiled Android security surface and Play Protect evidence",
       "paths": [
         "scripts/android-manifest-audit.mjs",
         "server-android/AndroidManifest.xml",
         "client-android/AndroidManifest.xml",
-        "server-android/src/gr/argyrismitsos/fleetserver/BootReceiver.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/BootReceiver.java",
+        "scripts/apk-audit-core.mjs",
+        "scripts/audit-apk-history.mjs",
+        "android-build-support/apk-audit-references.json"
       ],
       "tests": [
         "scripts/test-android-manifest-audit.mjs",
-        "scripts/test-server-boot-native.mjs"
+        "scripts/test-server-boot-native.mjs",
+        "scripts/test-apk-audit-core.mjs"
       ],
       "related": [
         "release-ci",

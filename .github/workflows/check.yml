@@ -72,6 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: navigation-motion-verification
+          include-hidden-files: true
           path: |
             .build/primary-transport-browser/
             .build/native-management-browser/
@@ -81,6 +82,7 @@ jobs:
             verification/invoice-auto/
             verification/ordexa/
             verification/server-backup/
+            verification/server-primary/
             verification/server-reconnect/
             verification/staff-schedule/
             verification/schedule-management/
@@ -151,6 +153,14 @@ jobs:
           mkdir -p private/signing
           keytool -genkeypair -keystore private/signing/fleet-control-release.p12 -storetype PKCS12 -alias test -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=Fleet CI' -storepass:env FLEET_STORE_PASSWORD -keypass:env FLEET_KEY_PASSWORD
           bash scripts/build-android.sh all
+      - run: node scripts/audit-apk-history.mjs
+      - name: Save actual APK security comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-security-comparison
+          path: .build/verification/apk-security/
+          if-no-files-found: error
       - run: node scripts/test-client-landscape-apk.mjs
       - name: Save packaged Client orientation verification
         uses: actions/upload-artifact@v4
@@ -181,3 +191,39 @@ jobs:
           name: complete-source
           path: verification/source/
           if-no-files-found: error
+
+  visual-review:
+    name: Review synthetic UI ${{ matrix.image }}
+    needs: check
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - mobile-390-cash-couriers-review.png
+          - mobile-390-cash-rule-review.png
+          - mobile-390-stores-financial-review.png
+          - mobile-390-payroll-review-review.png
+          - mobile-390-server-health-review.png
+          - 390-native-active.png
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: navigation-motion-verification
+          path: verification-ui
+      # Only fixed synthetic-fixture screenshots, never production screens or private files.
+      - name: Expose synthetic screenshot for visual inspection
+        env:
+          FLEET_REVIEW_IMAGE: ${{ matrix.image }}
+        run: |
+          python3 - <<'PY'
+          import os,pathlib,base64,json
+          name=os.environ['FLEET_REVIEW_IMAGE']
+          matches=list(pathlib.Path('verification-ui').rglob(name))
+          assert len(matches)==1, 'Missing/duplicate expected synthetic screenshot: '+name
+          data=matches[0].read_bytes()
+          assert data.startswith(b'\x89PNG\r\n\x1a\n') and len(data)<1024*1024
+          print('FLEET_UI_IMAGE_BEGIN')
+          print(json.dumps({'name':name,'mimeType':'image/png','data':base64.b64encode(data).decode()}))
+          print('FLEET_UI_IMAGE_END')
+          PY

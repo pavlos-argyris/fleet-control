@@ -1,3 +1,12 @@
+## Exact UI/native CI και πραγματικό APK artifact audit — 06/11/2026
+
+- Source `dc5bf27f411800c6c5fc21973e5ec844d2277217`: **Fast42281646860 και full42281646837 SUCCESS**, όλες οι νέες οικονομικές οθόνες Chromium320/390/1280 + file-origin Client1024, πλήρες Portal/native/backup/runtime, δύο test-signed APK και source ZIP. Artifact source13536870747 SHA-256 `b1a2dc7007ad2c90d2b6b00f3bc5507a05e5845c6b404d908818a4096369c3c2`, εικόνες13536286033.
+- Νέο `audit-apk-history`: πραγματικά pinned αρχικά/τελευταία public signed APK, signature/SHA/compiled manifest/export/permissions/ZIP/native/DEX/OCR hashes· PR CI disposable certificate, κανονική δημοσίευση απαιτεί original certificate. Parser/negative checks στο mandatory check-all, μικρό audit artifact σε source/release. **Ακριβές νέο CI απαιτείται**, κανένα νέο PASS δεν προεξοφλείται.
+- Εικόνες από fixed συνθετικά fixtures εξάγονται και σε ξεχωριστά CI visual-review logs για πραγματική οπτική επιθεώρηση όταν το τοπικό περιβάλλον είναι unavailable. Scoped screenshot artifact περιλαμβάνει πλέον .build/native-management και server-primary· χωρίς παραγωγικές οθόνες, credentials ή ιδιωτικά αρχεία.
+- `ROADMAP_INTEGRATION_GR.md` ενημερώθηκε για τις πραγματικές ολοκληρωμένες ροές. Η παλιά αρχική καταγραφή foundations δεν πρέπει να οδηγήσει σε επανυλοποίηση. Διατηρούνται #76/#77/5.60.1 και τα πραγματικά merge parents #74/#75/#78.
+- Οι επίσημες κατηγορίες/διαδικασία Play Protect ελέγχθηκαν. Δεν υπάρχει ακριβές alert/Google verdict/φυσική δοκιμή. #8 παραμένει ανοικτό για αυτή την εξωτερική απόδειξη, χωρίς υπόσχεση clearance ή παράκαμψη προστασίας.
+- Τοπικός executor unavailable από αλλαγή περιβάλλοντος· πρόοδος μόνο από επιβεβαιωμένο GitHub source/CI. Implementation automation παραμένει προσωρινά paused για αποφυγή δεύτερου writer. Συνέχισε αυτόνομα έως final checks/main CI/εξουσιοδοτημένη μία κοινή δημοσίευση. Καμία παραγωγική migration/restore/Ordexa write/key αλλαγή· όλα τα φυσικά όρια τεκμηριώνονται.
+
 ## Πραγματικά native οικονομικά / έλεγχος / υγεία UI — 06/11/2026
 
 - Προηγούμενο αποθηκευμένο `f7046a366513a08aef4075a1b275b038d2864dfc`: **Fast42276951168 και full42276951175 SUCCESS**, μαζί με πραγματικό Chromium primary320/390/768/IndexedDB δύο tabs, όλο το Portal/native/backup, δύο test-signed APK και source ZIP. Η UTF-8 διόρθωση και η ρητή cloud fixture είναι επαληθευμένες.
