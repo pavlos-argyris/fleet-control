@@ -24,7 +24,10 @@ async function rule(request,env,user){
   const previous=await env.DB.prepare('SELECT * FROM native_cash_rules WHERE store_id=? AND category=? AND effective_day=? ORDER BY revision DESC LIMIT 1').bind(store,category,effectiveDay).first();
   if(Number(previous?.revision||0)!==expected)throw new NativeError(409,'Ο κανόνας άλλαξε. Το προσχέδιο διατηρήθηκε.','rule_conflict');
   const id=crypto.randomUUID(),value={id,storeId:store,category,effectiveDay,rateCents:rate,revision:expected+1};
-  await env.DB.prepare('INSERT INTO native_cash_rules(id,store_id,category,effective_day,revision,rate_cents,created_at,created_by) VALUES(?,?,?,?,?,?,?,?)').bind(id,store,category,effectiveDay,expected+1,rate,stamp(),user.user_id).run();
+  // The preflight above is for UX; enforce the expected revision in the INSERT
+  // itself so a stale second administrator cannot create another rule version.
+  const saved=await env.DB.prepare('INSERT INTO native_cash_rules(id,store_id,category,effective_day,revision,rate_cents,created_at,created_by) SELECT ?,?,?,?,?,?,?,? WHERE COALESCE((SELECT MAX(revision) FROM native_cash_rules WHERE store_id=? AND category=? AND effective_day=?),0)=?').bind(id,store,category,effectiveDay,expected+1,rate,stamp(),user.user_id,store,category,effectiveDay,expected).run();
+  if(Number(saved?.meta?.changes)!==1)throw new NativeError(409,'Ο κανόνας άλλαξε. Το προσχέδιο διατηρήθηκε.','rule_conflict');
   await audit(env,request,user,'cash_rule_version','cash_rule',id,previous,value,'Νέα έκδοση κανόνα· οι παλιές κινήσεις διατηρούν την τιμή τους');return reply({saved:true,rule:value},201);
 }
 async function event(request,env,user){
