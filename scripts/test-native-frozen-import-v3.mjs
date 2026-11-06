@@ -110,7 +110,7 @@ public class FrozenImportTest {
    ok(hash.equals(sql("SELECT inventory_sha256 FROM server_primary_frozen_v3_meta WHERE id=1"))
     &&"2".equals(sql("SELECT COUNT(*) FROM server_primary_frozen_v3_cash_fixture")),
     "failed page/duplicate/generation/cursor/chunk rolls back prior candidate");
-   db.injectedSql="INSERT INTO server_primary_frozen_v3_cash_fixture";
+   db.injectedSql="INSERT INTO \"server_primary_frozen_v3_cash_fixture\"";
    fail(0,false);db.injectedSql="";
    ok("2".equals(sql("SELECT COUNT(*) FROM server_primary_frozen_v3_cash_fixture")),
     "SQL write failure leaves old candidate untouched");
