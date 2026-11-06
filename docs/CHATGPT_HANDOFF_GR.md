@@ -1,3 +1,8 @@
+## #60 — ανεξάρτητο atomic tariff fence στην καταχώριση ταμείου — 06/11/2026
+
+- Αναλήφθηκε αποκλειστικά η προστασία της **πραγματικής native cash assessment εγγραφής** από αλλαγή κανόνα μεταξύ preflight και SQLite INSERT. Απομονωμένο branch `codex/cash-rule-write-fence-20261106` από επιβεβαιωμένο PR #73 SHA `ff7312eea52719a700eb4be8145b65bad289bdfc`, χωρίς εγγραφή στο ενεργό integration branch. Το #73 εργάζεται παράλληλα σε APK audit/CI, οπότε δεν επεμβαίνουμε στα αρχεία του.
+- Στόχος: ένα atomic INSERT...SELECT με latest effective rule check, 409 σε πραγματική σύγκρουση, απομονωμένη SQLite δοκιμή preflight→νέο tariff→απορριφθέν stale write, χωρίς παραγωγικές αλλαγές. Θα συμπληρωθούν commits/CI και ακριβείς εκκρεμότητες πριν από ενσωμάτωση. Καμία δημοσίευση/merge.
+
 ## Exact UI/native CI και πραγματικό APK artifact audit — 06/11/2026
 
 - Source `dc5bf27f411800c6c5fc21973e5ec844d2277217`: **Fast42281646860 και full42281646837 SUCCESS**, όλες οι νέες οικονομικές οθόνες Chromium320/390/1280 + file-origin Client1024, πλήρες Portal/native/backup/runtime, δύο test-signed APK και source ZIP. Artifact source13536870747 SHA-256 `b1a2dc7007ad2c90d2b6b00f3bc5507a05e5845c6b404d908818a4096369c3c2`, εικόνες13536286033.
