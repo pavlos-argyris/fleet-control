@@ -58,7 +58,7 @@ export async function cashProjection(env,from,to,courierId='',{eventOffset=0,eve
   const total=await env.DB.prepare(`SELECT COUNT(*) n FROM native_cash_events e WHERE ${where}`).bind(...params).first();
   const events=eventLimit>0?list(await env.DB.prepare(`SELECT e.*,o.kind reversed_kind ${joined} ORDER BY e.business_day,e.created_at,e.id LIMIT ? OFFSET ?`).bind(...params,eventLimit,eventOffset).all()):[];
   for(const row of groups){row.balanceCents=row.dueCents-row.receivedCents;row.breakdown=breakdown.filter(b=>b.courierId===row.courierId).map(({courierId,...item})=>item);for(const n of [row.orders,row.dueCents,row.receivedCents,row.balanceCents])if(!Number.isSafeInteger(n))throw new NativeError(413,'Το ποσό υπερβαίνει το επιτρεπόμενο όριο αναφοράς.');}
-  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:events.length===total.n,hasMoreEvents:eventOffset+events.length<total.n,observedAt:stamp()};
+  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
 }
 export async function routeCash(request,env){
   const url=new URL(request.url);if(!url.pathname.startsWith('/api/native/cash'))return null;
