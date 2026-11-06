@@ -45,9 +45,26 @@ export async function routeHealth(request,env){
   const internal=request.localInternal===true;
   const user=internal?{user_id:'native-health',full_name:'Server',role:'owner'}:await actor(request,env,request.method==='GET'?'alerts.view':'alerts.manage');
   if(url.pathname==='/api/native/health/ack'&&request.method==='POST'){
-    const b=await request.json(),before=await env.DB.prepare('SELECT id,code,generation,ack_at,resolved_at FROM native_health_incidents WHERE id=?').bind(text(b.id,100)).first();if(!before)throw new NativeError(404,'Η ειδοποίηση δεν βρέθηκε.');
-    if(Number(b.generation)!==before.generation)throw new NativeError(409,'Η ειδοποίηση άλλαξε. Ανανέωσε την προβολή.');
-    if(!before.ack_at){await env.DB.prepare('UPDATE native_health_incidents SET ack_at=?,ack_by=?,notes=? WHERE id=?').bind(stamp(),user.user_id,text(b.notes,500),before.id).run();await audit(env,request,user,'health_acknowledged','health_incident',before.id,before,{acknowledged:true,resolved:!!before.resolved_at},text(b.notes,500));}
+    const b=await request.json(),id=text(b.id,100),generation=b.generation;
+    if(!id||!Number.isSafeInteger(generation)||generation<1)throw new NativeError(400,'Επίλεξε έγκυρη ειδοποίηση και έκδοση.');
+    const before=await env.DB.prepare('SELECT id,code,generation,ack_at,resolved_at FROM native_health_incidents WHERE id=?').bind(id).first();
+    if(!before)throw new NativeError(404,'Η ειδοποίηση δεν βρέθηκε.');
+    if(generation!==Number(before.generation))throw new NativeError(409,'Η ειδοποίηση άλλαξε. Ανανέωσε την προβολή.');
+    if(!before.ack_at){
+      // Compare-and-set: two administrators may acknowledge the same generation.
+      // Only the successful transition creates an audit record or live event.
+      const at=stamp(),notes=text(b.notes,500);
+      const updated=await env.DB.prepare('UPDATE native_health_incidents SET ack_at=?,ack_by=?,notes=? WHERE id=? AND generation=? AND ack_at IS NULL').bind(at,user.user_id,notes,id,generation).run();
+      if(Number(updated?.meta?.changes)===1){
+        await audit(env,request,user,'health_acknowledged','health_incident',id,before,{acknowledged:true,resolved:!!before.resolved_at},notes);
+        await publishChanges(env,['status','workforce']);
+      }else{
+        const current=await env.DB.prepare('SELECT generation,ack_at,resolved_at FROM native_health_incidents WHERE id=?').bind(id).first();
+        if(!current||Number(current.generation)!==generation||!current.ack_at)
+          throw new NativeError(409,'Η ειδοποίηση άλλαξε. Ανανέωσε την προβολή.');
+        return reply({acknowledged:true,resolved:!!current.resolved_at});
+      }
+    }
     return reply({acknowledged:true,resolved:!!before.resolved_at});
   }
   if(request.method==='GET'&&['/api/native/health','/api/native/health/diagnostic'].includes(url.pathname)){
