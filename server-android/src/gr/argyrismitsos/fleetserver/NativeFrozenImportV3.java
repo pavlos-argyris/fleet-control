@@ -99,11 +99,43 @@ public final class NativeFrozenImportV3 {
                 + quote(table) + " WHERE _fleet_source_rowid=?", args);
             if (!storageClass(entry.getValue()).equals(actual))
                 throw invalid("SQLite storage-class conversion: " + table + "." + entry.getKey());
-            if (entry.getValue() instanceof byte[]) {
-                long length = scalar(db, "SELECT length(" + quote(entry.getKey()) + ") FROM "
-                    + quote(table) + " WHERE _fleet_source_rowid=?", args);
-                if (length != ((byte[])entry.getValue()).length)
-                    throw invalid("SQLite BLOB length: " + table + "." + entry.getKey());
+            Object expected = entry.getValue();
+            if (expected instanceof Long) {
+                String stored = text(db, "SELECT CAST(" + quote(entry.getKey())
+                    + " AS TEXT) FROM " + quote(table) + " WHERE _fleet_source_rowid=?", args);
+                if (!expected.toString().equals(stored))
+                    throw invalid("SQLite INTEGER changed: " + table + "." + entry.getKey());
+            } else if (expected instanceof Double) {
+                String stored = text(db, "SELECT printf('%!.17g'," + quote(entry.getKey())
+                    + ") FROM " + quote(table) + " WHERE _fleet_source_rowid=?", args);
+                double value;
+                try { value = Double.parseDouble(stored); }
+                catch (NumberFormatException e) { throw invalid("SQLite REAL changed"); }
+                if (Double.doubleToLongBits((Double)expected) != Double.doubleToLongBits(value))
+                    throw invalid("SQLite REAL bits changed: " + table + "." + entry.getKey());
+            } else if (expected instanceof String || expected instanceof byte[]) {
+                byte[] bytes = expected instanceof String
+                    ? ((String)expected).getBytes(StandardCharsets.UTF_8) : (byte[])expected;
+                long length = scalar(db, "SELECT length(CAST(" + quote(entry.getKey())
+                    + " AS BLOB)) FROM " + quote(table) + " WHERE _fleet_source_rowid=?", args);
+                if (length != bytes.length)
+                    throw invalid("SQLite cell byte length: " + table + "." + entry.getKey());
+                for (int offset = 0; offset < bytes.length; offset += 32768) {
+                    if (Thread.currentThread().isInterrupted())
+                        throw new InterruptedIOException("Frozen import cancelled");
+                    int count = Math.min(32768, bytes.length - offset);
+                    String hex = text(db, "SELECT hex(substr(CAST(" + quote(entry.getKey())
+                        + " AS BLOB),?,?)) FROM " + quote(table)
+                        + " WHERE _fleet_source_rowid=?",
+                        new String[]{Integer.toString(offset + 1), Integer.toString(count), args[0]});
+                    if (hex.length() != count * 2) throw invalid("SQLite cell chunk length");
+                    for (int i = 0; i < count; i++) {
+                        int a = Character.digit(hex.charAt(i * 2), 16);
+                        int b = Character.digit(hex.charAt(i * 2 + 1), 16);
+                        if (a < 0 || b < 0 || (byte)((a << 4) | b) != bytes[offset + i])
+                            throw invalid("SQLite cell bytes changed: " + table + "." + entry.getKey());
+                    }
+                }
             }
         }
     }
