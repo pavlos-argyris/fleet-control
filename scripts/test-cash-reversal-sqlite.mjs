@@ -7,7 +7,11 @@ import {CASH_SCHEMA} from '../server-runtime/cash.js';
 const probe=String.raw`
 import sqlite3,sys
 db=sqlite3.connect(':memory:')
-db.executescript(sys.stdin.read())
+# Match the Android BusinessSqlite sql.exec capability: one statement per line.
+# executescript() would incorrectly accept multiline triggers that fail on-device.
+for statement in sys.stdin.read().splitlines():
+ statement=statement.strip()
+ if statement:db.execute(statement)
 columns=['id','kind','business_day','courier_id','courier_name','store_id','category','quantity','rate_cents','amount_cents','rule_id','reverses_id','source_key','notes','actor_id','actor_name','created_at']
 insert_sql='INSERT INTO native_cash_events('+','.join(columns)+') VALUES('+','.join('?' for _ in columns)+')'
 def put(row):
