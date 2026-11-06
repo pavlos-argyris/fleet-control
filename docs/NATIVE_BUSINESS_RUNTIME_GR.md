@@ -116,3 +116,16 @@ resolution αποθηκεύονται χωριστά, επανεμφάνιση �
 Το `prepared` **δεν ενεργοποιεί business writes**. Ο native controller εξακολουθεί να χρειάζεται authenticated Worker fence, διακοπή τοπικών pipelines σε ασφαλές σημείο, πλήρη αντιγραφή ιδιωτικών αρχείων, προστατευμένο backup και πραγματική δοκιμή ανάκτησης, activation και τρέχον lease. Αυτή η διασύνδεση/transport/UI είναι ακόμη σε ανάπτυξη, δεν έγινε παραγωγική μεταφορά. Τα παράγωγα frozen staging tables αφαιρούνται από το φυσικό αντίγραφο backup ώστε να μη διπλασιάζουν το πλήρες canonical ιστορικό.
 
 `test-native-primary-promotion.mjs`: actual SQLite >5MiB Unicode, ακριβές64bit/REAL/BLOB/NULL, αλλοίωση candidate, SQL fault, διακοπή μετά την πραγματική αντιγραφή, canonical unique constraint, audit trigger rollback, τοπικές εκκρεμότητες, sessions, lostACK, ενεργή generation. Ανεξάρτητος Python SHA-256 oracle ανοίγει την τελική SQLite και επιβεβαιώνει όλο το hash, όχι μόνο έναν counter. Νέο exact saved-source CI απαιτείται πριν από αποδοχή έκδοσης.
+
+
+## Primary transport και επαναφορά identity — 06/11/2026
+
+Ο νέος cipher έχει domain`fleet-primary-v1`, διαφορετικό από το παλιό read-only pairing. Κάθε packet δένεται με realm, generation, ephemeral key, nonce και direction. Η P-256 υπογραφή εγγραφής είναι P1363/WebCrypto compatible. Το TLS WebSocket εφαρμόζει κανονική επαλήθευση CA/hostname και bounded RFC6455 frames. Java/WebCrypto και actual TLS tests ελέγχουν και τις δύο κατευθύνσεις.
+
+Η άδεια30s υπολογίζεται από τη **μονοτονική ώρα αποστολής**, όχι από την ώρα λήψης του ACK. Η παραγωγική πηγή χρόνου είναι `SystemClock.elapsedRealtime` για λήξη και μέσα σε deep sleep. Έλεγχος χρειάζεται πριν την έναρξη και πριν το commit, σε υπηρεσία με χωριστό reader/heartbeat από την ουρά SQL. Το31s handover gap υπερβαίνει κάθε προηγούμενη άδεια. Η αλλαγή DO state φράζει events έως την πραγματική ολοκλήρωση durabletransaction· commitfailure δεν δημοσιεύει in-memory authority.
+
+Η ακύρωση αφήνει μόνιμο D1 tombstone ανά migrationticket, ώστε καθυστερημένο fence να μην αναστηθεί μετά από διαφορετικές μεταφορές. R2 inventory/seed προσφέρονται μόνο με ιδιωτικό ticket και ολοκληρωμένο fence. Το seed διατηρεί το υπάρχον PIN/session namespace χωρίς μεταφορά του στους clients. Τα κανονικά νέα business αιτήματα παραμένουν κρυπτογραφημένα. Το κεντρικό HTTP transport απορρίπτει αποκρυπτογραφημένο NativeRoot πριν από networkopen, αντί να το στείλει σε legacy importendpoint.
+
+Η recovery reservation χρειάζεται root capability του FCB3 και τοπικά verifiedrestore/documents/accountsreview. Σταματά την παλιά σύνδεση και τα παλιά signedchallenges, περιμένει31s, απαιτεί νέο verifiedbackup και ενεργοποιεί νέο publickey/generation με περιστροφή capability. Χαμένα ACK είναι idempotent. Αν αποτύχει δεύτερη συσκευή πριν το τέλος, το capability του ήδη καταχωρισμένου candidatebackup μπορεί να δεσμεύσει τρίτη identity· η παλιά reservation παύει να ισχύει. Η authorizingcapability παραμένει έγκυρη έως τη νέα επιτυχή ολοκλήρωση, μετά αποσύρεται. Δεν ανακτώνται private devicekeys από backup.
+
+Οι παραπάνω είναι πραγματικοί helpers/controls με actual Java/Workerd tests, **όχι ακόμη πλήρης λειτουργική recovery/primary υπηρεσία**. Native controller, protected responsechunk transport, atomic coldstart restore και UI ακολουθούν πριν τη δημοσίευση. Καμία παραγωγική μεταφορά/επαναφορά δεν εκτελέστηκε.

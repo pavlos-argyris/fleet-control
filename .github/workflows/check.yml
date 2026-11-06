@@ -103,6 +103,8 @@ jobs:
       - run: node scripts/test-server-ota-policy.mjs
       - run: node scripts/test-server-boot-native.mjs
       - run: node scripts/test-server-http.mjs
+      - run: node scripts/test-primary-cipher-native.mjs
+      - run: node scripts/test-primary-lease-native.mjs
       - run: node scripts/test-business-runtime-native.mjs
       - name: Prepare independent financial export validators
         run: |

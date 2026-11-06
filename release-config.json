@@ -7,8 +7,8 @@
     "packageName": "gr.argyrismitsos.fleetcontrol"
   },
   "server": {
-    "version": "2.10.5",
-    "versionCode": 59,
+    "version": "2.10.6",
+    "versionCode": 60,
     "packageName": "gr.argyrismitsos.fleetserver"
   },
   "web": {
@@ -19,6 +19,6 @@
     ]
   },
   "worker": {
-    "version": "5.18.3"
+    "version": "5.18.4"
   }
 }

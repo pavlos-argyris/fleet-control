@@ -6,14 +6,7 @@ import { execFileSync } from 'node:child_process';
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-http-'));
 try {
-  // Minimal JSON dependency fixture; tests execute the actual FleetHttp network code.
-  fs.writeFileSync(path.join(temp, 'JSONObject.java'), `package org.json;
-public class JSONObject {
-  public JSONObject() {} public JSONObject(String value) {}
-  public JSONObject put(String key, Object value) { return this; }
-  public String optString(String key, String fallback) { return fallback; }
-  public String toString() { return "{}"; }
-}`);
+  const jsonJar=path.join(root,'vendor/json-java/json-20240303.jar');
   fs.writeFileSync(path.join(temp, 'ServerConfig.java'), `package gr.argyrismitsos.fleetserver;
 public class ServerConfig { public static final String SERVER_VERSION = "test"; }`);
   fs.writeFileSync(path.join(temp, 'FleetHttpTest.java'), `
@@ -62,6 +55,10 @@ public class FleetHttpTest {
     });
     Map<String, String> headers = Collections.singletonMap("X-Server-Key", "private-test-key");
     String url = "https://example.invalid/api/test";
+    for(String marker:new String[]{"nativeRecovery","nativeDatabase"}){
+      sequence();try{FleetHttp.sendJson("https://example.invalid/api/server/system-import/preview","POST",new JSONObject().put(marker,new JSONObject().put("privateCapability","fixture-only-secret")),headers);throw new AssertionError("primary recovery root escaped device");}catch(IOException expected){}
+      check(opened.isEmpty(),"recovery root opened a network connection");
+    }
     sequence(503, 200); FleetHttp.getJson(url, headers); connections(2, "GET");
     sequence(503, 503, 503);
     try { FleetHttp.getJson(url, headers); throw new AssertionError("503 accepted"); }
@@ -83,7 +80,7 @@ public class FleetHttpTest {
     System.out.println("OK actual Java HTTP: bounded 503 GET retries, no auth/mutation retries, connection cleanup, redirect protection, PDF download and trace diagnostics.");
   }
 }`);
-  execFileSync('java', ['-jar', path.join(root, '.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'), '-proc:none', '-source', '8', '-target', '8', '-nowarn', '-encoding', 'UTF-8', '-d', temp,
-    path.join(root, 'server-android/src/gr/argyrismitsos/fleetserver/FleetHttp.java'), ...['JSONObject.java', 'ServerConfig.java', 'FleetHttpTest.java'].map(file => path.join(temp, file))], { stdio: 'inherit' });
-  execFileSync('java', ['-cp', temp, 'FleetHttpTest', temp], { stdio: 'inherit' });
+  execFileSync('java', ['-jar', path.join(root, '.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'), '-proc:none', '-source', '8', '-target', '8', '-nowarn', '-encoding', 'UTF-8', '-classpath',jsonJar,'-d', temp,
+    path.join(root, 'server-android/src/gr/argyrismitsos/fleetserver/FleetHttp.java'), ...['ServerConfig.java', 'FleetHttpTest.java'].map(file => path.join(temp, file))], { stdio: 'inherit' });
+  execFileSync('java', ['-cp', temp+path.delimiter+jsonJar, 'FleetHttpTest', temp], { stdio: 'inherit' });
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

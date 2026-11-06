@@ -29,6 +29,9 @@ public final class FleetHttp {
     }
 
     public static JSONObject sendJson(String url, String method, JSONObject body, Map<String, String> headers) throws Exception {
+        // Portable primary recovery capabilities are local-only. In particular,
+        // an old restore-preview route must never receive this decrypted root.
+        if(body!=null&&(body.has("nativeRecovery")||body.has("nativeDatabase")))throw new IOException("Το πλήρες backup ανοίγει μόνο στην τοπική διαδικασία ανάκτησης κύριου Server.");
         HttpURLConnection connection = open(url, method, headers);
         try {
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");

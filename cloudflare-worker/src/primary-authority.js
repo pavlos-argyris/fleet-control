@@ -37,7 +37,8 @@ async function ownerPassword(env,body){
 // The original table allowlist is not an exhaustive inventory of mutable D1
 // tables. Fence every business table, including previously unknown tables.
 // Release distribution and D1's own migration metadata stay cloud-managed.
-const PRIMARY_CLOUD_CONTROL=new Set(['fleet_primary_fence','fleet_releases','d1_migrations']);
+const PRIMARY_CLOUD_CONTROL=new Set(['fleet_primary_fence','fleet_primary_cancellations','fleet_releases','d1_migrations']);
+const CANCELLATIONS="CREATE TABLE IF NOT EXISTS fleet_primary_cancellations(ticket_hash TEXT PRIMARY KEY,cancelled_at TEXT NOT NULL)";
 const PRIMARY_NON_EXPORT=new Set(['fleet_mirror_state','fleet_mirror_changes','auth_sessions','auth_login_attempts','fleet_sessions','fleet_pin_attempts']);
 const SQL_NAME=/^[A-Za-z_][A-Za-z0-9_]{0,120}$/;
 async function existingTables(env){
@@ -55,12 +56,13 @@ async function exportColumns(env,table){
 async function fence(env,user,ticketHash){
   const tables=await existingTables(env),commands=[
     env.DB.prepare("CREATE TABLE IF NOT EXISTS fleet_primary_fence(id INTEGER PRIMARY KEY CHECK(id=1),mode TEXT NOT NULL DEFAULT 'cloud',ticket_hash TEXT NOT NULL DEFAULT '')"),
+    env.DB.prepare(CANCELLATIONS),
     env.DB.prepare("INSERT OR IGNORE INTO fleet_primary_fence(id) VALUES(1)")
   ];
   for(const table of tables)for(const event of ['INSERT','UPDATE','DELETE'])commands.push(env.DB.prepare(`CREATE TRIGGER IF NOT EXISTS primary_fence_${table}_${event.toLowerCase()} BEFORE ${event} ON ${table} WHEN (SELECT mode FROM fleet_primary_fence WHERE id=1) IN ('fenced','active') BEGIN SELECT RAISE(ABORT,'fleet_primary_writer_fenced'); END;`));
   // A table created between enumeration and the atomic D1 batch must prevent
   // activation of a partial fence, even if the owner's password is unchanged.
-  commands.push(env.DB.prepare("UPDATE fleet_primary_fence SET mode='fenced',ticket_hash=? WHERE id=1 AND mode='cloud' AND ticket_hash<>? AND EXISTS(SELECT 1 FROM app_users WHERE id=? AND role='owner' AND active=1 AND login_enabled=1 AND deleted_at IS NULL AND password_hash=? AND password_salt=?) AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT GLOB '_cf_*' AND name NOT IN ('fleet_primary_fence','fleet_releases','d1_migrations') AND name NOT IN (SELECT value FROM json_each(?)))").bind(ticketHash,'cancelled:'+ticketHash,user.id,user.password_hash,user.password_salt,JSON.stringify(tables)));
+  commands.push(env.DB.prepare("UPDATE fleet_primary_fence SET mode='fenced',ticket_hash=? WHERE id=1 AND mode='cloud' AND ticket_hash<>? AND NOT EXISTS(SELECT 1 FROM fleet_primary_cancellations WHERE ticket_hash=?) AND EXISTS(SELECT 1 FROM app_users WHERE id=? AND role='owner' AND active=1 AND login_enabled=1 AND deleted_at IS NULL AND password_hash=? AND password_salt=?) AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT GLOB '_cf_*' AND name NOT IN ('fleet_primary_fence','fleet_primary_cancellations','fleet_releases','d1_migrations') AND name NOT IN (SELECT value FROM json_each(?)))").bind(ticketHash,'cancelled:'+ticketHash,ticketHash,user.id,user.password_hash,user.password_salt,JSON.stringify(tables)));
   const result=await env.DB.batch(commands);return !!result[result.length-1]?.meta?.changes;
 }
 
@@ -79,7 +81,7 @@ export async function routePrimary(request,env,helpers={}){
     if(state.mode!=='active')return failure(503,'Η κύρια βάση Server δεν είναι ενεργή.');
     let packet;try{packet=await smallBody(request,2*1024*1024);}catch{return failure(413,'Το ασφαλές αίτημα είναι μεγάλο ή μη έγκυρο.');}
     if(!validDirectPacket(packet))return failure(400,'Μη έγκυρο ασφαλές αίτημα.');
-    return invoke(env,'request',{generation:state.generation,packet});
+    return invoke(env,'request',{generation:state.generation,packet,peerHash:await directHash(request.headers.get('CF-Connecting-IP')||'unknown')});
   }
   if(isControl){
     if(!await serverAllowed(request,env))return failure(401,'Χρειάζεται ο τοπικός Server.');
@@ -105,11 +107,34 @@ export async function routePrimary(request,env,helpers={}){
       if(!await fence(env,user,ticketHash))return failure(409,'Ο λογαριασμός άλλαξε. Η μεταφορά παραμένει σε προετοιμασία· επανάλαβε ή ακύρωσέ την.');
       return invoke(env,'fenced',{ticketHash});
     }
+    if(path.startsWith('/api/primary/recovery/')&&request.method==='POST'){
+      const body=await smallBody(request);
+      if(!/^[A-Za-z0-9_-]{43}$/.test(body.recoveryToken||''))return failure(403,'Δεν επιβεβαιώθηκε το στοιχείο ανάκτησης.');
+      const recoveryHash=await directHash(body.recoveryToken);delete body.recoveryToken;
+      if(path==='/api/primary/recovery/prepare'){
+        if(!ID.test(body.generation||'')||!/^[A-Za-z0-9_-]{122}$/.test(body.publicKey||'')||!/^[A-Za-z0-9_-]{43}$/.test(body.publicSalt||'')||!HASH.test(body.newRecoveryHash||'')||!HASH.test(body.contentHash||'')||body.restoreVerified!==true||body.documentsVerified!==true||body.accountsReviewed!==true)return failure(409,'Χρειάζεται πλήρης δοκιμή ανάκτησης και έλεγχος λογαριασμών πριν από την αλλαγή Server.');
+        try{await crypto.subtle.importKey('spki',decode(body.publicKey),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);}catch{return failure(400,'Μη έγκυρη νέα ταυτότητα Server.');}
+        return invoke(env,'recovery-prepare',{recoveryHash,generation:body.generation,publicKey:body.publicKey,publicSalt:body.publicSalt,newRecoveryHash:body.newRecoveryHash,contentHash:body.contentHash,realm:url.origin});
+      }
+      if(path==='/api/primary/recovery/finish'){
+        if(!ID.test(body.reservation||'')||!ID.test(body.generation||''))return failure(400,'Μη έγκυρη επιβεβαίωση ανάκτησης.');
+        if(body.newBackupVerified!==true||!HASH.test(body.newBackupHash||''))return failure(409,'Χρειάζεται νέο επαληθευμένο backup πριν ολοκληρωθεί η αλλαγή Server.');
+        return invoke(env,'recovery-finish',{generation:body.generation,reservation:body.reservation,recoveryHash,newBackupHash:body.newBackupHash});
+      }
+      return failure(404,'Η ενέργεια ανάκτησης δεν βρέθηκε.');
+    }
     const verified=await ticket(request,env);if(!verified)return failure(403,'Η άδεια μεταφοράς δεν ισχύει.');
     if(path==='/api/primary/abort'&&request.method==='POST'){
       const reserve=await invoke(env,'start-abort',{ticketHash:verified.ticketHash});if(!reserve.ok)return reserve;
-      const result=await env.DB.prepare("UPDATE fleet_primary_fence SET mode='cloud',ticket_hash=? WHERE id=1 AND ticket_hash=? AND mode='fenced'").bind('cancelled:'+verified.ticketHash,verified.ticketHash).run();
-      if(!result.meta?.changes){const old=await env.DB.prepare('SELECT mode,ticket_hash FROM fleet_primary_fence WHERE id=1').first();if(old?.mode!=='cloud'||old.ticket_hash!=='cancelled:'+verified.ticketHash)return failure(409,'Δεν επιβεβαιώθηκε η άρση της παλιάς φραγής.');}
+      // Cancellation is permanent for this ticket. A delayed old fence must
+      // stay cancelled even after a different migration is started/aborted.
+      await env.DB.batch([
+        env.DB.prepare("CREATE TABLE IF NOT EXISTS fleet_primary_fence(id INTEGER PRIMARY KEY CHECK(id=1),mode TEXT NOT NULL DEFAULT 'cloud',ticket_hash TEXT NOT NULL DEFAULT '')"),
+        env.DB.prepare(CANCELLATIONS),env.DB.prepare("INSERT OR IGNORE INTO fleet_primary_fence(id) VALUES(1)"),
+        env.DB.prepare("INSERT OR IGNORE INTO fleet_primary_cancellations(ticket_hash,cancelled_at) VALUES(?,?)").bind(verified.ticketHash,new Date().toISOString()),
+        env.DB.prepare("UPDATE fleet_primary_fence SET mode='cloud',ticket_hash=? WHERE id=1 AND (mode='cloud' OR mode='fenced' AND ticket_hash=?)").bind('cancelled:'+verified.ticketHash,verified.ticketHash)
+      ]);
+      const old=await env.DB.prepare('SELECT mode,ticket_hash FROM fleet_primary_fence WHERE id=1').first();if(old?.mode!=='cloud'||old.ticket_hash!=='cancelled:'+verified.ticketHash)return failure(409,'Δεν επιβεβαιώθηκε η άρση της παλιάς φραγής.');
       return invoke(env,'abort',{ticketHash:verified.ticketHash});
     }
     if(path==='/api/primary/activate'&&request.method==='POST'){
@@ -118,6 +143,13 @@ export async function routePrimary(request,env,helpers={}){
     }
     if(verified.mode!=='preparing'||!verified.fenced)return failure(409,'Η τελική εξαγωγή απαιτεί ολοκληρωμένη φραγή παλιών εγγραφών.');
     const frozen=await env.DB.prepare("SELECT mode,ticket_hash FROM fleet_primary_fence WHERE id=1").first();if(frozen?.mode!=='fenced'||frozen.ticket_hash!==verified.ticketHash)return failure(409,'Δεν επιβεβαιώθηκε η παλιά βάση.');
+    if(path==='/api/primary/seed'&&request.method==='GET')return primaryJson({schemaVersion:1,authPepper:env.PIN_PEPPER||'',eventSigningKey:verified.eventKey,ownerId:verified.ownerId,realm:verified.realm,generation:verified.generation,publicKey:verified.publicKey,publicSalt:verified.publicSalt});
+    if(path==='/api/primary/objects'&&request.method==='GET'){
+      const cursor=url.searchParams.get('cursor')||undefined;if(cursor&&cursor.length>2048)return failure(400,'Μη έγκυρη σελίδα ιδιωτικών αρχείων.');
+      if(!env.SERVICE_DOCS)return failure(503,'Δεν είναι διαθέσιμος ο χώρος ιδιωτικών αρχείων.');
+      const page=await env.SERVICE_DOCS.list({limit:25,cursor,include:['httpMetadata','customMetadata']});
+      return primaryJson({objects:page.objects.map(o=>({key:o.key,size:o.size,etag:o.etag,uploaded:o.uploaded?.toISOString(),httpMetadata:o.httpMetadata||{},customMetadata:o.customMetadata||{}})),cursor:page.truncated?page.cursor:null});
+    }
     if(path==='/api/primary/inventory'&&request.method==='GET'){
       const names=await exportTables(env),results=await env.DB.batch(names.flatMap(name=>[env.DB.prepare(`PRAGMA table_info(${name})`),env.DB.prepare(`SELECT COUNT(*) rows,COALESCE(MAX(rowid),0) lastRow FROM ${name}`)]));
       const tables=names.map((name,index)=>({name,columns:rows(results[index*2]).map(c=>({name:c.name,type:c.type,notnull:c.notnull,pk:c.pk})),...rows(results[index*2+1])[0]}));
@@ -161,7 +193,7 @@ export async function routePrimary(request,env,helpers={}){
     }
     if(path==='/api/primary/document'&&request.method==='POST'){
       const b=await smallBody(request);if(typeof b.key!=='string'||b.key.length>500)return failure(400,'Μη έγκυρο τιμολόγιο.');
-      const object=await env.SERVICE_DOCS?.get(b.key);if(!object)return failure(404,'Δεν βρέθηκε το αρχείο του τιμολογίου.');const headers=new Headers({'Cache-Control':'no-store','Content-Type':'application/octet-stream'});return new Response(object.body,{headers});
+      const object=await env.SERVICE_DOCS?.get(b.key);if(!object)return failure(404,'Δεν βρέθηκε το αρχείο του τιμολογίου.');if(b.etag&&b.etag!==object.etag)return failure(409,'Το ιδιωτικό αρχείο άλλαξε. Επανάλαβε την τελική απογραφή.');const headers=new Headers({'Cache-Control':'no-store','Content-Type':'application/octet-stream','Content-Length':String(object.size),'X-Fleet-Source-Etag':object.etag});return new Response(object.body,{headers});
     }
     return failure(404,'Η ενέργεια μεταφοράς δεν βρέθηκε.');
   }
@@ -174,10 +206,22 @@ export async function routePrimary(request,env,helpers={}){
 
 const decode=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
 export class PrimaryAuthority {
-  constructor(ctx){this.ctx=ctx;this.pending=new Map();this.challenges=new Map();this.ready=ctx.blockConcurrencyWhile(async()=>{this.state=await ctx.storage.get('primary.authority.v1')||{mode:'cloud'};});}
-  async change(fn){await this.ready;return this.ctx.storage.transaction(async tx=>{const state=await tx.get('primary.authority.v1')||{mode:'cloud'},result=await fn(state);if(result.save){await tx.put('primary.authority.v1',state);this.state=state;}return result.response;});}
+  constructor(ctx,onChanges=()=>{}){this.ctx=ctx;this.onChanges=onChanges;this.pending=new Map();this.challenges=new Map();this.ready=ctx.blockConcurrencyWhile(async()=>{this.state=await ctx.storage.get('primary.authority.v1')||{mode:'cloud'};});}
+  async change(fn){
+    await this.ready;
+    // Lease/socket handlers must never observe an authority that has not yet
+    // committed. Only local storage/crypto runs under this event fence.
+    return this.ctx.blockConcurrencyWhile(async()=>{
+      let committed;
+      const response=await this.ctx.storage.transaction(async tx=>{
+        const state=await tx.get('primary.authority.v1')||{mode:'cloud'},result=await fn(state);
+        if(result.save){await tx.put('primary.authority.v1',state);committed=state;}return result.response;
+      });
+      if(committed)this.state=committed;return response;
+    });
+  }
   socket(){return this.ctx.getWebSockets('primary-server').find(ws=>ws.readyState===1&&ws.deserializeAttachment()?.generation===this.state.generation);}
-  closeAll(){for(const ws of this.ctx.getWebSockets('primary-server'))try{ws.close(1000,'authority changed');}catch{}this.failPending();}
+  closeAll(){this.challenges.clear();for(const ws of this.ctx.getWebSockets('primary-server'))try{ws.close(1000,'authority changed');}catch{}this.failPending();}
   async fetch(request){
     await this.ready;const path=new URL(request.url).pathname.slice('/primary/'.length),body=request.method==='POST'?await request.json():{};
     if(path==='state')return primaryJson({...this.state,connected:!!this.socket()});
@@ -185,11 +229,38 @@ export class PrimaryAuthority {
     if(path==='attempt')return this.change(s=>{const now=Date.now(),attempt=s.attempt||{since:now,count:0};if(now-attempt.since>900000){attempt.since=now;attempt.count=0;}if(attempt.count>=8)return{response:failure(429,'Περίμενε 15 λεπτά πριν επαναλάβεις επιβεβαίωση ιδιοκτήτη.')};attempt.count++;s.attempt=attempt;return{save:true,response:primaryJson({allowed:true})};});
     if(path==='begin')return this.change(s=>{if(s.mode!=='cloud')return{response:failure(409,'Υπάρχει άλλη μεταφορά.')};Object.assign(s,body,{mode:'preparing',fenced:false,eventKey:crypto.randomUUID()+crypto.randomUUID(),fingerprint:''});return{save:true,response:primaryJson({prepared:true})};});
     if(path==='fenced')return this.change(s=>{if(s.mode!=='preparing'||s.ticketHash!==body.ticketHash)return{response:failure(409,'Η μεταφορά άλλαξε.')};s.fenced=true;return{save:true,response:primaryJson(s)};});
-    if(path==='start-abort')return this.change(s=>{if(!['preparing','aborting'].includes(s.mode)||!s.fenced||s.ticketHash!==body.ticketHash)return{response:failure(409,'Χρειάζεται πρώτα επιβεβαιωμένη φραγή. Η ενεργή κύρια βάση δεν ακυρώνεται.')};s.mode='aborting';return{save:true,response:primaryJson({reserved:true})};});
+    if(path==='start-abort')return this.change(s=>{if(!['preparing','aborting'].includes(s.mode)||s.ticketHash!==body.ticketHash)return{response:failure(409,'Η ενεργή κύρια βάση δεν ακυρώνεται από αυτή την ενέργεια.')};s.mode='aborting';return{save:true,response:primaryJson({reserved:true})};});
     if(path==='abort')return this.change(s=>{if(s.mode!=='aborting'||s.ticketHash!==body.ticketHash)return{response:failure(409,'Η μεταφορά δεν μπορεί να ακυρωθεί.')};for(const k of Object.keys(s))delete s[k];s.mode='cloud';return{save:true,response:primaryJson({aborted:true})};});
     if(path==='activate'){
       const result=await this.change(async s=>{if(s.mode==='active'&&s.ticketHash===body.ticketHash&&s.contentHash===body.contentHash)return{response:primaryJson({active:true,generation:s.generation,contentHash:s.contentHash})};if(s.mode!=='preparing'||!s.fenced||s.ticketHash!==body.ticketHash)return{response:failure(409,'Η μεταφορά άλλαξε.')};s.mode='active';s.contentHash=body.contentHash;s.fingerprint=await directHash(s.publicKey);s.activatedAt=new Date().toISOString();return{save:true,response:primaryJson({active:true,generation:s.generation,contentHash:s.contentHash})};});
       if(result.ok){for(const ws of this.ctx.getWebSockets('direct-server'))try{ws.close(1000,'primary authority active');}catch{}this.closeAll();}return result;
+    }
+    if(path==='recovery-prepare'){
+      const result=await this.change(s=>{
+        if(s.mode==='recovering'&&s.recoveryHash===body.recoveryHash&&s.next?.generation===body.generation&&s.next?.publicKey===body.publicKey&&s.next?.publicSalt===body.publicSalt&&s.next?.recoveryHash===body.newRecoveryHash&&s.next?.contentHash===body.contentHash)return{response:primaryJson({reserved:true,generation:body.generation,notBefore:s.recoveryNotBefore,reservation:s.recoveryReservation})};
+        const eligible=s.mode==='active'?s.recoveryHash===body.recoveryHash:s.mode==='recovering'&&(s.recoveryHash===body.recoveryHash||s.next?.recoveryHash===body.recoveryHash);
+        if(!eligible||s.generation===body.generation||body.recoveryHash===body.newRecoveryHash||s.realm!==body.realm)return{response:failure(403,'Το αντίγραφο δεν επιτρέπεται να αντικαταστήσει τον τρέχοντα Server.')};
+        // A verified candidate backup is itself sufficient to resume on a third
+        // device if the second phone fails before handover finishes. Promote
+        // the authorizing capability, then retire the cancelled reservation.
+        s.recoveryHash=body.recoveryHash;
+        // change() fences lease handlers through commit. The new generation
+        // waits longer than every last old request-send-based lease can last.
+        s.mode='recovering';s.recoveryNotBefore=Date.now()+31000;s.recoveryReservation=crypto.randomUUID();
+        s.next={generation:body.generation,publicKey:body.publicKey,publicSalt:body.publicSalt,recoveryHash:body.newRecoveryHash,contentHash:body.contentHash};
+        return{save:true,response:primaryJson({reserved:true,generation:body.generation,notBefore:s.recoveryNotBefore,reservation:s.recoveryReservation})};
+      });
+      if(result.ok)this.closeAll();return result;
+    }
+    if(path==='recovery-finish'){
+      const result=await this.change(async s=>{
+        if(s.mode==='active'&&s.lastRecovery?.reservation===body.reservation&&s.lastRecovery?.recoveryHash===body.recoveryHash&&s.lastRecovery?.backupHash===body.newBackupHash&&s.generation===body.generation)return{response:primaryJson({active:true,generation:s.generation,eventSigningKey:s.eventKey,contentHash:s.contentHash})};
+        if(s.mode!=='recovering'||s.recoveryHash!==body.recoveryHash||s.recoveryReservation!==body.reservation||s.next?.generation!==body.generation)return{response:failure(403,'Η άδεια ανάκτησης άλλαξε.')};
+        if(Date.now()<s.recoveryNotBefore)return{response:primaryJson({waiting:true,notBefore:s.recoveryNotBefore},409)};
+        s.lastRecovery={reservation:s.recoveryReservation,recoveryHash:s.recoveryHash,backupHash:body.newBackupHash};Object.assign(s,s.next,{mode:'active',eventKey:crypto.randomUUID()+crypto.randomUUID(),activatedAt:new Date().toISOString()});s.fingerprint=await directHash(s.publicKey);
+        delete s.next;delete s.recoveryNotBefore;delete s.recoveryReservation;delete s.ticketHash;
+        return{save:true,response:primaryJson({active:true,generation:s.generation,eventSigningKey:s.eventKey,contentHash:s.contentHash})};
+      });if(result.ok)this.closeAll();return result;
     }
     if(path==='challenge'){
       if(!['preparing','active'].includes(this.state.mode)||body.generation!==this.state.generation)return failure(409,'Η ταυτότητα Server άλλαξε.');
@@ -197,6 +268,7 @@ export class PrimaryAuthority {
       return primaryJson({nonce,message:'fleet-primary-connect-v1|'+this.state.realm+'|'+this.state.generation+'|'+nonce});
     }
     if(path==='connect'){
+      if(!['preparing','active'].includes(this.state.mode))return failure(409,'Η άδεια σύνδεσης άλλαξε.');
       let proof;try{proof=JSON.parse(request.headers.get('X-Fleet-Primary-Proof')||'');}catch{return failure(401,'Μη έγκυρη ταυτότητα Server.');}
       const expires=this.challenges.get(proof.nonce);this.challenges.delete(proof.nonce);if(!expires||expires<Date.now()||proof.generation!==this.state.generation)return failure(401,'Η επιβεβαίωση Server έληξε.');
       try{const key=await crypto.subtle.importKey('spki',decode(this.state.publicKey),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);if(!await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,decode(proof.signature),utf8.encode('fleet-primary-connect-v1|'+this.state.realm+'|'+this.state.generation+'|'+proof.nonce)))return failure(401,'Δεν επιβεβαιώθηκε ο Server.');}catch{return failure(401,'Δεν επιβεβαιώθηκε ο Server.');}
@@ -204,7 +276,7 @@ export class PrimaryAuthority {
     }
     if(path==='request'){
       if(this.state.mode!=='active'||body.generation!==this.state.generation)return failure(409,'Η κύρια βάση άλλαξε.');const server=this.socket();if(!server)return failure(503,'Ο Server δεν είναι συνδεδεμένος. Το προσχέδιο διατηρείται.');if(this.pending.size>=16)return failure(429,'Ο Server εξυπηρετεί άλλες εργασίες.');
-      const id=crypto.randomUUID();return new Promise(resolve=>{const timer=setTimeout(()=>{this.pending.delete(id);resolve(failure(504,'Δεν επιβεβαιώθηκε αποθήκευση. Έλεγξε την κατάσταση πριν επαναλάβεις.'));},25000);this.pending.set(id,{server,packet:body.packet,resolve,timer});try{server.send(JSON.stringify({type:'request',id,generation:this.state.generation,request:body.packet}));}catch{clearTimeout(timer);this.pending.delete(id);resolve(failure(503,'Η σύνδεση Server διακόπηκε.'));}});
+      const id=crypto.randomUUID();return new Promise(resolve=>{const timer=setTimeout(()=>{this.pending.delete(id);resolve(failure(504,'Δεν επιβεβαιώθηκε αποθήκευση. Έλεγξε την κατάσταση πριν επαναλάβεις.'));},25000);this.pending.set(id,{server,packet:body.packet,resolve,timer});try{server.send(JSON.stringify({type:'request',id,generation:this.state.generation,request:body.packet,peerHash:body.peerHash}));}catch{clearTimeout(timer);this.pending.delete(id);resolve(failure(503,'Η σύνδεση Server διακόπηκε.'));}});
     }
     return failure(404,'Η ενέργεια δεν βρέθηκε.');
   }
@@ -212,6 +284,7 @@ export class PrimaryAuthority {
     if(typeof raw!=='string'||raw.length>4*1024*1024){try{ws.close(1009,'too large');}catch{}return;}
     const saved=ws.deserializeAttachment();if(saved?.generation!==this.state.generation||this.state.mode!=='active'){try{ws.close(1008,'authority changed');}catch{}return;}
     let value;try{value=JSON.parse(raw);}catch{return;}
+    if(value.type==='changes'){if(Array.isArray(value.scopes)&&value.scopes.length<=16)this.onChanges(value.scopes);return;}
     if(value.type==='lease'){ws.send(JSON.stringify({type:'lease',nonce:value.nonce,generation:this.state.generation,leaseMs:30000}));return;}
     const item=this.pending.get(value.id);if(!item||item.server!==ws||!validDirectPacket(value.response)||value.response.nonce!==item.packet.nonce||value.response.epk!==item.packet.epk)return;
     clearTimeout(item.timer);this.pending.delete(value.id);item.resolve(primaryJson(value.response));

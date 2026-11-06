@@ -373,7 +373,9 @@
         "server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenImportV3.java",
         "server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenDigest.java",
         "server-android/src/gr/argyrismitsos/fleetserver/NativePrimarySchema.java",
-        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryPromotion.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryPromotion.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/PrimaryCipher.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryLease.java"
       ],
       "tests": [
         "scripts/test-d1-source-inventory.mjs",
@@ -383,7 +385,10 @@
         "scripts/test-server-authority-ui.mjs",
         "scripts/test-native-frozen-export-v3.mjs",
         "scripts/test-native-frozen-import-v3.mjs",
-        "scripts/test-native-primary-promotion.mjs"
+        "scripts/test-native-primary-promotion.mjs",
+        "scripts/test-primary-cipher-native.mjs",
+        "scripts/test-primary-lease-native.mjs",
+        "scripts/test-primary-state-atomic.mjs"
       ],
       "related": [
         "worker-core",
