@@ -1,3 +1,9 @@
+## #59/#61 — πλήρης byte comparison και ακύρωση frozen proof σε restore — 06/11/2026
+
+- Συνέχεια της νέας `NativeFrozenImportV3`: κάθε αποθηκευμένο INTEGER συγκρίνεται ως ακριβές decimal, REAL με SQLite 17-digit roundtrip/Java binary64 bits, TEXT και BLOB **byte προς byte** με bounded SQLite 32 KiB slices, εκτός από τους ελέγχους τύπου και πλήθους. Η υποψήφια SQLite παραμένει ανενεργή.
+- Το υπάρχον production restore invalidation `ServerAuthorityStage.invalidate` ακυρώνει πλέον και το `server_primary_frozen_v3_meta` αν υπάρχει, χωρίς να διαγράφει staged rows ή να αλλάζει live οικονομικά δεδομένα. Το πραγματικό isolated SQLite regression ελέγχει ακύρωση, αμετάβλητο live ledger και νέα προετοιμασία μετά από restore.
+- Τελευταίο αποθηκευμένο source στο draft PR #73: `6f14792b271322fce195f82a1742ba579f15d277`. Exact Fast/full CI για αυτό το SHA **δεν έχει ακόμη επιβεβαιωθεί**· μην επαναχρησιμοποιήσεις πράσινο CI προηγούμενου SHA. Καμία παραγωγική αλλαγή, authority activation, merge, deploy ή αλλαγή signing keys. Εκκρεμούν Worker transport/lease, complete source proof, μεγάλο BLOB streaming, auth/revocation, final UIs και φυσική συσκευή.
+
 ## #59 — συναλλακτική native εισαγωγή frozen D1 v3 σε ΑΝΕΝΕΡΓΟ SQLite candidate — 06/11/2026
 
 - Συνεχίστηκε το υπάρχον draft PR #73 από επιβεβαιωμένο remote HEAD `553d300f187efbe7036b9fd5421c63bf883c8b14`, χωρίς νέο branch/merge/deploy. Το full exact-head CI `42192202667` ολοκληρώθηκε τελικά SUCCESS (rerun), όπως και το Fast `42192202662`.
