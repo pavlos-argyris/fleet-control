@@ -9,6 +9,23 @@ CREATE TRIGGER IF NOT EXISTS native_cash_events_immutable_update BEFORE UPDATE O
 CREATE TRIGGER IF NOT EXISTS native_cash_events_immutable_delete BEFORE DELETE ON native_cash_events BEGIN SELECT RAISE(ABORT,'cash_events_are_immutable'); END;
 CREATE TRIGGER IF NOT EXISTS native_cash_rules_immutable_update BEFORE UPDATE ON native_cash_rules BEGIN SELECT RAISE(ABORT,'cash_rules_are_versioned'); END;
 CREATE TRIGGER IF NOT EXISTS native_cash_rules_immutable_delete BEFORE DELETE ON native_cash_rules BEGIN SELECT RAISE(ABORT,'cash_rules_are_versioned'); END;
+-- Enforce financial reversal identity at SQLite level, including writes from
+-- recovery/import paths that might bypass the HTTP preflight. Existing history
+-- is untouched; the guard applies to new rows only.
+CREATE TRIGGER IF NOT EXISTS native_cash_reversal_guard BEFORE INSERT ON native_cash_events BEGIN
+ SELECT CASE
+ WHEN NEW.kind='reversal' AND (NEW.reverses_id IS NULL OR NOT EXISTS (
+   SELECT 1 FROM native_cash_events original
+   WHERE original.id=NEW.reverses_id AND original.kind IN ('assessment','receipt')
+     AND original.business_day=NEW.business_day
+     AND original.courier_id=NEW.courier_id AND original.courier_name=NEW.courier_name
+     AND original.store_id=NEW.store_id AND original.category=NEW.category
+     AND original.quantity=NEW.quantity AND original.rate_cents=NEW.rate_cents
+     AND original.amount_cents=NEW.amount_cents AND original.rule_id IS NEW.rule_id
+ )) THEN RAISE(ABORT,'cash_reversal_mismatch')
+ WHEN NEW.kind!='reversal' AND NEW.reverses_id IS NOT NULL THEN RAISE(ABORT,'cash_unexpected_reversal_link')
+ END;
+END;
 `;
 
 async function rule(request,env,user){
