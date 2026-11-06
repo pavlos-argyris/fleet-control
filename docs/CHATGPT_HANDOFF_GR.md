@@ -1,3 +1,9 @@
+## #59 — αυστηρός native decoder frozen D1 export v3 — 06/11/2026
+
+- Στο υπάρχον draft PR #73 προστέθηκε `NativeFrozenExportV3`: strict typed αποκωδικοποίηση παγωμένων σελίδων D1 με generation/schema/table/column/rowid validation, ακριβή signed 64-bit integers, πραγματικά BLOB (και κενό x''), NULL, UTF-8 με έλεγχο, bounded 32 KiB cell slices και αποτροπή μεγάλης δέσμευσης μνήμης (>8 MiB ανά κελί). Κακό ή ασύμβατο chunk απορρίπτεται χωρίς σιωπηλή μετατροπή δεδομένων. Native regression προστέθηκε στο υποχρεωτικό full CI.
+- **Ακόμη ΔΕΝ αποτελεί ενεργό importer**: χρειάζονται transactional native staging/write, έλεγχοι πληρότητας/ακεραιότητας όλων των πινάκων, πρωτόκολλο transfer και πραγματικό restore/lease/authority activation. Το 8 MiB cell cap είναι συντηρητικό fail-closed όριο που πρέπει να υποστηριχθεί με streaming SQLite BLOB για μεγαλύτερες παραγωγικές τιμές πριν από activation. Δεν έγινε παραγωγική εγγραφή, merge ή deploy.
+- Το exact CI της παρούσας αλλαγής ελέγχεται χωριστά· τα προηγούμενα Fast42181032700/full42181032709 ήταν SUCCESS στο προηγούμενο SHA `098354d54585457998a010f4e0932dee344c609f`.
+
 ## #59 — frozen export v3: ακριβείς 64-bit ακέραιοι και BLOB — 06/11/2026
 
 - Στο ίδιο draft PR #73, από το επιβεβαιωμένο HEAD `7f2340196f6107f66a27ed79b4eb2be02f207571`, η εξαγωγή D1 αποτρέπει απώλεια ακριβείας για SQLite INTEGER εκτός JS safe range: επιστρέφει `NULL` στη σελίδα και `_primaryOversize` descriptor με `type: integer` και **ακριβές δεκαδικό string**. Όλα τα BLOB, ακόμη και μικρά/κενά, δηλώνονται ρητά με `type: blob` και byte length, ώστε `NULL` και `x''` να μην συγχέονται. Μεγάλο Unicode TEXT εξακολουθεί να μεταφέρεται σε ≤32 KiB chunks.
