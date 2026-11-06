@@ -46,3 +46,6 @@ await import('./test-cash-reversal-sqlite.mjs');
 
 // Native SQLite concurrency regression: stale tariff edits never overwrite history.
 await import('./test-cash-rule-cas-sqlite.mjs');
+
+// Enforce the actual native SQLite financial domain, even for internal writes.
+await import('./test-cash-event-domain-sqlite.mjs');
