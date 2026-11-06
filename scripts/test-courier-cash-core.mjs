@@ -49,3 +49,6 @@ await import('./test-cash-rule-cas-sqlite.mjs');
 
 // Enforce the actual native SQLite financial domain, even for internal writes.
 await import('./test-cash-event-domain-sqlite.mjs');
+
+// Verify the native cash INSERT rejects a stale tariff after preflight.
+await import('./test-cash-event-tariff-fence-sqlite.mjs');
