@@ -181,18 +181,28 @@ async function bulk(request,env,b,actor,D){
  const scope=await active(env);if((await epoch(env)).restoring)invalid(D,'Η επαναφορά βρίσκεται σε εξέλιξη.',409);
  const selected=JSON.stringify(b.stores),stores=rows(await env.DB.prepare("SELECT s.*,(SELECT t.data FROM store_billing_records t WHERE t.scope=s.scope AND t.kind='terms' AND t.store_id=s.id AND t.day<=? ORDER BY t.day DESC,CAST(json_extract(t.data,'$.version') AS INTEGER) DESC LIMIT 1) terms FROM store_billing_records s WHERE s.scope=? AND s.kind='store' AND s.id IN(SELECT json_extract(value,'$.id') FROM json_each(?))").bind(b.effectiveDay,scope,selected).all());
  if(stores.length!==b.stores.length)invalid(D,'Κάποιο κατάστημα δεν είναι διαθέσιμο.',409);
- const terms=pricing?stores.map(s=>{let current=s.terms?JSON.parse(s.terms):{};const t={...current,...pricePatch,id:'terms:'+crypto.randomUUID(),storeId:s.id,effectiveDay:b.effectiveDay,origin:'fleet',version:s.revision+1,supported:true,updatedBy:actor.user_id,updatedAt:now()};if(!Number.isSafeInteger(t.unitPriceCents)||!Number.isSafeInteger(t.dailyMinimumCents)||typeof t.chargeOnZero!=='boolean')invalid(D,'Όρισε τιμή και προαιρετικό ελάχιστο για νέο κατάστημα.');return t;}):[];
+ const at=now();
+ const terms=pricing?stores.flatMap(s=>{
+  const current=s.terms?JSON.parse(s.terms):{},changed=Object.keys(pricePatch).filter(k=>current[k]!==pricePatch[k]);
+  if(!changed.length)return [];
+  const t={...current,...pricePatch,id:'terms:'+crypto.randomUUID(),storeId:s.id,effectiveDay:b.effectiveDay,origin:'fleet',version:s.revision+1,supported:true,updatedBy:actor.user_id,updatedAt:at};
+  if(!Number.isSafeInteger(t.unitPriceCents)||!Number.isSafeInteger(t.dailyMinimumCents)||typeof t.chargeOnZero!=='boolean')invalid(D,'Όρισε τιμή και προαιρετικό ελάχιστο για νέο κατάστημα.');
+  // Append audit to the authoritative immutable terms record; no second ledger.
+  t.audit={schema:1,operationId:b.operationId,recordedAt:at,effectiveDay:b.effectiveDay,actor:{id:actor.user_id,name:actor.full_name||actor.user_id,role:actor.role},previousTermsId:current.id||null,changes:changed.map(field=>({field,oldValue:current.supported===false?null:(current[field]??null),newValue:pricePatch[field]}))};
+  return [t];
+ }):[];
  const changedStores=stores.map(s=>{const data=JSON.parse(s.data);if('retainOrders' in patch)data.retainOrders=patch.retainOrders;if(pricing){data.pricingState='ready';data.newStore=false;}return {id:s.id,data};});
  const until=storeBusinessDay(),job={id:b.operationId,scope,from:b.effectiveDay,to:b.effectiveDay>until?b.effectiveDay:until,type:'retainOrders' in patch?'sync':'reprice',state:'pending',stage:'Οι επιλογές αποθηκεύτηκαν · αναμονή Server',requestedBy:actor.user_id,requestHash,requestedAt:now()};
- range(job.from,job.to,D,366);const at=now();const cond="NOT EXISTS(SELECT 1 FROM json_each(?) j LEFT JOIN store_billing_records s ON s.id=json_extract(j.value,'$.id') AND s.scope=? AND s.kind='store' WHERE s.id IS NULL OR s.revision<>json_extract(j.value,'$.revision')) AND NOT EXISTS(SELECT 1 FROM store_billing_records WHERE id=?) AND NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_restore_active' AND value<>'')";
+ range(job.from,job.to,D,366);const cond="NOT EXISTS(SELECT 1 FROM json_each(?) j LEFT JOIN store_billing_records s ON s.id=json_extract(j.value,'$.id') AND s.scope=? AND s.kind='store' WHERE s.id IS NULL OR s.revision<>json_extract(j.value,'$.revision')) AND EXISTS(SELECT 1 FROM fleet_settings WHERE key='store_billing_active_scope' AND value=?) AND NOT EXISTS(SELECT 1 FROM store_billing_records WHERE id=?) AND NOT EXISTS(SELECT 1 FROM fleet_settings WHERE key='ordexa_restore_active' AND value<>'')";
  const auditId=crypto.randomUUID();await transaction(env,[
   env.DB.prepare("INSERT INTO store_billing_records(id,scope,kind,store_id,day,data,updated_at) SELECT json_extract(value,'$.id'),?,'terms',json_extract(value,'$.storeId'),json_extract(value,'$.effectiveDay'),value,? FROM json_each(?)").bind(scope,at,JSON.stringify(terms)),
   env.DB.prepare("UPDATE store_billing_records SET revision=revision+1,data=(SELECT json_extract(value,'$.data') FROM json_each(?) WHERE json_extract(value,'$.id')=store_billing_records.id),updated_at=? WHERE scope=? AND kind='store' AND id IN(SELECT json_extract(value,'$.id') FROM json_each(?))").bind(JSON.stringify(changedStores),at,scope,selected),
   env.DB.prepare("UPDATE store_billing_records SET revision=revision+1 WHERE id=?").bind(scopeId(scope)),
   ...(pricing?[env.DB.prepare("UPDATE system_alerts SET resolved=1,resolved_by=?,resolved_at=? WHERE type='store_billing_new_store' AND resolved=0 AND object_id IN(SELECT json_extract(value,'$.id') FROM json_each(?))").bind(actor.user_id,at,selected)]:[]),
   insert(env,{id:job.id,scope,kind:'operation',data:job}),
-  env.DB.prepare("INSERT INTO audit_log(id,timestamp,user_id,user_name,role,action,object_type,object_id,old_value,new_value,reason,admin_pin_used) VALUES(?,?,?,?,?,'store_billing_terms','store_billing',?,'{}',?,'Αλλαγή όρων καταστημάτων Fleet',0)").bind(auditId,at,actor.user_id,actor.full_name||'',actor.role,job.id,JSON.stringify({effectiveDay:b.effectiveDay,stores:b.stores,patch}))
- ],guard(env,cond,[selected,scope,b.operationId]));await wake(env,job.id);return D.wfJson({saved:true,operation:job});
+  ...terms.map(t=>env.DB.prepare("INSERT INTO audit_log(id,timestamp,user_id,user_name,role,action,object_type,object_id,old_value,new_value,reason,admin_pin_used) VALUES(?,?,?,?,?,'store_billing_terms','store_billing_store',?,?,?,'Αλλαγή όρων καταστήματος Fleet',0)").bind(t.id,at,actor.user_id,actor.full_name||'',actor.role,t.storeId,JSON.stringify(Object.fromEntries(t.audit.changes.map(c=>[c.field,c.oldValue]))),JSON.stringify(t))),
+  ...('retainOrders' in patch&&stores.some(s=>JSON.parse(s.data).retainOrders!==patch.retainOrders)?[env.DB.prepare("INSERT INTO audit_log(id,timestamp,user_id,user_name,role,action,object_type,object_id,old_value,new_value,reason,admin_pin_used) VALUES(?,?,?,?,?,'store_billing_retention','store_billing',?,'{}',?,'Αλλαγή διατήρησης παραγγελιών',0)").bind(auditId,at,actor.user_id,actor.full_name||'',actor.role,job.id,JSON.stringify({stores:b.stores,patch:{retainOrders:patch.retainOrders}}))]:[])
+ ],guard(env,cond,[selected,scope,scope,b.operationId]));await wake(env,job.id);return D.wfJson({saved:true,operation:job});
 }
 async function listing(env,url,D){
  const {from,to}=range(url.searchParams.get('from'),url.searchParams.get('to'),D),scope=await active(env),cursor=url.searchParams.get('cursor')||'';if(cursor)ident(cursor,D);
@@ -202,6 +212,34 @@ async function listing(env,url,D){
  const jobs=rows(await env.DB.prepare("SELECT data FROM store_billing_records WHERE scope IN (?,'') AND kind='operation' ORDER BY updated_at DESC LIMIT 3").bind(scope).all()).map(r=>{const v=JSON.parse(r.data);delete v.lease;return v;});
  return {scope,inputRevision:(await record(env,scopeId(scope)))?.revision||0,from,to,cutoffHour:5,timeZone:'Europe/Athens',rows:found.slice(0,50).map(r=>({...r,...JSON.parse(r.data),data:undefined})),hasMore:found.length>50,nextCursor:found[Math.min(50,found.length)-1]?.id||cursor,totals,operations:jobs,syncIntervalMs:3600000,resultRevision:(await env.DB.prepare("SELECT MAX(updated_at) revision FROM store_billing_records WHERE scope=? AND kind='publication' AND day BETWEEN ? AND ?").bind(scope,from,to).first())?.revision||''};
 }
+
+function selectionIds(url,D){let ids;try{ids=JSON.parse(url.searchParams.get('ids'));}catch{invalid(D,'Μη έγκυρη επιλογή καταστημάτων.');}if(!Array.isArray(ids)||!ids.length||ids.length>50||new Set(ids).size!==ids.length)invalid(D,'Επίλεξε από1 έως50 διαφορετικά καταστήματα ανά αίτημα.');ids.forEach(id=>ident(id,D));return ids;}
+async function weeklyReport(env,url,D){
+ const ids=selectionIds(url,D),from=ordexaDay(url.searchParams.get('from')),to=addCalendarDays(from,6);
+ if(new Date(from+'T12:00:00Z').getUTCDay()!==1)invalid(D,'Η εβδομάδα ξεκινά τη Δευτέρα.');
+ const scope=await active(env),selected=JSON.stringify(ids);
+ // D1 batch is one read transaction: scope, terms and publications cannot tear.
+ const batch=await env.DB.batch([
+  env.DB.prepare("SELECT s.id,s.revision,json_remove(s.data,'$.sourceTerms') data FROM store_billing_records s WHERE s.scope=? AND s.kind='store' AND s.id IN(SELECT value FROM json_each(?)) ORDER BY s.id").bind(scope,selected),
+  env.DB.prepare("SELECT d.data,json_extract(p.data,'$.sourceLastSuccessAt') publication_source_at,(SELECT t.id FROM store_billing_records t WHERE t.scope=d.scope AND t.kind='terms' AND t.store_id=d.store_id AND t.day<=d.day ORDER BY t.day DESC,CAST(json_extract(t.data,'$.version') AS INTEGER) DESC LIMIT 1) current_terms_id FROM store_billing_records d JOIN store_billing_records p ON p.scope=d.scope AND p.kind='publication' AND p.day=d.day AND ((json_extract(p.data,'$.protocol')=2 AND json_extract(d.data,'$.protocol')=2) OR (COALESCE(json_extract(p.data,'$.protocol'),1)=1 AND json_extract(p.data,'$.activeRun')=json_extract(d.data,'$.runId'))) WHERE d.scope=? AND d.kind='day' AND d.store_id IN(SELECT value FROM json_each(?)) AND d.day BETWEEN ? AND ? ORDER BY d.day,d.store_id").bind(scope,selected,from,to),
+  env.DB.prepare("SELECT t.data FROM store_billing_records t WHERE t.scope=? AND t.kind='terms' AND t.store_id IN(SELECT value FROM json_each(?)) AND (t.day BETWEEN ? AND ? OR t.id=(SELECT b.id FROM store_billing_records b WHERE b.scope=t.scope AND b.kind='terms' AND b.store_id=t.store_id AND b.day<? ORDER BY b.day DESC,CAST(json_extract(b.data,'$.version') AS INTEGER) DESC LIMIT 1)) ORDER BY t.day,CAST(json_extract(t.data,'$.version') AS INTEGER) LIMIT 1001").bind(scope,selected,from,to,from),
+  env.DB.prepare("SELECT id,revision,data,updated_at FROM store_billing_records WHERE scope=? AND (kind='connection' OR (kind='publication' AND day BETWEEN ? AND ?)) ORDER BY id").bind(scope,from,to),
+  env.DB.prepare("SELECT value FROM fleet_settings WHERE key='store_billing_active_scope'")
+ ]);
+ if(rows(batch[4])[0]?.value!==scope)invalid(D,'Η σύνδεση άλλαξε. Άνοιξε ξανά την αναφορά.',409);
+ if(rows(batch[2]).length>1000)invalid(D,'Πολλές αλλαγές όρων στην εβδομάδα. Επίλεξε λιγότερα καταστήματα.',400);
+ const stores=rows(batch[0]).map(r=>({...JSON.parse(r.data),revision:r.revision}));if(stores.length!==ids.length)invalid(D,'Κάποιο επιλεγμένο κατάστημα δεν είναι διαθέσιμο.',409);
+ const snapshot=await hash({scope,state:rows(batch[3])});if(url.searchParams.get('snapshot')&&url.searchParams.get('snapshot')!==snapshot)invalid(D,'Οι όροι ή τα αποτελέσματα άλλαξαν. Άνοιξε ξανά την αναφορά.',409);
+ return {scope,snapshot,from,to,generatedAt:now(),cutoffHour:5,timeZone:'Europe/Athens',stores,days:rows(batch[1]).map(r=>({...JSON.parse(r.data),currentTermsId:r.current_terms_id,sourceLastSuccessAt:r.publication_source_at||JSON.parse(r.data).sourceLastSuccessAt||''})),terms:rows(batch[2]).map(r=>JSON.parse(r.data))};
+}
+async function termHistory(env,url,D){
+ const scope=await active(env),id=ident(url.searchParams.get('storeId'),D),cursor=url.searchParams.get('cursor')||'';let cursorAt='';
+ if(cursor){ident(cursor,D);const previous=await env.DB.prepare("SELECT data FROM store_billing_records WHERE id=? AND scope=? AND kind='terms' AND store_id=? AND json_extract(data,'$.audit.schema')=1").bind(cursor,scope,id).first();if(!previous)invalid(D,'Η σελίδα ιστορικού δεν είναι έγκυρη.',400);cursorAt=JSON.parse(previous.data).audit.recordedAt;}
+ if(!await env.DB.prepare("SELECT 1 ok FROM store_billing_records WHERE id=? AND scope=? AND kind='store'").bind(id,scope).first())invalid(D,'Το κατάστημα δεν είναι διαθέσιμο.',404);
+ const found=rows(await env.DB.prepare("SELECT data FROM store_billing_records WHERE scope=? AND kind='terms' AND store_id=? AND json_extract(data,'$.audit.schema')=1 AND (?='' OR json_extract(data,'$.audit.recordedAt')<? OR (json_extract(data,'$.audit.recordedAt')=? AND id<?)) ORDER BY json_extract(data,'$.audit.recordedAt') DESC,id DESC LIMIT 31").bind(scope,id,cursorAt,cursorAt,cursorAt,cursor).all());
+ return {rows:found.slice(0,30).map(r=>JSON.parse(r.data)),hasMore:found.length>30,nextCursor:found.length>30?JSON.parse(found[29].data).id:'',legacyNotice:'Δεν υπάρχει διαθέσιμο παλιότερο ιστορικό'};
+}
+
 export async function routeStoreBilling(request,env,path,D){
  if(!path.startsWith('/api/admin/store-billing')&&!path.startsWith('/api/server/store-billing/'))return null;
  try{
@@ -223,6 +261,8 @@ export async function routeStoreBilling(request,env,path,D){
   const write=request.method!=='GET',actor=await D.authenticate(request,env,write?'stores.manage':'stores.view');
   if(request.method==='POST'&&action==='sync')return await sync(request,env,await D.bodyJson(request),actor,D);
   if(request.method==='POST'&&action==='bulk')return await bulk(request,env,await D.bodyJson(request),actor,D);
+  if(request.method==='GET'&&action==='weekly-report')return D.wfJson(await weeklyReport(env,url,D));
+  if(request.method==='GET'&&action==='history')return D.wfJson(await termHistory(env,url,D));
   if(request.method==='GET'&&action==='store-billing')return D.wfJson(await listing(env,url,D));
   if(request.method==='GET'&&action==='operations'){
    const scope=await active(env),{from,to}=range(url.searchParams.get('from'),url.searchParams.get('to'),D);const operations=rows(await env.DB.prepare("SELECT data FROM store_billing_records WHERE scope IN (?,'') AND kind='operation' ORDER BY updated_at DESC LIMIT 5").bind(scope).all()).map(r=>{const v=JSON.parse(r.data);delete v.lease;return v;});const version=await env.DB.prepare("SELECT MAX(updated_at) revision FROM store_billing_records WHERE scope=? AND kind='publication' AND day BETWEEN ? AND ?").bind(scope,from,to).first();return D.wfJson({scope,inputRevision:(await record(env,scopeId(scope)))?.revision||0,operations,resultRevision:version?.revision||''});

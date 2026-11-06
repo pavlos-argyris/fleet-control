@@ -44,6 +44,7 @@ node scripts/test-worker-model.mjs
 node scripts/test-service-workflow.mjs
 node scripts/test-qr-failure-alerts.mjs
 node scripts/test-store-billing-api.mjs
+node scripts/test-store-weekly-report.mjs
 node scripts/test-store-billing-ui.mjs
 node scripts/test-store-billing-d1.mjs
 node scripts/test-store-primary-budget.mjs

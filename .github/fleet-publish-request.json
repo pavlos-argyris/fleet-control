@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-9cf5eb13-11c5-4ec4-9bde-1e047d6e7656",
-  "sourceCommit": "83cc81e78dcd51bb12f74b3fb4ab9977eaab3a42",
-  "releaseVersion": "5.60.0",
-  "requestedAt": "2026-11-04T19:09:23.819Z",
-  "reason": "User approved automatic Ordexa reconnect and unified Server tabs on 2026-11-04. Standing authorization in AGENTS.md permits merge and automatic publication after successful checks. Exact PR CI41890780098 and exact main CI41892445599 succeeded. Preserve original signing and production data."
+  "requestId": "fleet-f81e99db-d522-4855-93a6-0182db9b6fdf",
+  "sourceCommit": "9cbac20b4da6584c2832ec72272da6bce80cbfc2",
+  "releaseVersion": "5.60.1",
+  "requestedAt": "2026-11-06T18:28:21.624Z",
+  "reason": "Υλοποίηση και αυτόματη δημοσίευση του issue #76 μετά από επιτυχείς exact PR και main ελέγχους, όπως ενέκρινε ο χρήστης"
 }

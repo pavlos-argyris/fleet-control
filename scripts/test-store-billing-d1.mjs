@@ -34,7 +34,7 @@ try{
  ok(await post('publish',{...ctx,runId:'final',day,count:2,sourceAt,removalCount:31,finalPass:'different'}),409);
  const concurrent=await Promise.all([250,300].map((unitPriceCents,i)=>bulk({operationId:'competing:'+i,effectiveDay:day,stores:[{id:'shop:1',revision:1}],patch:{unitPriceCents}})));
  assert.deepEqual(concurrent.map(r=>r.status).sort(),[200,409]);
- assert.equal((await db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='store_billing_terms'").first()).n,2,'one retention decision and one atomic price winner');
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='store_billing_terms'").first()).n,1,'one per-store atomic price winner; retention has its own audit action');
  assert.equal((await db.prepare('SELECT COUNT(*) n FROM store_billing_guards').first()).n,0);
  await db.prepare("INSERT OR REPLACE INTO fleet_settings(key,value,updated_at) VALUES('ordexa_restore_active','fixture',?)").bind(sourceAt).run();ok(await publish('final',31),409);
 
@@ -59,5 +59,10 @@ try{
  ok(await publishAggregate({...aggregate,runId:'stale-source',changedCount:0}),409);
  await db.prepare("UPDATE store_billing_records SET revision=revision+1 WHERE kind='connection'").run();
  ok(await publishAggregate({...aggregate,runId:'stale-terms',changedCount:0,sourceAt:'2026-10-30T04:00:00Z'}),409);
+ const report=ok(await call('/api/admin/store-billing/weekly-report?'+new URLSearchParams({from:day,ids:JSON.stringify(['shop:1','shop:2'])}),undefined,token));
+ assert.equal(report.days.length,2);assert.equal(report.stores.length,2);assert.ok(report.snapshot);assert.ok(report.terms.some(t=>t.audit?.changes[0].field==='unitPriceCents'));
+ const history=ok(await call('/api/admin/store-billing/history?storeId=shop:1',undefined,token));assert.equal(history.rows.length,1);assert.equal(history.rows[0].audit.actor.role,'owner');assert.equal(history.rows[0].audit.changes[0].oldValue,200);
+ ok(await call('/api/admin/store-billing/history?storeId=shop:2&cursor='+history.rows[0].id,undefined,token),400);
+ assert.equal((await db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='store_billing_retention'").first()).n,1);
  console.log('PASS actual Workerd/D1 stores:32-row archive, default OFF, atomic retention-race rollback, complete publication, selected exception, lost-ACK receipt after lease expiry, changed-receipt rejection, concurrent price CAS/audit and restore fence. Synthetic only.');
 }finally{if(runtime)await runtime.dispose();fs.rmSync(dir,{recursive:true,force:true});}

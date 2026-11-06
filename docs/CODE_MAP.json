@@ -126,14 +126,18 @@
         "cloudflare-worker/src/store-financial-report.js",
         "server-runtime/reports.js",
         "server-runtime/exports.js",
-        "server-android/src/gr/argyrismitsos/fleetserver/FinancialExport.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/FinancialExport.java",
+        "cloudflare-worker/public/store-weekly-report.js"
       ],
       "tests": [
         "scripts/test-store-billing-*.mjs",
         "scripts/test-store-primary-budget.mjs",
         "scripts/test-store-financial-report.mjs",
         "scripts/test-financial-export-native.mjs",
-        "scripts/test-business-runtime-native.mjs"
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-store-weekly-report.mjs",
+        "scripts/test-store-weekly-browser.mjs",
+        "scripts/test-store-alias-cas-sqlite.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -143,7 +147,8 @@
       "docs": [
         "docs/SERVER_PRIMARY_STORE_ORDERS_GR.md",
         "docs/ISSUE_44_STORES_GR.md",
-        "docs/ISSUE_62_PARALLEL_START_GR.md"
+        "docs/ISSUE_62_PARALLEL_START_GR.md",
+        "docs/STORES_WEEKLY_5.60.1_GR.md"
       ]
     },
     {
@@ -442,7 +447,8 @@
         "scripts/test-cash-reversal-sqlite.mjs",
         "scripts/test-cash-rule-cas-sqlite.mjs",
         "scripts/test-business-runtime-native.mjs",
-        "scripts/test-financial-export-native.mjs"
+        "scripts/test-financial-export-native.mjs",
+        "scripts/test-cash-event-domain-sqlite.mjs"
       ],
       "related": [
         "stores",
