@@ -1,5 +1,10 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## Ανάληψη #76 — αυτόνομο εβδομαδιαίο PDF / ιστορικό όρων, 06/11/2026
+
+Ρητή εντολή χρήστη «ξεκίνα το issue #76». Κλάδος `codex/issue-76-store-weekly-audit`, βάση latest main `4d52897b5c4c7feb3bc5cb21b367cf7337c1f6fd`. Στόχος δύο μορφές ίδιας εβδομαδιαίας αναφοράς, επιλογή καταστημάτων, εσωτερική προεπισκόπηση/Print-PDF και ατομικό αναγνώσιμο ιστορικό πραγματικών αλλαγών όρων. Αφορά StoreBilling Java/SQLite, Worker store-billing API/schema, public/store-billing UI/CSS, shared report/print hooks, tests/code-map/release metadata. Χωρίς merge των WIP #69/#73/#74/#75 και χωρίς παραγωγικά δεδομένα/κλειδιά/νέα έξοδα. Η5.60 έχει επιβεβαιωμένη ενεργοποίηση. Κατά την ανάληψη πρόσφατα Actions ολοκληρωμένα, καμία ενεργή δημοσίευση. Προηγείται του μεγάλου5.61· επανέλεγχος πριν merge/publish. Δεν υπάρχει ακόμη υλοποίηση/CI/νέα δημοσίευση.
+
+
 ## PR #65 — πραγματικό exact-head CI / μετρήσεις, 04/11/2026
 
 - Ελεγμένο ενοποιημένο source **`1b652212170bff1549f327316aeb961b4dfe15bb`** με τότε main **`83421c28659b1243e99278a275a4b144ec8a337c`**, GitHub compare: **0 commits behind**, 17 ahead, καθαρή σύγκριση (μόνο 10 αρχεία CI/docs/code-map σε σχέση με το τότε main). Το GitHub PR εμφανίζει 13 changed files ως προς παλαιότερη PR base· τα 3 production-activation/diagnostic paths προϋπήρχαν ήδη στο νεότερο main και **δεν αποτελούν νέα αλλαγή** αυτού του merge.
