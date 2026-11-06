@@ -34,6 +34,18 @@ async function rule(request,env,user){
   if(Number(saved?.meta?.changes)!==1)throw new NativeError(409,'Ο κανόνας άλλαξε. Το προσχέδιο διατηρήθηκε.','rule_conflict');
   await audit(env,request,user,'cash_rule_version','cash_rule',id,previous,value,'Νέα έκδοση κανόνα· οι παλιές κινήσεις διατηρούν την τιμή τους');return reply({saved:true,rule:value},201);
 }
+// Atomic tariff fence: the selected rule must still be the latest effective
+// version at the instant the assessment is written. The preflight is for UX;
+// only this single SQLite statement protects concurrent/backdated rule edits.
+// Receipts and reversals are independent of the current tariff and remain valid.
+export const CASH_EVENT_INSERT_SQL=`INSERT INTO native_cash_events(id,kind,business_day,courier_id,courier_name,store_id,category,quantity,rate_cents,amount_cents,rule_id,reverses_id,source_key,notes,actor_id,actor_name,created_at)
+ SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+ WHERE (? <> 'assessment' OR ? = (
+   SELECT id FROM native_cash_rules
+   WHERE store_id=? AND category=? AND effective_day<=?
+   ORDER BY effective_day DESC,revision DESC LIMIT 1
+ ))`;
+
 async function event(request,env,user){
   const b=await request.json(),kind=b.kind;if(!['assessment','receipt','reversal'].includes(kind))throw new NativeError(400,'Επίλεξε είδος κίνησης.');
   let businessDay,courierId,courierName,store='',category='',quantity=0,rate=0,amount=0,ruleId=null,reverses=null;
@@ -56,7 +68,8 @@ async function event(request,env,user){
     }else amount=integer(b.amountCents,1,100000000);
   }
   const id=crypto.randomUUID(),at=stamp();
-  await env.DB.prepare('INSERT INTO native_cash_events(id,kind,business_day,courier_id,courier_name,store_id,category,quantity,rate_cents,amount_cents,rule_id,reverses_id,source_key,notes,actor_id,actor_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,kind,businessDay,courierId,courierName,store,category,quantity,rate,amount,ruleId,reverses,kind==='assessment'?'manual:'+id:null,notes,user.user_id,user.full_name||user.username,at).run();
+  const inserted=await env.DB.prepare(CASH_EVENT_INSERT_SQL).bind(id,kind,businessDay,courierId,courierName,store,category,quantity,rate,amount,ruleId,reverses,kind==='assessment'?'manual:'+id:null,notes,user.user_id,user.full_name||user.username,at,kind,ruleId,store,category,businessDay).run();
+  if(Number(inserted?.meta?.changes)!==1)throw new NativeError(409,'Άλλαξε η τιμή απόδοσης πριν από την αποθήκευση. Το προσχέδιο διατηρήθηκε.','rule_conflict');
   await audit(env,request,user,'cash_'+kind,'cash_event',id,null,{kind,businessDay,courierId,storeId:store,category,quantity,rateCents:rate,amountCents:amount,reversesId:reverses},notes);
   return reply({saved:true,id},201);
 }
