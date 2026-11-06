@@ -53,6 +53,18 @@ public final class NativeFrozenExportV3 {
             throw invalid(label);
         }
     }
+    private static long signedSafeNumber(Number value) throws IOException {
+        if (value instanceof Float || value instanceof Double) throw invalid("inline integer");
+        try {
+            BigInteger number=new BigInteger(value.toString());
+            if (number.compareTo(BigInteger.valueOf(-SAFE_INTEGER))<0
+                || number.compareTo(BigInteger.valueOf(SAFE_INTEGER))>0)
+                throw invalid("inline integer");
+            return number.longValueExact();
+        } catch (NumberFormatException | ArithmeticException error) {
+            throw invalid("inline integer");
+        }
+    }
     private static String required(JSONObject object, String field) throws IOException {
         Object value = object.opt(field);
         if (!(value instanceof String)) throw invalid(field);
@@ -169,7 +181,7 @@ public final class NativeFrozenExportV3 {
                     if (!Double.isFinite(real)) throw invalid("non-finite REAL");
                     value=Double.valueOf(real);
                 } else {
-                    long integer=safeNumber(number,"inline integer");
+                    long integer=signedSafeNumber(number);
                     value=Long.valueOf(integer);
                 }
             } else throw invalid("inline type");

@@ -50,6 +50,8 @@ public class FrozenV3Test {
   ok(((byte[])decoded.get("empty")).length==0 && decoded.get("nullable")==null,"empty BLOB differs from SQL NULL");
   ok(((String)decoded.get("unicode")).length()==6000,"deferred text");
   ok(((Long)decoded.get("safe"))==9007199254740991L,"safe integer");
+  JSONObject signedRow=new JSONObject(row().toString()).put("safe",-9007199254740991L);
+  ok(((Long)NativeFrozenExportV3.decode(inventory,table,page,signedRow,reader()).get("safe"))==-9007199254740991L,"negative signed safe integer");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),new JSONObject(page().toString()).put("schemaVersion",2),row(),reader()),"reject stale v2");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),new JSONObject(page().toString()).put("generation","other"),row(),reader()),"reject generation mismatch");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),new JSONObject(row().toString()).put("big",5),reader()),"reject inline/deferred conflict");
