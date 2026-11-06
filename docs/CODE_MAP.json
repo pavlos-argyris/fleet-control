@@ -415,6 +415,7 @@
       "tests": [
         "scripts/test-courier-cash-core.mjs",
         "scripts/test-cash-reversal-sqlite.mjs",
+        "scripts/test-cash-event-domain-sqlite.mjs",
         "scripts/test-cash-rule-cas-sqlite.mjs",
         "scripts/test-business-runtime-native.mjs",
         "scripts/test-financial-export-native.mjs"
