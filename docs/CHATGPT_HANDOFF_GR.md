@@ -1,3 +1,8 @@
+## Chromium primary fixture — ακριβής αιτία και διόρθωση — 06/11/2026
+
+- Source cc4b20357a959717163a2bbffa34cfef3e9c9b6e: Fast42275713942 SUCCESS. Full42275713799 πέρασε πλέον invoice-auto και Ordexa, απέτυχε στο νέο primary-browser getByLabel ελληνικού αποτυπώματος. Εξετάστηκε το πραγματικό CI screenshot trust-320.png: το καινούριο συνθετικό HTML δεν είχε charset και τα ελληνικά JS labels αποκωδικοποιήθηκαν λανθασμένα. Η παραγωγική HTML έχει UTF-8. Προστέθηκε ρητό charset στο fixture/asset responses, διατηρώντας την ίδια ελληνική assertion. Το primary browser test μετακινήθηκε πρώτο μετά την εγκατάσταση pinned browser για γρηγορότερο feedback· όλα τα υπόλοιπα mandatory checks παραμένουν.
+- Οι νέες πραγματικές οθόνες Ταμείου/Οικονομικών/Payroll review/Health είναι σε ενεργή τοπική ανάπτυξη με πραγματικά endpoints, αλλά δεν αποτελούν μέρος αυτού του μεμονωμένου fixture checkpoint. Θα αποθηκευτούν μετά τα δικά τους tests και κοινή ενσωμάτωση. Καμία δημοσίευση του μεγάλου update.
+
 ## Έλεγχος ενοποιημένου source — διόρθωση cloud-browser fixture — 06/11/2026
 
 - Ενοποιημένο source `7728e248b45e05fd7caccbd360c581a52d38f564`, treec45a2d85, Fast42274345377 SUCCESS. Full42274345456 FAILED στο invoice-auto-browser (invoice queue absent). Το νέο transport έπαιρνε protocol503 επειδή το παλιό createSimulation δεν όριζε FLEET_EVENTS. Η παραγωγική fail-closed συμπεριφορά είναι σωστή και διατηρείται. Η κοινή cloud-business προσομοίωση αποκτά ρητό coordinator/state cloud και narrow publish ACK· άγνωστα control/socket503. Direct descriptor smoke PASS. Δεν χαλαρώνει κανένας validator ή assertion.
