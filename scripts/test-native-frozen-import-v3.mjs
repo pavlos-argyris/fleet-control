@@ -69,6 +69,7 @@ public class FrozenImportTest {
  public static void main(String[] args)throws Exception {
   System.setProperty("fixture.db",args[0]);db=new SQLiteDatabase();
   try {
+   db.execSQL("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT)");
    db.execSQL("CREATE TABLE active_ledger(id INTEGER PRIMARY KEY,amount INTEGER NOT NULL)");
    db.execSQL("INSERT INTO active_ledger VALUES(1,12000)");
    JSONObject proof=run(0,false,null);
@@ -109,11 +110,18 @@ public class FrozenImportTest {
    ok(bad,"unsafe column name rejected before SQL mutation");
    ok("12000".equals(sql("SELECT amount FROM active_ledger WHERE id=1")),
     "live business data unchanged");
+   // A real restore invalidates both the old mirror proof and this candidate.
+   ServerAuthorityStage.invalidate(db);
+   ok("0".equals(sql("SELECT COUNT(*) FROM server_primary_frozen_v3_meta")),
+    "restore invalidates candidate metadata without deleting historical rows");
+   ok("12000".equals(sql("SELECT amount FROM active_ledger WHERE id=1")),
+    "restore proof invalidation never changes active business amounts");
+   run(0,false,null);
    db.close();db=new SQLiteDatabase();
    ok("2".equals(sql("SELECT COUNT(*) FROM server_primary_frozen_v3_cash_fixture"))
     &&"12000".equals(sql("SELECT amount FROM active_ledger WHERE id=1")),
     "candidate and active data survive process restart independently");
-   System.out.println("PASS transactional native frozen v3 importer: typed real SQLite, exact integer/BLOB/Unicode/NULL, rollback on malformed pages, generation, cursor, duplicate row, chunk, SQL failure, interruption, unsafe identifiers, restart, inactive authority.");
+   System.out.println("PASS transactional native frozen v3 importer: typed real SQLite, exact integer/BLOB/Unicode/NULL, rollback on malformed pages, generation, cursor, duplicate row, chunk, SQL failure, interruption, unsafe identifiers, restore proof invalidation, restart, inactive authority.");
   }finally{db.close();}
  }
 }
@@ -123,7 +131,8 @@ public class FrozenImportTest {
    '-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-classpath',jar,'-d',dir,
    ...fixtures,path.join(dir,'FrozenImportTest.java'),
    path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenExportV3.java'),
-   path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenImportV3.java')],{stdio:'inherit'});
+   path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenImportV3.java'),
+   path.join(root,'server-android/src/gr/argyrismitsos/fleetserver/ServerAuthorityStage.java')],{stdio:'inherit'});
   execFileSync('java',['-Xmx192m','-Dfixture.rpc='+path.join(dir,'sqlite_rpc.py'),
    '-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetserver.FrozenImportTest',
    path.join(dir,'import.sqlite')],{stdio:'inherit',timeout:60000});
