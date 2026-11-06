@@ -465,7 +465,8 @@
         "scripts/test-financial-export-native.mjs",
         "scripts/test-cash-event-domain-sqlite.mjs",
         "scripts/test-native-management-ui.mjs",
-        "scripts/test-native-management-browser.mjs"
+        "scripts/test-native-management-browser.mjs",
+        "scripts/test-cash-event-tariff-fence-sqlite.mjs"
       ],
       "related": [
         "stores",
@@ -527,7 +528,8 @@
         "server-foundation"
       ],
       "docs": [
-        "docs/ISSUE_8_PLAY_PROTECT_AUDIT_GR.md"
+        "docs/ISSUE_8_PLAY_PROTECT_AUDIT_GR.md",
+        "docs/PLAY_PROTECT_REVIEW_PACKET_GR.md"
       ]
     }
   ]

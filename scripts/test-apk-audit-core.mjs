@@ -23,10 +23,11 @@ assert.equal(manifest.application.debuggable, null, 'Absent flag stays unknown, 
 assert.deepEqual(manifest.components.find(c => c.name === '.BootReceiver').actions, ['android.intent.action.BOOT_COMPLETED']);
 assert.deepEqual(manifest.components.find(c => c.name === '.MainActivity').actions, ['android.intent.action.MAIN']);
 assert.deepEqual(certificateDigests('Signer #1 certificate SHA-256 digest: ' + cert + '\nSigner #1 public key SHA-256 digest: ' + 'b'.repeat(64)), [cert]);
-const record = {label:'candidate', manifest, signing:{certificates:[cert]}, archive:{nativeAbis:[],dex:[]}};
+const record = {label:'candidate', bytes:1024, manifest, signing:{certificates:[cert]}, archive:{nativeAbis:[],dex:[]}};
 const config = {packageName:'test.fleet', version:'5.61.0',versionCode:99};
 const source = '<uses-permission android:name="android.permission.INTERNET"/><uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34"/>';
 assertCandidate(record, config, cert, true, source);
+assert.throws(() => assertCandidate({...record,bytes:50*1024*1024+1}, config, cert, false, source), /OTA/);
 const changed = mutate => { const r = structuredClone(record); mutate(r); return r; };
 assert.throws(() => assertCandidate(record, config, 'b'.repeat(64), true, source), /Original/);
 assert.throws(() => assertCandidate(changed(r => r.manifest.components[1].exported = true), config, cert, false, source), /exported/);

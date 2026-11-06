@@ -20,6 +20,7 @@ jobs:
     outputs:
       source_commit: ${{ steps.request.outputs.source_commit }}
       publish: ${{ steps.request.outputs.publish }}
+      build_candidate: ${{ steps.request.outputs.build_candidate }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,7 +35,7 @@ jobs:
         run: node scripts/validate-publish-request.mjs
   publish:
     needs: request
-    if: needs.request.outputs.publish == 'true'
+    if: needs.request.outputs.publish == 'true' || needs.request.outputs.build_candidate == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -137,7 +138,21 @@ jobs:
       - run: node scripts/prepare-release.mjs
       - run: python3 scripts/write-release-notes.py .build/release-notes.md
       - run: node scripts/publish-release.mjs --dry-run
+      - name: Save original-signed candidate without activation
+        if: needs.request.outputs.build_candidate == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-original-signed-candidate
+          path: |
+            dist/*.apk
+            dist/*.apk.idsig
+            dist/*.zip
+            dist/release-manifest.json
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
       - name: Save full source and signed files as a GitHub release
+        if: needs.request.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -152,7 +167,9 @@ jobs:
             gh release create "$FLEET_TAG" --target "$FLEET_SOURCE_COMMIT" --title "Fleet Control $FLEET_TAG" --notes-file .build/release-notes.md dist/*.apk dist/*.apk.idsig dist/*.zip dist/release-manifest.json dist/SHA256SUMS.txt
           fi
       - run: node scripts/configure-worker.mjs
+        if: needs.request.outputs.publish == 'true'
       - name: Set publishing credential and deploy compatible Worker
+        if: needs.request.outputs.publish == 'true'
         working-directory: cloudflare-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -163,10 +180,12 @@ jobs:
           printenv FLEET_RELEASE_TOKEN | npx wrangler secret put RELEASE_TOKEN
           npx wrangler deploy
       - name: Upload and activate verified Server, Client and Web together
+        if: needs.request.outputs.publish == 'true'
         env:
           FLEET_RELEASE_TOKEN: ${{ secrets.FLEET_RELEASE_TOKEN }}
         run: node scripts/publish-release.mjs
       - name: Verify live signed APK bytes and personnel mirror reads
+        if: needs.request.outputs.publish == 'true'
         env:
           FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
           FLEET_VERIFY_DEPLOYED_SOURCE: ${{ needs.request.outputs.source_commit }}

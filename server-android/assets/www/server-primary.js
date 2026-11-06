@@ -19,8 +19,8 @@
   let current=null,pending='',timer;
   const phases={cloud:'Η κύρια βάση λειτουργεί ακόμη στο cloud.',preparing:'Η μεταφορά έχει ξεκινήσει.',importing:'Μεταφορά και σύγκριση δεδομένων.',prepared:'Τα δεδομένα μεταφέρθηκαν· απομένει ο τελικός έλεγχος.',active:'Η κύρια βάση λειτουργεί σε αυτόν τον Server.',needs_recovery:'Χρειάζεται ολοκλήρωση της ανάκτησης Server.',recovering:'Η ανάκτηση Server βρίσκεται σε εξέλιξη.'};
   function render(value){
-    current=value&&typeof value==='object'?value:{};const busy=!!current.busy||!!pending,phase=current.phase||'unknown',resume=['preparing','importing','prepared'].includes(phase);
-    state.textContent=phases[phase]||(busy?'Η μεταφορά βρίσκεται σε εξέλιξη.':'Δεν επιβεβαιώθηκε η κατάσταση της κύριας βάσης.');stage.textContent=current.stage||'';if(current.error)error.textContent=current.error;
+    const previousPhase=current?.phase;current=value&&typeof value==='object'?value:{};const busy=!!current.busy||!!pending,phase=current.phase||'unknown',resume=['preparing','importing','prepared'].includes(phase);
+    state.textContent=phases[phase]||(busy?'Η μεταφορά βρίσκεται σε εξέλιξη.':'Δεν επιβεβαιώθηκε η κατάσταση της κύριας βάσης.');stage.textContent=current.stage||'';if(current.error)error.textContent=current.error;else if(previousPhase!==phase||phase==='active')error.textContent='';
     form.hidden=!['cloud','preparing','importing','prepared'].includes(phase)&&!busy;for(const input of form.elements)input.disabled=busy;
     start.disabled=busy||current.portableBackupEnabled!==true||!['cloud','preparing','importing','prepared'].includes(phase);start.textContent=resume?'Συνέχεια μεταφοράς':'Μεταφορά και έλεγχος';get('[data-primary-resume]').hidden=!resume;
     form.elements.username.required=!resume;form.elements.password.required=!resume;
@@ -37,6 +37,6 @@
   };
   get('[data-primary-refresh]').onclick=read;
   section.addEventListener('toggle',()=>{clearInterval(timer);if(section.open){read();timer=setInterval(read,2000);}});
-  const original=window.FleetServer?.onNativeEvent;if(typeof original==='function')window.FleetServer.onNativeEvent=function(event,payload){original.call(this,event,payload);if(!['primaryMigration','primaryMigrationAbort'].includes(event)||payload?.requestId!==pending)return;pending='';read();if(payload.ok!==true)error.textContent=typeof payload.message==='string'?payload.message:'Δεν ολοκληρώθηκε η ενέργεια.';};
+  const original=window.FleetServer?.onNativeEvent;if(typeof original==='function')window.FleetServer.onNativeEvent=function(event,payload){original.call(this,event,payload);if(!['primaryMigration','primaryMigrationAbort'].includes(event)||payload?.requestId!==pending)return;pending='';read();if(payload.ok!==true&&current?.phase!=='active')error.textContent=typeof payload.message==='string'?payload.message:'Δεν ολοκληρώθηκε η ενέργεια.';};
   read();
 }());

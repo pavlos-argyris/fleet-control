@@ -9,7 +9,7 @@ const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const requireValue = (value, message) => { if (!value) throw new Error(message); };
 export function validateRequest(request) {
   requireValue(request && request.schemaVersion === 1, 'Unsupported publication request schema');
-  requireValue(['disabled', 'verify', 'publish'].includes(request.mode), 'Unsupported publication mode');
+  requireValue(['disabled', 'verify', 'candidate', 'publish'].includes(request.mode), 'Unsupported publication mode');
   const fields = request.mode === 'disabled' ? ['schemaVersion', 'mode'] :
     ['schemaVersion', 'mode', 'requestId', 'sourceCommit', 'releaseVersion', 'requestedAt', 'reason'];
   requireValue(Object.keys(request).length === fields.length && fields.every(key => Object.hasOwn(request, key)), 'Unexpected or missing request fields');
@@ -55,7 +55,8 @@ export async function planPublication({ eventName, ref, sha, event = {}, cwd = p
   requireValue(configAt(request.sourceCommit).releaseVersion === request.releaseVersion, 'Requested version differs from the pinned source');
   requireValue(typeof getRuns === 'function', 'Source CI verification is required');
   const checkRun = assertSourceCI(await getRuns(request.sourceCommit), request.sourceCommit);
-  return { mode: request.mode, sourceCommit: request.sourceCommit, publish: request.mode === 'publish', requestId: request.requestId, checkRun };
+  return { mode: request.mode, sourceCommit: request.sourceCommit, publish: request.mode === 'publish',
+    ...(request.mode === 'candidate' ? { buildCandidate: true } : {}), requestId: request.requestId, checkRun };
 }
 
 async function main() {
@@ -71,9 +72,9 @@ async function main() {
   };
   const result = await planPublication({ eventName: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF,
     sha: process.env.GITHUB_SHA, event: JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')), getRuns });
-  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `source_commit=${result.sourceCommit}\npublish=${result.publish}\n`);
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `source_commit=${result.sourceCommit}\npublish=${result.publish}\nbuild_candidate=${result.buildCandidate === true}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-    `Publication mode: **${result.mode}**\n\nPinned source: \`${result.sourceCommit}\`\n\n${result.publish ? 'Production publication authorized by this explicit request.' : 'Validation only. Production publication skipped.'}\n`);
+    `Publication mode: **${result.mode}**\n\nPinned source: \`${result.sourceCommit}\`\n\n${result.publish ? 'Production publication authorized by this explicit request.' : result.buildCandidate ? 'Original-signed candidate only. No publication, deployment or activation.' : 'Validation only. Production publication skipped.'}\n`);
   console.log(JSON.stringify(result));
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

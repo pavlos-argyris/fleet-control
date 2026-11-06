@@ -13,7 +13,7 @@
 | #62 | Οικονομικά/Ανά ημέρα/Χρεώσεις, ημέρα/εβδομάδα/μήνας/διάστημα, ίδιος backend UI/PDF/XLSX, ιστορικοί όροι, alias CAS/tombstones, κάλυψη | 0 επιβεβαιωμένες παραγγελίες→0 χρέωση, άγνωστο δεν γίνεται μηδέν. Διατηρούνται οι δύο weekly PDF μορφές και audit της δημοσιευμένης 5.60.1 (#76/#77). |
 | #63 | Versioned ουρά ελέγχου, αιτίες/source fingerprint, διατήρηση/επανεξέταση με audit, πραγματικά blockers χωριστά από υπομνήσεις | Ο άμεσος editor βάρδιας λειτουργεί με παλιό aggregate. Παραμένουν 6/10/15€, 02:00, Ordexa, συμφωνημένη στρογγυλοποίηση και κλειδωμένα ποσά. |
 | #64 | Υγεία Server/Ordexa/stores/outbox/χώρου/backup-file/restore-proof, συνενωμένα περιστατικά, CAS acknowledgement, ασφαλής διάγνωση | Γνώση δεν σημαίνει επίλυση. D1 Άγνωστο χωρίς πραγματική μέτρηση. Δεν προστίθεται βαρύ polling ή υποτιθέμενο telemetry. |
-| #8 | BootReceiver μη εξαγόμενος/action allowlist, manifest/OTA checks, σύγκριση πραγματικών signed ιστορικών APK και νέων compiled artifacts στο CI | Η νέα artifact σύγκριση απαιτεί την ακριβή εκτέλεση CI αυτού του commit. Καμία συσκευή/ακριβές Play Protect alert/απόφαση Google δεν έχει παρατηρηθεί· το #8 δεν κλείνει ως Google clearance. |
+| #8 | BootReceiver μη εξαγόμενος/action allowlist, manifest/OTA checks, σύγκριση πραγματικών signed ιστορικών APK και νέων compiled artifacts στο CI | Η νέα artifact σύγκριση απαιτεί την ακριβή εκτέλεση CI αυτού του commit. Το harmful-app μήνυμα υπάρχει ως αναφορά στο issue#8· φυσική αναπαραγωγή και απόφαση Google δεν έχουν παρατηρηθεί· το #8 δεν κλείνει ως Google clearance. |
 
 Πλοήγηση: μόνο νέο κύριο μενού **Ταμείο διανομέων**, ίδιο compact bottom nav.
 Ταμείο/καταστήματα 05:00–05:00 Europe/Athens, εβδομάδα Δευτέρα–Κυριακή.
@@ -25,13 +25,13 @@ Source `dc5bf27f411800c6c5fc21973e5ec844d2277217`:
 - Full [42281646837](https://github.com/pavlos-argyris/fleet-control/actions/runs/42281646837) **SUCCESS**: πραγματικό Chromium, file-origin Client, native/runtime/backup tests, δύο test-signed APK, Worker dry-run και πλήρες source handoff.
 - Source artifact [13536870747](https://github.com/pavlos-argyris/fleet-control/actions/runs/42281646837/artifacts/13536870747), artifact ZIP SHA-256 `b1a2dc7007ad2c90d2b6b00f3bc5507a05e5845c6b404d908818a4096369c3c2`.
 
-Τρέχουσα υποψήφια έκδοση: Fleet/Web/Client5.61.0, Client99, Server2.10.11(65), Worker5.18.8.
+Τρέχουσα υποψήφια έκδοση: Fleet/Web/Client5.61.0, Client99, Server2.10.12(66), Worker5.18.8.
 Οι επόμενες αλλαγές audit/visual-review απαιτούν νέο exact-source CI πριν από συγχώνευση.
 
 ## Παράδοση και αποδοχή
 
 1. Ολοκλήρωση νέου artifact audit, πραγματική οπτική επιθεώρηση των συνθετικών Chromium screenshots και τυχόν διορθώσεις.
-2. Επαλήθευση νεότερου main, exact PR/main CI και μία κοινή εξουσιοδοτημένη δημοσίευση με αρχικά signing keys.
+2. Επαλήθευση νεότερου main και exact PR/main CI. Προετοιμασία original-signed candidate για τελική φυσική/Play Protect επαλήθευση πριν από τη μία κοινή εξουσιοδοτημένη δημοσίευση. Η candidate διαδρομή δεν κάνει παραγωγικό deploy ή activation.
 3. Πλήρες source ZIP/versions/checksums/οδηγίες και επιβεβαίωση ενεργοποίησης. Δημοσίευση δεν ισοδυναμεί με φυσική εγκατάσταση ή ενεργοποίηση primary στη συσκευή.
 4. Η φυσική δοκιμή και τυχόν διαδικασία Google καταγράφονται χωριστά· δεν κλείνουν issues μόνο επειδή πέρασε συνθετικό CI.
 
@@ -42,4 +42,5 @@ Source `dc5bf27f411800c6c5fc21973e5ec844d2277217`:
 
 Στις05/11/2026 από main `4d52897b5c4c7feb3bc5cb21b367cf7337c1f6fd` ενοποιήθηκαν οι αρχικοί καθαροί πυρήνες των draft PR#66–#72.
 Η τότε καταγραφή «λείπουν UI/DB/exports/auth/restore» περιέγραφε εκείνο το αρχικό checkpoint και **δεν αποτελεί τη σημερινή κατάσταση**.
+Το επόμενο source ενσωματώνει και το atomic tariff fence του PR#79, με προστασία στο πραγματικό SQLite INSERT και διατήρηση προσχεδίου σε409.
 Τα πραγματικά επόμενα checkpoints και τα παλιά αποτελέσματα διατηρούνται στο `docs/CHATGPT_HANDOFF_GR.md` και στο git history· μην ξαναξεκινήσεις ολοκληρωμένες ροές.

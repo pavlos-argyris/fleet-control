@@ -200,11 +200,11 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - mobile-390-cash-couriers-review.png
+          - mobile-390-cash-couriers.png
           - mobile-390-cash-rule-review.png
-          - mobile-390-stores-financial-review.png
-          - mobile-390-payroll-review-review.png
-          - mobile-390-server-health-review.png
+          - mobile-390-stores-financial.png
+          - mobile-390-payroll-review.png
+          - mobile-390-server-health.png
           - 390-native-active.png
     steps:
       - uses: actions/download-artifact@v4
