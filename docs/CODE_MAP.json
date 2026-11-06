@@ -465,7 +465,8 @@
         "scripts/test-financial-export-native.mjs",
         "scripts/test-cash-event-domain-sqlite.mjs",
         "scripts/test-native-management-ui.mjs",
-        "scripts/test-native-management-browser.mjs"
+        "scripts/test-native-management-browser.mjs",
+        "scripts/test-cash-event-tariff-fence-sqlite.mjs"
       ],
       "related": [
         "stores",
