@@ -25,7 +25,7 @@
    }
   }
   for(const t of terms){if(!selected.has(t.storeId)||!t.audit||t.effectiveDay<from||t.effectiveDay>to)continue;const applies=rows.filter(r=>r.storeId===t.storeId&&r.termId===t.id);if(!applies.length)continue;
-   for(const c of t.audit.changes||[]){if(!fields[c.field]||c.oldValue===c.newValue)continue;changes.push({storeId:t.storeId,name:stores.find(s=>s.id===t.storeId).name,...c,recordedAt:t.audit.recordedAt,effectiveDay:t.effectiveDay,actor:t.audit.actor,retroactive:t.effectiveDay<new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Athens',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(t.audit.recordedAt)),pending:applies.some(r=>r.problem)});}
+   for(const c of t.audit.changes||[]){if(!fields[c.field]||c.oldValue===c.newValue)continue;const impact=applies.some(r=>r.problem||(c.field==='unitPriceCents'?r.orderCount>0:c.field==='dailyMinimumCents'?r.orderCount>0&&(c.oldValue==null||Math.max(0,c.oldValue-r.orderChargeCents)!==Math.max(0,c.newValue-r.orderChargeCents)):r.orderCount===0&&(t.dailyMinimumCents||0)>0));if(!impact)continue;changes.push({storeId:t.storeId,name:stores.find(s=>s.id===t.storeId).name,...c,recordedAt:t.audit.recordedAt,effectiveDay:t.effectiveDay,actor:t.audit.actor,retroactive:t.effectiveDay<new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Athens',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(t.audit.recordedAt)),pending:applies.some(r=>r.problem)});}
   }
   return {...input,rows,changes,baselines,total:sum(rows)};
  }
