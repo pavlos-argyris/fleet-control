@@ -43,7 +43,7 @@ const SQL_NAME=/^[A-Za-z_][A-Za-z0-9_]{0,120}$/;
 async function existingTables(env){
   const names=rows(await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()).map(r=>r.name);
   if(names.some(name=>!SQL_NAME.test(name)))throw Error('Unsupported D1 table name: migration refused');
-  return names.filter(name=>!PRIMARY_CLOUD_CONTROL.has(name));
+  return names.filter(name=>!PRIMARY_CLOUD_CONTROL.has(name)&&!name.startsWith('_cf_'));
 }
 async function exportTables(env){return (await existingTables(env)).filter(name=>!PRIMARY_NON_EXPORT.has(name));}
 async function exportColumns(env,table){
@@ -60,7 +60,7 @@ async function fence(env,user,ticketHash){
   for(const table of tables)for(const event of ['INSERT','UPDATE','DELETE'])commands.push(env.DB.prepare(`CREATE TRIGGER IF NOT EXISTS primary_fence_${table}_${event.toLowerCase()} BEFORE ${event} ON ${table} WHEN (SELECT mode FROM fleet_primary_fence WHERE id=1) IN ('fenced','active') BEGIN SELECT RAISE(ABORT,'fleet_primary_writer_fenced'); END;`));
   // A table created between enumeration and the atomic D1 batch must prevent
   // activation of a partial fence, even if the owner's password is unchanged.
-  commands.push(env.DB.prepare("UPDATE fleet_primary_fence SET mode='fenced',ticket_hash=? WHERE id=1 AND mode='cloud' AND ticket_hash<>? AND EXISTS(SELECT 1 FROM app_users WHERE id=? AND role='owner' AND active=1 AND login_enabled=1 AND deleted_at IS NULL AND password_hash=? AND password_salt=?) AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('fleet_primary_fence','fleet_releases','d1_migrations') AND name NOT IN (SELECT value FROM json_each(?)))").bind(ticketHash,'cancelled:'+ticketHash,user.id,user.password_hash,user.password_salt,JSON.stringify(tables)));
+  commands.push(env.DB.prepare("UPDATE fleet_primary_fence SET mode='fenced',ticket_hash=? WHERE id=1 AND mode='cloud' AND ticket_hash<>? AND EXISTS(SELECT 1 FROM app_users WHERE id=? AND role='owner' AND active=1 AND login_enabled=1 AND deleted_at IS NULL AND password_hash=? AND password_salt=?) AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT GLOB '_cf_*' AND name NOT IN ('fleet_primary_fence','fleet_releases','d1_migrations') AND name NOT IN (SELECT value FROM json_each(?)))").bind(ticketHash,'cancelled:'+ticketHash,user.id,user.password_hash,user.password_salt,JSON.stringify(tables)));
   const result=await env.DB.batch(commands);return !!result[result.length-1]?.meta?.changes;
 }
 
