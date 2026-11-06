@@ -1,3 +1,9 @@
+## #59/#60 — selected-store cash projection and REAL native test bind — 06/11/2026
+
+- Draft PR #73 / `codex/roadmap-integration-fleet-561` from verified head `37e154f3df9aa5092c6d01492d6bf509d8e095e1` (Fast `42201599149` SUCCESS; full `42201598183` FAILED at native frozen v3 import fixture: `real_value` storage-class conversion). The Java test bridge converted `Double(1.0)` to JSON integer 1, unlike Android SQLite. Fixed isolated test bridge with explicit typed REAL marker, retaining byte[] BLOB binding. Production importer unchanged; exact new CI required.
+- #60 real courier cash projection now accepts explicit `participatingStoreIds`: only selected stores create debt; excluded deliveries (including missing courier/category) do not produce missing-tariff alerts. For selected stores, missing tariffs still fail closed; historical effective-day rates remain 250/300 cents or other configured values. Added tests for two stores at 2.50/3.00 EUR, excluded stores, empty allowlist, missing tariff and invalid allowlist. Legacy callers with null allowlist unchanged. This is projection logic, NOT live Ordexa mapping or final UI/authority.
+- No production mutation, merge, deploy, backup restore or signing changes. Draft NOT READY. Need exact-head Fast/full CI, then real native integration/permissions/backup, authenticated migration and physical device proof.
+
 ## #59 — native SQLite BLOB test fixture correction — 06/11/2026
 
 - Το exact full CI `42200461094` στο `4ad062ef62458171a8d1d0fad56c29c32d54eb35` απέτυχε στο νέο `test-native-frozen-import-v3.mjs`: ο κοινός Python/SQLite test RPC δεν μετέτρεπε Java `byte[]` (JSON array) σε sqlite3 BLOB bind, άρα η Python επέστρεφε `Error binding parameter 5: type 'list' is not supported`. Ο native decoder test πέρασε· τα προηγούμενα check-all/browser/native stage tests πέρασαν έως αυτό το σημείο. Πρόκειται για ελλιπή **test fixture**, όχι απόδειξη ότι Android SQLite αποτυγχάνει.

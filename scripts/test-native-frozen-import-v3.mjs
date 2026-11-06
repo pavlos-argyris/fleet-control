@@ -15,7 +15,15 @@ try {
   const marker="q.get('args',[])";
   assert(python.includes(marker),'Expected isolated SQLite RPC fixture contract');
   fs.writeFileSync(rpc,python.replace(marker,
-   "[sqlite3.Binary(bytes((int(x)&255) for x in v)) if isinstance(v,list) else v for v in q.get('args',[])]"));
+   "[sqlite3.Binary(bytes((int(x)&255) for x in v)) if isinstance(v,list) else (float(v['__fleet_sqlite_real__']) if isinstance(v,dict) and set(v)=={'__fleet_sqlite_real__'} else v) for v in q.get('args',[])]"));
+  // The legacy Java JSON bridge serializes Double(1.0) as JSON integer 1.
+  // Preserve the real Android execSQL binding type in this test fixture.
+  const sqliteJava=path.join(dir,'SQLiteDatabase.java'),java=fs.readFileSync(sqliteJava,'utf8');
+  const javaBind='public void execSQL(String s,Object[] a){query(s,new JSONArray(a));}';
+  assert(java.includes(javaBind),'Expected isolated SQLiteDatabase bind contract');
+  fs.writeFileSync(sqliteJava,java.replace(javaBind,
+   'public void execSQL(String s,Object[] a){JSONArray values=new JSONArray();for(Object v:a){if(v instanceof Double)values.put(new JSONObject().put("__fleet_sqlite_real__",Double.toString((Double)v)));else values.put(v);}query(s,values);}'));
+
   fs.writeFileSync(path.join(dir,'FrozenImportTest.java'),String.raw`package gr.argyrismitsos.fleetserver;
 import android.database.*;import android.database.sqlite.*;import org.json.*;
 import java.io.*;import java.util.*;

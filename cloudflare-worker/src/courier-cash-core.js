@@ -15,9 +15,13 @@ const seenUnique=(map,item,label)=>{
  map.set(id,value);return true;
 };
 const safeAdd=(a,b)=>{const sum=a+b;if(!Number.isSafeInteger(sum))throw new RangeError('Cash total overflow');return sum;};
-export function projectCourierCash({day,orders=[],tariffs=[],receipts=[]}={}){
+export function projectCourierCash({day,orders=[],tariffs=[],receipts=[],participatingStoreIds=null}={}){
  assertDay(day);
  for(const [name,value] of Object.entries({orders,tariffs,receipts}))if(!Array.isArray(value))throw new TypeError(name+' must be array');
+ // Explicit allowlist: stores outside it never create a cash obligation, even
+ // when their orders have no courier or category. Null keeps legacy callers.
+ if(participatingStoreIds!==null&&!Array.isArray(participatingStoreIds))throw new TypeError('participatingStoreIds must be array or null');
+ const participating=participatingStoreIds===null?null:new Set(participatingStoreIds.map(id=>assertId(id,'participating store')));
  const allTariffs=new Map();
  for(const tariff of tariffs){
   const storeId=assertId(tariff?.storeId,'tariff store'),category=assertId(tariff?.category,'tariff category'),effectiveDay=assertDay(tariff?.effectiveDay,'tariff effectiveDay');
@@ -29,6 +33,7 @@ export function projectCourierCash({day,orders=[],tariffs=[],receipts=[]}={}){
  }
  for(const list of allTariffs.values())list.sort((a,b)=>a.effectiveDay.localeCompare(b.effectiveDay));
  const couriers=new Map(),issues=[],seenOrders=new Map(),seenReceipts=new Map();
+ let excludedOrders=0;
  function person(id){if(!couriers.has(id))couriers.set(id,{courierId:id,orders:0,dueCents:0,receivedCents:0,missingTariffs:0,stores:{}});return couriers.get(id);}
  for(const order of orders){
   if(!seenUnique(seenOrders,order,'order'))continue;
@@ -36,7 +41,9 @@ export function projectCourierCash({day,orders=[],tariffs=[],receipts=[]}={}){
   if(orderDay!==day)continue;
   if(!['delivered','cancelled','deleted'].includes(order.status))throw new TypeError('Invalid order status '+id);
   if(order.status!=='delivered')continue;
-  const storeId=assertId(order.storeId,'store id'),category=assertId(order.category,'category');
+  const storeId=assertId(order.storeId,'store id');
+  if(participating!==null&&!participating.has(storeId)){excludedOrders++;continue;}
+  const category=assertId(order.category,'category');
   const idCourier=order.courierId;
   if(typeof idCourier!=='string'||!idCourier.trim()){issues.push({type:'missing-courier',orderId:id});continue;}
   assertId(idCourier,'courier id');
@@ -62,5 +69,5 @@ export function projectCourierCash({day,orders=[],tariffs=[],receipts=[]}={}){
   complete:p.missingTariffs===0,
   stores:undefined
  }));
- return {day,couriers:list,issues,complete:issues.length===0};
+ return {day,couriers:list,issues,excludedOrders,complete:issues.length===0};
 }
