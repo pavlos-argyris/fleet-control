@@ -1,3 +1,8 @@
+## #59 — frozen export v3: ακριβείς 64-bit ακέραιοι και BLOB — 06/11/2026
+
+- Στο ίδιο draft PR #73, από το επιβεβαιωμένο HEAD `7f2340196f6107f66a27ed79b4eb2be02f207571`, η εξαγωγή D1 αποτρέπει απώλεια ακριβείας για SQLite INTEGER εκτός JS safe range: επιστρέφει `NULL` στη σελίδα και `_primaryOversize` descriptor με `type: integer` και **ακριβές δεκαδικό string**. Όλα τα BLOB, ακόμη και μικρά/κενά, δηλώνονται ρητά με `type: blob` και byte length, ώστε `NULL` και `x''` να μην συγχέονται. Μεγάλο Unicode TEXT εξακολουθεί να μεταφέρεται σε ≤32 KiB chunks.
+- Η παγωμένη σύμβαση inventory/rows/cell αυξάνεται συντηρητικά σε **schemaVersion 3**. Ο μελλοντικός native importer πρέπει να απορρίπτει παλιές/άγνωστες εκδόσεις και να ελέγχει typed descriptors πριν από οποιαδήποτε ενεργοποίηση. Προστέθηκαν Workerd/D1 regression assertions για `9223372036854775807`, αρνητικό unsafe integer, ασφαλές integer, `x'00FF8001'`, `x''`, `NULL` και binary slice. **Exact νέο CI εκκρεμεί**· καμία ενεργή μεταφορά, production D1 write, merge, deploy ή αλλαγή signing keys.
+
 # Issue #59 — απογραφή εξαρτήσεων D1 πριν από απομακρυσμένες εγγραφές
 
 ## Κοινός business runtime στη SQLite

@@ -18,6 +18,10 @@ try{
  const largePayload='Κ'.repeat(90000);
  await db.prepare('CREATE TABLE unlisted_business_data(id TEXT PRIMARY KEY,payload TEXT NOT NULL)').run();
  await db.prepare('INSERT INTO unlisted_business_data(id,payload) VALUES(?,?)').bind('fixture',largePayload).run();
+ // Frozen exports must preserve exact 64-bit cents/IDs and the BLOB storage
+ // class. JavaScript Number coercion or a NULL/deferred mix-up is data loss.
+ await db.prepare('CREATE TABLE typed_business_fixture(id INTEGER PRIMARY KEY,big_positive INTEGER NOT NULL,big_negative INTEGER NOT NULL,small_blob BLOB NOT NULL,empty_blob BLOB NOT NULL,null_blob BLOB,safe_integer INTEGER NOT NULL)').run();
+ await db.prepare("INSERT INTO typed_business_fixture VALUES(1,9223372036854775807,-9007199254740992,x'00FF8001',x'',NULL,9007199254740991)").run();
  const keys=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']),publicKey=Buffer.from(await crypto.subtle.exportKey('spki',keys.publicKey)).toString('base64url');
  const input=()=>({generation:crypto.randomUUID(),ticket:Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),publicKey,publicSalt:Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),recoveryHash:'a'.repeat(64),username:'primary.owner',password:'Primary-Fixture-2026!'});
  let migration=input();
@@ -44,13 +48,13 @@ try{
  await assert.rejects(db.prepare("UPDATE unlisted_business_data SET payload='stale' WHERE id='fixture'").run(),/fleet_primary_writer_fenced/);
  assert.equal((await db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' AND name LIKE 'primary_fence_fleet_releases_%'").first()).n,0,'cloud release metadata remains outside business writer fence');
  assert.equal((await call('/api/auth/user-login',{username:'primary.owner',password:'Primary-Fixture-2026!'})).status,503);
- const inventory=ok(await call('/api/primary/inventory',null,ticket));assert.equal(inventory.schemaVersion,2);assert(inventory.tables.length>30);assert(!inventory.tables.some(t=>t.name==='auth_sessions'),'old cloud sessions are never imported');
+ const inventory=ok(await call('/api/primary/inventory',null,ticket));assert.equal(inventory.schemaVersion,3);assert(inventory.tables.length>30);assert(!inventory.tables.some(t=>t.name==='auth_sessions'),'old cloud sessions are never imported');
  assert(inventory.tables.some(t=>t.name==='unlisted_business_data'&&t.rows===1),'unknown business rows are exported rather than silently lost');
  assert(!inventory.tables.some(t=>t.name==='fleet_releases'),'cloud OTA metadata stays in distribution');
  const users=ok(await call('/api/primary/rows?table=app_users',null,ticket)).rows;assert.equal(users.length,1);assert.equal(users[0].full_name,'Συνθετικός ιδιοκτήτης');
  assert.equal((await call('/api/primary/rows?table=app_users%3BDROP%20TABLE%20app_users',null,ticket)).status,400);
  const frozen=ok(await call('/api/primary/rows?table=unlisted_business_data',null,ticket));
- assert.equal(frozen.schemaVersion,2);assert.equal(frozen.rows.length,1);assert.equal(frozen.rows[0].payload,null);
+ assert.equal(frozen.schemaVersion,3);assert.equal(frozen.rows.length,1);assert.equal(frozen.rows[0].payload,null);
  const deferred=JSON.parse(frozen.rows[0]._primaryOversize).find(c=>c?.name==='payload');
  assert.equal(deferred.bytes,Buffer.byteLength(largePayload));assert.equal(deferred.type,'text');
  const parts=[];for(let offset=0;offset<deferred.bytes;offset+=32768){
@@ -58,6 +62,20 @@ try{
    assert.equal(part.offset,offset);assert.equal(part.bytes,deferred.bytes);parts.push(Buffer.from(part.hex,'hex'));
  }
  assert.equal(Buffer.concat(parts).toString('utf8'),largePayload,'byte slices round-trip large Unicode exactly');
+ const typed=ok(await call('/api/primary/rows?table=typed_business_fixture',null,ticket));
+ assert.equal(typed.schemaVersion,3);assert.equal(typed.rows.length,1);
+ const typedRow=typed.rows[0],typedMeta=JSON.parse(typedRow._primaryOversize).filter(Boolean);
+ const meta=name=>typedMeta.find(c=>c.name===name);
+ assert.equal(typedRow.big_positive,null);assert.equal(meta('big_positive').type,'integer');
+ assert.equal(meta('big_positive').decimal,'9223372036854775807','max SQLite signed integer must not round in D1 JSON');
+ assert.equal(typedRow.big_negative,null);assert.equal(meta('big_negative').decimal,'-9007199254740992');
+ assert.equal(typedRow.safe_integer,9007199254740991,'safe integers stay inline');
+ assert.equal(typedRow.small_blob,null);assert.equal(meta('small_blob').type,'blob');assert.equal(meta('small_blob').bytes,4);
+ assert.equal(typedRow.empty_blob,null);assert.equal(meta('empty_blob').type,'blob');assert.equal(meta('empty_blob').bytes,0);
+ assert.equal(typedRow.null_blob,null);assert.equal(meta('null_blob'),undefined,'SQL NULL is not an empty BLOB');
+ const binary=ok(await call('/api/primary/cell?table=typed_business_fixture&column=small_blob&rowid=1&offset=0&size=4',null,ticket));
+ assert.equal(binary.schemaVersion,3);assert.equal(binary.kind,'blob');assert.equal(binary.hex,'00FF8001');
+ assert.equal((await call('/api/primary/cell?table=typed_business_fixture&column=empty_blob&rowid=1&offset=0',null,ticket)).status,416,'zero-byte BLOB needs no slices');
  assert.equal((await call('/api/primary/cell?table=unlisted_business_data&column=payload%3BDROP&rowid=1&offset=0',null,ticket)).status,400);
  assert.equal((await call('/api/primary/cell?table=unlisted_business_data&column=payload&rowid=1&offset='+deferred.bytes,null,ticket)).status,416);
  assert.equal((await call('/api/primary/rows?table=unlisted_business_data&limit=26',null,ticket)).status,400);

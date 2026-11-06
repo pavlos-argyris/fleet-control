@@ -121,7 +121,7 @@ export async function routePrimary(request,env,helpers={}){
     if(path==='/api/primary/inventory'&&request.method==='GET'){
       const names=await exportTables(env),results=await env.DB.batch(names.flatMap(name=>[env.DB.prepare(`PRAGMA table_info(${name})`),env.DB.prepare(`SELECT COUNT(*) rows,COALESCE(MAX(rowid),0) lastRow FROM ${name}`)]));
       const tables=names.map((name,index)=>({name,columns:rows(results[index*2]).map(c=>({name:c.name,type:c.type,notnull:c.notnull,pk:c.pk})),...rows(results[index*2+1])[0]}));
-      return primaryJson({schemaVersion:2,generation:verified.generation,realm:verified.realm,tables,excludedTables:[...PRIMARY_NON_EXPORT,...PRIMARY_CLOUD_CONTROL]});
+      return primaryJson({schemaVersion:3,generation:verified.generation,realm:verified.realm,tables,excludedTables:[...PRIMARY_NON_EXPORT,...PRIMARY_CLOUD_CONTROL]});
     }
     if(path==='/api/primary/rows'&&request.method==='GET'){
       const table=url.searchParams.get('table'),after=Number(url.searchParams.get('after')||0),limit=Number(url.searchParams.get('limit')||10);
@@ -129,13 +129,19 @@ export async function routePrimary(request,env,helpers={}){
       const columns=await exportColumns(env,table);
       // Large text/BLOB values travel in bounded byte slices. A separate
       // descriptor distinguishes a real NULL from a deferred cell.
-      const large=c=>`typeof("${c.name}") IN ('text','blob') AND length(CAST("${c.name}" AS BLOB))>4096`;
-      const fields=columns.map(c=>`CASE WHEN ${large(c)} THEN NULL ELSE "${c.name}" END AS "${c.name}"`).join(',');
-      const metadata=columns.map(c=>`CASE WHEN ${large(c)} THEN json_object('name','${c.name}','bytes',length(CAST("${c.name}" AS BLOB)),'type',typeof("${c.name}")) ELSE NULL END`).join(',');
+      // D1 JSON numbers cannot represent 64-bit SQLite integers precisely.
+      // Never emit an unsafe integer as a rounded JavaScript Number. BLOBs
+      // (including empty ones) must also retain their SQLite storage class.
+      const blob=c=>`typeof("${c.name}")='blob'`;
+      const longText=c=>`typeof("${c.name}")='text' AND length(CAST("${c.name}" AS BLOB))>4096`;
+      const unsafeInt=c=>`typeof("${c.name}")='integer' AND ("${c.name}">9007199254740991 OR "${c.name}"< -9007199254740991)`;
+      const deferred=c=>`(${blob(c)} OR ${longText(c)} OR ${unsafeInt(c)})`;
+      const fields=columns.map(c=>`CASE WHEN ${deferred(c)} THEN NULL ELSE "${c.name}" END AS "${c.name}"`).join(',');
+      const metadata=columns.map(c=>`CASE WHEN ${unsafeInt(c)} THEN json_object('name','${c.name}','type','integer','decimal',CAST("${c.name}" AS TEXT)) WHEN (${blob(c)} OR ${longText(c)}) THEN json_object('name','${c.name}','bytes',length(CAST("${c.name}" AS BLOB)),'type',typeof("${c.name}")) ELSE NULL END`).join(',');
       const data=rows(await env.DB.prepare(`SELECT rowid AS _primaryRowid,${fields},json_array(${metadata}) AS _primaryOversize FROM ${table} WHERE rowid>? ORDER BY rowid LIMIT ?`).bind(after,limit+1).all());
       const page=data.slice(0,limit);
       if(page.some(r=>!Number.isSafeInteger(r._primaryRowid)||r._primaryRowid<=after))return failure(409,'Η ταυτότητα εγγραφής δεν μεταφέρεται με ασφάλεια.');
-      const result={schemaVersion:2,generation:verified.generation,table,rows:page,next:page.length?page[page.length-1]._primaryRowid:after,hasMore:data.length>limit};
+      const result={schemaVersion:3,generation:verified.generation,table,rows:page,next:page.length?page[page.length-1]._primaryRowid:after,hasMore:data.length>limit};
       if(utf8.encode(JSON.stringify(result)).length>1500000)return failure(413,'Η σελίδα είναι μεγάλη. Επανάλαβε με μικρότερο limit.');
       return primaryJson(result);
     }
@@ -147,7 +153,7 @@ export async function routePrimary(request,env,helpers={}){
       if(!value)return failure(404,'Η εγγραφή μεταφοράς δεν βρέθηκε.');
       if(!['text','blob'].includes(value.kind))return failure(400,'Η στήλη δεν είναι κείμενο ή δυαδικά δεδομένα.');
       if(offset>=value.bytes)return failure(416,'Το τμήμα είναι εκτός ορίων.');
-      return primaryJson({schemaVersion:2,generation:verified.generation,table,rowid,column,offset,bytes:value.bytes,kind:value.kind,hex:value.chunk,complete:offset+value.chunk.length/2>=value.bytes});
+      return primaryJson({schemaVersion:3,generation:verified.generation,table,rowid,column,offset,bytes:value.bytes,kind:value.kind,hex:value.chunk,complete:offset+value.chunk.length/2>=value.bytes});
     }
     if(path==='/api/primary/document'&&request.method==='POST'){
       const b=await smallBody(request);if(typeof b.key!=='string'||b.key.length>500)return failure(400,'Μη έγκυρο τιμολόγιο.');
