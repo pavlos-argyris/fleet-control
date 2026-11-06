@@ -1,5 +1,21 @@
 # Κοινό αρχείο συνέχειας Fleet Control
 
+## #76 / PR#77 — λειτουργική υλοποίηση και τοπική επαλήθευση, 06/11/2026
+
+Υποψήφια Fleet/Client/Web5.60.1(96), Server2.9.1(54), Worker5.18.2. Κλάδος `codex/issue-76-store-weekly-audit`, stable base4d52897, αρχικό GitHub checkpointdfe8b6d. Πλήρης πραγματική επιλογή καταστημάτων/εβδομάδας, δύο μορφές ίδιας αναφοράς/ίδια σύνολα, εσωτερική προεπισκόπηση, ελληνικά πολυσέλιδα Print/PDF και ορατό audit στις ρυθμίσεις/καρτέλα/αναφορά. Το audit είναι optional metadata των υπάρχοντων append-only terms, χωρίς νέο ledger ή schema migration. Πραγματικές παλιές/νέες τιμές, χρήστης/ρόλος, χρονική καταχώριση/χωριστή έναρξη ισχύος, no-op/replay/CAS, cursor βάσει χρόνου/id που διατηρεί σωστή σειρά μετά restore. Βλ. `docs/STORES_WEEKLY_5.60.1_GR.md` για API/paths και όρια.
+
+Πραγματικά PASS: Node/SQLite οικονομικά/επιλογή/7ήμερο/αναδρομικότητα/no-op/replay/CAS/permissions/σελιδοποίηση/restore σειρά, actual Workerd/D1 concurrency/audit/weekly/history, actual Java SQLite pipeline και roundtrip audit σε backup/restore + απόρριψη αλλοιωμένου audit πριν restore, παλιά UI regression. Full τοπικό check-all SUCCESS πριν τις τελευταίες στοχευμένα ελεγμένες βελτιώσεις· απαιτείται exact τελικό full CI. Actual Chromium PASS desktop1440/mobile390/file Client1024: read-only ιστορικό,51 καταστήματα/όλα/κατάργηση, αποτυχία λήψης/retry, toggle χωρίς API read, Back διατηρεί φίλτρα, browser/native print bridge. Παρήχθησαν πραγματικά3σέλιδα ελληνικά PDF και στις δύο μορφές, PDF.js έλεγξε κείμενο/όρια/Α4landscape/σύνολα/επιλεγμένα. Οπτικά επιθεωρήθηκαν screenshots και πρώτη/τελευταία σελίδα PDF. Διορθώθηκε το Back χρησιμοποιώντας τον υπάρχοντα FleetNavigation και όχι δεύτερο navigation guard.
+
+Η παλιά χωριστή chargeOnZero επιλογή διατηρείται· αν αντιφάσκει με το0παραγγελίες→0συμπλήρωμα της νέας αναφοράς επισημαίνεται ως εκκρεμές, χωρίς μεταβολή δεδομένων. Ελλιπή/παλιά στιγμιότυπα και ανυπολόγιστοι όροι δεν εμφανίζονται ως οριστικά ποσά. Τα νέαimmutable5.60.1 δεν αλλάζουν παλιές snapshots.
+
+**Εκκρεμούν:** τελικό exact PR fast/full CI με νέα browser/PDF suite και δύο APK, τελικός συντονισμός main/ενεργών δημοσιεύσεων, merge μόνο#77, exactmainCI και μία τυπική request-only δημοσίευση με αρχική υπογραφή. Κανένα νέο deploy/production backup/restore/Ordexa write/κλειδί/έξοδο ή φυσική εγκατάσταση. Το μεγάλο#73 παραμένει draft· αρχικό checkpoint συντονισμού6691467822 έχει δοθεί. Μετά merge/publish ενημέρωση#62/#73 με τελικό SHA/API/audit και οδηγίες rebase/de-duplication#69/#74.
+
+
+## Ανάληψη #76 — αυτόνομο εβδομαδιαίο PDF / ιστορικό όρων, 06/11/2026
+
+Ρητή εντολή χρήστη «ξεκίνα το issue #76». Κλάδος `codex/issue-76-store-weekly-audit`, βάση latest main `4d52897b5c4c7feb3bc5cb21b367cf7337c1f6fd`. Στόχος δύο μορφές ίδιας εβδομαδιαίας αναφοράς, επιλογή καταστημάτων, εσωτερική προεπισκόπηση/Print-PDF και ατομικό αναγνώσιμο ιστορικό πραγματικών αλλαγών όρων. Αφορά StoreBilling Java/SQLite, Worker store-billing API/schema, public/store-billing UI/CSS, shared report/print hooks, tests/code-map/release metadata. Χωρίς merge των WIP #69/#73/#74/#75 και χωρίς παραγωγικά δεδομένα/κλειδιά/νέα έξοδα. Η5.60 έχει επιβεβαιωμένη ενεργοποίηση. Κατά την ανάληψη πρόσφατα Actions ολοκληρωμένα, καμία ενεργή δημοσίευση. Προηγείται του μεγάλου5.61· επανέλεγχος πριν merge/publish. Δεν υπάρχει ακόμη υλοποίηση/CI/νέα δημοσίευση.
+
+
 ## PR #65 — πραγματικό exact-head CI / μετρήσεις, 04/11/2026
 
 - Ελεγμένο ενοποιημένο source **`1b652212170bff1549f327316aeb961b4dfe15bb`** με τότε main **`83421c28659b1243e99278a275a4b144ec8a337c`**, GitHub compare: **0 commits behind**, 17 ahead, καθαρή σύγκριση (μόνο 10 αρχεία CI/docs/code-map σε σχέση με το τότε main). Το GitHub PR εμφανίζει 13 changed files ως προς παλαιότερη PR base· τα 3 production-activation/diagnostic paths προϋπήρχαν ήδη στο νεότερο main και **δεν αποτελούν νέα αλλαγή** αυτού του merge.

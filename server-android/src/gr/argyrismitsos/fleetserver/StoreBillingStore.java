@@ -163,11 +163,24 @@ public final class StoreBillingStore {
             if(!r.getString("day").isEmpty())OrdexaClient.day(r.getString("day"));
             if(kind.equals("store")){if(!data.getString("id").equals(id)||!(data.get("retainOrders") instanceof Boolean)||!data.getString("sourceShopId").matches("[A-Za-z0-9_:-]{1,100}"))throw new IllegalArgumentException("Μη έγκυρο κατάστημα στο backup.");shops.put(scope+":"+id,data.getString("sourceShopId"));}
             else if(kind.equals("order")||kind.equals("observation")){if(!id.equals(data.getString("id"))||!r.getString("storeId").equals(data.getString("storeId"))||!r.getString("day").equals(data.getString("businessDay"))||!StoreBillingEngine.businessDay(OrdexaClient.instant(data.getString("at"))).equals(r.getString("day"))||data.getString("sourceOrderId").isEmpty()||(kind.equals("order")&&!(data.get("active") instanceof Boolean)))throw new IllegalArgumentException("Μη έγκυρη παραγγελία στο backup.");}
-            else if(kind.equals("terms")){if(!id.equals(data.getString("id"))||!r.getString("storeId").equals(data.getString("storeId"))||!r.getString("day").equals(data.getString("effectiveDay")))throw new IllegalArgumentException("Μη έγκυροι όροι στο backup.");if(data.optBoolean("supported")){StoreBillingEngine.day(r.getString("storeId"),"2026-01-01",0,data,"",0,0);}}
+            else if(kind.equals("terms")){if(!id.equals(data.getString("id"))||!r.getString("storeId").equals(data.getString("storeId"))||!r.getString("day").equals(data.getString("effectiveDay")))throw new IllegalArgumentException("Μη έγκυροι όροι στο backup.");validateTermAudit(data);if(data.optBoolean("supported")){StoreBillingEngine.day(r.getString("storeId"),"2026-01-01",0,data,"",0,0);}}
             else if(kind.equals("local_day")){if(!data.getString("storeId").equals(r.getString("storeId"))||!data.getString("businessDay").equals(r.getString("day")))throw new IllegalArgumentException("Invalid local daily result");}
             else{OrdexaClient.instant(data.getString("sourceAt"));if(data.getString("runId").isEmpty())throw new IllegalArgumentException("Μη έγκυρη κάλυψη στο backup.");}
         }
         for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);String kind=r.getString("kind");if(kind.equals("order")||kind.equals("observation")||kind.equals("terms")){String source=shops.get(r.getString("scope")+":"+r.getString("storeId"));if(source==null||(!kind.equals("terms")&&!source.equals(r.getJSONObject("data").getString("sourceShopId"))))throw new IllegalArgumentException("Λείπει το σωστό κατάστημα από το backup.");}}
+    }
+
+    /** Optional additive metadata: old backups stay valid; new audit is never synthesized. */
+    public static void validateTermAudit(JSONObject term)throws Exception{
+        if(!term.has("audit"))return;
+        JSONObject a=term.getJSONObject("audit"),actor=a.getJSONObject("actor");
+        if(a.getInt("schema")!=1||!a.getString("effectiveDay").equals(term.getString("effectiveDay"))||!a.getString("operationId").matches("[A-Za-z0-9_:-]{1,100}")||actor.getString("id").isEmpty()||actor.getString("role").isEmpty())throw new IllegalArgumentException("Μη έγκυρο ιστορικό όρων.");
+        OrdexaClient.instant(a.getString("recordedAt"));OrdexaClient.day(a.getString("effectiveDay"));
+        JSONArray changes=a.getJSONArray("changes");Set<String> seen=new HashSet<String>();
+        if(changes.length()<1||changes.length()>3)throw new IllegalArgumentException("Μη έγκυρες αλλαγές όρων.");
+        for(int n=0;n<changes.length();n++){JSONObject c=changes.getJSONObject(n);String field=c.getString("field");if(!seen.add(field)||!Arrays.asList("unitPriceCents","dailyMinimumCents","chargeOnZero").contains(field)||!c.has("oldValue")||!c.has("newValue")||!c.get("newValue").equals(term.get(field))||c.get("newValue").equals(c.get("oldValue")))throw new IllegalArgumentException("Ασυνεπές ιστορικό όρων.");
+            for(String k:new String[]{"oldValue","newValue"})if(!c.isNull(k)){Object v=c.get(k);if(field.equals("chargeOnZero")){if(!(v instanceof Boolean))throw new IllegalArgumentException("Μη έγκυρη επιλογή ιστορικού.");}else if(!(v instanceof Number)||((Number)v).doubleValue()!=((Number)v).longValue()||((Number)v).longValue()<0||((Number)v).longValue()>100000000)throw new IllegalArgumentException("Μη έγκυρο ποσό ιστορικού.");}
+        }
     }
 
     public synchronized void restore(JSONArray rows)throws Exception{

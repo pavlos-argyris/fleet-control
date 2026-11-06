@@ -34,6 +34,7 @@ class D1Statement {
   }
 
   run(...args) {
+    if (/^\s*(SELECT|PRAGMA)\b/i.test(this.sql)) return this.all(...args);
     const result = this.db.prepare(this.sql).run(...(this.args.length ? this.args : args));
     return Promise.resolve({ meta: {
       changes: Number(result.changes || 0),

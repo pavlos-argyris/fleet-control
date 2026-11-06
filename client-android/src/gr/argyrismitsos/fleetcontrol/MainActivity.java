@@ -517,7 +517,12 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void printCurrentPage() {
+        public void printCurrentPage() { printPage(false); }
+
+        @JavascriptInterface
+        public void printStoreReport() { printPage(true); }
+
+        private void printPage(final boolean stores) {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -526,11 +531,11 @@ public class MainActivity extends Activity {
                         PrintManager printManager = (PrintManager) getSystemService(Context.PRINT_SERVICE);
                         if (printManager == null) throw new IllegalStateException("Η εκτύπωση δεν είναι διαθέσιμη.");
                         PrintAttributes attributes = new PrintAttributes.Builder()
-                                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                                .setMediaSize(stores ? PrintAttributes.MediaSize.ISO_A4.asLandscape() : PrintAttributes.MediaSize.ISO_A4)
                                 .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
                                 .build();
-                        printManager.print("Fleet Control - Ιστορικό service",
-                                webView.createPrintDocumentAdapter("Fleet_Control_History"), attributes);
+                        printManager.print(stores ? "Fleet Control - Καταστήματα" : "Fleet Control - Ιστορικό service",
+                                webView.createPrintDocumentAdapter(stores ? "Fleet_Control_Stores" : "Fleet_Control_History"), attributes);
                     } catch (Exception error) {
                         Toast.makeText(MainActivity.this, "Δεν ήταν δυνατή η εκτύπωση. Χρησιμοποίησε τη Λήψη PDF.", Toast.LENGTH_LONG).show();
                     }
