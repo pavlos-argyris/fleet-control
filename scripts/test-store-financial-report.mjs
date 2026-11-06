@@ -10,3 +10,6 @@ r=aggregateStoreFinancials({from:'2026-11-02',to:'2026-11-02',daily:[day('x','20
 assert.equal(aggregateStoreFinancials({from:'2026-03-29',to:'2026-03-30',period:'week',daily:[day('x','2026-03-29',1,100,0),day('x','2026-03-30',1,100,0)]}).groups.length,2);
 assert.equal(aggregateStoreFinancials({from:'2026-10-25',to:'2026-10-25',daily:[day('x','2026-10-25',1,100,0)]}).groups[0].totalChargeCents,100);
 console.log('PASS store reporting core: explicit aliases, sum/weekly, 0-orders=0 minimum, partial sums unknown, DST business day stable.');
+
+// The native report route must reject stale alias edits at the SQLite write.
+await import('./test-store-alias-cas-sqlite.mjs');
