@@ -116,6 +116,11 @@ const releases = new R2Simulation();
 const env = {
   DB: db,
   RELEASES: releases,
+  // This simulation covers the existing cloud business handlers. The new
+  // Client negotiates the control plane before them; explicitly model a
+  // configured coordinator in cloud mode instead of a missing production
+  // binding (which correctly returns 503 and must never trigger fallback).
+  FLEET_EVENTS:{idFromName:()=>0,get:()=>({async fetch(request){const path=new URL(request.url).pathname;if(path==='/primary/state')return Response.json({mode:'cloud'});if(path==='/publish')return Response.json({ok:true});return Response.json({error:'Control/socket not provided by cloud-business fixture'},{status:503});}})},
   ASSETS: { fetch: async () => new Response("not found", { status: 404 }) },
   SERVER_KEY,
   PIN_PEPPER,

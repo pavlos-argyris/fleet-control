@@ -70,8 +70,9 @@ SHA-256. Επαναλαμβανόμενο upload συνεχίζει από τη�
   response principal isolation, auth/revocation, receipt/business atomicity,
   ιδιωτικά αρχεία, migration και cold recovery.
 - `test-primary-transport-browser.mjs`: υποχρεωτικός Chromium 320/390/768,
-  πραγματικό IndexedDB και ταυτόχρονα tabs. Εκτελείται στο CI· τοπικά δεν
-  υπάρχει εγκατεστημένο browser binary και δεν δηλώνεται ψευδές PASS.
+  πραγματικό IndexedDB και ταυτόχρονα tabs. Εκτελείται στο CI· το τοπικό
+  περιβάλλον δεν επιτρέπει εκκίνηση Chromium (socket denied), οπότε το
+  πραγματικό browser αποτέλεσμα λαμβάνεται από το CI.
 
 Τα JVM/CI tests δεν ισοδυναμούν με εγκατάσταση και έλεγχο Android WebView,
 Android Keystore ή φυσικού cold restart στο Note 10+.

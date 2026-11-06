@@ -1,3 +1,9 @@
+## Έλεγχος ενοποιημένου source — διόρθωση cloud-browser fixture — 06/11/2026
+
+- Ενοποιημένο source `7728e248b45e05fd7caccbd360c581a52d38f564`, treec45a2d85, Fast42274345377 SUCCESS. Full42274345456 FAILED στο invoice-auto-browser (invoice queue absent). Το νέο transport έπαιρνε protocol503 επειδή το παλιό createSimulation δεν όριζε FLEET_EVENTS. Η παραγωγική fail-closed συμπεριφορά είναι σωστή και διατηρείται. Η κοινή cloud-business προσομοίωση αποκτά ρητό coordinator/state cloud και narrow publish ACK· άγνωστα control/socket503. Direct descriptor smoke PASS. Δεν χαλαρώνει κανένας validator ή assertion.
+- Chromium store-billing/δύο weekly PDF/navigation/next-service/ui-system πέρασαν πριν το failure· ο νέος primary browser έλεγχος δεν πρόλαβε να εκτελεστεί. Υπάρχει τοπικό system Chromium, αλλά η εκκίνηση μπλοκάρεται από socket permissions. Προστέθηκε προαιρετικό FLEET_CHROMIUM_PATH σε δύο tests, ενώ CI διατηρεί τον pinned browser χωρίς override. Δεν δηλώνεται local browser PASS.
+- Η πραγματική υλοποίηση συνεχίζεται σε native-ui-kit/cash-ui/native-management CSS και μετά Οικονομικά/Payroll review/Health. Τα νέα UI δεν είναι ακόμη ενσωματωμένα/ελεγμένα. Παραμένει draft, χωρίς κοινό merge/deploy/production αλλαγές.
+
 ## Ενεργή ενοποίηση Web/Client και νέου main — 06/11/2026
 
 - Πραγματικό αποθηκευμένο transport source `8bec062d0ef4a0055bfe008f1be56c192283c9d6`. Το PR #73 έγινε συγκρουόμενο μετά το νέο main#77· GitHub δεν ξεκίνησε PR CI όσο ήταν dirty. Συνδυάζεται τώρα το main3459b61 (request5.60.1, ενεργός ανεξάρτητος publish), διατηρώντας αμετάβλητα όλα τα παλιά assets· οι δύο υποστηριζόμενες προηγούμενες θέσεις δημοσίευσης γίνονται5.60.1/5.60.0, ενώ5.59.0 παραμένει στο source, δύο weekly PDF και immutable price audit. Το ενοποιημένο candidate είναι5.61.0/Client98/Server2.10.10(64)/Worker5.18.7, χωρίς production request/deploy.
