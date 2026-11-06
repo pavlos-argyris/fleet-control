@@ -368,7 +368,8 @@
         "server-android/src/gr/argyrismitsos/fleetserver/BusinessObjects.java",
         "server-android/src/gr/argyrismitsos/fleetserver/NativeIdentity.java",
         "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryState.java",
-        "server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenExportV3.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenExportV3.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenImportV3.java"
       ],
       "tests": [
         "scripts/test-d1-source-inventory.mjs",
@@ -376,7 +377,8 @@
         "scripts/test-primary-authority.mjs",
         "scripts/test-server-authority-stage-native.mjs",
         "scripts/test-server-authority-ui.mjs",
-        "scripts/test-native-frozen-export-v3.mjs"
+        "scripts/test-native-frozen-export-v3.mjs",
+        "scripts/test-native-frozen-import-v3.mjs"
       ],
       "related": [
         "worker-core",
