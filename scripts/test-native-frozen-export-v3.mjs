@@ -25,7 +25,7 @@ public class FrozenV3Test {
   JSONArray meta=new JSONArray().put(new JSONObject().put("name","big").put("type","integer").put("decimal","9223372036854775807"))
    .put(new JSONObject().put("name","blob").put("type","blob").put("bytes",4))
    .put(new JSONObject().put("name","empty").put("type","blob").put("bytes",0))
-   .put(JSONObject.NULL).put(new JSONObject().put("name","unicode").put("type","text").put("bytes",6000))
+   .put(JSONObject.NULL).put(new JSONObject().put("name","unicode").put("type","text").put("bytes",90000))
    .put(JSONObject.NULL);
   return new JSONObject().put("_primaryRowid",1).put("_primaryOversize",meta.toString())
    .put("big",JSONObject.NULL).put("blob",JSONObject.NULL).put("empty",JSONObject.NULL)
@@ -33,7 +33,7 @@ public class FrozenV3Test {
  }
  static NativeFrozenExportV3.CellReader reader() {
   return (table,rowid,column,offset,size)->{
-   byte[] data=column.equals("blob")?new byte[]{0,(byte)255,(byte)128,1}:new byte[6000];
+   byte[] data=column.equals("blob")?new byte[]{0,(byte)255,(byte)128,1}:new byte[90000];
    if(column.equals("unicode"))Arrays.fill(data,(byte)'A');
    StringBuilder hex=new StringBuilder();for(int i=offset;i<offset+size;i++)hex.append(String.format("%02x",data[i]&255));
    return new JSONObject().put("schemaVersion",3).put("generation","gen-1").put("table",table)
@@ -48,7 +48,7 @@ public class FrozenV3Test {
   ok(decoded.get("big") instanceof Long && ((Long)decoded.get("big"))==Long.MAX_VALUE,"exact 64-bit INTEGER");
   ok(Arrays.equals((byte[])decoded.get("blob"),new byte[]{0,(byte)255,(byte)128,1}),"exact BLOB bytes");
   ok(((byte[])decoded.get("empty")).length==0 && decoded.get("nullable")==null,"empty BLOB differs from SQL NULL");
-  ok(((String)decoded.get("unicode")).length()==6000,"deferred text");
+  ok(((String)decoded.get("unicode")).length()==90000,"multi-chunk deferred text");
   ok(((Long)decoded.get("safe"))==9007199254740991L,"safe integer");
   JSONObject signedRow=new JSONObject(row().toString()).put("safe",-9007199254740991L);
   ok(((Long)NativeFrozenExportV3.decode(inventory,table,page,signedRow,reader()).get("safe"))==-9007199254740991L,"negative signed safe integer");
@@ -63,7 +63,7 @@ public class FrozenV3Test {
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),row(),(t,id,c,o,s)->new JSONObject(reader().read(t,id,c,o,s).toString()).put("hex","00")),"reject truncated cell");
   fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),row(),(t,id,c,o,s)->new JSONObject(reader().read(t,id,c,o,s).toString()).put("complete",false)),"reject wrong completion");
   JSONObject bad=new JSONObject(row().toString());JSONArray m=new JSONArray(bad.getString("_primaryOversize"));m.getJSONObject(0).put("decimal","9223372036854775808");bad.put("_primaryOversize",m.toString());
-  fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),bad,reader()),"reject 64-bit overflow");
+  final JSONObject overflow=bad;fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),overflow,reader()),"reject 64-bit overflow");
   bad=new JSONObject(row().toString());m=new JSONArray(bad.getString("_primaryOversize"));m.getJSONObject(1).put("bytes",NativeFrozenExportV3.MAX_CELL_BYTES+1);bad.put("_primaryOversize",m.toString());
   final JSONObject tooBig=bad;fail(()->NativeFrozenExportV3.decode(inventory(),table(),page(),tooBig,reader()),"reject oversized cell before allocation");
   bad=new JSONObject(row().toString());m=new JSONArray(bad.getString("_primaryOversize"));m.getJSONObject(1).put("bytes",4294967296L);bad.put("_primaryOversize",m.toString());
