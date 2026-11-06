@@ -1,3 +1,7 @@
+## #60 — έναρξη ανεξάρτητου SQLite reversal-integrity guard — 06/11/2026
+
+- Ανάληψη από επιβεβαιωμένο HEAD `3fca4af9651ab46db1a0c72e255f44dbc3104cdd` στο υπάρχον draft PR #73. Στόχος: SQL-level έλεγχος ότι κάθε νέος αντιλογισμός ταμείου αναφέρεται σε πραγματική αρχική assessment/receipt και αντιστρέφει ακριβώς το ίδιο ποσό/διανομέα/κατάστημα/ημέρα/κανόνα, όχι μόνο application precheck. Αρχεία: `server-runtime/cash.js`, νέο native SQLite constraint test, `scripts/test-courier-cash-core.mjs`, `docs/CODE_MAP.json`. Δεν αγγίζονται #59/#64 παράλληλα, παραγωγή ή δημοσίευση.
+
 ## #60 — πραγματική διόρθωση σελιδοποίησης ταμείου — 06/11/2026
 
 - Συνέχεια στο υπάρχον draft PR #73 / `codex/roadmap-integration-fleet-561`, μετά από ανάγνωση AGENTS, handoff, code map και approved roadmap. Διορθώθηκε στο `server-runtime/cash.js` η ένδειξη `eventsComplete` της πραγματικής native cash αναφοράς: πλέον λαμβάνει υπόψη το `eventOffset`, αντί να θεωρεί ότι κάθε σελίδα πρέπει να περιέχει το σύνολο των κινήσεων. Η ένδειξη `hasMoreEvents` παραμένει συνεπής. Αυτό αποτρέπει ψευδές «μη ολοκληρωμένο» στην τελευταία σελίδα της αναφοράς.
