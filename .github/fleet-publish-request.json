@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-f81e99db-d522-4855-93a6-0182db9b6fdf",
-  "sourceCommit": "9cbac20b4da6584c2832ec72272da6bce80cbfc2",
-  "releaseVersion": "5.60.1",
-  "requestedAt": "2026-11-06T18:28:21.624Z",
-  "reason": "Υλοποίηση και αυτόματη δημοσίευση του issue #76 μετά από επιτυχείς exact PR και main ελέγχους, όπως ενέκρινε ο χρήστης"
+  "requestId": "fleet-4773f84b-63ce-451f-8476-2ed21ae3b86d",
+  "sourceCommit": "527287a4a0b80685d1dd041792b36706f7c4e824",
+  "releaseVersion": "5.61.0",
+  "requestedAt": "2026-11-07T19:40:10.938Z",
+  "reason": "Εγκεκριμένη κοινή δημοσίευση του PR #73 και Fleet 5.61 μετά από επιτυχείς ελέγχους του ακριβούς PR και main, με τις αρχικές υπογραφές και χωρίς παραγωγική μεταφορά ή επαναφορά δεδομένων."
 }
