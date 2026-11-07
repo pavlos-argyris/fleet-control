@@ -1,0 +1,13 @@
+/* Shared by Fleet, Portal and Server: prevent scroll chaining and stretching. */
+html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html.fleet-modal-open, html.fleet-modal-open body { overflow: hidden; }
+dialog { overscroll-behavior: none; overflow-anchor: none; }
+.app-dialog { max-height: min(90svh, calc(var(--fleet-dialog-viewport, 100svh) - 16px)); overflow-x: hidden; overflow-y: auto; }
+.app-dialog form, .app-dialog > .dialog-body { max-height: none; overflow: visible; }
+.picker-list, .fleet-export-list, .overview-bike-list, .permission-grid, .dashboard-detail-list, .coverage-timeline { overscroll-behavior: none; }
+/* Retain invoice accordion animation; remove large moving/blurred layers on touch. */
+@media (hover: none) and (pointer: coarse) {
+  .view, .app-view, .app-dialog[open] { animation: none; }
+  .topbar, .app-header, .bottom-nav, .app-dialog::backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .bike-card:hover, .bike-card:active, .primary-button:hover, .secondary-button:hover, .platform-card:hover, .metric-card-action:hover, .fleet-export-card:hover { transform: none; }
+}

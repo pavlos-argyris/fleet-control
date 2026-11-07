@@ -17,6 +17,9 @@
  }
  async function sharedFetch(url,init,owner,options={}){
   init=init||{};const path=new URL(url,root.location.href).pathname+new URL(url,root.location.href).search;
+  // Native reads must pass current authority/account checks; coalescing is
+  // provided by the transport without reusing this legacy 15-second cache.
+  if(root.FleetPrimary&&await root.FleetPrimary.prepare(url))return root.fetch(url,init);
   if((init.method||'GET')!=='GET'||!allowed(path))return root.fetch(url,init);
   const guard=epoch,headers=new Headers(init.headers||{}),token=(headers.get('Authorization')||'').replace(/^Bearer\s+/i,''),id=await realm(owner,token);
   if(guard!==epoch)throw new Error('Η συνεδρία άλλαξε.');if(!id)return root.fetch(url,init);activate(id);
@@ -33,6 +36,6 @@
   const promise=root.navigator.locks?.request?root.navigator.locks.request('fleet-read:'+id+':'+path,load).catch(e=>{if(['SecurityError','NotSupportedError'].includes(e.name))return load();throw e;}):load();pending.set(flight,promise);
   try{return (await promise).clone();}finally{if(pending.get(flight)===promise)pending.delete(flight);}
  }
- function clear(remote=false){epoch++;if(!remote)bus?.postMessage({type:"clear"});try{for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith(PREFIX))localStorage.removeItem(key);}}catch{}bus?.close();bus=null;activeRealm='';pending.clear();realms.clear();}
+ function clear(remote=false){epoch++;root.FleetPrimary?.clearSession().catch(()=>{});if(!remote)bus?.postMessage({type:"clear"});try{for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith(PREFIX))localStorage.removeItem(key);}}catch{}bus?.close();bus=null;activeRealm='';pending.clear();realms.clear();}
  root.FleetSharedReads={fetch:sharedFetch,invalidate,clear,generation,realm};
 })(window);

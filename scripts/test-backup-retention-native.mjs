@@ -21,6 +21,9 @@ try{
  'known.add(new BackupRetention.Record("../unsafe",false,true));check(BackupRetention.obsolete(known,names,2,pending).equals(Arrays.asList(a)));',
  'names.remove("FleetControl_backup_"+c+".fcbackup");check(BackupRetention.obsolete(known,names,2,pending).isEmpty());',
  'check(BackupRetention.obsolete(new ArrayList<BackupRetention.Record>(),names,1,pending).isEmpty());',
+ 'known.remove(known.size()-1);pair(names,c);known.set(2,new BackupRetention.Record(c,true,true,true));check(BackupRetention.obsolete(known,names,2,pending).isEmpty());',
+ 'names.add("FleetControl_database_"+c+".fcdb");check(BackupRetention.obsolete(known,names,2,pending).equals(Arrays.asList(a)));',
+ 'pending.add(c);check(BackupRetention.obsolete(known,names,2,pending).isEmpty());pending.clear();',
  'System.out.println("PASS actual backup retention: complete known exports only; unknown files, partial pairs, incomplete coverage, pending transfers and missing or unowned files never evict good backups.");',
  '}}'].join('\n');
  fs.writeFileSync(path.join(temp,'RetentionTest.java'),source);

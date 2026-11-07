@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createRequire} from 'node:module';
+const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url));
+const {JSDOM}=require('jsdom');
+const dom=new JSDOM(fs.readFileSync('server-android/assets/www/index.html','utf8'),{runScripts:'outside-only',url:'https://server.fixture.invalid'});
+const w=dom.window,d=w.document,calls=[],timers=[];
+w.setInterval=(fn,ms)=>{timers.push(ms);return timers.length;};w.HTMLElement.prototype.scrollIntoView=function(){};
+let status={state:'not_prepared',stageId:'',businessWritesEnabled:false};
+w.AndroidServer={getDashboard:()=>JSON.stringify({settingsLoaded:true}),getAuthorityStageStatus:()=>{calls.push('read');return JSON.stringify(status);},prepareAuthorityStage:value=>calls.push(JSON.parse(value)),loadReleases(){}};
+try{
+ w.eval(fs.readFileSync('server-android/assets/www/app.js','utf8'));const before=timers.length;
+ w.eval(fs.readFileSync('server-android/assets/www/server-authority.js','utf8'));
+ const section=d.getElementById('settingsAuthority'),prepare=section.querySelector('[data-authority-prepare]'),refresh=section.querySelector('[data-authority-refresh]');
+ assert.equal(calls.length,0,'No automatic preparation or bridge read on page load');
+ section.open=true;section.dispatchEvent(new w.Event('toggle'));
+ assert.equal(calls.filter(c=>c==='read').length,1);assert.equal(prepare.disabled,false);assert.equal(timers.length,before,'No added polling');
+ prepare.click();assert.equal(prepare.disabled,true);assert.equal(refresh.disabled,true);
+ const request=calls.find(c=>typeof c==='object');assert.equal(request.expectedStageId,'');assert.match(request.requestId,/^authority-/);
+ w.FleetServer.onNativeEvent('authorityStage',{ok:true,requestId:'obsolete-reply',stageId:'wrong'});assert.equal(prepare.disabled,true,'Late reply cannot complete the current operation');
+ status={state:'prepared',stageId:'12345678-1234-1234-1234-123456789abc',businessWritesEnabled:false,contentCompared:true,tables:34,rows:2400,preparedAt:Date.now()-1000,sourceUpdatedAt:'2026-11-05T10:00:00Z'};
+ w.FleetServer.onNativeEvent('authorityStage',{...status,ok:true,requestId:request.requestId});
+ assert.equal(prepare.disabled,false);assert.match(section.textContent,/σύγκριση ολοκληρώθηκαν/);assert.match(section.textContent,/υπάρχουσα κύρια βάση/);
+ assert.match(section.querySelector('[data-authority-detail]').textContent,/34 πίνακες/);
+ status={...status,state:'source_changed'};refresh.click();assert.match(section.textContent,/πηγή ή η σύνδεση άλλαξε/);prepare.click();
+ const second=calls.filter(c=>typeof c==='object').at(-1);assert.equal(second.expectedStageId,status.stageId,'The exact displayed CAS token is passed');
+ w.FleetServer.onNativeEvent('authorityStage',{ok:false,requestId:second.requestId,message:'<img src=x onerror=alert(1)> Το προηγούμενο αντίγραφο διατηρείται.'});
+ assert.equal(section.querySelector('img'),null);assert.match(section.querySelector('[data-authority-message]').textContent,/προηγούμενο αντίγραφο/);assert.equal(prepare.disabled,false);
+ prepare.click();const blocked=calls.filter(c=>typeof c==='object').at(-1);w.FleetServer.onNativeEvent('authorityStage',{ok:false,requestId:blocked.requestId,message:'Προετοιμάζεται ενημέρωση.'});assert.equal(prepare.disabled,false,'Early OTA rejection releases the pending UI');assert.match(section.querySelector('[data-authority-message]').textContent,/Προετοιμάζεται ενημέρωση/);
+ status={...status,businessWritesEnabled:true};refresh.click();assert.equal(prepare.disabled,true,'Unknown/new activation flags do not become false migration success');
+ status={...status,businessWritesEnabled:false,preparedAt:Date.now()+3600000};refresh.click();assert.equal(prepare.disabled,true,'Future proof is not accepted');
+ w.AndroidServer.getAuthorityStageStatus=()=>{throw Error('fixture');};refresh.click();assert.equal(prepare.disabled,true);assert.match(section.textContent,/Δεν επιβεβαιώθηκε/);
+ delete w.AndroidServer.prepareAuthorityStage;refresh.click();assert.match(section.textContent,/νεότερη έκδοση/);
+ assert.equal(calls.filter(c=>typeof c==='object').length,3,'Reads/failures never start business writes or another migration');
+ console.log('PASS Server migration UI: on-demand snapshots, exact CAS token, honest staging/changed-source states, request fencing, safe errors, old bridge fallback, no polling or implicit activation.');
+}finally{w.close();}

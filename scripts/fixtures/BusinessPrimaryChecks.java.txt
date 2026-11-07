@@ -1,0 +1,42 @@
+package gr.argyrismitsos.fleetserver;
+import org.json.*;import android.database.sqlite.*;import java.io.*;import java.util.*;
+
+public final class BusinessPrimaryChecks {
+    static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
+    static long count(BusinessSqlite sql,String table)throws Exception{return sql.call("sql.query",new JSONObject().put("sql","SELECT COUNT(*) n FROM "+table)).getJSONArray("results").getJSONObject(0).getLong("n");}
+    static JSONObject request(String path,String method,String token)throws Exception{return new JSONObject().put("url","https://fleet.fixture.invalid"+path).put("method",method).put("headers",new JSONObject().put("Authorization","Bearer "+token).put("X-Fleet-Operation",UUID.randomUUID().toString()));}
+    public static void run(BusinessSqlite sql,SQLiteDatabase db,String token)throws Exception{
+        NativePrimaryState.phase(db,"active","https://fleet.fixture.invalid",BusinessTest.GEN,"fixture-owner","fixture-hash");
+        BusinessTest.monotonic=1000;BusinessTest.primaryEpoch=BusinessTest.lease.connecting(BusinessTest.GEN);check(BusinessTest.lease.ready(BusinessTest.primaryEpoch,BusinessTest.GEN,30000),"real entry lease granted");BusinessTest.primaryChecks=true;
+        check(BusinessTest.call("/api/admin/employees","GET",null,false,token).getInt("status")==200,"actual production Host accepts current authority");
+        long users=count(sql,"app_users"),audit=count(sql,"audit_log"),receipts=count(sql,"native_operation_receipts"),events=count(sql,"native_event_outbox");
+        BusinessTest.expireBeforeCommit=true;boolean failed=false;
+        try{BusinessTest.call("/api/admin/employees","POST",new JSONObject().put("fullName","Rollback on expired commit lease").put("loginEnabled",false),false,token);}catch(IOException expected){failed=true;}finally{BusinessTest.expireBeforeCommit=false;}
+        check(failed&&count(sql,"app_users")==users&&count(sql,"audit_log")==audit&&count(sql,"native_operation_receipts")==receipts&&count(sql,"native_event_outbox")==events,"lease lost AFTER actual business handlers rolls back employee, audit, receipt AND event outbox");
+        failed=false;try{BusinessTest.call("/api/admin/employees","GET",null,false,token);}catch(IOException expected){failed=true;}check(failed,"expired lease blocks entry before transaction");
+        BusinessTest.primaryEpoch=BusinessTest.lease.connecting(BusinessTest.GEN);check(BusinessTest.lease.ready(BusinessTest.primaryEpoch,BusinessTest.GEN,30000),"reconnect grants new epoch");
+        NativePrimaryState.phase(db,"prepared","https://fleet.fixture.invalid",BusinessTest.GEN,"fixture-owner","fixture-hash");failed=false;try{BusinessTest.call("/api/admin/employees","GET",null,false,token);}catch(IOException expected){failed=true;}check(failed,"live socket does not activate prepared database");
+        NativePrimaryState.phase(db,"active","https://other.fixture.invalid",BusinessTest.GEN,"fixture-owner","fixture-hash");failed=false;try{BusinessTest.call("/api/admin/employees","GET",null,false,token);}catch(IOException expected){failed=true;}check(failed,"realm mismatch is fenced");
+        NativePrimaryState.phase(db,"active","https://fleet.fixture.invalid",UUID.randomUUID().toString(),"fixture-owner","fixture-hash");failed=false;try{BusinessTest.call("/api/admin/employees","GET",null,false,token);}catch(IOException expected){failed=true;}check(failed,"generation mismatch is fenced");
+        NativePrimaryState.phase(db,"active","https://fleet.fixture.invalid",BusinessTest.GEN,"fixture-owner","fixture-hash");BusinessTest.primaryChecks=false;
+        // Multi-megabyte original history is transferred byte-for-byte, without a giant cipher packet.
+        JSONObject old=sql.call("sql.query",new JSONObject().put("sql","SELECT data,version FROM fleet_snapshot WHERE id=1")).getJSONArray("results").getJSONObject(0);
+        StringBuilder note=new StringBuilder();for(int i=0;i<900000;i++)note.append("Ω€");String original=note.toString();
+        JSONObject snapshot=new JSONObject().put("bikes",new JSONArray().put(new JSONObject().put("id","native-large-fixture").put("plate","TEST123").put("notes",original)));
+        db.execSQL("UPDATE fleet_snapshot SET data=?,version=version+1 WHERE id=1",new Object[]{snapshot.toString()});
+        JSONObject response=BusinessTest.call("/api/sync","GET",null,false,token);check(response.getInt("status")==200&&response.has("bodyFile")&&!response.has("body"),"actual sync >4 MiB becomes a private response file");JSONObject file=response.getJSONObject("bodyFile");
+        check(response.toString().getBytes("UTF-8").length<10000&&file.getLong("size")>4*1024*1024,"encrypted packet remains bounded while full source is retained");
+        ByteArrayOutputStream output=new ByteArrayOutputStream();
+        for(long at=0;at<file.getLong("size");){JSONObject chunk=BusinessTest.call("/api/native/files/"+file.getString("ref")+"?offset="+at,"GET",null,false,token);check(chunk.has("body")&&!chunk.has("bodyFile"),"chunk transport never recursively creates another response file");JSONObject part=new JSONObject(chunk.getString("body"));byte[] bytes=Base64.getDecoder().decode(part.getString("data"));check(bytes.length>0&&bytes.length<=262144,"bounded actual chunk");output.write(bytes);at+=bytes.length;}
+        check(BusinessRuntime.sha256(output.toByteArray()).equals(file.getString("sha256")),"full response SHA checked");JSONObject decoded=new JSONObject(new String(output.toByteArray(),"UTF-8"));check(decoded.getJSONArray("bikes").getJSONObject(0).getString("notes").equals(original),"all original Unicode bytes survive response-file reconstruction");
+        JSONObject user=sql.call("sql.query",new JSONObject().put("sql","SELECT id,updated_at FROM app_users WHERE role='owner' LIMIT 1")).getJSONArray("results").getJSONObject(0);
+        db.execSQL("UPDATE app_users SET updated_at=? WHERE id=?",new Object[]{"security-revision-fixture",user.getString("id")});
+        JSONObject denied=BusinessTest.runtime.request(request("/api/native/files/"+file.getString("ref"),"GET",token),false,30000);check(denied.getInt("status")>=400&&!denied.has("file")&&!denied.has("bodyFile"),"same actor cannot consume a handle after account security changes");
+        JSONObject forged=request("/api/admin/employees","POST",token).put("bodyFile",file.getString("ref"));check(BusinessTest.runtime.request(forged,false,30000).getInt("status")>=400,"stale bodyFile is rejected before dispatch and receipt");
+        db.execSQL("UPDATE app_users SET updated_at=? WHERE id=?",new Object[]{user.get("updated_at"),user.getString("id")});
+        JSONObject release=BusinessTest.call("/api/native/files/release","POST",new JSONObject().put("ref",file.getString("ref")),false,token);check(release.getInt("status")==200,"response file can be released without deleting immutable private objects");
+        db.execSQL("UPDATE fleet_snapshot SET data=?,version=? WHERE id=1",new Object[]{old.getString("data"),old.getLong("version")});
+        db.execSQL("DELETE FROM native_primary_state WHERE id=1");
+        System.out.println("PASS production NativeBusinessEngine/Guard: real SQLite before-entry and before-commit lease fences, rollback of business+audit+receipt+event, prepared/realm/generation guards, >4 MiB exact Unicode sync with bounded chunks, current security-bound file/body references and release.");
+    }
+}

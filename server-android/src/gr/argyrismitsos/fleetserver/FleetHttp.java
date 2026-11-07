@@ -19,16 +19,28 @@ import java.util.Map;
 public final class FleetHttp {
     private static final Charset UTF8 = Charset.forName("UTF-8");
     private static final int MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+    public interface LocalTransport {
+        JSONObject request(String url,String method,JSONObject body,Map<String,String> headers,InputStream input,long length,String type,JSONObject form,String field)throws Exception;
+        boolean download(String url,File target,Map<String,String> headers)throws Exception;
+    }
+    private static volatile LocalTransport localTransport;
+    /** Installed at process startup; an imported/offline primary must throw, never return cloud fallback. */
+    public static void installLocalTransport(LocalTransport transport){localTransport=transport;}
 
     private FleetHttp() {
     }
 
     public static JSONObject getJson(String url, Map<String, String> headers) throws Exception {
+        LocalTransport local=localTransport;if(local!=null){JSONObject result=local.request(url,"GET",null,headers,null,0,null,null,null);if(result!=null)return result;}
         HttpURLConnection connection = openGetWithRetry(url, headers);
         try { return readJson(connection); } finally { connection.disconnect(); }
     }
 
     public static JSONObject sendJson(String url, String method, JSONObject body, Map<String, String> headers) throws Exception {
+        // Portable primary recovery capabilities are local-only. In particular,
+        // an old restore-preview route must never receive this decrypted root.
+        if(body!=null&&(body.has("nativeRecovery")||body.has("nativeDatabase")))throw new IOException("Το πλήρες backup ανοίγει μόνο στην τοπική διαδικασία ανάκτησης κύριου Server.");
+        LocalTransport local=localTransport;if(local!=null){JSONObject result=local.request(url,method,body,headers,null,0,null,null,null);if(result!=null)return result;}
         HttpURLConnection connection = open(url, method, headers);
         try {
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
@@ -46,6 +58,7 @@ public final class FleetHttp {
     }
 
     public static JSONObject putStream(String url, InputStream input, long length, String contentType, Map<String, String> headers) throws Exception {
+        LocalTransport local=localTransport;if(local!=null){JSONObject result=local.request(url,"PUT",null,headers,input,length,contentType,null,null);if(result!=null)return result;}
         HttpURLConnection connection = open(url, "PUT", headers);
         try {
             connection.setRequestProperty("Content-Type", contentType);
@@ -67,6 +80,7 @@ public final class FleetHttp {
 
     /** Full analysis travels in the body, never a potentially oversized header. */
     public static JSONObject putInvoice(String url, File pdf, JSONObject analysis, Map<String, String> headers) throws Exception {
+        LocalTransport local=localTransport;if(local!=null){try(InputStream input=new FileInputStream(pdf)){JSONObject result=local.request(url,"PUT",null,headers,input,pdf.length(),"application/pdf",new JSONObject().put("analysis",analysis.toString()),"file");if(result!=null)return result;}}
         String boundary = "FleetInvoice" + java.util.UUID.randomUUID().toString().replace("-", "");
         byte[] before = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"analysis\"\r\nContent-Type: application/json; charset=utf-8\r\n\r\n"
                 + analysis.toString() + "\r\n--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"invoice.pdf\"\r\nContent-Type: application/pdf\r\n\r\n").getBytes(UTF8);
@@ -88,6 +102,7 @@ public final class FleetHttp {
     }
 
     public static void downloadToFile(String url, File target, Map<String, String> headers) throws Exception {
+        LocalTransport local=localTransport;if(local!=null&&local.download(url,target,headers))return;
         HttpURLConnection connection = openGetWithRetry(url, headers);
         try {
             int code = connection.getResponseCode();

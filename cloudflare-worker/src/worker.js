@@ -1,5 +1,6 @@
 import { recoveryItems, recoveryResult } from './invoice-recovery.js';
 import { routeDirectRelay } from './direct-relay.js';
+import {routePrimary,primaryState} from './primary-authority.js';
 import { invoiceReadComparison, READ_FIELDS } from './invoice-read-identity.js';
 import { retryFailedInvoice } from './invoice-retry.js';
 import { routeChangeEvents, publishChanges, changedScopes } from './change-events.js';
@@ -69,6 +70,11 @@ export default {
     try {
       // Emergency entry must load while every D1 query is unavailable.
       if (new URL(request.url).pathname === '/direct.html' && request.method === 'GET') return env.ASSETS.fetch(request);
+      const primary=await routePrimary(request,env,{
+        distribution:()=>routeReleases(request,env,{json,secureEqual,serverAuthorized,digestHex,invalidateWeb:()=>{activeWebReleaseCache={value:null,expiresAt:0,db:null};}}),
+        events:eventKey=>routeChangeEvents(request,{...env,EVENT_SIGNING_KEY:eventKey},authenticateExternal,json)
+      });
+      if(primary)return primary;
       const direct = await routeDirectRelay(request, env);
       if (direct) return direct;
       await ensureSchema(env);
@@ -84,6 +90,7 @@ export default {
   },
   async scheduled(controller, env, context) {
     context.waitUntil((async () => {
+      if((await primaryState(env)).mode!=='cloud')return;
       await ensureSchema(env);
       await trimMirrorJournal(env);
       const before=(await mirrorHead(env)).cursor;

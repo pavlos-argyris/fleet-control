@@ -11,17 +11,17 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.60.1/portal.css">
-  <link rel="stylesheet" href="./assets/v5.60.1/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.60.1/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.60.1/client-ota.css">
-  <script src="./assets/v5.60.1/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.60.1/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.60.1/service-followup.css">
-  <link rel="stylesheet" href="./assets/v5.60.1/ui-system.css">
-  <link rel="stylesheet" href="./assets/v5.60.1/ordexa-ui.css">
-  <link rel="stylesheet" href="./assets/v5.60.1/ordexa-server-ui.css">
-  <link rel="stylesheet" href="./assets/v5.60.1/store-billing.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/portal.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/client-ota.css">
+  <script src="./assets/v5.61.0/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.61.0/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/ordexa-ui.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/ordexa-server-ui.css">
+  <link rel="stylesheet" href="./assets/v5.61.0/store-billing.css">
 </head>
 <body>
   <div id="bootScreen" class="boot-screen">
@@ -201,11 +201,13 @@
           <section class="panel invoice-queue-panel"><div id="invoiceQueueList" class="invoice-queue-list"></div></section>
         </section>
 
+        <section id="viewCash" class="app-view is-hidden" data-view="cash"><div id="cashRoot"></div></section>
+
         <section id="viewStores" class="app-view is-hidden" data-view="stores"><div id="storeBillingRoot"></div></section>
 
         <section id="viewPayroll" class="app-view is-hidden" data-view="payroll">
           <div class="section-toolbar"><div><span class="overline">ΔΕΥΤΕΡΑ – ΚΥΡΙΑΚΗ</span><h2>Μισθοδοσία</h2></div><div class="toolbar-filters"><input id="payrollStart" type="date"><button id="loadPayroll" class="secondary-button" type="button">Προβολή</button><button id="payrollLockButton" class="primary-button" type="button">Κλείδωμα</button></div></div>
-          <div class="ui-payroll-guide"><div><strong>Ώρες και υπερωρίες</strong><small>Οι πληρωτέες ώρες και οι εγκεκριμένες υπερωρίες διακρίνονται από όσες περιμένουν έγκριση.</small></div><div><strong>Προκαταβολές</strong><small>Τα ποσά που έχουν ήδη δοθεί ως προκαταβολή αφαιρούνται στον υπολογισμό του τελικού ποσού.</small></div><div><strong>Τελικό ποσό περιόδου</strong><small>Ο υπολογισμός της επιλεγμένης εβδομάδας μετά τις προσαρμογές. Δεν αποτελεί απόδειξη εξόφλησης.</small></div></div><div id="payrollSourceInfo" class="panel payroll-source-info" role="status"></div><div id="ordexaPayReviews"></div><div id="payrollSummaryCards" class="metric-grid"></div>
+          <div class="ui-payroll-guide"><div><strong>Ώρες και υπερωρίες</strong><small>Οι πληρωτέες ώρες και οι εγκεκριμένες υπερωρίες διακρίνονται από όσες περιμένουν έγκριση.</small></div><div><strong>Προκαταβολές</strong><small>Τα ποσά που έχουν ήδη δοθεί ως προκαταβολή αφαιρούνται στον υπολογισμό του τελικού ποσού.</small></div><div><strong>Τελικό ποσό περιόδου</strong><small>Ο υπολογισμός της επιλεγμένης εβδομάδας μετά τις προσαρμογές. Δεν αποτελεί απόδειξη εξόφλησης.</small></div></div><div id="payrollSourceInfo" class="panel payroll-source-info" role="status"></div><div id="payrollReviewRoot" hidden></div><div id="ordexaPayReviews"></div><div id="payrollSummaryCards" class="metric-grid"></div>
           <section class="panel table-panel"><div id="payrollTable" class="responsive-table"></div></section>
           <div class="two-column-actions"><button id="newAdjustmentButton" class="secondary-button" type="button">+ Bonus / κράτηση / προκαταβολή</button><button id="ruleSimulatorButton" class="secondary-button" type="button">Προσομοιωτής κανόνα</button><button id="payRulesButton" class="secondary-button" type="button">Κανόνες πληρωμής</button><button id="ordexaPayPolicyButton" class="secondary-button" type="button">Μισάωρα &amp; πρόγραμμα Ordexa</button><button id="specialAssignmentsButton" class="secondary-button" type="button">Χειροκίνητες ειδικές ζώνες</button></div>
         </section>
@@ -216,13 +218,13 @@
           <section id="reportResultPanel" class="panel table-panel is-hidden"><div class="panel-heading"><h2>Αποτελέσματα</h2><div><button id="reportPdf" class="secondary-button" type="button">PDF</button><button id="reportExcel" class="secondary-button" type="button">Excel / CSV</button></div></div><div id="reportResult" class="responsive-table"></div></section>
         </section>
 
-        <section id="viewAlerts" class="app-view is-hidden" data-view="alerts"><div class="section-toolbar"><div><span class="overline">ΧΡΕΙΑΖΕΤΑΙ ΕΝΕΡΓΕΙΑ</span><h2>Ειδοποιήσεις</h2></div><div class="toolbar-filters"><button id="mobileNotificationsButton" class="secondary-button" type="button">Ενεργοποίηση στο κινητό</button><button id="alertRulesButton" class="secondary-button" type="button">Ρυθμίσεις ειδοποιήσεων</button><button id="resolveAllAlerts" class="secondary-button is-hidden" type="button">Ολοκλήρωση όλων</button><button id="refreshAlerts" class="secondary-button" type="button">Ανανέωση</button></div></div><p id="mobileNotificationsStatus" class="notification-status"></p><div id="alertList" class="alert-list"></div></section>
+        <section id="viewAlerts" class="app-view is-hidden" data-view="alerts"><div class="section-toolbar"><div><span class="overline">ΧΡΕΙΑΖΕΤΑΙ ΕΝΕΡΓΕΙΑ</span><h2>Ειδοποιήσεις</h2></div><div class="toolbar-filters"><button id="mobileNotificationsButton" class="secondary-button" type="button">Ενεργοποίηση στο κινητό</button><button id="alertRulesButton" class="secondary-button" type="button">Ρυθμίσεις ειδοποιήσεων</button><button id="resolveAllAlerts" class="secondary-button is-hidden" type="button">Ολοκλήρωση όλων</button><button id="refreshAlerts" class="secondary-button" type="button">Ανανέωση</button></div></div><p id="mobileNotificationsStatus" class="notification-status"></p><section id="nativeHealthAlertsRoot" class="panel" hidden></section><div id="alertList" class="alert-list"></div></section>
 
         <section id="viewAudit" class="app-view is-hidden" data-view="audit"><div class="section-toolbar"><div><span class="overline">ΑΜΕΤΑΒΛΗΤΟ ΙΣΤΟΡΙΚΟ</span><h2>Αρχείο ενεργειών</h2></div><button id="refreshAudit" class="secondary-button" type="button">Ανανέωση</button></div><section class="panel table-panel"><div id="auditTable" class="responsive-table"></div></section></section>
 
         <section id="viewRecycle" class="app-view is-hidden" data-view="recycle"><div class="section-toolbar"><div><span class="overline">ΑΣΦΑΛΗΣ ΑΝΑΚΤΗΣΗ</span><h2>Κάδος &amp; ιστορικό διαγραφών</h2><p>Ανάκτησε καταχώρηση service, έλεγχο χιλιομέτρων, βάρδια ή πρόγραμμα που διαγράφηκε κατά λάθος.</p></div><div class="toolbar-filters"><select id="recycleType"><option value="">Όλοι οι τύποι</option><option value="fleet_history">Service / χιλιόμετρα</option><option value="shift">Πραγματικές βάρδιες</option><option value="employee">Εργαζόμενοι</option><option value="schedule_assignment">Πρόγραμμα</option></select><label class="compact-check"><input id="recycleShowRestored" type="checkbox"> Ανακτημένα</label><button id="refreshRecycle" class="secondary-button" type="button">Ανανέωση</button></div></div><div id="recycleSummary" class="recycle-summary"></div><div id="recycleList" class="recycle-list"></div></section>
 
-        <section id="viewServer" class="app-view is-hidden" data-view="server"><div class="section-toolbar"><div><span class="overline">ΥΓΕΙΑ ΣΥΣΤΗΜΑΤΟΣ</span><h2>Backup &amp; Server</h2></div></div><div id="serverWarnings" class="server-warnings is-hidden"></div><div id="serverHealth" class="health-grid"></div><section class="panel backup-panel"><div><span class="panel-icon">↥</span><span><h3>Αντίγραφο ασφαλείας</h3><p>Το αίτημα αποστέλλεται στην εφαρμογή Server και αποθηκεύεται στον επιλεγμένο φάκελο Google Drive.</p></span></div><button id="requestBackup" class="primary-button" type="button">Δημιουργία backup τώρα</button></section><section class="panel app-install-panel"><div><span class="panel-icon">↓</span><span><h3>Εφαρμογές Fleet Control</h3><p>Λήψη του Android APK ή οδηγίες εγκατάστασης της ασφαλούς web εφαρμογής σε iPhone και iPad.</p></span></div><div class="two-column-actions"><button id="portalDownloadApk" class="primary-button" type="button">Λήψη Android APK</button><button id="portalIosGuide" class="secondary-button" type="button">iPhone / Web App</button></div></section></section>
+        <section id="viewServer" class="app-view is-hidden" data-view="server"><div class="section-toolbar"><div><span class="overline">ΥΓΕΙΑ ΣΥΣΤΗΜΑΤΟΣ</span><h2>Backup &amp; Server</h2></div></div><div id="serverWarnings" class="server-warnings is-hidden"></div><div id="serverHealth" class="health-grid"></div><section id="nativeHealthRoot" class="panel" hidden></section><section class="panel backup-panel"><div><span class="panel-icon">↥</span><span><h3>Αντίγραφο ασφαλείας</h3><p>Το αίτημα αποστέλλεται στην εφαρμογή Server και αποθηκεύεται στον επιλεγμένο φάκελο Google Drive.</p></span></div><button id="requestBackup" class="primary-button" type="button">Δημιουργία backup τώρα</button></section><section class="panel app-install-panel"><div><span class="panel-icon">↓</span><span><h3>Εφαρμογές Fleet Control</h3><p>Λήψη του Android APK ή οδηγίες εγκατάστασης της ασφαλούς web εφαρμογής σε iPhone και iPad.</p></span></div><div class="two-column-actions"><button id="portalDownloadApk" class="primary-button" type="button">Λήψη Android APK</button><button id="portalIosGuide" class="secondary-button" type="button">iPhone / Web App</button></div></section></section>
 
         <section id="viewSettings" class="app-view is-hidden" data-view="settings"><div class="section-toolbar"><div><span class="overline">ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ</span><h2>Ρυθμίσεις &amp; Ασφάλεια</h2></div></div><form id="systemSettingsForm" class="panel settings-grid"><label><span>Πηγή ωρών μισθοδοσίας</span><select id="payrollHoursSource"><option value="clock">Πραγματικές ώρες clock in / out</option><option value="schedule">Δημοσιευμένες προγραμματισμένες βάρδιες</option><option value="ordexa">Ordexa — πραγματικά clock in / out</option></select><small class="field-hint">Επηρεάζει ανοικτές περιόδους. Τα πρόχειρα δεν υπολογίζονται. Οι πραγματικές καταγραφές και οι κλειδωμένες μισθοδοσίες διατηρούνται.</small></label><label><span>Clock In χωρίς πρόγραμμα</span><select id="noSchedulePolicy"><option value="block">Block</option><option value="allow_warning">Allow + προειδοποίηση</option><option value="allow_normal">Allow normally</option></select></label><label><span>Λήξη χωρίς «Να θυμάσαι»</span><select id="adminSessionDuration"><option value="never">Ποτέ</option><option value="5m">5 λεπτά</option><option value="15m">15 λεπτά</option><option value="30m">30 λεπτά</option><option value="1h">1 ώρα</option><option value="4h">4 ώρες</option></select></label><label><span>Safety fallback</span><select id="fallbackHour"><option value="5">05:00</option><option value="4">04:00</option><option value="6">06:00</option></select></label><label><span>Όριο ασυνήθιστης απόστασης (χλμ.)</span><input id="unusualDistanceKm" type="number" min="1" max="5000" inputmode="numeric"></label><button class="primary-button" type="submit">Αποθήκευση</button></form><section id="ordexaPanel" class="panel ordexa-panel" aria-label="Σύνδεση Ordexa"></section><section class="panel security-panel"><div><span class="panel-icon">⌾</span><span><h3>Admin PIN</h3><p>Δεύτερη επιβεβαίωση για οικονομικές και κρίσιμες αλλαγές.</p></span></div><button id="changeAdminPin" class="secondary-button" type="button">Αλλαγή PIN</button></section><section class="panel"><div class="panel-heading"><h2>Συνδεδεμένες συσκευές</h2><button id="refreshDevices" class="link-button" type="button">Ανανέωση</button></div><div id="deviceList" class="data-list"></div></section></section>
       </main>
@@ -304,7 +306,7 @@
     </div>
   </div></dialog>
 
-  <dialog id="employeeDetailDialog" class="app-dialog wide-dialog"><div class="dialog-head"><div><span class="overline">ΚΑΡΤΕΛΑ ΕΡΓΑΖΟΜΕΝΟΥ</span><h2 id="employeeDetailTitle">—</h2></div><button type="button" data-close="employeeDetailDialog">×</button></div><div id="employeeDetailTabs" class="report-types employee-detail-tabs"><button class="active" data-employee-detail-tab="details" type="button">Στοιχεία</button><button data-employee-detail-tab="shifts" data-tab-permission="shifts.view" type="button">Βάρδιες</button><button data-employee-detail-tab="payroll" data-tab-permission="payroll.view" type="button">Μισθοδοσία</button><button data-employee-detail-tab="schedules" data-tab-permission="schedules.view" type="button">Πρόγραμμα</button><button data-employee-detail-tab="permissions" type="button">Δικαιώματα</button><button data-employee-detail-tab="history" data-tab-permission="audit.view" type="button">Ιστορικό</button></div><div id="employeeDetailContent" class="employee-detail-content"></div></dialog>
+  <dialog id="employeeDetailDialog" class="app-dialog wide-dialog"><div class="dialog-head"><div><span class="overline">ΚΑΡΤΕΛΑ ΕΡΓΑΖΟΜΕΝΟΥ</span><h2 id="employeeDetailTitle">—</h2></div><button type="button" data-close="employeeDetailDialog">×</button></div><div id="employeeDetailTabs" class="report-types employee-detail-tabs"><button class="active" data-employee-detail-tab="details" type="button">Στοιχεία</button><button data-employee-detail-tab="shifts" data-tab-permission="shifts.view" type="button">Βάρδιες</button><button data-employee-detail-tab="cash" data-tab-permission="cash.view" type="button">Ταμείο</button><button data-employee-detail-tab="payroll" data-tab-permission="payroll.view" type="button">Μισθοδοσία</button><button data-employee-detail-tab="schedules" data-tab-permission="schedules.view" type="button">Πρόγραμμα</button><button data-employee-detail-tab="permissions" type="button">Δικαιώματα</button><button data-employee-detail-tab="history" data-tab-permission="audit.view" type="button">Ιστορικό</button></div><div id="employeeDetailContent" class="employee-detail-content"></div></dialog>
 
   <dialog id="invoiceReprocessDialog" class="app-dialog invoice-reprocess-dialog" aria-labelledby="invoiceReprocessTitle" aria-describedby="invoiceReprocessCount"><div class="dialog-body">
     <div class="dialog-head"><div><span class="overline">ΝΕΑ ΑΝΑΓΝΩΣΗ ΟΛΩΝ</span><h2 id="invoiceReprocessTitle">Πώς θέλεις να διαβαστούν;</h2></div><button type="button" data-close="invoiceReprocessDialog" aria-label="Κλείσιμο">×</button></div>
@@ -360,32 +362,44 @@
     <div id="uiInvoiceFilterOptions" class="ui-select-options" role="group" aria-label="Διαθέσιμες επιλογές"></div>
     <p id="uiInvoiceFilterEmpty" class="ui-empty" role="status" hidden>Δεν βρέθηκε πινακίδα. Δοκίμασε άλλη αναζήτηση.</p>
   </dialog>
-  <script src="./assets/v5.60.1/scroll-stability.js" defer></script>
+  <script src="./assets/v5.61.0/scroll-stability.js" defer></script>
   <script src="./fleet-config.js?v=5.53.0"></script>
-  <script src="./assets/v5.60.1/service-model.js" defer></script>
-  <script src="./assets/v5.60.1/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.60.1/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.60.1/service-tools.js" defer></script>
-  <script src="./assets/v5.60.1/service-storage.js" defer></script>
-  <script src="./assets/v5.60.1/service-export.js" defer></script>
-  <script src="./assets/v5.60.1/shared-requests.js"></script>
-  <script src="./assets/v5.60.1/live-changes.js"></script>
-  <script src="./assets/v5.60.1/local-view-cache.js"></script>
-  <script src="./assets/v5.60.1/fleet-motion.js"></script>
-  <script src="./assets/v5.60.1/schedule-workbook.js"></script>
-  <script src="./assets/v5.60.1/invoice-retry.js"></script>
-  <script src="./assets/v5.60.1/ordexa-ui.js"></script>
-  <script src="./assets/v5.60.1/ordexa-pay-core.js"></script>
-  <script src="./assets/v5.60.1/ordexa-pay-ui.js"></script>
-  <script src="./assets/v5.60.1/ordexa-server-ui.js"></script>
-  <script src="./assets/v5.60.1/store-weekly-report.js"></script>
-  <script src="./assets/v5.60.1/store-billing.js"></script>
-  <script src="./assets/v5.60.1/portal.js"></script>
+  <script src="./assets/v5.61.0/service-model.js" defer></script>
+  <script src="./assets/v5.61.0/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.61.0/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.61.0/service-tools.js" defer></script>
+  <script src="./assets/v5.61.0/service-storage.js" defer></script>
+  <script src="./assets/v5.61.0/service-export.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.61.0/primary-transport.css">
+  <script src="./assets/v5.61.0/primary-crypto.js"></script>
+  <script src="./assets/v5.61.0/primary-storage.js"></script>
+  <script src="./assets/v5.61.0/primary-transport.js"></script>
+  <script src="./assets/v5.61.0/primary-pending.js"></script>
+  <script src="./assets/v5.61.0/shared-requests.js"></script>
+  <script src="./assets/v5.61.0/live-changes.js"></script>
+  <script src="./assets/v5.61.0/local-view-cache.js"></script>
+  <script src="./assets/v5.61.0/fleet-motion.js"></script>
+  <script src="./assets/v5.61.0/schedule-workbook.js"></script>
+  <script src="./assets/v5.61.0/invoice-retry.js"></script>
+  <script src="./assets/v5.61.0/ordexa-ui.js"></script>
+  <script src="./assets/v5.61.0/ordexa-pay-core.js"></script>
+  <script src="./assets/v5.61.0/ordexa-pay-ui.js"></script>
+  <script src="./assets/v5.61.0/ordexa-server-ui.js"></script>
+  <script src="./assets/v5.61.0/store-weekly-report.js"></script>
+  <script src="./assets/v5.61.0/store-billing.js"></script>
+  <link rel="stylesheet" href="./assets/v5.61.0/native-management.css">
+  <script src="./assets/v5.61.0/native-ui-kit.js"></script>
+  <script src="./assets/v5.61.0/cash-ui.js"></script>
+  <script src="./assets/v5.61.0/store-financial-ui.js"></script>
+  <script src="./assets/v5.61.0/payroll-review-ui.js"></script>
+  <script src="./assets/v5.61.0/health-ui.js"></script>
+
+  <script src="./assets/v5.61.0/portal.js"></script>
   <script src="./vendor/jsQR.js"></script>
   <script src="./vendor/qrcode-generator.js"></script>
-  <script src="./assets/v5.60.1/invoice-import-ui.js"></script>
-  <script src="./assets/v5.60.1/service-followup.js" defer></script>
-  <script src="./assets/v5.60.1/fleet-operations.js" defer></script>
-  <script src="./assets/v5.60.1/sequential-review.js" defer></script>
+  <script src="./assets/v5.61.0/invoice-import-ui.js"></script>
+  <script src="./assets/v5.61.0/service-followup.js" defer></script>
+  <script src="./assets/v5.61.0/fleet-operations.js" defer></script>
+  <script src="./assets/v5.61.0/sequential-review.js" defer></script>
 </body>
 </html>

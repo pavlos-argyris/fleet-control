@@ -6,14 +6,7 @@ import { execFileSync } from 'node:child_process';
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-http-'));
 try {
-  // Minimal JSON dependency fixture; tests execute the actual FleetHttp network code.
-  fs.writeFileSync(path.join(temp, 'JSONObject.java'), `package org.json;
-public class JSONObject {
-  public JSONObject() {} public JSONObject(String value) {}
-  public JSONObject put(String key, Object value) { return this; }
-  public String optString(String key, String fallback) { return fallback; }
-  public String toString() { return "{}"; }
-}`);
+  const jsonJar=path.join(root,'vendor/json-java/json-20240303.jar');
   fs.writeFileSync(path.join(temp, 'ServerConfig.java'), `package gr.argyrismitsos.fleetserver;
 public class ServerConfig { public static final String SERVER_VERSION = "test"; }`);
   fs.writeFileSync(path.join(temp, 'FleetHttpTest.java'), `
@@ -62,6 +55,10 @@ public class FleetHttpTest {
     });
     Map<String, String> headers = Collections.singletonMap("X-Server-Key", "private-test-key");
     String url = "https://example.invalid/api/test";
+    for(String marker:new String[]{"nativeRecovery","nativeDatabase"}){
+      sequence();try{FleetHttp.sendJson("https://example.invalid/api/server/system-import/preview","POST",new JSONObject().put(marker,new JSONObject().put("privateCapability","fixture-only-secret")),headers);throw new AssertionError("primary recovery root escaped device");}catch(IOException expected){}
+      check(opened.isEmpty(),"recovery root opened a network connection");
+    }
     sequence(503, 200); FleetHttp.getJson(url, headers); connections(2, "GET");
     sequence(503, 503, 503);
     try { FleetHttp.getJson(url, headers); throw new AssertionError("503 accepted"); }
@@ -80,10 +77,22 @@ public class FleetHttpTest {
     sequence(503, 200);
     File file = new File(args[0], "invoice.pdf"); FleetHttp.downloadToFile(url, file, headers);
     check("%PDF-test".equals(new String(Files.readAllBytes(file.toPath()))), "download corrupt"); connections(2, "GET");
+    sequence();FleetHttp.installLocalTransport(new FleetHttp.LocalTransport(){
+      public JSONObject request(String address,String method,JSONObject body,Map<String,String> h,InputStream input,long length,String type,JSONObject form,String field)throws Exception{if(input!=null)input.close();return new JSONObject().put("native",true).put("method",method);}
+      public boolean download(String address,File target,Map<String,String> h)throws Exception{Files.write(target.toPath(),"native-private-file".getBytes("UTF-8"));return true;}
+    });
+    check(FleetHttp.getJson(url,headers).getBoolean("native"),"GET bypasses cloud");check(FleetHttp.sendJson(url,"POST",new JSONObject(),headers).getBoolean("native"),"mutation bypasses cloud");
+    check(FleetHttp.putStream(url,new ByteArrayInputStream(new byte[]{1}),1,"application/pdf",headers).getBoolean("native"),"stream bypasses cloud");
+    check(FleetHttp.putInvoice(url,file,new JSONObject(),headers).getBoolean("native"),"invoice multipart bypasses cloud");FleetHttp.downloadToFile(url,file,headers);check(new String(Files.readAllBytes(file.toPath())).equals("native-private-file"),"private native download");check(opened.isEmpty(),"all business transports opened zero cloud connections");
+    FleetHttp.installLocalTransport(new FleetHttp.LocalTransport(){
+      public JSONObject request(String address,String method,JSONObject body,Map<String,String> h,InputStream input,long length,String type,JSONObject form,String field)throws Exception{throw new IOException("native offline");}
+      public boolean download(String address,File target,Map<String,String> h)throws Exception{throw new IOException("native offline");}
+    });
+    try{FleetHttp.sendJson(url,"POST",new JSONObject(),headers);throw new AssertionError("offline primary accepted");}catch(IOException expected){}check(opened.isEmpty(),"offline primary never falls back to D1");FleetHttp.installLocalTransport(null);
     System.out.println("OK actual Java HTTP: bounded 503 GET retries, no auth/mutation retries, connection cleanup, redirect protection, PDF download and trace diagnostics.");
   }
 }`);
-  execFileSync('java', ['-jar', path.join(root, '.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'), '-proc:none', '-source', '8', '-target', '8', '-nowarn', '-encoding', 'UTF-8', '-d', temp,
-    path.join(root, 'server-android/src/gr/argyrismitsos/fleetserver/FleetHttp.java'), ...['JSONObject.java', 'ServerConfig.java', 'FleetHttpTest.java'].map(file => path.join(temp, file))], { stdio: 'inherit' });
-  execFileSync('java', ['-cp', temp, 'FleetHttpTest', temp], { stdio: 'inherit' });
+  execFileSync('java', ['-jar', path.join(root, '.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'), '-proc:none', '-source', '8', '-target', '8', '-nowarn', '-encoding', 'UTF-8', '-classpath',jsonJar,'-d', temp,
+    path.join(root, 'server-android/src/gr/argyrismitsos/fleetserver/FleetHttp.java'), ...['ServerConfig.java', 'FleetHttpTest.java'].map(file => path.join(temp, file))], { stdio: 'inherit' });
+  execFileSync('java', ['-cp', temp+path.delimiter+jsonJar, 'FleetHttpTest', temp], { stdio: 'inherit' });
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

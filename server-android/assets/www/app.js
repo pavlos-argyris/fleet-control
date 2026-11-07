@@ -308,6 +308,13 @@
     document.getElementById("backupContents").classList.toggle("backup-health-warning",!!backupInfo.fileName&&(!!backupInfo.missingDocuments||backupInfo.workforceIncluded===false));
     document.getElementById("backupVerificationStatus").textContent=verification.checkedAt ? formatDate(verification.checkedAt)+" • "+verification.fileName+" • "+verification.message : "Δεν έχει γίνει έλεγχος αναγνωσιμότητας.";
     document.getElementById("backupVerificationStatus").classList.toggle("backup-health-warning",!!verification.checkedAt&&!verification.complete);
+    const recovery=state.backupRecoveryTest||{};
+    const recoveryTime=typeof recovery.checkedAt==='string'?Date.parse(recovery.checkedAt):NaN;
+    const recoveryTimeValid=Number.isFinite(recoveryTime)&&recoveryTime<=Date.now()+300000;
+    const recoveryValid=recoveryTimeValid&&recovery.restoreVerified===true&&recovery.isolated===true&&recovery.sqliteIntegrity===true&&recovery.contentMatches===true;
+    document.getElementById("backupRecoveryStatus").textContent=recoveryTimeValid ? formatDate(recovery.checkedAt)+" • "+(recovery.fileName||"Επιλεγμένο αντίγραφο")+" • "+(recoveryValid ? "Η ανάκτηση επαληθεύτηκε σε ξεχωριστή βάση." : "Η δοκιμή δεν ολοκληρώθηκε. "+(recovery.message||"Επανάλαβε τον έλεγχο.")) : recovery.checkedAt ? "Δεν υπάρχει έγκυρη χρονική ένδειξη δοκιμής ανάκτησης." : "Δεν έχει γίνει δοκιμή ανάκτησης.";
+    document.getElementById("backupRecoveryStatus").classList.toggle("backup-health-warning",!!recovery.checkedAt&&!recoveryValid);
+    document.getElementById("testLastBackupRestore").disabled=!state.canVerifyLastBackup;
     el.retentionLabel.textContent = "Τα τελευταία " + (state.backupRetention || 30) + " καταγεγραμμένα πλήρη αντίγραφα. Αρχεία παλιών εκδόσεων και ημιτελείς προσπάθειες διατηρούνται.";
 
     if(state.statsUnavailable){
@@ -380,6 +387,8 @@
       } else if(event==="ota"){showToast(payload.message||"Έλεγξε τις λεπτομέρειες ενημέρωσης.");
       } else if (event === "backupVerification") {
         el.backupMessage.textContent=payload.ok ? payload.message+" Μηχανάκια: "+Number(payload.bikes||0)+" · Εγγραφές ιστορικού: "+Number(payload.historyEntries||0)+" · Εγγραφές συστήματος: "+Number(payload.records||0)+". "+payload.documentsMessage : payload.message;
+      } else if (event === "backupRecoveryTest") {
+        el.backupMessage.textContent=payload.ok ? payload.message+" Μηχανάκια: "+Number(payload.bikes||0)+" · Εγγραφές συστήματος: "+Number(payload.workforceRecords||0)+" · Αρχεία: "+Number(payload.documents||0)+"." : payload.message;
       } else if (event === "backupPreview") {
         if(!payload.ok){el.backupMessage.textContent=payload.message;return;}
         const d=document.createElement('dialog');d.className='backup-restore-preview';
@@ -433,6 +442,8 @@
   document.getElementById("chooseFolder").addEventListener("click", function () { if (bridge) bridge.chooseBackupFolder(); });
   document.getElementById("verifyLastBackup").addEventListener("click",function(){el.backupMessage.textContent="Έλεγχος αναγνωσιμότητας σε εξέλιξη… Δεν γίνεται επαναφορά.";if(bridge)bridge.verifyLastBackup();});
   document.getElementById("verifyBackupFile").addEventListener("click",function(){el.backupMessage.textContent="Διάλεξε backup για έλεγχο, χωρίς επαναφορά.";if(bridge)bridge.chooseBackupVerification();});
+  document.getElementById("testLastBackupRestore").addEventListener("click",function(){el.backupMessage.textContent="Δοκιμή ανάκτησης σε ξεχωριστή βάση…";if(bridge&&typeof bridge.testLastBackupRestore==='function')bridge.testLastBackupRestore();else el.backupMessage.textContent="Χρειάζεται συμβατή ενημέρωση του Server για δοκιμή ανάκτησης.";});
+  document.getElementById("testBackupRestoreFile").addEventListener("click",function(){el.backupMessage.textContent="Διάλεξε αντίγραφο για απομονωμένη δοκιμή ανάκτησης.";if(bridge&&typeof bridge.chooseBackupRecoveryTest==='function')bridge.chooseBackupRecoveryTest();else el.backupMessage.textContent="Χρειάζεται συμβατή ενημέρωση του Server για δοκιμή ανάκτησης.";});
   document.getElementById("backupNow").addEventListener("click", function () { el.backupMessage.textContent = "Δημιουργία backup…"; if (bridge) bridge.backupNow(); });
   document.getElementById("restoreBackup").addEventListener("click", function () { el.restorePinForm.reset(); el.restorePinError.textContent = ""; el.restorePinDialog.showModal(); });
   document.getElementById("uploadClient").addEventListener("click", function () { busy("Περιμένω να επιλέξεις το νέο APK…"); if (bridge) bridge.chooseClientApk(); });

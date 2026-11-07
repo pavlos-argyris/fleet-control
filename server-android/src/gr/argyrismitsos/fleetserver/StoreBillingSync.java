@@ -21,6 +21,9 @@ public final class StoreBillingSync {
         m.put("localRequest",new JSONObject().put("from",from).put("to",to));save(store,m);wake(fleet);return new JSONObject().put("queued",true).put("local",true);
 
     }
+    private static void refreshClaim(JSONObject job,JSONObject requested)throws Exception{
+        if(requested!=null&&requested.has("cashRefreshId")&&job.getString("from").equals(requested.getString("from"))&&job.getString("to").equals(requested.getString("to"))&&job.getString("type").equals("sync"))job.put("cashRefreshId",requested.getString("cashRefreshId")).put("cashRefreshValue",requested.getString("cashRefreshValue"));
+    }
     private static JSONObject envelope(JSONObject j)throws Exception{return new JSONObject().put("scope",j.getString("scope")).put("generation",j.getString("generation")).put("epoch",j.getString("epoch")).put("operationId",j.getString("operationId")).put("lease",j.getString("lease"));}
     private static void same(Context c,JSONObject j)throws Exception{JSONObject current=OrdexaSync.storesContext(c);if(!current.getString("scope").equals(j.getString("scope"))||!current.getString("generation").equals(j.getString("generation")))throw new Exception("Η σύνδεση καταστημάτων Ordexa άλλαξε.");}
     private static JSONObject post(Context c,JSONObject j,String action,JSONObject body)throws Exception{
@@ -48,7 +51,7 @@ public final class StoreBillingSync {
         catch(Exception offline){
             JSONObject cached=m.optJSONObject("control");JSONObject j=new JSONObject(source.toString()).put("operationId",UUID.randomUUID().toString()).put("lease",UUID.randomUUID().toString()).put("type","sync").put("from",from).put("to",today).put("phase","localSetup").put("offline",true);
             if(cached!=null&&source.getString("scope").equals(cached.optString("scope"))&&source.getString("generation").equals(cached.optString("generation"))&&(s.get(StoreBillingStore.key("authority",source.getString("scope"),"ledger"))!=null||m.optString("archiveEpoch","").startsWith(source.getString("scope")+":"+cached.getString("epoch")+":")))j.put("epoch",cached.getString("epoch")).put("inputRevision",cached.getLong("inputRevision"));
-            m.put("job",j).remove("localRequest");return;
+            refreshClaim(j,requested);m.put("job",j).remove("localRequest");return;
         }if(r.optBoolean("idle",false)){m.put("wake",false).put("nextDue",Math.max(m.optLong("nextDue",0),System.currentTimeMillis()+60000));return;}JSONObject job=r.getJSONObject("job");
         same(c,source);JSONObject j=new JSONObject(source.toString()).put("epoch",r.getString("epoch")).put("operationId",job.getString("id")).put("lease",job.getString("lease")).put("type",job.getString("type")).put("from",job.getString("from")).put("to",job.getString("to")).put("inputRevision",r.getJSONObject("connection").getLong("revision")).put("catalogueHash",r.getJSONObject("connection").optString("catalogueHash","")).put("inputCursor",0).put("inputCount",0).put("phase",job.getString("type").equals("reprice")?"inputs":"setup");
         JSONObject authority=s.get(StoreBillingStore.key("authority",j.getString("scope"),"ledger"));
@@ -56,7 +59,7 @@ public final class StoreBillingSync {
         if(authority==null&&legacyComplete){authority=new JSONObject().put("complete",true);s.put(StoreBillingStore.key("authority",j.getString("scope"),"ledger"),"authority",j.getString("scope"),"","",authority,false);}
         j.put("needsHydrate",authority==null);
         m.put("control",new JSONObject().put("scope",j.getString("scope")).put("generation",j.getString("generation")).put("epoch",j.getString("epoch")).put("inputRevision",j.getLong("inputRevision")));if(requested!=null&&j.getString("from").equals(requested.getString("from"))&&j.getString("to").equals(requested.getString("to"))&&j.getString("type").equals("sync"))m.remove("localRequest");
-        s.cleanupTemporary(j.getString("scope"));m.put("job",j).put("wake",false).put("error","").put("stage","Έλεγχος συμβατότητας Ordexa");
+        refreshClaim(j,requested);s.cleanupTemporary(j.getString("scope"));m.put("job",j).put("wake",false).put("error","").put("stage","Έλεγχος συμβατότητας Ordexa");
     }
     private static String step(Context c,StoreBillingStore s,JSONObject j)throws Exception{
         String scope=j.getString("scope"),op=j.getString("operationId"),phase=j.getString("phase");same(c,j);
@@ -92,19 +95,24 @@ public final class StoreBillingSync {
         if(phase.equals("orders")){
             JSONArray shops=stores(s,j);if(shops.length()==0){j.put("phase","archive");j.put("finalPass",pass(j));return "Δεν υπάρχουν καταστήματα στην πηγή";}
             String selected=j.getString("mode").equals("filtered")?shops.getJSONObject(j.getInt("shopIndex")).getString("sourceShopId"):null;
-            String day=j.getString("day");int page=j.getInt("page");JSONObject r=StoreBillingProtocol.page(OrdexaSync.storesRead(c,j,false,StoreBillingEngine.addDay(day,-1),StoreBillingEngine.addDay(day,1),page,selected),page,selected,known(shops));
+            String day=j.getString("day");int page=j.getInt("page");JSONObject source=OrdexaSync.storesRead(c,j,false,StoreBillingEngine.addDay(day,-1),StoreBillingEngine.addDay(day,1),page,selected);
+            // Observe first pages of the existing two-pass reader only. No extra
+            // provider request, guessed courier field, dirty cloud row or charge.
+            if(page==1)try{s.captureOrderProtocol(j,source,page,selected!=null);}catch(Exception diagnosticFailure){j.put("ordersEvidenceUnavailable",true);}
+            JSONObject r=StoreBillingProtocol.page(source,page,selected,known(shops));
             if(r.getBoolean("needsShopFilter")){j.put("mode","filtered").put("shopIndex",0).put("page",1);return "Ασφαλής αντιστοίχιση με ταυτότητα καταστήματος";}
             if(page==1)j.put("pageTotal",r.getInt("total")).put("pagePages",r.getInt("pages")).put("pageRows",0);
             if(r.getInt("total")!=j.getInt("pageTotal")||r.getInt("pages")!=j.getInt("pagePages"))throw new Exception("Η σελιδοποίηση Ordexa άλλαξε. Η λήψη παραμένει μη πλήρης· επανάλαβε.");
             JSONArray sourceRows=r.getJSONArray("rows");String pass=pass(j);
             s.stagePage(scope,pass,day,(selected==null?"city":selected)+":"+page,sourceRows,j.getLong("cutoffAt"));
+            new OrdexaCashSourceStore(s).stage(scope,pass,day,(selected==null?"city":selected)+":"+page,source,r,j.getLong("cutoffAt"));
             j.put("pageRows",j.getInt("pageRows")+sourceRows.length());
             if(page==r.getInt("pages")&&j.getInt("pageRows")!=j.getInt("pageTotal"))throw new Exception("Η πλήρης λήψη Ordexa δεν συμφωνεί με το πλήθος παραγγελιών. Δεν εφαρμόστηκε διαγραφή.");
             if(page<r.getInt("pages")){j.put("page",page+1);return "Ανάγνωση Ordexa · "+day+" · σελίδα "+page+"/"+r.getInt("pages");}
             if(selected!=null&&j.getInt("shopIndex")+1<shops.length()){j.put("shopIndex",j.getInt("shopIndex")+1).put("page",1);return "Έλεγχος καταστημάτων · "+day+" · "+j.getInt("shopIndex")+"/"+shops.length();}
-            String digest=s.passDigest(scope,pass);if(j.getInt("pass")==1){j.put("firstDigest",digest).put("pass",2).put("page",1).put("shopIndex",0);return "Επαλήθευση πλήρους λήψης · "+day;}
+            String digest=s.passDigest(scope,pass),cashDigest=new OrdexaCashSourceStore(s).digest(scope,pass);if(j.getInt("pass")==1){j.put("firstDigest",digest).put("firstCashDigest",cashDigest).put("pass",2).put("page",1).put("shopIndex",0);return "Επαλήθευση πλήρους λήψης · "+day;}
             if(!digest.equals(j.getString("firstDigest")))throw new Exception("Οι παραγγελίες άλλαξαν κατά τη λήψη. Δεν εφαρμόστηκε διαγραφή ή πλήρες νέο σύνολο· επανάλαβε.");
-            j.put("finalPass",pass).put("acceptCursor",0).put("phase","accept");return "Επαληθεύτηκαν δύο πλήρεις λήψεις · "+day;
+            j.put("cashIdentitiesStable",cashDigest.equals(j.optString("firstCashDigest",""))).put("finalPass",pass).put("acceptCursor",0).put("phase","accept");return "Επαληθεύτηκαν δύο πλήρεις λήψεις · "+day;
         }
         if(phase.equals("accept")){
             int cursor=j.getInt("acceptCursor");JSONArray seen=s.staged(scope,"seen",j.getString("finalPass"),cursor,50);s.observePage(scope,seen,j.getString("finalPass"));j.put("acceptCursor",cursor+seen.length());
@@ -113,6 +121,7 @@ public final class StoreBillingSync {
             return "Αρχειοθέτηση επαληθευμένων παραγγελιών · "+(cursor+seen.length());
         }
         if(phase.equals("archive")){
+            new OrdexaCashSourceStore(s).promote(scope,j.getString("finalPass"),j.getString("day"),j.getString("sourceAt"),j.optBoolean("cashIdentitiesStable",false));
 j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε το αρχείο · προετοιμασία χρεώσεων";
         }
         if(phase.equals("reprice")){
@@ -162,6 +171,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
             if(OtaManager.shouldYieldForUpdate(c)){next=time+5000;return;}
             s=new StoreBillingStore(fleet);m=state(s);
             if(time>=publishNext){publishNext=time+300000;try{long deadline=System.currentTimeMillis()+5000;for(int days=0;days<32&&System.currentTimeMillis()<deadline;days++)if(!flush(c,s))break;m=state(s);m.remove("cloudError");}catch(Exception cloud){m=state(s);m.put("cloudError","Εκκρεμεί δημοσίευση συγκεντρωτικών · ασφαλής επανάληψη");}save(s,m);}JSONObject source=OrdexaSync.storesContext(c);j=m.optJSONObject("job");
+            JSONObject cashRequest=new OrdexaCashSourceStore(s).nextRequest(source.getString("scope"),source.getString("generation"));if(cashRequest!=null){m.put("wake",true).put("nextDue",0);if(j==null&&!m.has("localRequest"))m.put("localRequest",cashRequest);}
             JSONObject signal=s.get("meta:store-billing-wake");long wakeAt=signal==null?0:signal.optLong("at",0);if(wakeAt>m.optLong("lastWakeHandled",0))m.put("wake",true).put("nextDue",0);
             if(!source.getBoolean("configured")||j==null&&!m.optBoolean("wake")&&(!source.getBoolean("enabled")||time<m.optLong("nextDue",0))){next=time+10000;return;}
             if(j!=null&&(!j.getString("scope").equals(source.getString("scope"))||!j.getString("generation").equals(source.getString("generation")))){m.remove("job");j=null;}
@@ -170,12 +180,12 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
                 String stage=step(c,s,j);m.put("stage",stage).put("error","");ServerWorkTracker.stage("stores","Καταστήματα Ordexa",stage);
                 if(j.optBoolean("hydrated"))m.put("archiveEpoch",j.getString("scope")+":"+j.getString("epoch")+":"+j.getString("generation"));
                 if(j.getString("phase").equals("done")){
-                    m.remove("job");if(m.optString("cloudError","").isEmpty())publishNext=Math.min(publishNext,time+1000);m.put("lastSuccess",OrdexaClient.isoNow()).put("nextDue",time+3600000).put("failures",0).put("error","").put("wake",j.optBoolean("hasPending"));
+                    new OrdexaCashSourceStore(s).acknowledge(j);m.remove("job");if(m.optString("cloudError","").isEmpty())publishNext=Math.min(publishNext,time+1000);m.put("lastSuccess",OrdexaClient.isoNow()).put("nextDue",time+3600000).put("failures",0).put("error","").put("wake",j.optBoolean("hasPending"));
                     if(m.optString("historyPending","").equals(j.getString("from"))&&j.getString("from").equals(j.getString("to")))m.remove("historyPending");
                     if(m.optBoolean("autoCycle")&&source.getBoolean("enabled")){
                         String previous=StoreBillingEngine.addDay(StoreBillingEngine.businessDay(time),-1),old=s.oldestCoverage(j.getString("scope"),previous);if(old.length()>0)m.put("historyPending",old).put("wake",true);m.put("autoCycle",false);
                     }
-                    if(m.has("localRequest")||m.optBoolean("wake")||m.optString("historyPending","").length()>0)m.put("wake",true).put("nextDue",0);
+                    if(new OrdexaCashSourceStore(s).nextRequest(source.getString("scope"),source.getString("generation"))!=null||m.has("localRequest")||m.optBoolean("wake")||m.optString("historyPending","").length()>0)m.put("wake",true).put("nextDue",0);
                 }
                 else if(time-j.optLong("lastProgress",0)>300000)progress(c,j,stage,"running");
             }

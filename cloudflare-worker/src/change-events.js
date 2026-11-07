@@ -1,13 +1,15 @@
 import { DirectRelay } from './direct-relay.js';
+import {PrimaryAuthority,primaryJson} from './primary-authority.js';
 // Signals contain scope names only. All data reads still pass their normal authorization.
 const encoder=new TextEncoder();
-const scopes=['fleet','invoices','workforce','status','stores'];
+const scopes=['fleet','invoices','workforce','status','stores','cash'];
 function base64(bytes){let s='';for(const b of bytes)s+=String.fromCharCode(b);return btoa(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');}
 function unbase64(s){return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));}
-async function key(env){const secret=env.SERVER_KEY||env.PIN_PEPPER;if(typeof secret!=='string'||secret.length<16)throw new Error('Event signing is not configured');return crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);}
+async function key(env){const secret=env.EVENT_SIGNING_KEY||env.SERVER_KEY||env.PIN_PEPPER;if(typeof secret!=='string'||secret.length<16)throw new Error('Event signing is not configured');return crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);}
 export async function makeTicket(env,actor){
  const permissions=actor.permissions||[],all=permissions.includes('*');
  const allowed=['workforce'];if(all||permissions.includes('stores.view'))allowed.push('stores');if(all||permissions.includes('fleet.view'))allowed.push('fleet','invoices');if(all||permissions.some(p=>['server.manage','backup.manage','dashboard.view'].includes(p)))allowed.push('status');
+ if(all||permissions.includes('cash.view'))allowed.push('cash');
  const now=Date.now(),payload={scopes:allowed,exp:now+60000,until:Math.min(now+900000,Number(actor.expires_at||0)*1000||now+900000),nonce:crypto.randomUUID()};
  const raw=base64(encoder.encode(JSON.stringify(payload))),signature=await crypto.subtle.sign('HMAC',await key(env),encoder.encode(raw));return raw+'.'+base64(new Uint8Array(signature));
 }
@@ -48,10 +50,12 @@ export async function publishChanges(env,scope){
  await env.FLEET_EVENTS.get(env.FLEET_EVENTS.idFromName('fleet')).fetch(new Request('https://events.internal/publish',{method:'POST',body:JSON.stringify({scopes:scope})}));
 }
 export class FleetEvents {
- constructor(ctx,env){this.ctx=ctx;this.env=env;this.direct=new DirectRelay(ctx);if(typeof WebSocketRequestResponsePair!=='undefined')ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping','pong'));}
+ constructor(ctx,env){this.ctx=ctx;this.env=env;this.direct=new DirectRelay(ctx);this.primary=new PrimaryAuthority(ctx,changed=>this.broadcast(changed));if(typeof WebSocketRequestResponsePair!=='undefined')ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping','pong'));}
  async fetch(request){
   const url=new URL(request.url);
-  if(url.pathname.startsWith('/direct/'))return this.direct.fetch(request);
+  if(url.pathname.startsWith('/primary/'))return this.primary.fetch(request);
+  await this.primary.ready;
+  if(url.pathname.startsWith('/direct/'))return this.primary.state.mode==='cloud'?this.direct.fetch(request):primaryJson({error:'Χρησιμοποίησε την κύρια ασφαλή σύνδεση Server.'},409);
   if(url.pathname==='/connect'&&request.headers.get('Upgrade')==='websocket'){
    if(this.ctx.getWebSockets().length>=256)return new Response('Busy',{status:503});
    const pair=new WebSocketPair(),client=pair[0],server=pair[1],until=Number(request.headers.get('X-Fleet-Until'));
@@ -60,15 +64,21 @@ export class FleetEvents {
    return new Response(null,{status:101,webSocket:client});
   }
   if(url.pathname==='/publish'&&request.method==='POST'){
-   const body=await request.json(),changed=(body.scopes||[]).filter(s=>scopes.includes(s)),now=Date.now();
-   for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(!saved||saved.until<=now){try{ws.close(1000,'renew');}catch{}continue;}
-    const allowed=changed.filter(s=>saved.scopes.includes(s));if(allowed.length)try{ws.send(JSON.stringify({type:'changed',scopes:allowed}));}catch{}}
+   const body=await request.json();this.broadcast(body.scopes||[]);
    return Response.json({ok:true});
   }
   return new Response('Not found',{status:404});
  }
- async alarm(){let next=Infinity;for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(saved?.direct)continue;if(!saved||saved.until<=Date.now()){try{ws.close(1000,'renew');}catch{}}else next=Math.min(next,saved.until);}if(Number.isFinite(next))await this.ctx.storage.setAlarm(next);}
- webSocketMessage(ws,message){if(ws.deserializeAttachment()?.direct)return this.direct.message(ws,message);if(message==='ping')ws.send('pong');else ws.close(1008,'signals only');}
- webSocketClose(ws,code,reason){this.direct.failPending(ws);try{ws.close(code,reason);}catch{}}
- webSocketError(ws){this.direct.failPending(ws);try{ws.close(1011,'reconnect');}catch{}}
+ broadcast(input){
+  const changed=[...new Set(input.filter(s=>typeof s==='string'&&scopes.includes(s)))],now=Date.now();
+  for(const ws of this.ctx.getWebSockets()){
+   const saved=ws.deserializeAttachment();if(saved?.direct||saved?.primary)continue;
+   if(!saved||saved.until<=now){try{ws.close(1000,'renew');}catch{}continue;}
+   const allowed=changed.filter(s=>saved.scopes.includes(s));if(allowed.length)try{ws.send(JSON.stringify({type:'changed',scopes:allowed}));}catch{}
+  }
+ }
+ async alarm(){let next=Infinity;for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(saved?.direct||saved?.primary)continue;if(!saved||saved.until<=Date.now()){try{ws.close(1000,'renew');}catch{}}else next=Math.min(next,saved.until);}if(Number.isFinite(next))await this.ctx.storage.setAlarm(next);}
+ webSocketMessage(ws,message){if(ws.deserializeAttachment()?.primary)return this.primary.message(ws,message);if(ws.deserializeAttachment()?.direct)return this.direct.message(ws,message);if(message==='ping')ws.send('pong');else ws.close(1008,'signals only');}
+ webSocketClose(ws,code,reason){this.direct.failPending(ws);this.primary.failPending(ws);try{ws.close(code,reason);}catch{}}
+ webSocketError(ws){this.direct.failPending(ws);this.primary.failPending(ws);try{ws.close(1011,'reconnect');}catch{}}
 }

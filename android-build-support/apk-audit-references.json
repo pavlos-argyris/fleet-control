@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "repository": "pavlos-argyris/fleet-control",
+  "references": [
+    {
+      "tag": "fleet-v5.37.0",
+      "role": "early",
+      "kind": "client",
+      "assetId": 626153151,
+      "fileName": "Fleet_Control_Client_v5.37.0.apk",
+      "size": 1197615,
+      "sha256": "fdc7a1198e6f5b4f38a3c4e04771bfda5ab3e1eaf3933f233b53209cc120e75e",
+      "url": "https://github.com/pavlos-argyris/fleet-control/releases/download/fleet-v5.37.0/Fleet_Control_Client_v5.37.0.apk"
+    },
+    {
+      "tag": "fleet-v5.37.0",
+      "role": "early",
+      "kind": "server",
+      "assetId": 626153147,
+      "fileName": "Fleet_Control_Server_v2.1.0.apk",
+      "size": 217762,
+      "sha256": "f6fb2511a4fcd2d4590e564891f46bec379e61bc6ec7c9a7bcf7c725746c1260",
+      "url": "https://github.com/pavlos-argyris/fleet-control/releases/download/fleet-v5.37.0/Fleet_Control_Server_v2.1.0.apk"
+    },
+    {
+      "tag": "fleet-v5.60.1",
+      "role": "latest",
+      "kind": "client",
+      "assetId": 718147552,
+      "fileName": "Fleet_Control_Client_v5.60.1.apk",
+      "size": 45639527,
+      "sha256": "384ab8a626190f02051fd0903620b5d65c88e2bd47808cab726c9241b22a5472",
+      "url": "https://github.com/pavlos-argyris/fleet-control/releases/download/fleet-v5.60.1/Fleet_Control_Client_v5.60.1.apk"
+    },
+    {
+      "tag": "fleet-v5.60.1",
+      "role": "latest",
+      "kind": "server",
+      "assetId": 718147549,
+      "fileName": "Fleet_Control_Server_v2.9.1.apk",
+      "size": 30800087,
+      "sha256": "2553be0d16ee6a80870f56a6d505bb160ddc643dcef557c18c2602cb9cda708e",
+      "url": "https://github.com/pavlos-argyris/fleet-control/releases/download/fleet-v5.60.1/Fleet_Control_Server_v2.9.1.apk"
+    }
+  ]
+}

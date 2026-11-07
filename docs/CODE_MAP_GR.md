@@ -55,3 +55,7 @@
 ## Συντήρηση
 
 Σε κάθε PR με αλλαγές αρχιτεκτονικής, οι reviewers επικαιροποιούν `CODE_MAP.json` και τη συνοπτική λίστα παραπάνω **μαζί με** τον κώδικα. Κάθε agent δηλώνει τις ενότητες που επηρεάζει στο κοινό handoff, ώστε άλλος agent να μην κάνει συγχρόνως τις ίδιες αλλαγές. Η λειτουργία παραμένει συντηρήσιμη από GitHub, χωρίς εξωτερικό index server ή επιπλέον συνδρομή.
+
+## Ταυτοποίηση παραγγελιών Ordexa — 07/11/2026
+
+Ο `OrdexaCashOrderProtocol` κρατά μόνο τα πραγματικά παρατηρημένα αριθμητικά `id/riderId/shopId`, `at` και `rider`. Ο `OrdexaCashSourceStore` συμμετέχει στο υπάρχον `StoreBillingSync`: τοπικό staging, δύο πλήρεις ίδιες αναγνώσεις, ατομικός δείκτης snapshot, παρατηρήσεις αλλαγών/απουσίας και ιστορικό ονομάτων, χωρίς οικονομική εφαρμογή. Το `server-runtime/cash-source.js` προσφέρει ιστορικές scoped αντιστοιχίσεις και coalesced durable αιτήματα προς τον ίδιο reader. Πρώτοι έλεγχοι: `test-ordexa-cash-source-native.mjs`, `test-store-billing-pipeline.mjs`, `test-business-runtime-native.mjs`, `test-native-management-ui.mjs` και `test-native-management-browser.mjs`.

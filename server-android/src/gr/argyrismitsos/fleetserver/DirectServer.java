@@ -40,13 +40,14 @@ public final class DirectServer {
         if(closed)return;
         DirectWebSocket current=null;
         try{
+            if(!NativePrimaryService.cloudMode(context))return;
             if(!preferences.getBoolean("direct_access_enabled",false))return;
             JSONObject identity=DirectIdentity.read(context);String key=identity.optString("secret"),generation=DirectIdentity.generation(context);if(key.length()!=43)return;
             current=new DirectWebSocket();socket=current;
             String base=preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL);
             socketBase=base;identityGeneration=generation;
             current.connect(base,ServerConfig.SERVER_KEY,DirectAccess.digest(key));
-            while(!closed&&preferences.getBoolean("direct_access_enabled",false)){
+            while(!closed&&preferences.getBoolean("direct_access_enabled",false)&&NativePrimaryService.cloudMode(context)){
                 String raw=current.read();if("pong".equals(raw))continue;
                 JSONObject message=new JSONObject(raw);
                 if("ready".equals(message.optString("type"))){connected=true;continue;}
@@ -63,6 +64,7 @@ public final class DirectServer {
     }
     public void close(){closed=true;connected=false;DirectWebSocket current=socket;if(current!=null)current.close();reader.shutdownNow();heartbeat.shutdownNow();if(instance==this)instance=null;}
     public static JSONObject state(Context context,FleetDataStore store)throws Exception{
+        if(!NativePrimaryService.cloudMode(context))return new JSONObject().put("enabled",false).put("connected",false).put("pairingCode","").put("primaryOnly",true).put("readOnly",true);
         SharedPreferences p=context.getSharedPreferences(BackupManager.PREFS,Context.MODE_PRIVATE);DirectServer current=instance;
         String code=p.getBoolean("direct_access_enabled",false)?DirectIdentity.pairingCode(context):"";
         return new JSONObject().put("enabled",p.getBoolean("direct_access_enabled",false)&&code.length()>0).put("connected",current!=null&&current.connected)

@@ -1,12 +1,27 @@
-import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
+import assert from 'node:assert/strict';import {mock} from 'node:test';import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
 import worker from '../cloudflare-worker/src/worker.js';import {createSimulation} from './fixtures/workforce-simulation.mjs';
 import {nativeOrdexaEngine} from './fixtures/native-ordexa-engine.mjs';import {projectOrdexaWeek} from './fixtures/ordexa-server-project.mjs';
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{chromium}=require('playwright');
+// Pin the synthetic end-to-end time inside business hours (08:00–02:00 Athens).
+// Otherwise a CI run between 02:00 and 08:00 creates a legitimately inactive
+// rider, making the live-dashboard assertion depend on when Actions starts.
+// Mock Date only: keep real timers, Playwright timeouts and event delivery live.
+const FIXTURE_EPOCH=Date.parse('2026-10-26T18:00:00+02:00');
+mock.timers.enable({apis:['Date'],now:new Date(FIXTURE_EPOCH)});
+const installFixedClock=context=>context.addInitScript(({epoch})=>{
+ const RealDate=window.Date;
+ window.Date=class extends RealDate{
+  constructor(...args){super(...(args.length?args:[epoch]));}
+  static now(){return epoch;}
+ };
+},{epoch:FIXTURE_EPOCH});
+
 const output=path.resolve('verification/ordexa');fs.mkdirSync(output,{recursive:true});const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),native=nativeOrdexaEngine();
 const {db,env,call}=createSimulation(),ok=(r,status=200)=>{assert.equal(r.status,status,JSON.stringify(r));return r.data;};
 const {token,user}=ok(await call('/api/auth/bootstrap',{server:true,method:'POST',body:{fullName:'Fleet διαφορετικό όνομα',username:'ordexaui',password:'SyntheticOrdexaUI!7'}}));
 const staff=ok(await call('/api/admin/employees',{token,method:'POST',body:{fullName:'Αναμενόμενος διανομέας',loginEnabled:false}}),201).employee;
 const iso=t=>new Date(t).toISOString(),today=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Athens',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),plus=(d,n)=>iso(Date.parse(d+'T12:00:00Z')+n*86400000).slice(0,10),week=plus(today,-((new Date(today+'T12:00:00Z').getUTCDay()+6)%7));
+assert.equal(today,'2026-10-26','Pinned Athens business-date fixture');
 const liveStart=Math.floor((Date.now()-3*3600000)/1800000)*1800000,liveEnd=Date.now()+3*3600000;
 let capture=Date.now()-20000;
 for(let day='2026-10-19';day<=today;day=plus(day,1))ok(await call('/api/server/ordexa/import',{server:true,method:'POST',body:{cityId:'7',day,capturedAt:iso(capture++),report:{riders:[{riderId:17,name:'Όνομα Ordexa Α',sessions:day==='2026-10-19'?[{id:'night',day,inAt:'2026-10-19T18:00:00+03:00',outAt:'2026-10-20T02:10:00+03:00'}]:day===today?[{id:'live',day,inAt:iso(liveStart),outAt:null}]:[]},{riderId:22,name:'Διαφορετικό όνομα Ordexa Β',sessions:[]}]}}}));
@@ -21,6 +36,7 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
  db.sqlite.exec("DELETE FROM ordexa_shift_adjustments; DELETE FROM ordexa_server_views; UPDATE ordexa_riders SET employee_id=NULL,revision=revision+1 WHERE rider_id='22'; UPDATE system_settings SET value=CAST(value AS INTEGER)+1 WHERE key='ordexa_revision'");
  await projectOrdexaWeek(call,native,'2026-10-19');await projectOrdexaWeek(call,native,'2026-09-28');await projectOrdexaWeek(call,native,week);
  const context=await browser.newContext({viewport:{width,height},locale:'el-GR',timezoneId:'Europe/Athens',serviceWorkers:'block'}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await installFixedClock(context);
  await context.addInitScript(({token,user})=>{const interval=window.setInterval.bind(window);window.setInterval=(fn,ms,...args)=>{if(ms===15000)window.syntheticFreshnessTick=fn;return interval(fn,ms,...args);};localStorage.setItem('fleet-control-auth-token',token);localStorage.setItem('fleet-control-user-cache',JSON.stringify(user));},{token,user});
  const root=path.resolve('cloudflare-worker/public');let writes=0,serverWork=Promise.resolve(),failSave=false,serverAvailable=true;
  const project=()=>{serverWork=serverWork.then(async()=>{for(let attempt=0;attempt<3;attempt++){try{await projectOrdexaWeek(call,native,week);break;}catch(error){if(error.status!==409||attempt===2)throw error;await new Promise(resolve=>setTimeout(resolve,30));}}if(!page.isClosed())await page.evaluate(()=>window.syntheticFleetLive?.(['workforce','status']));}).catch(error=>{errors.push('Synthetic Server: '+error.message);});};
@@ -70,6 +86,7 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
 }
 for(const width of [390,1100]){
  const context=await browser.newContext({viewport:{width,height:900},locale:'el-GR',timezoneId:'Europe/Athens',serviceWorkers:'block'}),page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await installFixedClock(context);
  await context.addInitScript(()=>{
   window.serverFixture={commands:[],failSync:false,state:{configured:false,cityId:'',cities:[],enabled:false,stage:''}};
   const result=(name,input,extra={})=>setTimeout(()=>window.FleetServer.onNativeEvent(name,{ok:true,requestId:input.requestId,...extra}),25);

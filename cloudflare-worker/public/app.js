@@ -22,6 +22,7 @@
   });
   const config = window.FLEET_CONFIG || {};
   let apiBase = String(loadSetting(SERVER_URL_KEY) || config.apiBase || "").replace(/\/$/, "");
+  window.FleetPrimary?.registerOrigin(apiBase);
   const isAndroidApp = Boolean(window.AndroidFleet);
   const isEmbedded = new URLSearchParams(window.location.search).get("embedded") === "1" || /\/fleet\/?$/.test(window.location.pathname);
 
@@ -3371,6 +3372,7 @@
     event.preventDefault();
     try {
       apiBase = normalizedServerUrl(elements.serverUrlInput.value);
+      window.FleetPrimary?.registerOrigin(apiBase);
       localStorage.setItem(SERVER_URL_KEY, apiBase);
       elements.connectionSettingsDialog.close();
       showToast("Η διεύθυνση του server αποθηκεύτηκε.");
@@ -4095,13 +4097,13 @@
   }
   async function queueServiceDocuments(bikeId,entryId,files,qr) {
     const items=files.length?files.map((file,i)=>({file,qr:i===0?qr:'',uploadId:crypto.randomUUID(),done:false})):[{file:null,qr,uploadId:'',done:false}];
-    await window.FleetServiceStorage.put(serviceStorageScope(),'outbox',entryId,{bikeId,entryId,items});
+    await window.FleetServiceStorage.put(serviceStorageScope(),'outbox',entryId,{bikeId,entryId,items,authorityGeneration:window.FleetPrimary?.generation(new URL(apiBase||location.href).origin)||''});
   }
   async function processServiceOutbox() {
     if(outboxRunning||!webToken||!canManageHistory()||navigator.onLine===false||!window.FleetServiceStorage)return;
     outboxRunning=true;const scope=serviceStorageScope();
     try{const rows=await window.FleetServiceStorage.list(scope,'outbox');if(!rows.length)return;await syncNow();
-      for(const row of rows){if(scope!==serviceStorageScope()||!webToken||!canManageHistory()||navigator.onLine===false)break;const job=row.data,entry=getHistoryEntry(getBike(job.bikeId),job.entryId);if(!entry)continue;
+      for(const row of rows){if(scope!==serviceStorageScope()||!webToken||!canManageHistory()||navigator.onLine===false)break;const job=row.data,entry=getHistoryEntry(getBike(job.bikeId),job.entryId);if(!entry)continue;const currentGeneration=window.FleetPrimary?.generation(new URL(apiBase||location.href).origin)||'';if((job.authorityGeneration||'')!==currentGeneration){job.error='Άλλαξε ο κύριος Server. Έλεγξε την καταχώριση πριν επαναλάβεις τα εκκρεμή τιμολόγια.';await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);continue;}
         try{for(const item of job.items){if(item.done)continue;const existing=item.uploadId&&(entry.attachments||[]).some(f=>f.uploadId===item.uploadId);if(!existing){const file=item.file;if(file)file.fleetUploadId=item.uploadId;const result=await attachInvoicesToEntry(job.bikeId,job.entryId,file?[file]:[],item.qr,{background:true,deferQrCompletion:true});if(result.failures.length)throw new Error(result.failures[0].error);}item.done=true;await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);}await window.FleetServiceStorage.remove(scope,'outbox',job.entryId);renderHome();if(activeBikeId===job.bikeId)renderDetail();}
         catch(error){job.error=String(error.message||error).slice(0,400);await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);showToast('Το service αποθηκεύτηκε. Εκκρεμεί τιμολόγιο: '+job.error);}
       }

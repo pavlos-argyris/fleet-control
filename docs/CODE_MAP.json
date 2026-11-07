@@ -93,13 +93,21 @@
         "cloudflare-worker/src/ordexa-shift-editor.js",
         "cloudflare-worker/public/ordexa-pay-core.js",
         "cloudflare-worker/public/ordexa-pay-ui.js",
-        "cloudflare-worker/public/ordexa-server-ui.js"
+        "cloudflare-worker/public/ordexa-server-ui.js",
+        "cloudflare-worker/src/payroll-review-core.js",
+        "server-runtime/payroll-review.js",
+        "cloudflare-worker/public/payroll-review-ui.js",
+        "scripts/fixtures/native-management-browser-data.mjs"
       ],
       "tests": [
         "scripts/test-ordexa-pay.mjs",
         "scripts/test-ordexa-edit-anytime.mjs",
         "scripts/test-ordexa-server-engine.mjs",
-        "scripts/test-payroll-regressions.mjs"
+        "scripts/test-payroll-regressions.mjs",
+        "scripts/test-payroll-review-core.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-native-management-ui.mjs",
+        "scripts/test-native-management-browser.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -107,7 +115,9 @@
       ],
       "docs": [
         "docs/ORDEXA_SERVER_PAYROLL_5.54.0_GR.md",
-        "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md"
+        "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md",
+        "docs/ISSUE_63_PARALLEL_START_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
       ]
     },
     {
@@ -118,13 +128,25 @@
         "cloudflare-worker/src/store-billing.js",
         "cloudflare-worker/public/store-billing.js",
         "cloudflare-worker/public/store-billing.css",
-        "cloudflare-worker/public/store-weekly-report.js"
+        "cloudflare-worker/src/store-financial-report.js",
+        "server-runtime/reports.js",
+        "server-runtime/exports.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/FinancialExport.java",
+        "cloudflare-worker/public/store-weekly-report.js",
+        "cloudflare-worker/public/store-financial-ui.js",
+        "scripts/fixtures/native-management-browser-data.mjs"
       ],
       "tests": [
         "scripts/test-store-billing-*.mjs",
         "scripts/test-store-primary-budget.mjs",
+        "scripts/test-store-financial-report.mjs",
+        "scripts/test-financial-export-native.mjs",
+        "scripts/test-business-runtime-native.mjs",
         "scripts/test-store-weekly-report.mjs",
-        "scripts/test-store-weekly-browser.mjs"
+        "scripts/test-store-weekly-browser.mjs",
+        "scripts/test-store-alias-cas-sqlite.mjs",
+        "scripts/test-native-management-ui.mjs",
+        "scripts/test-native-management-browser.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -134,7 +156,9 @@
       "docs": [
         "docs/SERVER_PRIMARY_STORE_ORDERS_GR.md",
         "docs/ISSUE_44_STORES_GR.md",
-        "docs/STORES_WEEKLY_5.60.1_GR.md"
+        "docs/ISSUE_62_PARALLEL_START_GR.md",
+        "docs/STORES_WEEKLY_5.60.1_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
       ]
     },
     {
@@ -211,11 +235,26 @@
       "paths": [
         "server-android/src/gr/argyrismitsos/fleetserver/Backup*.java",
         "server-android/src/gr/argyrismitsos/fleetserver/HistoryMergePolicy.java",
-        "server-android/src/gr/argyrismitsos/fleetserver/ServerWorkTracker.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/ServerWorkTracker.java",
+        "cloudflare-worker/src/backup-recovery-evidence.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeBackup*.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeDatabaseSnapshot.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/PortableBackupCipher.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/SealedLocalState.java",
+        "server-android/assets/www/backup-protection.js"
       ],
       "tests": [
         "scripts/test-backup-*.mjs",
-        "scripts/test-server-backup-browser.mjs"
+        "scripts/test-server-backup-browser.mjs",
+        "scripts/test-backup-recovery-evidence.mjs",
+        "scripts/test-backup-json-writer-native.mjs",
+        "scripts/test-backup-jobs-native.mjs",
+        "scripts/test-backup-restore-probe-native.mjs",
+        "scripts/test-server-backup-recovery-ui.mjs",
+        "scripts/test-portable-backup-native.mjs",
+        "scripts/test-backup-protection-ui.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-backup-write-buffering-native.mjs"
       ],
       "related": [
         "server-foundation",
@@ -223,7 +262,10 @@
         "invoices"
       ],
       "docs": [
-        "docs/BACKUP_OTA_5.51.5_GR.md"
+        "docs/BACKUP_OTA_5.51.5_GR.md",
+        "docs/ISSUE_61_RESTORE_EVIDENCE_GR.md",
+        "docs/BACKUP_UPDATE_RELIABILITY_GR.md",
+        "docs/PORTABLE_PRIMARY_BACKUP_GR.md"
       ]
     },
     {
@@ -284,7 +326,8 @@
       "tests": [
         "scripts/test-server-reconnect-*.mjs",
         "scripts/test-server-settings-recovery.mjs",
-        "scripts/test-server-update-ui.mjs"
+        "scripts/test-server-update-ui.mjs",
+        "scripts/test-server-task-results-native.mjs"
       ],
       "related": [
         "server-foundation",
@@ -322,6 +365,203 @@
       "docs": [
         "docs/CI_SPEED_SECURITY_GR.md",
         "docs/AUTOMATIC_PUBLISH_GR.md"
+      ]
+    },
+    {
+      "id": "d1-migration",
+      "title": "D1 authority inventory, migration and native business runtime",
+      "paths": [
+        "scripts/d1-source-inventory.mjs",
+        "server-runtime/*.js",
+        "cloudflare-worker/src/primary-authority.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/Business*.java",
+        "scripts/build-business-runtime.mjs",
+        "scripts/prepare-business-dependencies.py",
+        "android-build-support/business-dependencies.lock.json",
+        "server-android/src/gr/argyrismitsos/fleetserver/ServerAuthorityStage.java",
+        "server-android/assets/www/server-authority.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/BusinessActor.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/BusinessObjects.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeIdentity.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryState.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenExportV3.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenImportV3.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeFrozenDigest.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimarySchema.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryPromotion.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/PrimaryCipher.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryLease.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeBusinessEngine.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryGuard.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePrimaryService.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativePublicRead.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/FleetApplication.java",
+        "scripts/fixtures/BusinessPrimaryChecks.java.txt",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeMigrationCoordinator.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeMigrationController.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeMigrationTransport.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeColdRestore.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeColdRuntime.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeRecoveryController.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeRecoveryInstall.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeRecoveryStartup.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeRestartActivity.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeWorkGate.java",
+        "server-android/assets/www/server-primary.js",
+        "server-android/assets/www/server-recovery.js",
+        "scripts/fixtures/NativeMigrationFlowTest.java.txt",
+        "scripts/fixtures/NativeColdRestoreChecks.java.txt",
+        "cloudflare-worker/public/primary-crypto.js",
+        "cloudflare-worker/public/primary-storage.js",
+        "cloudflare-worker/public/primary-pending.js",
+        "cloudflare-worker/public/primary-transport.js",
+        "cloudflare-worker/public/primary-transport.css",
+        "scripts/fixtures/primary-browser-gateway.mjs"
+      ],
+      "tests": [
+        "scripts/test-d1-source-inventory.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-primary-authority.mjs",
+        "scripts/test-server-authority-stage-native.mjs",
+        "scripts/test-server-authority-ui.mjs",
+        "scripts/test-native-frozen-export-v3.mjs",
+        "scripts/test-native-frozen-import-v3.mjs",
+        "scripts/test-native-primary-promotion.mjs",
+        "scripts/test-primary-cipher-native.mjs",
+        "scripts/test-primary-lease-native.mjs",
+        "scripts/test-primary-state-atomic.mjs",
+        "scripts/test-server-primary-ui.mjs",
+        "scripts/test-server-recovery-ui.mjs",
+        "scripts/test-server-primary-browser.mjs",
+        "scripts/test-primary-transport.mjs",
+        "scripts/test-primary-transport-browser.mjs"
+      ],
+      "related": [
+        "worker-core",
+        "server-foundation",
+        "direct-access"
+      ],
+      "docs": [
+        "docs/ISSUE_59_D1_AUTHORITY_AUDIT_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
+      ]
+    },
+    {
+      "id": "courier-cash",
+      "title": "Courier cash reconciliation independent of payroll",
+      "paths": [
+        "cloudflare-worker/src/courier-cash-core.js",
+        "server-runtime/cash.js",
+        "cloudflare-worker/public/cash-ui.js",
+        "cloudflare-worker/public/native-ui-kit.js",
+        "cloudflare-worker/public/native-management.css",
+        "scripts/fixtures/native-management-browser-data.mjs",
+        "server-runtime/cash-source.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaCashOrderProtocol.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaCashSourceStore.java"
+      ],
+      "tests": [
+        "scripts/test-courier-cash-core.mjs",
+        "scripts/test-cash-reversal-sqlite.mjs",
+        "scripts/test-cash-rule-cas-sqlite.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-financial-export-native.mjs",
+        "scripts/test-cash-event-domain-sqlite.mjs",
+        "scripts/test-native-management-ui.mjs",
+        "scripts/test-native-management-browser.mjs",
+        "scripts/test-cash-event-tariff-fence-sqlite.mjs",
+        "scripts/test-ordexa-order-evidence-native.mjs",
+        "scripts/test-ordexa-cash-source-native.mjs",
+        "scripts/test-store-billing-pipeline.mjs"
+      ],
+      "related": [
+        "stores",
+        "shift-payroll"
+      ],
+      "docs": [
+        "docs/ISSUE_60_PARALLEL_START_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md",
+        "docs/ORDEXA_AUTO_CASH_20261107_GR.md"
+      ]
+    },
+    {
+      "id": "system-health",
+      "title": "Server/Ordexa/backup/D1 evidence without polling",
+      "paths": [
+        "cloudflare-worker/src/fleet-health-core.js",
+        "server-android/assets/www/server-diagnostics.js",
+        "server-runtime/health.js",
+        "cloudflare-worker/public/health-ui.js",
+        "scripts/fixtures/native-management-browser-data.mjs"
+      ],
+      "tests": [
+        "scripts/test-fleet-health-core.mjs",
+        "scripts/test-server-health-diagnostics.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-native-management-ui.mjs",
+        "scripts/test-native-management-browser.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "worker-core",
+        "backups",
+        "server-ui"
+      ],
+      "docs": [
+        "docs/ISSUE_64_PARALLEL_START_GR.md",
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
+      ]
+    },
+    {
+      "id": "apk-security-audit",
+      "title": "Actual signed APK history, compiled Android security surface and Play Protect evidence",
+      "paths": [
+        "scripts/android-manifest-audit.mjs",
+        "server-android/AndroidManifest.xml",
+        "client-android/AndroidManifest.xml",
+        "server-android/src/gr/argyrismitsos/fleetserver/BootReceiver.java",
+        "scripts/apk-audit-core.mjs",
+        "scripts/audit-apk-history.mjs",
+        "android-build-support/apk-audit-references.json"
+      ],
+      "tests": [
+        "scripts/test-android-manifest-audit.mjs",
+        "scripts/test-server-boot-native.mjs",
+        "scripts/test-apk-audit-core.mjs"
+      ],
+      "related": [
+        "release-ci",
+        "android-client",
+        "server-foundation"
+      ],
+      "docs": [
+        "docs/ISSUE_8_PLAY_PROTECT_AUDIT_GR.md",
+        "docs/PLAY_PROTECT_REVIEW_PACKET_GR.md"
+      ]
+    },
+    {
+      "id": "ordexa-diagnostic",
+      "title": "Separate manual read-only Ordexa protocol observation",
+      "paths": [
+        "ordexa-diagnostic-android/",
+        "scripts/build-ordexa-diagnostic.sh",
+        "scripts/check-ordexa-diagnostic-apk.py",
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaClient.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/StoreBillingProtocol.java"
+      ],
+      "tests": [
+        "scripts/test-ordexa-diagnostic-native.mjs",
+        "scripts/test-ordexa-order-evidence-native.mjs",
+        "scripts/test-ordexa-native.mjs"
+      ],
+      "related": [
+        "ordexa-attendance",
+        "courier-cash",
+        "stores"
+      ],
+      "docs": [
+        "docs/ORDEXA_DIAGNOSTIC_GR.md",
+        "docs/ORDEXA_AUTO_CASH_20261107_GR.md"
       ]
     }
   ]

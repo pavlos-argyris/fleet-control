@@ -17,6 +17,7 @@ public final class OrdexaSync {
     private static final java.util.concurrent.atomic.AtomicBoolean running=new java.util.concurrent.atomic.AtomicBoolean();
     private static final Object authLock=new Object();
     private static SharedPreferences prefs(Context c){return c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);}
+    static void clearForRecovery(Context c)throws Exception{if(!prefs(c).edit().clear().putString("auth_state","unconfigured").commit())throw new java.io.IOException("Δεν ακυρώθηκε η παλιά τοπική συνεδρία Ordexa.");}
     private static void begin()throws Exception{if(!running.compareAndSet(false,true))throw new Exception("Υπάρχει ήδη ενέργεια Ordexa σε εξέλιξη. Περίμενε να ολοκληρωθεί.");}
     private static javax.crypto.SecretKey key()throws Exception{
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");store.load(null);
@@ -82,7 +83,7 @@ public final class OrdexaSync {
     static JSONObject storesRead(Context c,JSONObject expected,boolean setup,String from,String to,int page,String shop)throws Exception{
         begin();try{
             JSONObject current=storesContext(c);if(!current.getString("scope").equals(expected.getString("scope"))||!current.getString("generation").equals(expected.getString("generation")))throw new Exception("Η σύνδεση Ordexa άλλαξε. Επανάλαβε.");
-            OrdexaClient client=client(c);return setup?client.storesSetup(current.getString("cityId")):client.storesOrders(current.getString("cityId"),from,to,page,shop);
+            OrdexaClient client=client(c);try{return setup?client.storesSetup(current.getString("cityId")):client.storesOrders(current.getString("cityId"),from,to,page,shop);}finally{if(!setup)expected.put("_ordersHttpObservation",client.ordersHttpObservation());}
         }finally{running.set(false);}
     }
     public static JSONObject status(Context c)throws Exception{
