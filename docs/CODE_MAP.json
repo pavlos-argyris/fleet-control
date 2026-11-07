@@ -351,13 +351,16 @@
         "scripts/publish-release.mjs",
         "scripts/request-publish.mjs",
         "scripts/validate-publish-request.mjs",
-        "release-config.json"
+        "release-config.json",
+        "scripts/verify-apks.mjs",
+        "scripts/prepare-business-dependencies.py"
       ],
       "tests": [
         "scripts/test-publish-request.mjs",
         "scripts/test-release-transport.mjs",
         "scripts/test-ota-releases.mjs",
-        "scripts/test-web-release-inventory.mjs"
+        "scripts/test-web-release-inventory.mjs",
+        "scripts/test-business-runtime-resources.mjs"
       ],
       "related": [
         "android-client",
@@ -366,7 +369,8 @@
       ],
       "docs": [
         "docs/CI_SPEED_SECURITY_GR.md",
-        "docs/AUTOMATIC_PUBLISH_GR.md"
+        "docs/AUTOMATIC_PUBLISH_GR.md",
+        "docs/SERVER_RUNTIME_RESOURCES_5.61.1_GR.md"
       ]
     },
     {
@@ -436,7 +440,8 @@
         "scripts/test-server-recovery-ui.mjs",
         "scripts/test-server-primary-browser.mjs",
         "scripts/test-primary-transport.mjs",
-        "scripts/test-primary-transport-browser.mjs"
+        "scripts/test-primary-transport-browser.mjs",
+        "scripts/test-business-runtime-resources.mjs"
       ],
       "related": [
         "worker-core",

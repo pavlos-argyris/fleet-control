@@ -138,6 +138,7 @@ jobs:
       - run: node scripts/test-server-http.mjs
       - run: node scripts/test-primary-cipher-native.mjs
       - run: node scripts/test-primary-lease-native.mjs
+      - run: node scripts/test-business-runtime-resources.mjs
       - run: node scripts/test-business-runtime-native.mjs
       - name: Prepare independent financial export validators
         run: |
@@ -177,6 +178,7 @@ jobs:
           mkdir -p private/signing
           keytool -genkeypair -keystore private/signing/fleet-control-release.p12 -storetype PKCS12 -alias test -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=Fleet CI' -storepass:env FLEET_STORE_PASSWORD -keypass:env FLEET_KEY_PASSWORD
           bash scripts/build-android.sh all
+      - run: node scripts/test-business-runtime-resources.mjs --apk
       - run: node scripts/audit-apk-history.mjs
       - name: Save actual APK security comparison
         if: always()

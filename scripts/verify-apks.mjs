@@ -15,6 +15,9 @@ for (const kind of ['client', 'server']) {
   if (!match || match[1] !== value.packageName || Number(match[2]) !== value.versionCode || match[3] !== value.version) throw new Error(`Wrong APK package/version: ${kind}`);
   console.log(`Verified ${kind}: ${value.version}, code ${value.versionCode}, original signing certificate.`);
 }
+// Rhino classes alone are insufficient: test the signed APK's own Java
+// ResourceBundle files and RegExp ServiceLoader, without JAR-resource fallback.
+execFileSync(process.execPath, ['scripts/test-business-runtime-resources.mjs', '--apk'], { stdio: 'inherit' });
 // Verify the packaged models and ARM64 alignment, not only the intermediate AAR.
 execFileSync('python3', ['-c', `
 import hashlib,json,struct,zipfile
