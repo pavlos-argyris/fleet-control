@@ -1,9 +1,11 @@
-# Fleet Control 5.61.1 — διόρθωση Server, υπό έλεγχο
+# Fleet Control 5.61.1 — δημοσιευμένη διόρθωση Server
 
 Server 2.10.19 (73), Client/Web 5.61.0 (104), Worker 5.18.8.
-Η νέα έκδοση δεν έχει ακόμη δημοσιευτεί. Η προηγούμενη 5.61.0 παραμένει η ενεργή ενημέρωση.
+Η κανονική ενημέρωση ενεργοποιήθηκε και επαληθεύτηκαν οι πραγματικές λήψεις Client/Server.
+[Δημοσίευση και έλεγχοι](https://github.com/pavlos-argyris/fleet-control/actions/runs/42419857010) SUCCESS.
+Πηγή APK: `0786a8da96a1a0977bd2cb2fc9c7c762145277cc`.
 
-- Διορθώνεται το σφάλμα `Can't find bundle for base name org.mozilla.javascript.resources.Messages, locale en_US` κατά τη μεταφορά κύριας βάσης.
+- Διορθώθηκε το σφάλμα `Can't find bundle for base name org.mozilla.javascript.resources.Messages, locale en_US` κατά τη μεταφορά κύριας βάσης.
 - Το APK περιλαμβάνει και τους πέντε πόρους της επαληθευμένης βιβλιοθήκης: μεταφράσεις μηνυμάτων και δήλωση παρόχου κανονικών εκφράσεων.
 - Νέος έλεγχος εκτελεί την πραγματική βιβλιοθήκη με πόρους αποκλειστικά από το παραγόμενο APK, πριν από δημοσίευση.
 - Παραμένουν οι έλεγχοι δεδομένων, backup και απομονωμένης ανάκτησης πριν από ενεργοποίηση.
@@ -12,5 +14,5 @@ Server 2.10.19 (73), Client/Web 5.61.0 (104), Worker 5.18.8.
 Η πλήρης προηγούμενη υλοποίηση Ταμείου/καταστημάτων/μισθοδοσίας διατηρείται.
 
 [Οδηγίες διόρθωσης και επανάληψης μεταφοράς](SERVER_RUNTIME_RESOURCES_5.61.1_GR.md) ·
-[Ήδη δημοσιευμένη 5.61.0](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.61.0) ·
+[APK και πλήρης κώδικας 5.61.1](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.61.1) ·
 [Χρήση νέων οθονών](NATIVE_MANAGEMENT_5.61_GR.md).
