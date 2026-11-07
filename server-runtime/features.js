@@ -12,7 +12,7 @@ export async function routeFeatures(request,env,dispatch){
     const response=await routeFiles(request,env,dispatch)||await routeExports(request,env)||await routeCash(request,env)||await routeReports(request,env)||await routePayrollReview(request,env,dispatch)||await routeHealth(request,env);
     if(response?.ok&&!['GET','HEAD','OPTIONS'].includes(request.method)){
       const path=new URL(request.url).pathname,scopes=path.startsWith('/api/native/cash')?['cash']:path.startsWith('/api/native/store-financials')?['stores']:path.startsWith('/api/native/payroll-review')?['workforce']:path.startsWith('/api/native/health')?['status']:[];
-      await publishChanges(env,scopes);
+      await publishChanges(env,Array.isArray(response.nativeChanges)?response.nativeChanges:scopes);
     }
     return response;
   }

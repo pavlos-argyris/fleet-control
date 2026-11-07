@@ -48,7 +48,7 @@ public final class OrdexaCashSourceStore {
         if(previous!=null&&run.equals(previous.optString("runId"))&&previous.optBoolean("ordersCoverageComplete")&&!previous.optBoolean("needsSourceRefresh"))return;
         JSONObject coverage=new JSONObject().put("revision",OrdexaCashOrderProtocol.REVISION).put("sourceAt",sourceAt)
             .put("observedAt",OrdexaClient.isoNow()).put("ordersCoverageComplete",false).put("identityVerified",false)
-            .put("timeSemanticsVerified",false).put("cancellationSemanticsVerified",false).put("automaticWritesEnabled",false);
+            .put("timeSemanticsVerified",true).put("cancellationSemanticsVerified",true).put("automaticWritesEnabled",false);
         if(previous!=null&&previous.has("runId"))coverage.put("runId",previous.getString("runId")).put("lastCompleteAt",previous.optString("lastCompleteAt",""));
         boolean valid=repeatedIdentitiesMatch;int pageCount=0;
         Map<String,Set<Integer>> seenPages=new HashMap<String,Set<Integer>>();Map<String,Integer> expectedPages=new HashMap<String,Integer>(),totals=new HashMap<String,Integer>(),counts=new HashMap<String,Integer>();
@@ -80,6 +80,8 @@ public final class OrdexaCashSourceStore {
             coverage.put("state","identity-ready").put("runId",run).put("identityVerified",true).put("ordersCoverageComplete",true)
                 .put("lastCompleteAt",at).put("sourceDigest",digestRows(scope,run,"cash_snapshot_order",day));
             archive.put(coverageKey,"cash_source_coverage",scope,"",day,coverage,false);
+            archive.put(StoreBillingStore.key("cash-apply",scope,day),"cash_apply_request",scope,"",day,new JSONObject().put("day",day).put("requestId",UUID.randomUUID().toString()).put("requestedAt",at).put("reason","complete-source"),false);
+
             db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND kind='cash_snapshot_order' AND day=? AND json_extract(data,'$.runId')<>?",new Object[]{scope,day,run});
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}

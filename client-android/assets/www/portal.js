@@ -515,6 +515,7 @@
     }
     const ttl = Number(VIEW_CACHE_MS[view] || 0);
     if (ttl && Date.now() - Number(state.viewLoadedAt[view] || 0) < ttl) {
+      if (view === "cash") window.FleetCashUI.load({opening:true});
       if (view === "invoices") refreshInvoiceReprocessBatch();
       $("portal").classList.remove("view-loading");
       return;
@@ -532,7 +533,7 @@
         await refreshInvoiceReprocessBatch();
       }
       if (view === "stores") window.FleetStoreFinancialUI.load();
-      if (view === "cash") window.FleetCashUI.load();
+      if (view === "cash") window.FleetCashUI.load({opening:true});
       if (view === "payroll") await loadPayroll();
       if (view === "reports") await prepareReports();
       if (view === "alerts") await loadAlerts();

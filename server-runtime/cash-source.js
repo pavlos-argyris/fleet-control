@@ -1,3 +1,5 @@
+import {CASH_ORDER_CONTRACT,cashContext} from './cash-contract.js';
+import {queueAutomaticDays} from './cash-auto.js';
 import {list,reply,NativeError,day,addDay,integer,actor,audit,stamp,hash} from './common.js';
 
 export const CASH_SOURCE_SCHEMA=`
@@ -6,8 +8,8 @@ CREATE INDEX IF NOT EXISTS native_cash_rider_link_lookup ON native_cash_rider_li
 CREATE TRIGGER IF NOT EXISTS native_cash_links_immutable_update BEFORE UPDATE ON native_cash_rider_links BEGIN SELECT RAISE(ABORT,'cash_links_are_versioned'); END;
 CREATE TRIGGER IF NOT EXISTS native_cash_links_immutable_delete BEFORE DELETE ON native_cash_rider_links BEGIN SELECT RAISE(ABORT,'cash_links_are_versioned'); END;
 `;
-export const ORDER_IDENTITY_CONTRACT={revision:'ordexa-order-identities-20261107-v1',identityFieldsVerified:true,fields:{order:'id',rider:'riderId',shop:'shopId',timestamp:'at',nickname:'rider'},evidenceDate:'2026-11-07',timeSemanticsVerified:false,cancellationSemanticsVerified:false,automaticWritesEnabled:false};
-function context(){try{return typeof globalThis.FleetHost==='function'?globalThis.FleetHost('store.context')||{}:{};}catch{return{};}}
+export const ORDER_IDENTITY_CONTRACT={...CASH_ORDER_CONTRACT,automaticWritesEnabled:false};
+function context(){return cashContext();}
 function currentScope(required=false){const value=context();if(required&&(!value.configured||!value.scope))throw new NativeError(409,'Σύνδεσε πρώτα το Ordexa στον Server.','ordexa_not_configured');return value;}
 export async function cashSourceCatalog(env){
   const source=currentScope();if(!source.configured||!source.scope)return{sourceScope:null,riders:[],riderLinks:[],identityContract:ORDER_IDENTITY_CONTRACT};
@@ -33,6 +35,7 @@ export async function saveCashRiderLink(request,env,user){
   const saved=await env.DB.prepare('INSERT INTO native_cash_rider_links(id,scope,rider_id,effective_day,revision,employee_id,employee_name,created_at,created_by) SELECT ?,?,?,?,?,?,?,?,? WHERE COALESCE((SELECT MAX(revision) FROM native_cash_rider_links WHERE scope=? AND rider_id=? AND effective_day=?),0)=?').bind(id,source.scope,rider,effective,expected+1,employee,employeeName,at,user.user_id,source.scope,rider,effective,expected).run();
   if(Number(saved?.meta?.changes)!==1)throw new NativeError(409,'Η αντιστοίχιση άλλαξε πριν αποθηκευτεί.','link_conflict');
   await audit(env,request,user,'cash_rider_link_version','cash_rider_link',id,previous,{scope:source.scope,riderId:rider,employeeId:employee,effectiveDay:effective,revision:expected+1},'Ρητή αντιστοίχιση σταθερού Ordexa ID· χωρίς αντιστοίχιση ονόματος ή αλλαγή μισθοδοσίας');
+  await queueAutomaticDays(env,source.scope,effective);
   return reply({saved:true,id,revision:expected+1},201);
 }
 export async function queueCashSourceRefresh(request,env,user){
@@ -52,16 +55,19 @@ export async function queueCashSourceRefresh(request,env,user){
   return reply({queued:true,state:'pending',source:'shared-orders-reader',queuedDays,automaticWritesEnabled:false},202);
 }
 export async function cashSourceStatus(env,from,to){
-  const source=currentScope(),base={state:'semantics-unverified',protocolVerified:false,identityFieldsVerified:true,coverageVerified:false,lastCompleteAt:null,lastAttemptAt:null,automaticPollingEnabled:false,proposedPilotIntervalSeconds:120,timeSemanticsVerified:false,cancellationSemanticsVerified:false,
-    reason:'Τα πεδία παραγγελίας και διανομέα επιβεβαιώθηκαν. Εκκρεμεί επαλήθευση χρόνων/ακυρώσεων πριν από αυτόματη χρέωση.'};
+  const source=currentScope(),base={state:'awaiting-source',protocolVerified:true,identityFieldsVerified:true,coverageVerified:false,lastCompleteAt:null,lastAttemptAt:null,automaticPollingEnabled:false,proposedPilotIntervalSeconds:120,timeSemanticsVerified:true,cancellationSemanticsVerified:true,
+    reason:'Παράδοση βάσει ώρας Ordexa. Ακύρωση μόνο μετά από πλήρη συνεπή επαναληπτική λήψη.'};
   if(!source.configured||!source.scope)return{...base,state:'source-not-configured',reason:'Σύνδεσε πρώτα το Ordexa στον Server. Οι καταγεγραμμένες κινήσεις παραμένουν διαθέσιμες.'};
   const rows=list(await env.DB.prepare("SELECT day,data FROM store_billing_local WHERE scope=? AND kind='cash_source_coverage' AND day BETWEEN ? AND ?").bind(source.scope,from,to).all());
   const pending=await env.DB.prepare("SELECT COUNT(*) n FROM store_billing_local WHERE scope=? AND kind='cash_refresh_request' AND day BETWEEN ? AND ?").bind(source.scope,from,to).first();
   const coverage=rows.map(row=>JSON.parse(row.data)),complete=coverage.filter(row=>row.identityVerified&&row.ordersCoverageComplete&&!row.needsSourceRefresh);
   const identityRevision=await hash({scope:source.scope,coverage:rows.sort((a,b)=>a.day.localeCompare(b.day)).map(row=>[row.day,JSON.parse(row.data).runId||'',JSON.parse(row.data).observedAt||'',JSON.parse(row.data).needsSourceRefresh===true])});
-  const times=complete.map(row=>row.lastCompleteAt).filter(at=>Number.isFinite(Date.parse(at))).sort();
+  const times=coverage.map(row=>row.lastCompleteAt).filter(at=>Number.isFinite(Date.parse(at))).sort();
+  const readerRow=await env.DB.prepare("SELECT data FROM store_billing_local WHERE id='meta:store-billing'").first(),reader=readerRow?JSON.parse(readerRow.data):{},sameReader=(reader.activeScope||reader.control?.scope)===source.scope&&(reader.activeGeneration||reader.control?.generation)===source.generation;
+  const backoff=sameReader&&!!reader.error&&Number(reader.nextDue)>Date.now();
+  const pilotRow=await env.DB.prepare("SELECT data FROM store_billing_local WHERE id='meta:cash-sync'").first(),pilot=pilotRow?JSON.parse(pilotRow.data):{};
   const expected=Math.round((Date.parse(to+'T12:00:00Z')-Date.parse(from+'T12:00:00Z'))/86400000)+1;
-  return{...base,state:Number(pending.n)>0?'pending':coverage.some(row=>!row.identityVerified||!row.ordersCoverageComplete||row.needsSourceRefresh)?'partial':base.state,
-    sourceScope:source.scope,identityRevision,pendingDays:Number(pending.n),identityDaysComplete:complete.length,identityDaysExpected:expected,
+  return{...base,state:backoff?'backoff':Number(pending.n)>0?'pending':coverage.some(row=>!row.identityVerified||!row.ordersCoverageComplete||row.needsSourceRefresh)?'partial':base.state,
+    sourceScope:source.scope,identityRevision,financialJobError:pilot.scope===source.scope&&pilot.generation===source.generation&&pilot.error?pilot.error:null,retryAt:backoff?new Date(reader.nextDue).toISOString():null,automaticPollingEnabled:pilot.scope===source.scope&&pilot.generation===source.generation&&pilot.automaticPollingEnabled===true&&!pilot.error&&Date.now()>=Number(pilot.lastTick)&&Date.now()-Number(pilot.lastTick)<300000,pilotIntervalSeconds:120,pendingDays:Number(pending.n),identityDaysComplete:complete.length,identityDaysExpected:expected,
     orderSnapshotCoverageComplete:complete.length===expected,lastOrderSnapshotAt:times.length?times[times.length-1]:null};
 }

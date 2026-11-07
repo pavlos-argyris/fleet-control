@@ -1,12 +1,17 @@
+import {automaticCashUiData} from './cash-auto-ui-data.mjs';
 export function managementData(){
  const at='2026-11-06T16:00:00Z',stores=[{id:'shop-a',name:'Συνθετικό κατάστημα Α'},{id:'shop-b',name:'Συνθετικό κατάστημα Β'}];let acknowledged=false;
  const cash={from:'2026-11-06',to:'2026-11-06',observedAt:at,source:'manual-confirmed',automaticOrderMappingVerified:false,couriers:[{courierId:'rider',courierName:'Συνθετικός διανομέας',orders:20,dueCents:5500,receivedCents:1000,balanceCents:4500,breakdown:stores.map((s,i)=>({storeId:s.id,category:'Α',orders:10,rateCents:i?300:250,dueCents:i?3000:2500}))}],events:[{id:'event-one',kind:'assessment',business_day:'2026-11-06',courier_id:'rider',courier_name:'Συνθετικός διανομέας',store_id:'shop-b',category:'Α',quantity:2,amount_cents:600,notes:'Συνθετική ελεγμένη καταχώριση',actor_name:'Διαχειριστής',created_at:at}],eventCount:1,hasMoreEvents:false};
+ const automatic=automaticCashUiData('2026-11-06','fixture-scope');cash.sync={automaticWritesEnabled:true,state:'manual-review',coverageVerified:false,lastCompleteAt:at,financialRevision:'auto-fixture-one'};
  const catalog={stores,employees:[{id:'rider',full_name:'Συνθετικός διανομέας',active:1,deleted_at:null}],rules:stores.map((s,i)=>({id:'rule-'+i,store_id:s.id,category:'Α',effective_day:'2026-01-01',revision:1,rate_cents:i?300:250,created_at:at,created_by:'fixture-owner'}))};
  Object.assign(catalog,{sourceScope:'fixture-scope',riders:[{riderId:'17',nickname:'Συνθετικό παρατσούκλι',aliases:[{nickname:'Παλαιότερο παρατσούκλι'},{nickname:'Συνθετικό παρατσούκλι'}]}],riderLinks:[]});
  return function response(clear,{result}){const u=new URL(clear.url),b=JSON.parse(clear.body||'{}');
   if(u.pathname==='/api/auth/me')return result({user:{id:'fixture-owner',fullName:'Συνθετικός ιδιοκτήτης',role:'owner',permissions:['*']}});
   if(u.pathname==='/api/native/cash/rider-links'&&clear.method==='POST'){catalog.riderLinks.push({scope:b.scope,rider_id:b.riderId,employee_id:b.employeeId,employee_name:'Συνθετικός διανομέας',effective_day:b.effectiveDay,revision:b.expectedRevision+1});return result({saved:true},201);}
   if(u.pathname==='/api/native/cash/refresh'&&clear.method==='POST')return result({queued:true,state:'pending',automaticWritesEnabled:false},202);
+  if(u.pathname==='/api/native/cash/automatic/preview')return result(automatic.preview);
+  if(u.pathname==='/api/native/cash/automatic/reconcile'||u.pathname==='/api/native/cash/automatic/resume')return result({saved:true},201);
+  if(u.pathname==='/api/native/cash/automatic')return result(automatic.overview);
   if(u.pathname==='/api/native/cash/rules'&&clear.method==='GET')return result(catalog);
   if(u.pathname==='/api/native/cash')return result(cash);
   if(u.pathname==='/api/native/cash/events'||u.pathname==='/api/native/cash/rules'&&clear.method==='POST')return result({saved:true},201);

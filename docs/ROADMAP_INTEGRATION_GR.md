@@ -1,6 +1,6 @@
 ## Νεότερη ρητή οδηγία07/11/2026
 
-**ΚΑΝΕΝΑ merge ή deploy ακόμη.** Το παλιό σχέδιο main merge/signed candidate παρακάτω παραμένει ιστορικό και δεν εκτελείται χωρίς νέα ρητή εντολή. Το εγκεκριμένο σχόλιο #6698903220 απαιτεί αυτόματη άντληση Ordexa, όχι manual ποσότητες ως τελικό στόχο. Το πρώτο υποχρεωτικό gate πραγματικού HTTP rider/time/status/pagination proof παραμένει ανοικτό. Υλοποίηση/όρια: [Νέο αυτόματο Ταμείο](ORDEXA_AUTO_CASH_20261107_GR.md). Source4ca81c7 έχει πλέον **Fast42286421655 και full42286421033 SUCCESS**. Οι νέες αλλαγές χρειάζονται νέο exact-head CI.
+Νεότερη έγκριση ιδιοκτήτη: merge/deploy όταν είναι όλα έτοιμα. Η προηγούμενη παύση αντικαταστάθηκε από αυτή την προϋπόθεση, χωρίς δεύτερη ίδια άδεια. Πραγματικό HTTP identity report και ρητή επιβεβαίωση παράδοσης/εξαφάνισης ακυρωμένων παραλήφθηκαν. Το αυτόματο Ταμείο πλέον υλοποιείται με πλήρη runtime gates, bounded local ledger, συμφιλίωση και κοινό120sec pilot. Απαιτείται επιβεβαίωση νέου exact-source CI/οπτικής αποδοχής και των υπόλοιπων release gates. Δεν έγινε merge/deploy/παραγωγική migration ή restore. Ο τρέχων οδηγός είναι [Νέο αυτόματο Ταμείο](ORDEXA_AUTO_CASH_20261107_GR.md).
 
 # Fleet Control 5.61 — κοινή τελική ενοποίηση
 
@@ -12,7 +12,7 @@
 | Issue | Υλοποίηση στον κώδικα | Απόδειξη και πρακτικό όριο |
 |---|---|---|
 | #59 | Typed frozen SQLite μεταφορά, πλήρης επαλήθευση πηγής/ιδιωτικών αρχείων, atomic promotion, native auth/business/receipts/audit, ECDH/AES-GCM relay, lease και ανάκληση, αποκλεισμός δεύτερου D1 writer | Πραγματικό Workerd/D1 και Java/Rhino/SQLite, χαμένη τελική απάντηση, concurrent admins, quota/offline/restart, ανάκληση και recovery. Η μεταφορά ενεργοποιείται από τον ιδιοκτήτη στη συσκευή μετά τις πύλες· δεν εκτελέστηκε παραγωγική μεταφορά από agent. |
-| #60 | SQLite cash ledger, επιλεγμένα καταστήματα, χρονικοί κανόνες 2,50€/3€, καταχωρίσεις, παραλαβές/αντιλογισμοί/CAS/audit, οθόνες και PDF/XLSX | Ανεξάρτητο από μισθοδοσία. Εγκεκριμένη ελεγχόμενη χειροκίνητη εισαγωγή· αυτόματη Ordexa order→courier αντιστοίχιση δεν έχει επαληθευτεί και δεν ενεργοποιείται. |
+| #60 | SQLite cash ledger, επιλεγμένα καταστήματα, χρονικοί κανόνες 2,50€/3€, καταχωρίσεις, παραλαβές/αντιλογισμοί/CAS/audit, οθόνες και PDF/XLSX | Ανεξάρτητο από μισθοδοσία. Πραγματικό identity report/owner semantics, local automatic applier/immutable reversals/pinned τιμές και ρητή manual συμφιλίωση. Η τελική κάλυψη απαιτεί πλήρη source και financial completion· νέο CI εκκρεμεί. |
 | #61 | Streaming κρυπτογραφημένο φορητό FCB3, πλήρης native βάση/ιδιωτικά αρχεία, πραγματικό isolated restore, ασφαλής cold recovery και journal, retention, OTA fencing | Συμβατό FCB2, μεγάλα αντίγραφα με περιορισμένο heap, process-death core. Η αργή ανά-byte εγγραφή διορθώθηκε. Δεν υπάρχει φυσική δοκιμή Note10+/Drive/Keystore/fsync/helper lifecycle ή backup παραγωγής από agent. |
 | #62 | Οικονομικά/Ανά ημέρα/Χρεώσεις, ημέρα/εβδομάδα/μήνας/διάστημα, ίδιος backend UI/PDF/XLSX, ιστορικοί όροι, alias CAS/tombstones, κάλυψη | 0 επιβεβαιωμένες παραγγελίες→0 χρέωση, άγνωστο δεν γίνεται μηδέν. Διατηρούνται οι δύο weekly PDF μορφές και audit της δημοσιευμένης 5.60.1 (#76/#77). |
 | #63 | Versioned ουρά ελέγχου, αιτίες/source fingerprint, διατήρηση/επανεξέταση με audit, πραγματικά blockers χωριστά από υπομνήσεις | Ο άμεσος editor βάρδιας λειτουργεί με παλιό aggregate. Παραμένουν 6/10/15€, 02:00, Ordexa, συμφωνημένη στρογγυλοποίηση και κλειδωμένα ποσά. |
@@ -29,7 +29,7 @@ Source `dc5bf27f411800c6c5fc21973e5ec844d2277217`:
 - Full [42281646837](https://github.com/pavlos-argyris/fleet-control/actions/runs/42281646837) **SUCCESS**: πραγματικό Chromium, file-origin Client, native/runtime/backup tests, δύο test-signed APK, Worker dry-run και πλήρες source handoff.
 - Source artifact [13536870747](https://github.com/pavlos-argyris/fleet-control/actions/runs/42281646837/artifacts/13536870747), artifact ZIP SHA-256 `b1a2dc7007ad2c90d2b6b00f3bc5507a05e5845c6b404d908818a4096369c3c2`.
 
-Τρέχουσα υποψήφια έκδοση: Fleet/Web/Client5.61.0, Client99, Server2.10.12(66), Worker5.18.8.
+Τρέχουσα υποψήφια έκδοση: Fleet/Web/Client5.61.0, Client103, Server2.10.16(70), Worker5.18.8.
 Οι επόμενες αλλαγές audit/visual-review απαιτούν νέο exact-source CI πριν από συγχώνευση.
 
 ## Παράδοση και αποδοχή

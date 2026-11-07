@@ -29,7 +29,7 @@ public class CashSourceTest {
    for(int n:new int[]{0,1,50,51,138,1055}){
     String run="orders-"+n;stage(cash,run+":p1",n);stage(cash,run+":p2",n);check(cash.digest(scope,run+":p1").equals(cash.digest(scope,run+":p2")),"stable same-time/full pagination identity digest");
     cash.promote(scope,run+":p2",day,day+"T12:00:00Z",true);JSONObject proof=coverage(store);
-    check(proof.getBoolean("identityVerified")&&proof.getBoolean("ordersCoverageComplete")&&!proof.getBoolean("automaticWritesEnabled")&&!proof.getBoolean("timeSemanticsVerified")&&!proof.getBoolean("cancellationSemanticsVerified"),"identity completeness is separate from semantic/financial approval");
+    check(proof.getBoolean("identityVerified")&&proof.getBoolean("ordersCoverageComplete")&&!proof.getBoolean("automaticWritesEnabled")&&proof.getBoolean("timeSemanticsVerified")&&proof.getBoolean("cancellationSemanticsVerified"),"owner-confirmed delivery/absence semantics are separate from financial completion");
     check(proof.getString("sourceDigest").matches("[a-f0-9]{64}")&&store.rows(scope,"cash_snapshot_order").length()==n,"complete bounded snapshot replaces old view");
     int events=store.rows(scope,"cash_source_event").length();cash.promote(scope,run+":p2",day,day+"T12:00:00Z",true);check(store.rows(scope,"cash_source_event").length()==events,"lost completion ACK is idempotent");
     check(store.dirty(scope).length()==0,"no raw identity/order/name is put into cloud outbox");store.cleanupTemporary(scope);
@@ -57,7 +57,7 @@ public class CashSourceTest {
    String key=StoreBillingStore.key("cash-refresh",scope,day);JSONObject request=new JSONObject().put("from",day).put("to",day).put("generation","g1").put("requestId","first");store.put(key,"cash_refresh_request",scope,"",day,request,false);
    JSONObject claimed=cash.nextRequest(scope,"g1");request.put("requestId","newer");store.put(key,"cash_refresh_request",scope,"",day,request,false);cash.acknowledge(claimed);check(cash.nextRequest(scope,"g1")!=null,"late ACK cannot discard newer refresh request");cash.acknowledge(cash.nextRequest(scope,"g1"));check(cash.nextRequest(scope,"g1")==null,"current request acknowledged exactly once");
    store.put(key,"cash_refresh_request",scope,"",day,request,false);check(cash.nextRequest(scope,"new-generation")==null,"credential/source generation change cannot execute old queued request");
-   System.out.println("PASS real Java/SQLite Ordexa cash identity source: observed numeric schema,0/1/50/51/138/1055 pagination, repeat/rider change, no money inference/D1 raw writes, atomic snapshot/rollback/lost ACK, nickname history, incomplete retention, selective restore fencing and coalesced source-generation queue. No semantic or automatic-charge approval.");
+   System.out.println("PASS real Java/SQLite Ordexa cash identity source: observed numeric schema,0/1/50/51/138/1055 pagination, repeat/rider change, no money inference/D1 raw writes, atomic snapshot/rollback/lost ACK, nickname history, incomplete retention, selective restore fencing and coalesced source-generation queue. Owner-confirmed delivery/absence semantics; source collection alone does not complete financial writes.");
   }finally{fleet.close();}
  }
 }`);

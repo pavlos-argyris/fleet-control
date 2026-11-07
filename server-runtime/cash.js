@@ -1,3 +1,5 @@
+import {CASH_AUTO_SCHEMA,applyAutomaticCashBatch,automaticCashStatus,automaticCashOverview,cashAutomaticPreview,reconcileManualCash,resumeAutomaticOrder,queueAutomaticDay,queueAutomaticDays,preserveAutomaticReversal} from './cash-auto.js';
+import {cashContext} from './cash-contract.js';
 import {list,reply,NativeError,text,day,range,integer,actor,audit,stamp} from './common.js';
 import {CASH_SOURCE_SCHEMA,ORDER_IDENTITY_CONTRACT,cashSourceCatalog,saveCashRiderLink,queueCashSourceRefresh,cashSourceStatus} from './cash-source.js';
 
@@ -19,6 +21,7 @@ CREATE TRIGGER IF NOT EXISTS native_cash_reversal_guard BEFORE INSERT ON native_
 -- Reversals are separately checked against their original by the trigger above.
 CREATE TRIGGER IF NOT EXISTS native_cash_event_domain_guard BEFORE INSERT ON native_cash_events BEGIN SELECT CASE WHEN NEW.kind='assessment' AND (NEW.quantity<1 OR NEW.quantity>1000000 OR NEW.store_id='' OR NEW.category='' OR NEW.rule_id IS NULL OR NEW.amount_cents>100000000 OR NEW.amount_cents<>NEW.quantity*NEW.rate_cents) THEN RAISE(ABORT,'cash_assessment_domain_mismatch') WHEN NEW.kind='receipt' AND (NEW.quantity<>0 OR NEW.rate_cents<>0 OR NEW.store_id<>'' OR NEW.category<>'' OR NEW.rule_id IS NOT NULL OR NEW.amount_cents<1 OR NEW.amount_cents>100000000) THEN RAISE(ABORT,'cash_receipt_domain_mismatch') END; END;
 ${CASH_SOURCE_SCHEMA}
+${CASH_AUTO_SCHEMA}
 `;
 
 async function rule(request,env,user){
@@ -34,6 +37,7 @@ async function rule(request,env,user){
   // itself so a stale second administrator cannot create another rule version.
   const saved=await env.DB.prepare('INSERT INTO native_cash_rules(id,store_id,category,effective_day,revision,rate_cents,created_at,created_by) SELECT ?,?,?,?,?,?,?,? WHERE COALESCE((SELECT MAX(revision) FROM native_cash_rules WHERE store_id=? AND category=? AND effective_day=?),0)=?').bind(id,store,category,effectiveDay,expected+1,rate,stamp(),user.user_id,store,category,effectiveDay,expected).run();
   if(Number(saved?.meta?.changes)!==1)throw new NativeError(409,'Ο κανόνας άλλαξε. Το προσχέδιο διατηρήθηκε.','rule_conflict');
+  const source=cashContext();if(source.configured&&source.scope)await queueAutomaticDays(env,source.scope,effectiveDay);
   await audit(env,request,user,'cash_rule_version','cash_rule',id,previous,value,'Νέα έκδοση κανόνα· οι παλιές κινήσεις διατηρούν την τιμή τους');return reply({saved:true,rule:value},201);
 }
 // Atomic tariff fence: the selected rule must still be the latest effective
@@ -63,6 +67,7 @@ async function event(request,env,user){
     if(kind==='assessment'){
       if(employee.deleted_at)throw new NativeError(409,'Ο εργαζόμενος είναι αρχειοθετημένος. Επίλεξε ενεργό διανομέα.');
       store=text(b.storeId,200);category=text(b.category,80);quantity=integer(b.quantity,1,1000000);
+      if(await env.DB.prepare("SELECT 1 found FROM native_cash_events e WHERE e.kind='assessment' AND e.business_day=? AND e.store_id=? AND e.source_key LIKE 'ordexa:%' AND NOT EXISTS(SELECT 1 FROM native_cash_events r WHERE r.reverses_id=e.id) LIMIT 1").bind(businessDay,store).first())throw new NativeError(409,'Το κατάστημα ενημερώνεται αυτόματα από Ordexa. Χρησιμοποίησε τις κινήσεις για ρητή διόρθωση.');
       const selected=await env.DB.prepare('SELECT * FROM native_cash_rules WHERE store_id=? AND category=? AND effective_day<=? ORDER BY effective_day DESC,revision DESC LIMIT 1').bind(store,category,businessDay).first();
       if(!selected)throw new NativeError(409,'Δεν υπάρχει κανόνας απόδοσης για το συγκεκριμένο κατάστημα, κατηγορία και ημέρα.');
       rate=selected.rate_cents;ruleId=selected.id;amount=integer(quantity*rate,0,100000000);
@@ -72,6 +77,7 @@ async function event(request,env,user){
   const id=crypto.randomUUID(),at=stamp();
   const inserted=await env.DB.prepare(CASH_EVENT_INSERT_SQL).bind(id,kind,businessDay,courierId,courierName,store,category,quantity,rate,amount,ruleId,reverses,kind==='assessment'?'manual:'+id:null,notes,user.user_id,user.full_name||user.username,at,kind,ruleId,store,category,businessDay).run();
   if(Number(inserted?.meta?.changes)!==1)throw new NativeError(409,'Άλλαξε η τιμή απόδοσης πριν από την αποθήκευση. Το προσχέδιο διατηρήθηκε.','rule_conflict');
+  const source=cashContext();if(kind==='reversal'){const original=await env.DB.prepare('SELECT * FROM native_cash_events WHERE id=?').bind(reverses).first();await preserveAutomaticReversal(env,original,user,notes);}else if(kind==='assessment'&&source.configured&&source.scope)await queueAutomaticDay(env,source.scope,businessDay,'manual-change');
   await audit(env,request,user,'cash_'+kind,'cash_event',id,null,{kind,businessDay,courierId,storeId:store,category,quantity,rateCents:rate,amountCents:amount,reversesId:reverses},notes);
   return reply({saved:true,id},201);
 }
@@ -89,16 +95,23 @@ export async function cashProjection(env,from,to,courierId='',{eventOffset=0,eve
   const byCourier=new Map(groups.map(row=>[row.courierId,row]));for(const employee of employees){const row=byCourier.get(employee.id);if(row)row.courierName=employee.full_name;else groups.push({courierId:employee.id,courierName:employee.full_name,orders:0,dueCents:0,receivedCents:0});}
   groups.sort((a,b)=>a.courierName.localeCompare(b.courierName));
   for(const row of groups){row.balanceCents=row.dueCents-row.receivedCents;row.breakdown=breakdown.filter(b=>b.courierId===row.courierId).map(({courierId,...item})=>item);for(const n of [row.orders,row.dueCents,row.receivedCents,row.balanceCents])if(!Number.isSafeInteger(n))throw new NativeError(413,'Το ποσό υπερβαίνει το επιτρεπόμενο όριο αναφοράς.');}
-  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,sync:await cashSourceStatus(env,from,to),couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
+  const sync=await automaticCashStatus(env,await cashSourceStatus(env,from,to),from,to);
+  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:sync.coverageVerified?'ordexa-confirmed':'recorded-pending',automaticOrderMappingVerified:sync.coverageVerified===true,sync,couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
 }
 function sourceEvidence(){
   try{return typeof globalThis.FleetHost==='function'?globalThis.FleetHost('store.context').cashOrdersProtocol||null:null;}catch{return null;}
 }
 export async function routeCash(request,env){
-  const url=new URL(request.url);if(!url.pathname.startsWith('/api/native/cash'))return null;
+  const url=new URL(request.url);
+  if(url.pathname==='/api/server/cash/apply'){if(request.method!=='POST'||!env.LOCAL_PRIMARY||request.localInternal!==true||request.headers.get('X-Fleet-Server-Key')!==env.SERVER_KEY)throw new NativeError(403,'Απαιτείται εσωτερική υπηρεσία κύριου Server.');const result=await applyAutomaticCashBatch(env),response=reply(result);response.nativeChanges=result.changed?['cash']:[];return response;}
+  if(!url.pathname.startsWith('/api/native/cash'))return null;
   if(url.pathname==='/api/native/cash/export')return null;
   const user=await actor(request,env,request.method==='GET'&&!url.pathname.endsWith('/protocol-evidence')?'cash.view':'cash.manage');
-  if(url.pathname==='/api/native/cash/protocol-evidence'&&request.method==='GET')return reply({report:'Ordexa cash protocol evidence',schemaVersion:1,automaticWritesEnabled:false,identityContract:ORDER_IDENTITY_CONTRACT,requiredProof:['timestamp-semantics','status-cancellation','full-pagination'],evidence:sourceEvidence()});
+  if(url.pathname==='/api/native/cash/protocol-evidence'&&request.method==='GET')return reply({report:'Ordexa cash protocol evidence',schemaVersion:1,automaticWritesEnabled:false,identityContract:ORDER_IDENTITY_CONTRACT,requiredProof:['complete-source-snapshot','employee-mapping','historical-tariff','manual-reconciliation'],evidence:sourceEvidence()});
+  if(url.pathname==='/api/native/cash/automatic'&&request.method==='GET'){const {from,to}=range(url);return reply(await automaticCashOverview(env,from,to));}
+  if(url.pathname==='/api/native/cash/automatic/preview'&&request.method==='GET')return reply(await cashAutomaticPreview(env,day(url.searchParams.get('day'))));
+  if(url.pathname==='/api/native/cash/automatic/reconcile'&&request.method==='POST')return reconcileManualCash(request,env,user);
+  if(url.pathname==='/api/native/cash/automatic/resume'&&request.method==='POST')return resumeAutomaticOrder(request,env,user);
   if(url.pathname==='/api/native/cash/refresh'&&request.method==='POST')return queueCashSourceRefresh(request,env,user);
   if(url.pathname==='/api/native/cash/rider-links'&&request.method==='POST')return saveCashRiderLink(request,env,user);
   if(url.pathname==='/api/native/cash/rules'){

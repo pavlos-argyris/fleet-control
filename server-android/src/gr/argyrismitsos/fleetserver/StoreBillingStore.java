@@ -13,6 +13,7 @@ public final class StoreBillingStore {
     public StoreBillingStore(FleetDataStore store){
         db=store.getWritableDatabase();
         db.execSQL("CREATE TABLE IF NOT EXISTS store_billing_local (id TEXT PRIMARY KEY,kind TEXT NOT NULL,scope TEXT NOT NULL,store_id TEXT NOT NULL DEFAULT '',day TEXT NOT NULL DEFAULT '',data TEXT NOT NULL,dirty INTEGER NOT NULL DEFAULT 1)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS store_billing_cash_identity ON store_billing_local(scope,kind,json_extract(data,'$.sourceOrderId'))");
         db.execSQL("CREATE INDEX IF NOT EXISTS store_billing_local_scope ON store_billing_local(scope,kind,day,store_id)");
         // The authoritative local order ledger must remain efficient as history grows.
         // This partial index accelerates durable pending-order reads without indexing

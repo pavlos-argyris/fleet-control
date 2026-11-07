@@ -123,6 +123,7 @@ jobs:
       - run: node scripts/test-server-task-results-native.mjs
       - run: node scripts/test-store-billing-native.mjs
       - run: node scripts/test-store-billing-pipeline.mjs
+      - run: node scripts/test-cash-pilot-native.mjs
       - run: node scripts/test-ordexa-cash-source-native.mjs
       - run: node scripts/test-ordexa-native.mjs
       - run: node scripts/test-ordexa-order-evidence-native.mjs
@@ -225,6 +226,9 @@ jobs:
         image:
           - mobile-390-cash-couriers.png
           - mobile-390-cash-inline-breakdown.png
+          - mobile-390-cash-automatic.png
+          - mobile-390-cash-reconciliation.png
+          - mobile-390-cash-resume.png
           - mobile-390-stores-financial.png
           - mobile-390-payroll-review.png
           - mobile-390-server-health.png

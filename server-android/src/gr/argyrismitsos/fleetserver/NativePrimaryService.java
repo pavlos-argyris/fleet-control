@@ -14,6 +14,16 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
     private static NativePrimaryService instance;
     public static synchronized NativePrimaryService get(Context context){if(instance==null)instance=new NativePrimaryService(context.getApplicationContext());return instance;}
     public static void install(Context context){final NativePrimaryService service=get(context);FleetHttp.installLocalTransport(service);NativeDatabaseSnapshot.setCoordinator(new NativeDatabaseSnapshot.Coordinator(){public NativeDatabaseSnapshot.Capture capture(final NativeDatabaseSnapshot.CaptureTask task)throws Exception{return service.execute(new Callable<NativeDatabaseSnapshot.Capture>(){public NativeDatabaseSnapshot.Capture call()throws Exception{return task.capture();}});}});}
+    /** Local cash job: never falls back to an HTTP request to a Worker. */
+    static JSONObject applyCashBatch(final Context context)throws Exception{
+        final NativePrimaryService service=get(context);
+        return service.execute(new Callable<JSONObject>(){public JSONObject call()throws Exception{
+            JSONObject state=NativePrimaryState.read(service.store.getReadableDatabase());
+            if(!state.optString("phase").equals("active")||!service.available())throw new IOException("Το αυτόματο Ταμείο απαιτεί ενεργή κύρια βάση.");
+            JSONObject identity=NativeIdentity.read(context),request=new JSONObject().put("url",identity.getString("realm")+"/api/server/cash/apply").put("method","POST").put("body","{}").put("headers",new JSONObject().put("X-Fleet-Server-Key",ServerConfig.SERVER_KEY));
+            return checked(service.call(request,identity,service.epoch,true));
+        }});
+    }
     public static boolean jobsAllowed(Context context){try{NativePrimaryService service=get(context);String phase=NativePrimaryState.read(service.store.getReadableDatabase()).optString("phase","cloud");return phase.equals("cloud")||phase.equals("active")&&service.available();}catch(Exception error){return false;}}
     public static boolean cloudMode(Context context){try{return NativePrimaryState.read(get(context).store.getReadableDatabase()).optString("phase","cloud").equals("cloud");}catch(Exception error){return false;}}
     private final Context context;

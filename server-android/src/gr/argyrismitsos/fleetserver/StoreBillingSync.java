@@ -171,6 +171,12 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
             if(OtaManager.shouldYieldForUpdate(c)){next=time+5000;return;}
             s=new StoreBillingStore(fleet);m=state(s);
             if(time>=publishNext){publishNext=time+300000;try{long deadline=System.currentTimeMillis()+5000;for(int days=0;days<32&&System.currentTimeMillis()<deadline;days++)if(!flush(c,s))break;m=state(s);m.remove("cloudError");}catch(Exception cloud){m=state(s);m.put("cloudError","Εκκρεμεί δημοσίευση συγκεντρωτικών · ασφαλής επανάληψη");}save(s,m);}JSONObject source=OrdexaSync.storesContext(c);j=m.optJSONObject("job");
+            JSONObject oldControl=m.optJSONObject("control");String oldScope=m.optString("activeScope",oldControl==null?source.getString("scope"):oldControl.optString("scope",source.getString("scope"))),oldGeneration=m.optString("activeGeneration",oldControl==null?source.getString("generation"):oldControl.optString("generation",source.getString("generation")));
+            if(!source.getString("scope").equals(oldScope)||!source.getString("generation").equals(oldGeneration))m.put("error","").put("failures",0).put("nextDue",0);
+            m.put("activeScope",source.getString("scope")).put("activeGeneration",source.getString("generation"));
+            // Pending/manual/pilot work cannot bypass a persisted provider backoff after restart.
+            if(!m.optString("error","").isEmpty()&&time<m.optLong("nextDue",0)){save(s,m);next=m.getLong("nextDue");return;}
+
             JSONObject cashRequest=new OrdexaCashSourceStore(s).nextRequest(source.getString("scope"),source.getString("generation"));if(cashRequest!=null){m.put("wake",true).put("nextDue",0);if(j==null&&!m.has("localRequest"))m.put("localRequest",cashRequest);}
             JSONObject signal=s.get("meta:store-billing-wake");long wakeAt=signal==null?0:signal.optLong("at",0);if(wakeAt>m.optLong("lastWakeHandled",0))m.put("wake",true).put("nextDue",0);
             if(!source.getBoolean("configured")||j==null&&!m.optBoolean("wake")&&(!source.getBoolean("enabled")||time<m.optLong("nextDue",0))){next=time+10000;return;}

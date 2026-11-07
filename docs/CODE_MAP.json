@@ -458,7 +458,13 @@
         "scripts/fixtures/native-management-browser-data.mjs",
         "server-runtime/cash-source.js",
         "server-android/src/gr/argyrismitsos/fleetserver/OrdexaCashOrderProtocol.java",
-        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaCashSourceStore.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaCashSourceStore.java",
+        "server-runtime/cash-contract.js",
+        "server-runtime/cash-auto.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/CashSync.java",
+        "scripts/fixtures/BusinessAutomaticCashChecks.java.txt",
+        "scripts/fixtures/cash-auto-ui-data.mjs",
+        "scripts/fixtures/cash-auto-ui-checks.mjs"
       ],
       "tests": [
         "scripts/test-courier-cash-core.mjs",
@@ -472,7 +478,9 @@
         "scripts/test-cash-event-tariff-fence-sqlite.mjs",
         "scripts/test-ordexa-order-evidence-native.mjs",
         "scripts/test-ordexa-cash-source-native.mjs",
-        "scripts/test-store-billing-pipeline.mjs"
+        "scripts/test-store-billing-pipeline.mjs",
+        "scripts/test-cash-auto-sqlite.mjs",
+        "scripts/test-cash-pilot-native.mjs"
       ],
       "related": [
         "stores",

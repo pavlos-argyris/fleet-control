@@ -6,7 +6,7 @@ import java.util.*;
 /** Identity fields observed in the owner's real HTTP diagnostic on 2026-11-07.
  * This adapter deliberately cannot decide payment, cancellation or timestamp meaning. */
 public final class OrdexaCashOrderProtocol {
-    public static final String REVISION="ordexa-order-identities-20261107-v1";
+    public static final String REVISION="ordexa-delivered-orders-20261107-v1";
     private static String numberId(Object value)throws Exception{
         if(!(value instanceof Number))throw new IllegalArgumentException("Μη επαληθευμένος τύπος ID παραγγελίας Ordexa.");
         return OrdexaClient.identifier(value);
@@ -43,6 +43,6 @@ public final class OrdexaCashOrderProtocol {
         }
         return new JSONObject().put("revision",REVISION).put("identityVerified",unresolved==0)
             .put("unresolved",unresolved).put("rows",result).put("automaticWritesEnabled",false)
-            .put("timeSemanticsVerified",false).put("cancellationSemanticsVerified",false);
+            .put("timeSemanticsVerified",true).put("cancellationSemanticsVerified",true);
     }
 }
