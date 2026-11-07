@@ -35,7 +35,7 @@ public class BusinessTest{
    },new NativeBusinessEngine.Ports(){
     public JSONObject call(String command,JSONObject data,BusinessObjects objects)throws Exception{
      JSONObject value=null;
-       if(command.equals("store.context"))value=new JSONObject().put("configured",true).put("scope","report-fixture");
+       if(command.equals("store.context")){db.execSQL("CREATE TABLE IF NOT EXISTS store_billing_local(id TEXT PRIMARY KEY,kind TEXT NOT NULL,scope TEXT NOT NULL,store_id TEXT NOT NULL DEFAULT \"\",day TEXT NOT NULL DEFAULT \"\",data TEXT NOT NULL,dirty INTEGER NOT NULL DEFAULT 1)");value=new JSONObject().put("configured",true).put("scope","report-fixture").put("generation","source-generation-1");}
        else if(command.equals("health.snapshot"))value=BusinessFeatureChecks.health;
        else if(command.equals("reports.export")){
         String format=data.getString("format");File target=objects.exportTarget(format);

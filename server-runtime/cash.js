@@ -1,4 +1,5 @@
 import {list,reply,NativeError,text,day,range,integer,actor,audit,stamp} from './common.js';
+import {CASH_SOURCE_SCHEMA,ORDER_IDENTITY_CONTRACT,cashSourceCatalog,saveCashRiderLink,queueCashSourceRefresh,cashSourceStatus} from './cash-source.js';
 
 export const CASH_SCHEMA=`
 CREATE TABLE IF NOT EXISTS native_cash_rules(id TEXT PRIMARY KEY,store_id TEXT NOT NULL,category TEXT NOT NULL,effective_day TEXT NOT NULL,revision INTEGER NOT NULL,rate_cents INTEGER NOT NULL CHECK(rate_cents>=0),created_at TEXT NOT NULL,created_by TEXT NOT NULL,UNIQUE(store_id,category,effective_day,revision));
@@ -17,6 +18,7 @@ CREATE TRIGGER IF NOT EXISTS native_cash_reversal_guard BEFORE INSERT ON native_
 -- rejects malformed import/internal writes while preserving immutable history.
 -- Reversals are separately checked against their original by the trigger above.
 CREATE TRIGGER IF NOT EXISTS native_cash_event_domain_guard BEFORE INSERT ON native_cash_events BEGIN SELECT CASE WHEN NEW.kind='assessment' AND (NEW.quantity<1 OR NEW.quantity>1000000 OR NEW.store_id='' OR NEW.category='' OR NEW.rule_id IS NULL OR NEW.amount_cents>100000000 OR NEW.amount_cents<>NEW.quantity*NEW.rate_cents) THEN RAISE(ABORT,'cash_assessment_domain_mismatch') WHEN NEW.kind='receipt' AND (NEW.quantity<>0 OR NEW.rate_cents<>0 OR NEW.store_id<>'' OR NEW.category<>'' OR NEW.rule_id IS NOT NULL OR NEW.amount_cents<1 OR NEW.amount_cents>100000000) THEN RAISE(ABORT,'cash_receipt_domain_mismatch') END; END;
+${CASH_SOURCE_SCHEMA}
 `;
 
 async function rule(request,env,user){
@@ -87,27 +89,21 @@ export async function cashProjection(env,from,to,courierId='',{eventOffset=0,eve
   const byCourier=new Map(groups.map(row=>[row.courierId,row]));for(const employee of employees){const row=byCourier.get(employee.id);if(row)row.courierName=employee.full_name;else groups.push({courierId:employee.id,courierName:employee.full_name,orders:0,dueCents:0,receivedCents:0});}
   groups.sort((a,b)=>a.courierName.localeCompare(b.courierName));
   for(const row of groups){row.balanceCents=row.dueCents-row.receivedCents;row.breakdown=breakdown.filter(b=>b.courierId===row.courierId).map(({courierId,...item})=>item);for(const n of [row.orders,row.dueCents,row.receivedCents,row.balanceCents])if(!Number.isSafeInteger(n))throw new NativeError(413,'Το ποσό υπερβαίνει το επιτρεπόμενο όριο αναφοράς.');}
-  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,sync:cashSyncState(),couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
+  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,sync:await cashSourceStatus(env,from,to),couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
 }
 function sourceEvidence(){
   try{return typeof globalThis.FleetHost==='function'?globalThis.FleetHost('store.context').cashOrdersProtocol||null:null;}catch{return null;}
-}
-export function cashSyncState(){
-  const proof=sourceEvidence();
-  // A schema observation cannot certify rider identity, timestamp meaning or
-  // cancellation semantics. There is deliberately no user-controlled bypass.
-  return{state:'protocol-unverified',protocolVerified:false,coverageVerified:false,lastCompleteAt:null,lastAttemptAt:null,protocolObservedAt:proof?.observedAt||null,automaticPollingEnabled:false,proposedPilotIntervalSeconds:120,evidenceAvailable:proof?.schemaVersion===1&&Array.isArray(proof.frames)&&proof.frames.some(f=>f.transportObserved===true),
-    reason:'Απαιτείται επαλήθευση της σύνδεσης παραγγελίας και διανομέα από το πραγματικό πρωτόκολλο Ordexa. Οι καταγεγραμμένες κινήσεις παραμένουν διαθέσιμες.'};
 }
 export async function routeCash(request,env){
   const url=new URL(request.url);if(!url.pathname.startsWith('/api/native/cash'))return null;
   if(url.pathname==='/api/native/cash/export')return null;
   const user=await actor(request,env,request.method==='GET'&&!url.pathname.endsWith('/protocol-evidence')?'cash.view':'cash.manage');
-  if(url.pathname==='/api/native/cash/protocol-evidence'&&request.method==='GET')return reply({report:'Ordexa cash protocol evidence',schemaVersion:1,automaticWritesEnabled:false,requiredProof:['stable-order-id','rider-identity','shop-identity','timestamp-semantics','status-cancellation','pagination'],evidence:sourceEvidence()});
-  if(url.pathname==='/api/native/cash/refresh'&&request.method==='POST')throw new NativeError(409,cashSyncState().reason,'ordexa_protocol_unverified');
+  if(url.pathname==='/api/native/cash/protocol-evidence'&&request.method==='GET')return reply({report:'Ordexa cash protocol evidence',schemaVersion:1,automaticWritesEnabled:false,identityContract:ORDER_IDENTITY_CONTRACT,requiredProof:['timestamp-semantics','status-cancellation','full-pagination'],evidence:sourceEvidence()});
+  if(url.pathname==='/api/native/cash/refresh'&&request.method==='POST')return queueCashSourceRefresh(request,env,user);
+  if(url.pathname==='/api/native/cash/rider-links'&&request.method==='POST')return saveCashRiderLink(request,env,user);
   if(url.pathname==='/api/native/cash/rules'){
     if(request.method==='POST')return rule(request,env,user);
-    if(request.method==='GET')return reply({rules:list(await env.DB.prepare('SELECT * FROM native_cash_rules ORDER BY store_id,category,effective_day DESC,revision DESC').all()),employees:list(await env.DB.prepare('SELECT id,full_name,active,deleted_at FROM app_users ORDER BY full_name').all()),stores:list(await env.DB.prepare("SELECT store_id,data FROM store_billing_records WHERE kind='store' ORDER BY store_id").all()).map(s=>({id:s.store_id,name:JSON.parse(s.data).name||s.store_id})),automaticOrderMappingVerified:false});
+    if(request.method==='GET')return reply({rules:list(await env.DB.prepare('SELECT * FROM native_cash_rules ORDER BY store_id,category,effective_day DESC,revision DESC').all()),employees:list(await env.DB.prepare('SELECT id,full_name,active,deleted_at FROM app_users ORDER BY full_name').all()),stores:list(await env.DB.prepare("SELECT store_id,data FROM store_billing_records WHERE kind='store' ORDER BY store_id").all()).map(s=>({id:s.store_id,name:JSON.parse(s.data).name||s.store_id})),automaticOrderMappingVerified:false,...await cashSourceCatalog(env)});
   }
   if(url.pathname==='/api/native/cash/events'&&request.method==='POST')return event(request,env,user);
   if(url.pathname==='/api/native/cash'&&request.method==='GET'){const {from,to}=range(url),eventOffset=integer(Number(url.searchParams.get('offset')||0),0,10000000);return reply(await cashProjection(env,from,to,text(url.searchParams.get('courierId'),100),{eventOffset,eventLimit:200}));}

@@ -9,6 +9,7 @@ import java.util.*;
 /** Small durable SQLite cells; no whole-history JSON/SharedPreferences cell. */
 public final class StoreBillingStore {
     private final SQLiteDatabase db;
+    SQLiteDatabase database(){return db;}
     public StoreBillingStore(FleetDataStore store){
         db=store.getWritableDatabase();
         db.execSQL("CREATE TABLE IF NOT EXISTS store_billing_local (id TEXT PRIMARY KEY,kind TEXT NOT NULL,scope TEXT NOT NULL,store_id TEXT NOT NULL DEFAULT '',day TEXT NOT NULL DEFAULT '',data TEXT NOT NULL,dirty INTEGER NOT NULL DEFAULT 1)");
@@ -162,7 +163,7 @@ public final class StoreBillingStore {
     public synchronized String oldestCoverage(String scope,String before)throws Exception{
         Cursor c=db.rawQuery("SELECT day FROM store_billing_local WHERE scope=? AND kind='coverage' AND day<? ORDER BY json_extract(data,'$.sourceAt'),day LIMIT 1",new String[]{scope,before});try{return c.moveToFirst()?c.getString(0):"";}finally{c.close();}
     }
-    public synchronized void cleanupTemporary(String scope)throws Exception{db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND kind IN ('setup','input_stage','seen','raw_seen')",new Object[]{scope});}
+    public synchronized void cleanupTemporary(String scope)throws Exception{db.execSQL("DELETE FROM store_billing_local WHERE scope=? AND kind IN ('setup','input_stage','seen','raw_seen','cash_identity_stage','cash_identity_page')",new Object[]{scope});}
     public static void validateBackup(JSONArray rows)throws Exception{
         if(rows==null)throw new IllegalArgumentException("Λείπει το αρχείο καταστημάτων στο backup.");
         Set<String> ids=new HashSet<String>();Map<String,String> shops=new HashMap<String,String>();
@@ -196,7 +197,7 @@ public final class StoreBillingStore {
     public synchronized void restore(JSONArray rows)throws Exception{
         // Validate every record before touching the durable archive.
         validateBackup(rows);
-        db.beginTransaction();try{db.execSQL("DELETE FROM store_billing_local");for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);JSONObject data=new JSONObject(r.getJSONObject("data").toString());data.remove("pendingDeleteRun");if("coverage".equals(r.getString("kind")))data.put("needsSourceRefresh",true);put(r.getString("id"),r.getString("kind"),r.getString("scope"),r.getString("storeId"),r.getString("day"),data,"order".equals(r.getString("kind"))||"observation".equals(r.getString("kind")));}Set<String> scopes=new HashSet<String>();for(int i=0;i<rows.length();i++)scopes.add(rows.getJSONObject(i).getString("scope"));for(String scope:scopes)put(key("authority",scope,"ledger"),"authority",scope,"","",new JSONObject().put("restored",true),false);
+        db.beginTransaction();try{db.execSQL("DELETE FROM store_billing_local WHERE substr(kind,1,5)<>'cash_'");db.execSQL("UPDATE store_billing_local SET data=json_set(data,'$.needsSourceRefresh',json('true'),'$.ordersCoverageComplete',json('false')) WHERE kind='cash_source_coverage'");for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);JSONObject data=new JSONObject(r.getJSONObject("data").toString());data.remove("pendingDeleteRun");if("coverage".equals(r.getString("kind")))data.put("needsSourceRefresh",true);put(r.getString("id"),r.getString("kind"),r.getString("scope"),r.getString("storeId"),r.getString("day"),data,"order".equals(r.getString("kind"))||"observation".equals(r.getString("kind")));}Set<String> scopes=new HashSet<String>();for(int i=0;i<rows.length();i++)scopes.add(rows.getJSONObject(i).getString("scope"));for(String scope:scopes)put(key("authority",scope,"ledger"),"authority",scope,"","",new JSONObject().put("restored",true),false);
             for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if("local_day".equals(row.getString("kind"))){String scope=row.getString("scope"),day=row.getString("day");put(key("outbox",scope,day),"outbox",scope,"",day,new JSONObject().put("scope",scope).put("day",day).put("runId",UUID.randomUUID().toString()),false);}}
             db.setTransactionSuccessful();}finally{db.endTransaction();}
     }

@@ -123,6 +123,7 @@ jobs:
       - run: node scripts/test-server-task-results-native.mjs
       - run: node scripts/test-store-billing-native.mjs
       - run: node scripts/test-store-billing-pipeline.mjs
+      - run: node scripts/test-ordexa-cash-source-native.mjs
       - run: node scripts/test-ordexa-native.mjs
       - run: node scripts/test-ordexa-order-evidence-native.mjs
       - run: node scripts/test-ordexa-reconnect-native.mjs

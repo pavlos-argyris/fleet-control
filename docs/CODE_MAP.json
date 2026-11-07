@@ -455,7 +455,10 @@
         "cloudflare-worker/public/cash-ui.js",
         "cloudflare-worker/public/native-ui-kit.js",
         "cloudflare-worker/public/native-management.css",
-        "scripts/fixtures/native-management-browser-data.mjs"
+        "scripts/fixtures/native-management-browser-data.mjs",
+        "server-runtime/cash-source.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaCashOrderProtocol.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaCashSourceStore.java"
       ],
       "tests": [
         "scripts/test-courier-cash-core.mjs",
@@ -467,7 +470,9 @@
         "scripts/test-native-management-ui.mjs",
         "scripts/test-native-management-browser.mjs",
         "scripts/test-cash-event-tariff-fence-sqlite.mjs",
-        "scripts/test-ordexa-order-evidence-native.mjs"
+        "scripts/test-ordexa-order-evidence-native.mjs",
+        "scripts/test-ordexa-cash-source-native.mjs",
+        "scripts/test-store-billing-pipeline.mjs"
       ],
       "related": [
         "stores",
