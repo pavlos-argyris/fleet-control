@@ -83,7 +83,7 @@ public final class OrdexaSync {
     static JSONObject storesRead(Context c,JSONObject expected,boolean setup,String from,String to,int page,String shop)throws Exception{
         begin();try{
             JSONObject current=storesContext(c);if(!current.getString("scope").equals(expected.getString("scope"))||!current.getString("generation").equals(expected.getString("generation")))throw new Exception("Η σύνδεση Ordexa άλλαξε. Επανάλαβε.");
-            OrdexaClient client=client(c);return setup?client.storesSetup(current.getString("cityId")):client.storesOrders(current.getString("cityId"),from,to,page,shop);
+            OrdexaClient client=client(c);try{return setup?client.storesSetup(current.getString("cityId")):client.storesOrders(current.getString("cityId"),from,to,page,shop);}finally{if(!setup)expected.put("_ordersHttpObservation",client.ordersHttpObservation());}
         }finally{running.set(false);}
     }
     public static JSONObject status(Context c)throws Exception{

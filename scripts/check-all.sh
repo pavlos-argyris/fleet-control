@@ -6,6 +6,7 @@ python3 scripts/check-source-safety.py
 node scripts/code-map.mjs --check
 node scripts/test-d1-source-inventory.mjs
 node scripts/test-courier-cash-core.mjs
+node --check scripts/test-ordexa-order-evidence-native.mjs
 node scripts/test-backup-recovery-evidence.mjs
 node scripts/test-store-financial-report.mjs
 node scripts/test-payroll-review-core.mjs

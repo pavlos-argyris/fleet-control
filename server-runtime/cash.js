@@ -78,16 +78,33 @@ export async function cashProjection(env,from,to,courierId='',{eventOffset=0,eve
   const effective="CASE WHEN e.kind='reversal' THEN o.kind ELSE e.kind END",sign="CASE WHEN e.kind='reversal' THEN -1 ELSE 1 END";
   const joined="FROM native_cash_events e LEFT JOIN native_cash_events o ON o.id=e.reverses_id WHERE "+where;
   const groups=list(await env.DB.prepare(`SELECT e.courier_id courierId,MAX(e.courier_name) courierName,SUM(CASE WHEN (${effective})='assessment' THEN (${sign})*e.quantity ELSE 0 END) orders,SUM(CASE WHEN (${effective})='assessment' THEN (${sign})*e.amount_cents ELSE 0 END) dueCents,SUM(CASE WHEN (${effective})='receipt' THEN (${sign})*e.amount_cents ELSE 0 END) receivedCents ${joined} GROUP BY e.courier_id ORDER BY courierName`).bind(...params).all());
-  const breakdown=list(await env.DB.prepare(`SELECT e.courier_id courierId,e.store_id storeId,e.category category,SUM((${sign})*e.quantity) orders,SUM((${sign})*e.amount_cents) dueCents ${joined} AND (${effective})='assessment' GROUP BY e.courier_id,e.store_id,e.category ORDER BY e.store_id,e.category`).bind(...params).all());
+  const breakdown=list(await env.DB.prepare(`SELECT e.courier_id courierId,e.store_id storeId,e.category category,e.rate_cents rateCents,SUM((${sign})*e.quantity) orders,SUM((${sign})*e.amount_cents) dueCents ${joined} AND (${effective})='assessment' GROUP BY e.courier_id,e.store_id,e.category,e.rate_cents ORDER BY e.store_id,e.category,e.rate_cents`).bind(...params).all());
   const total=await env.DB.prepare(`SELECT COUNT(*) n FROM native_cash_events e WHERE ${where}`).bind(...params).first();
   const events=eventLimit>0?list(await env.DB.prepare(`SELECT e.*,o.kind reversed_kind ${joined} ORDER BY e.business_day,e.created_at,e.id LIMIT ? OFFSET ?`).bind(...params,eventLimit,eventOffset).all()):[];
+  // Include active couriers with no movements. Missing automatic coverage is
+  // separately unknown; these zero *recorded* totals are never an Ordexa zero.
+  const employees=list(await env.DB.prepare('SELECT id,full_name FROM app_users WHERE '+(courierId?'id=?':"role='employee' AND active=1 AND deleted_at IS NULL")+' ORDER BY full_name').bind(...(courierId?[courierId]:[])).all());
+  const byCourier=new Map(groups.map(row=>[row.courierId,row]));for(const employee of employees){const row=byCourier.get(employee.id);if(row)row.courierName=employee.full_name;else groups.push({courierId:employee.id,courierName:employee.full_name,orders:0,dueCents:0,receivedCents:0});}
+  groups.sort((a,b)=>a.courierName.localeCompare(b.courierName));
   for(const row of groups){row.balanceCents=row.dueCents-row.receivedCents;row.breakdown=breakdown.filter(b=>b.courierId===row.courierId).map(({courierId,...item})=>item);for(const n of [row.orders,row.dueCents,row.receivedCents,row.balanceCents])if(!Number.isSafeInteger(n))throw new NativeError(413,'Το ποσό υπερβαίνει το επιτρεπόμενο όριο αναφοράς.');}
-  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
+  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:'manual-confirmed',automaticOrderMappingVerified:false,sync:cashSyncState(),couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
+}
+function sourceEvidence(){
+  try{return typeof globalThis.FleetHost==='function'?globalThis.FleetHost('store.context').cashOrdersProtocol||null:null;}catch{return null;}
+}
+export function cashSyncState(){
+  const proof=sourceEvidence();
+  // A schema observation cannot certify rider identity, timestamp meaning or
+  // cancellation semantics. There is deliberately no user-controlled bypass.
+  return{state:'protocol-unverified',protocolVerified:false,coverageVerified:false,lastCompleteAt:null,lastAttemptAt:null,protocolObservedAt:proof?.observedAt||null,automaticPollingEnabled:false,proposedPilotIntervalSeconds:120,evidenceAvailable:proof?.schemaVersion===1&&Array.isArray(proof.frames)&&proof.frames.some(f=>f.transportObserved===true),
+    reason:'Απαιτείται επαλήθευση της σύνδεσης παραγγελίας και διανομέα από το πραγματικό πρωτόκολλο Ordexa. Οι καταγεγραμμένες κινήσεις παραμένουν διαθέσιμες.'};
 }
 export async function routeCash(request,env){
   const url=new URL(request.url);if(!url.pathname.startsWith('/api/native/cash'))return null;
   if(url.pathname==='/api/native/cash/export')return null;
-  const user=await actor(request,env,request.method==='GET'?'cash.view':'cash.manage');
+  const user=await actor(request,env,request.method==='GET'&&!url.pathname.endsWith('/protocol-evidence')?'cash.view':'cash.manage');
+  if(url.pathname==='/api/native/cash/protocol-evidence'&&request.method==='GET')return reply({report:'Ordexa cash protocol evidence',schemaVersion:1,automaticWritesEnabled:false,requiredProof:['stable-order-id','rider-identity','shop-identity','timestamp-semantics','status-cancellation','pagination'],evidence:sourceEvidence()});
+  if(url.pathname==='/api/native/cash/refresh'&&request.method==='POST')throw new NativeError(409,cashSyncState().reason,'ordexa_protocol_unverified');
   if(url.pathname==='/api/native/cash/rules'){
     if(request.method==='POST')return rule(request,env,user);
     if(request.method==='GET')return reply({rules:list(await env.DB.prepare('SELECT * FROM native_cash_rules ORDER BY store_id,category,effective_day DESC,revision DESC').all()),employees:list(await env.DB.prepare('SELECT id,full_name,active,deleted_at FROM app_users ORDER BY full_name').all()),stores:list(await env.DB.prepare("SELECT store_id,data FROM store_billing_records WHERE kind='store' ORDER BY store_id").all()).map(s=>({id:s.store_id,name:JSON.parse(s.data).name||s.store_id})),automaticOrderMappingVerified:false});

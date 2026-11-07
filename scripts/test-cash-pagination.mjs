@@ -10,6 +10,7 @@ function fixture(count) {
    return {
     bind(...values){args=values;return this;},
     async all(){
+     if(sql.startsWith('SELECT id,full_name FROM app_users'))return {results:[]};
      if(sql.includes('GROUP BY e.courier_id'))return {results:[]};
      if(sql.includes('GROUP BY e.courier_id,e.store_id'))return {results:[]};
      if(sql.includes('LIMIT ? OFFSET ?'))return {results:rows.slice(args.at(-1),args.at(-1)+args.at(-2))};

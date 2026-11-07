@@ -92,7 +92,11 @@ public final class StoreBillingSync {
         if(phase.equals("orders")){
             JSONArray shops=stores(s,j);if(shops.length()==0){j.put("phase","archive");j.put("finalPass",pass(j));return "Δεν υπάρχουν καταστήματα στην πηγή";}
             String selected=j.getString("mode").equals("filtered")?shops.getJSONObject(j.getInt("shopIndex")).getString("sourceShopId"):null;
-            String day=j.getString("day");int page=j.getInt("page");JSONObject r=StoreBillingProtocol.page(OrdexaSync.storesRead(c,j,false,StoreBillingEngine.addDay(day,-1),StoreBillingEngine.addDay(day,1),page,selected),page,selected,known(shops));
+            String day=j.getString("day");int page=j.getInt("page");JSONObject source=OrdexaSync.storesRead(c,j,false,StoreBillingEngine.addDay(day,-1),StoreBillingEngine.addDay(day,1),page,selected);
+            // Observe first pages of the existing two-pass reader only. No extra
+            // provider request, guessed courier field, dirty cloud row or charge.
+            if(page==1)try{s.captureOrderProtocol(j,source,page,selected!=null);}catch(Exception diagnosticFailure){j.put("ordersEvidenceUnavailable",true);}
+            JSONObject r=StoreBillingProtocol.page(source,page,selected,known(shops));
             if(r.getBoolean("needsShopFilter")){j.put("mode","filtered").put("shopIndex",0).put("page",1);return "Ασφαλής αντιστοίχιση με ταυτότητα καταστήματος";}
             if(page==1)j.put("pageTotal",r.getInt("total")).put("pagePages",r.getInt("pages")).put("pageRows",0);
             if(r.getInt("total")!=j.getInt("pageTotal")||r.getInt("pages")!=j.getInt("pagePages"))throw new Exception("Η σελιδοποίηση Ordexa άλλαξε. Η λήψη παραμένει μη πλήρης· επανάλαβε.");

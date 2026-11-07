@@ -21,6 +21,7 @@ let ordexa={configured:true,enabled:true,authState:'connected',lastSuccess:'2026
 let stores={lastSuccess:'2026-11-05T07:30:00Z',pendingDays:3,stage:'secret internal path',
   orders:[{customer:'private order data'}]};
 w.AndroidServer={
+  getOrdersProtocolEvidence:()=>JSON.stringify({report:"Ordexa cash protocol evidence",schemaVersion:1,automaticWritesEnabled:false,semanticsVerified:false,evidence:null}),
   getDashboard:()=>JSON.stringify(dashboard),
   getOrdexaStatus:()=>JSON.stringify(ordexa),
   getStoreBillingStatus:()=>JSON.stringify(stores),
@@ -105,4 +106,5 @@ try{
   assert.equal(calls.includes('retrySync'),false,'A read-only health check never starts a business sync');
   assert.equal(calls.includes('retrySystemMirror'),false);
   console.log('PASS native Server diagnostics: real bridge snapshots, stale/unknown status, credential warning, pending days, no invented D1/restore, secret-free export, no polling or mutation.');
+ d.querySelector('[data-orders-protocol]').click();const proofDialog=d.querySelector('dialog[aria-label="Έλεγχος παραγγελιών Ordexa"]');assert(proofDialog?.open);assert.match(proofDialog.textContent,/Δεν έχει συλλεχθεί ακόμη δείγμα/);const proof=JSON.parse(proofDialog.querySelector('textarea').value);assert.equal(proof.automaticWritesEnabled,false);assert.equal(proof.evidence,null);proofDialog.querySelector('[data-close]').click();
 }finally{w.close();}

@@ -57,7 +57,7 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
     }
     private JSONObject port(String command,JSONObject value,BusinessObjects objects)throws Exception{
         if(command.equals("store.context")){
-            JSONObject current=OrdexaSync.storesContext(context);if(current.optBoolean("configured"))return current;
+            JSONObject current=OrdexaSync.storesContext(context);if(current.optBoolean("configured"))return current.put("cashOrdersProtocol",new StoreBillingStore(store).orderProtocolEvidence(current.getString("scope")));
             new StoreBillingStore(store);
             // After recovery credentials are absent, but the imported historical scope remains readable.
             JSONArray rows=new BusinessSqlite(store.getReadableDatabase()).call("sql.query",new JSONObject().put("sql","SELECT DISTINCT scope FROM store_billing_local WHERE kind='store' AND scope<>'' LIMIT 2")).getJSONArray("results");

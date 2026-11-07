@@ -103,6 +103,7 @@ jobs:
       - run: node scripts/test-store-billing-native.mjs
       - run: node scripts/test-store-billing-pipeline.mjs
       - run: node scripts/test-ordexa-native.mjs
+      - run: node scripts/test-ordexa-order-evidence-native.mjs
       - run: node scripts/test-ordexa-reconnect-native.mjs
       - run: node scripts/test-ordexa-server-sync-native.mjs
       - run: node scripts/test-local-invoice-reader.mjs
@@ -201,11 +202,11 @@ jobs:
       matrix:
         image:
           - mobile-390-cash-couriers.png
-          - mobile-390-cash-rule-review.png
+          - mobile-390-cash-inline-breakdown.png
           - mobile-390-stores-financial.png
           - mobile-390-payroll-review.png
           - mobile-390-server-health.png
-          - 390-native-active.png
+          - 390-orders-protocol-pending.png
     steps:
       - uses: actions/download-artifact@v4
         with:

@@ -27,6 +27,16 @@ public final class StoreBillingStore {
         ContentValues v=new ContentValues();v.put("id",id);v.put("kind",kind);v.put("scope",scope);v.put("store_id",store);v.put("day",day);v.put("data",raw);v.put("dirty",dirty?1:0);
         if(db.insertWithOnConflict("store_billing_local",null,v,SQLiteDatabase.CONFLICT_REPLACE)<0)throw new IllegalStateException("Δεν αποθηκεύτηκε το αρχείο καταστημάτων.");
     }
+    /** One bounded diagnostic cell, never dirty and never an economic receipt. */
+    public synchronized void captureOrderProtocol(JSONObject job,JSONObject raw,int page,boolean filtered)throws Exception{
+        JSONObject http=job.optJSONObject("_ordersHttpObservation");if(http==null||!http.optBoolean("transportObserved",false))return;
+        String scope=job.getString("scope"),id=key("protocol_evidence",scope,"orders");
+        JSONObject frame=StoreBillingProtocol.observeOrders(scope,raw,http,page).put("readerPass",job.optInt("pass",0)).put("filteredByShop",filtered);
+        JSONObject previous=get(id);JSONArray frames=new JSONArray();if(previous!=null){JSONArray old=previous.optJSONArray("frames");if(old!=null&&old.length()>0){JSONObject last=old.getJSONObject(old.length()-1);if(frame.getString("processSession").equals(last.optString("processSession")))frames.put(last);}}
+        frames.put(frame);JSONObject report=StoreBillingProtocol.evidenceView(new JSONObject().put("schemaVersion",1).put("observedAt",frame.getString("observedAt")).put("frames",frames));
+        put(id,"protocol_evidence",scope,"","",report,false);
+    }
+    public synchronized JSONObject orderProtocolEvidence(String scope)throws Exception{return StoreBillingProtocol.evidenceView(get(key("protocol_evidence",scope,"orders")));}
     public synchronized JSONArray rows(String scope,String kind)throws Exception{
         JSONArray r=new JSONArray();Cursor c=db.rawQuery("SELECT data FROM store_billing_local WHERE scope=? AND kind=? ORDER BY id",new String[]{scope,kind});try{while(c.moveToNext())r.put(new JSONObject(c.getString(0)));}finally{c.close();}return r;
     }

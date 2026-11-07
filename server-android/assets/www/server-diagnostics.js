@@ -145,6 +145,17 @@
     d.showModal();render();bridge?.testConnection?.();
   }
   section.querySelector('button').onclick=open;
+  if(typeof bridge?.getOrdersProtocolEvidence==='function'){
+    const button=document.createElement('button');button.type='button';button.className='secondary-action';button.textContent='Έλεγχος σύνδεσης παραγγελιών Ordexa';button.dataset.ordersProtocol='';section.append(button);
+    button.onclick=()=>{
+      const proof=read('getOrdersProtocolEvidence'),node=document.createElement('dialog');node.className='operations-diagnostic-dialog';node.setAttribute('aria-label','Έλεγχος παραγγελιών Ordexa');
+      node.innerHTML='<div class="dialog-head"><h2>Έλεγχος παραγγελιών Ordexa</h2><button type="button" class="secondary-action" data-close>Πίσω</button></div><p>Το δείγμα συλλέγεται μόνο από την υπάρχουσα λήψη καταστημάτων. Δεν ξεκινά δεύτερη σύνδεση και δεν ενεργοποιεί αυτόματη χρέωση.</p><p data-proof-state></p><label class="field"><span>Αποπροσωποποιημένα τεχνικά στοιχεία</span><textarea rows="12" readonly></textarea></label><button type="button" class="primary-action inline" data-copy-proof>Αντιγραφή ελέγχου</button><p role="status" data-copy-state></p>';
+      node.querySelector('[data-proof-state]').textContent=proof.evidence?'Υπάρχει παρατήρηση του πρωτοκόλλου· οι ταυτότητες και οι κανόνες χρέωσης απαιτούν τεχνική επαλήθευση.':'Δεν έχει συλλεχθεί ακόμη δείγμα. Θα ληφθεί από την επόμενη ανάγνωση παραγγελιών του συγχρονισμού καταστημάτων.';
+      node.querySelector('textarea').value=JSON.stringify(proof,null,2);node.querySelector('[data-close]').onclick=()=>node.close();node.querySelector('[data-copy-proof]').onclick=async()=>{const value=node.querySelector('textarea').value;if(bridge?.copyDiagnosticReport)bridge.copyDiagnosticReport(value);else if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(value);else{node.querySelector('textarea').select();document.execCommand('copy');}node.querySelector('[data-copy-state]').textContent='Ο τεχνικός έλεγχος αντιγράφηκε. Έλεγξέ τον πριν τον στείλεις.';};
+      node.addEventListener('close',()=>node.remove(),{once:true});document.body.append(node);node.showModal();
+    };
+  }
+
   const original=window.FleetServer?.onNativeEvent;
   if(typeof original==='function')window.FleetServer.onNativeEvent=function(event,payload){
     original.call(this,event,payload);

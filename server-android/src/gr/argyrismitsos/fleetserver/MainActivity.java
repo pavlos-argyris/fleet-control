@@ -343,6 +343,14 @@ public final class MainActivity extends Activity {
             }
         }
 
+        @JavascriptInterface public String getOrdersProtocolEvidence(){
+            try{
+                JSONObject source=OrdexaSync.storesContext(getApplicationContext());
+                JSONObject proof=source.optBoolean("configured")?new StoreBillingStore(store).orderProtocolEvidence(source.getString("scope")):null;
+                return new JSONObject().put("report","Ordexa cash protocol evidence").put("schemaVersion",1).put("automaticWritesEnabled",false).put("semanticsVerified",false).put("configured",source.optBoolean("configured")).put("evidence",proof==null?JSONObject.NULL:proof).toString();
+            }catch(Exception error){return "{\"report\":\"Ordexa cash protocol evidence\",\"schemaVersion\":1,\"automaticWritesEnabled\":false,\"evidence\":null,\"readFailed\":true}";}
+        }
+
         @JavascriptInterface public void copyDiagnosticReport(final String json){
             if(json==null||json.length()>65536)return;
             runOnUiThread(new Runnable(){public void run(){android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(clipboard!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Fleet diagnostics",json));}});

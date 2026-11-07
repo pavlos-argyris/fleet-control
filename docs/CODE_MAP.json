@@ -466,7 +466,8 @@
         "scripts/test-cash-event-domain-sqlite.mjs",
         "scripts/test-native-management-ui.mjs",
         "scripts/test-native-management-browser.mjs",
-        "scripts/test-cash-event-tariff-fence-sqlite.mjs"
+        "scripts/test-cash-event-tariff-fence-sqlite.mjs",
+        "scripts/test-ordexa-order-evidence-native.mjs"
       ],
       "related": [
         "stores",
@@ -474,7 +475,8 @@
       ],
       "docs": [
         "docs/ISSUE_60_PARALLEL_START_GR.md",
-        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md",
+        "docs/ORDEXA_AUTO_CASH_20261107_GR.md"
       ]
     },
     {
