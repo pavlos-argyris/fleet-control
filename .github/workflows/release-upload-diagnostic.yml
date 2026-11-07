@@ -1,0 +1,27 @@
+name: Read-only Fleet 5.61 upload diagnosis
+on:
+  push:
+    branches: [codex/release-upload-diagnostic-561]
+    paths:
+      - .github/workflows/release-upload-diagnostic.yml
+      - scripts/probe-release-upload-error.mjs
+      - scripts/test-release-upload-diagnostic.mjs
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node scripts/test-release-upload-diagnostic.mjs
+      - name: Query only the failed publication window
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/probe-release-upload-error.mjs
