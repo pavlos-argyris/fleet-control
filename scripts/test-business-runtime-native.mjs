@@ -24,6 +24,16 @@ public class BusinessTest{
  }
  public static void main(String[] args)throws Exception{db=new SQLiteDatabase(args[0]);final BusinessSqlite sql=new BusinessSqlite(db);
   try{
+   for(String empty:new String[]{"","-- standalone schema comment","/* standalone block comment */","; -- only comments"}){
+    boolean rejected=false;try{db.execSQL(empty);}catch(SQLiteException expected){rejected=true;}check(rejected,"fixture preserves Android empty-statement rejection");
+   }
+   JSONObject script=sql.call("sql.exec",new JSONObject().put("sql","-- header\\r\\nCREATE TABLE fixture_script(id INTEGER PRIMARY KEY,value TEXT);\\r\\n/* comment-only */\\n; -- empty separators\\nINSERT INTO fixture_script VALUES(1,'a--b /* literal */'); -- trailing comment\\n".replace("\\r","\r").replace("\\n","\n")));
+   check(script.getInt("count")==2,"comments do not become Android SQL statements");
+   check(sql.call("sql.query",new JSONObject().put("sql","SELECT value FROM fixture_script")).getJSONArray("results").getJSONObject(0).getString("value").equals("a--b /* literal */"),"SQL literal comment markers preserved");
+   db.execSQL("DROP TABLE fixture_script");
+   boolean queryRejected=false;try{db.execSQL("SELECT 1");}catch(SQLiteException expected){queryRejected=true;}check(queryRejected,"fixture preserves Android execSQL result-row rejection");
+   boolean scriptFailed=false;try{sql.call("sql.exec",new JSONObject().put("sql","CREATE TABLE fixture_script_rollback(id INTEGER);\n-- comment between statements\nINSERT INTO fixture_missing_table VALUES(1);"));}catch(SQLiteException expected){scriptFailed=true;}
+   check(scriptFailed&&sql.call("sql.query",new JSONObject().put("sql","SELECT name FROM sqlite_master WHERE name='fixture_script_rollback'")).getJSONArray("results").length()==0,"failed schema scripts preserve atomic rollback");
    String code=new String(Files.readAllBytes(Paths.get(args[1])),"UTF-8");JSONObject manifest=new JSONObject(new String(Files.readAllBytes(Paths.get(args[2])),"UTF-8"));
    final android.content.Context appContext=new android.content.Context(new File(new File(args[0]).getParentFile(),"app").getPath());
    final BusinessObjects objects=new BusinessObjects(db,new File(appContext.getFilesDir(),"service-documents"),new File(appContext.getCacheDir(),"business-files"));
@@ -85,6 +95,12 @@ public class BusinessTest{
    BusinessSnapshotChecks.run(db,sql,new File(new File(args[0]).getParentFile(),"snapshot-test"));
    BusinessBundleChecks.run(appContext,db,sql);
    runtime.close();runtime=null;
+   String diagnostic="globalThis.__fleetInit=function(){__fleetNative('sql.exec','{}');};";
+   try{new BusinessRuntime((command,raw)->{throw new SQLiteException("no such table: PRIVATE_NATIVE_ERROR_CANARY");},diagnostic,BusinessRuntime.sha256(diagnostic.getBytes("UTF-8")),new JSONObject());throw new AssertionError("injected native SQL failure expected");}
+   catch(org.mozilla.javascript.EvaluatorException expected){check(expected.getMessage().contains("[SQL_EXEC/SQLITE_SCHEMA]")&&!expected.getMessage().contains("PRIVATE_NATIVE_ERROR_CANARY")&&!expected.getMessage().contains("no such table"),"safe capability category without raw SQL/data");}
+   String unknownDiagnostic="globalThis.__fleetInit=function(){__fleetNative('PRIVATE_COMMAND_CANARY','{}');};";
+   try{new BusinessRuntime((command,raw)->{throw new IOException("PRIVATE_IO_ERROR_CANARY");},unknownDiagnostic,BusinessRuntime.sha256(unknownDiagnostic.getBytes("UTF-8")),new JSONObject());throw new AssertionError("injected unknown capability failure expected");}
+   catch(org.mozilla.javascript.EvaluatorException expected){check(expected.getMessage().contains("[LOCAL/LOCAL_IO]")&&!expected.getMessage().contains("PRIVATE_"),"unknown native command and cause stay private");}
    try{new BusinessRuntime((command,raw)->"{}",code,"00",new JSONObject());throw new AssertionError("corrupt bundle should be rejected");}catch(IOException expected){}
    String looping="globalThis.__fleetInit=function(){};globalThis.__fleetRequest=function(){while(true){}}";
    BusinessRuntime limited=new BusinessRuntime((command,raw)->"{}",looping,BusinessRuntime.sha256(looping.getBytes("UTF-8")),new JSONObject());long start=System.nanoTime();try{limited.request(new JSONObject(),false,100);throw new AssertionError("budget should stop interpreter");}catch(Exception expected){check((System.nanoTime()-start)/1000000<5000,"bounded interpreter budget");}finally{limited.close();}

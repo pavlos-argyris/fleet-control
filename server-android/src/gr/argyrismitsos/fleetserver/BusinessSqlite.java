@@ -80,6 +80,21 @@ public final class BusinessSqlite {
         db.execSQL(sql,args);JSONArray rows=rows("SELECT changes() changes,last_insert_rowid() last_row_id",new Object[0],true,false);
         return new JSONObject().put("success",true).put("results",new JSONArray()).put("meta",rows.getJSONObject(0));
     }
+    /** D1 exec entries are newline-separated. Android cannot step an empty
+     * sqlite3_stmt, unlike Python's comment-only execute() no-op. Preserve SQL
+     * verbatim, including quoted comment markers and complete trigger bodies. */
+    private static boolean hasStatement(String sql){
+        for(int i=0;i<sql.length();){
+            char c=sql.charAt(i);
+            if(Character.isWhitespace(c)||c==';'){i++;continue;}
+            if(c=='-'&&i+1<sql.length()&&sql.charAt(i+1)=='-')return false;
+            if(c=='/'&&i+1<sql.length()&&sql.charAt(i+1)=='*'){
+                int end=sql.indexOf("*/",i+2);if(end<0)return false;i=end+2;continue;
+            }
+            return true;
+        }
+        return false;
+    }
     public synchronized JSONObject call(String command,JSONObject value)throws Exception {
         long started=System.nanoTime();String sql=value.optString("sql");Object[] args=values(value.optJSONArray("params"));
         if(command.equals("sql.request.begin")){
@@ -99,7 +114,7 @@ public final class BusinessSqlite {
             boolean complete=false;
             try{
                 JSONArray results=new JSONArray();int count=0;
-                if(command.equals("sql.exec")){for(String line:sql.split("\\r?\\n")){line=line.trim();if(!line.isEmpty()){db.execSQL(line);count++;}}}
+                if(command.equals("sql.exec")){for(String line:sql.split("\\r?\\n")){line=line.trim();if(hasStatement(line)){db.execSQL(line);count++;}}}
                 else {JSONArray queries=value.getJSONArray("queries");for(int i=0;i<queries.length();i++){JSONObject q=queries.getJSONObject(i);String statement=q.getString("sql");Object[] params=values(q.optJSONArray("params"));if(statement.trim().matches("(?is)^(SELECT|PRAGMA|EXPLAIN)\\b.*"))results.put(new JSONObject().put("success",true).put("results",rows(statement,params,false,false)));else results.put(run(statement,params));count++;}}
                 if(owned)db.setTransactionSuccessful();else db.execSQL("RELEASE SAVEPOINT "+savepoint);complete=true;return new JSONObject().put("results",results).put("count",count).put("duration",(System.nanoTime()-started)/1000000.0);
             }finally{if(owned)db.endTransaction();else if(!complete){db.execSQL("ROLLBACK TO SAVEPOINT "+savepoint);db.execSQL("RELEASE SAVEPOINT "+savepoint);}}
