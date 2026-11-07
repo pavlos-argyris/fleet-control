@@ -64,6 +64,7 @@ public final class SyncService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        if(NativeColdRuntime.blocked(this)){stopSelf();return;}
         store = new FleetDataStore(getApplicationContext());
         OtaManager.resumeAfterRestart(getApplicationContext());
         workQueue=new LocalWorkQueue(new LocalWorkQueue.Storage(){
@@ -96,7 +97,8 @@ public final class SyncService extends Service {
             return;
         }
         preferences.edit().putBoolean("service_running", true).apply();
-        try { directServer=new DirectServer(getApplicationContext(),store); directServer.start(); }
+        NativePrimaryService.get(this).start();
+        try { if(NativePrimaryService.cloudMode(this)){directServer=new DirectServer(getApplicationContext(),store); directServer.start();} }
         catch(Exception error) { preferences.edit().putString("direct_access_error","Δεν ξεκίνησε η εφεδρική πρόσβαση. Έλεγξε την εγκατάσταση Server.").apply(); }
         executor = Executors.newSingleThreadScheduledExecutor();
         executor.scheduleWithFixedDelay(new Runnable() {
@@ -110,11 +112,11 @@ public final class SyncService extends Service {
         mirrorExecutor=Executors.newSingleThreadScheduledExecutor();
         mirrorExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){mirrorSafely();}},0,300,TimeUnit.SECONDS);
         ordexaExecutor=Executors.newSingleThreadScheduledExecutor();
-        ordexaExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaSync.tick(getApplicationContext());}},10,10,TimeUnit.SECONDS);
+        ordexaExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){NativeWorkGate.pipeline(new Runnable(){public void run(){if(NativePrimaryService.jobsAllowed(SyncService.this))OrdexaSync.tick(getApplicationContext());}});}},10,10,TimeUnit.SECONDS);
         ordexaPayrollExecutor=Executors.newSingleThreadScheduledExecutor();
-        ordexaPayrollExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){OrdexaPayrollSync.tick(getApplicationContext(),store);}},15,10,TimeUnit.SECONDS);
+        ordexaPayrollExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){NativeWorkGate.pipeline(new Runnable(){public void run(){if(NativePrimaryService.jobsAllowed(SyncService.this))OrdexaPayrollSync.tick(getApplicationContext(),store);}});}},15,10,TimeUnit.SECONDS);
         storeBillingExecutor=Executors.newSingleThreadScheduledExecutor();
-        storeBillingExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){StoreBillingSync.tick(getApplicationContext(),store);}},20000,250,TimeUnit.MILLISECONDS);
+        storeBillingExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){NativeWorkGate.pipeline(new Runnable(){public void run(){if(NativePrimaryService.jobsAllowed(SyncService.this)){CashSync.tick(getApplicationContext(),store);StoreBillingSync.tick(getApplicationContext(),store);}}});}},20000,250,TimeUnit.MILLISECONDS);
         // Connectivity must stay live even during ten parallel local reads,
         // lengthy AI results, Drive backup or a full mirror download.
         pulseExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -140,7 +142,9 @@ public final class SyncService extends Service {
         return foregroundReady ? START_STICKY : START_NOT_STICKY;
     }
 
-    private void pulseSafely() {
+    private void pulseSafely(){NativeWorkGate.pipeline(new Runnable(){public void run(){pulseSafelyUnlocked();}});}
+    private void pulseSafelyUnlocked() {
+        if(!NativePrimaryService.jobsAllowed(this))return;
         SharedPreferences p = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
         if(System.currentTimeMillis()-p.getLong("last_connection_success_ms",0)<90000L)return;
         String base = p.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
@@ -154,7 +158,8 @@ public final class SyncService extends Service {
         }
     }
 
-    private void syncSafely() {
+    private void syncSafely(){NativeWorkGate.pipeline(new Runnable(){public void run(){syncSafelyUnlocked();}});}
+    private void syncSafelyUnlocked() {
         SharedPreferences preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
         // Use the completed previous cycle as a safe checkpoint. Do not wait
         // for the user-configured mirror interval to apply a downloaded update.
@@ -162,6 +167,8 @@ public final class SyncService extends Service {
         OtaManager.maybeApply(getApplicationContext(),store);
         if (OtaManager.shouldYieldForUpdate(getApplicationContext())||OtaManager.installationPending(getApplicationContext())) return;
         OtaManager.check(getApplicationContext(), false);
+        if(!NativePrimaryService.cloudMode(this)&&directServer!=null){directServer.close();directServer=null;}
+        if(!NativePrimaryService.jobsAllowed(this))return;
         long lastAttempt = preferences.getLong("last_sync_attempt_ms", 0);
         boolean busy=invoiceRunning.get();
         try{busy=busy||workQueue.hasWork();}catch(RuntimeException error){preferences.edit().putString("invoice_queue_error",safeMessage(error)).apply();}
@@ -337,13 +344,16 @@ public final class SyncService extends Service {
     }
     private void refreshSystemMirror(String base,Map<String,String> headers,final SharedPreferences p)throws Exception{refreshSystemMirror(base,headers,p,"sync");}
     private void refreshSystemMirror(String base,Map<String,String> headers,final SharedPreferences p,final String lane) throws Exception {
+        if(!NativePrimaryService.cloudMode(this))return;
         JSONObject value=SystemMirror.update(base,headers,store.getFleet(),store.getSystemExport(),new SystemMirror.Progress(){public void stage(String stage){if(OtaManager.shouldYieldForUpdate(getApplicationContext()))throw new java.util.concurrent.CancellationException("Το αντίγραφο θα συνεχιστεί μετά την ενημέρωση.");ServerWorkTracker.stage(lane,"Αντίγραφο προσωπικού και τιμολογίων",stage);p.edit().putString("mirror_stage",stage).apply();}});
         value.put("sourceWorker",base);
         store.setSystemExport(value);
         p.edit().putString("mirror_error","").putString("mirror_stage","Το αντίγραφο προσωπικού ενημερώθηκε").putLong("mirror_success_ms",System.currentTimeMillis()).apply();
     }
     private void mirrorSafely(){mirrorSafely(false);}
-    private void mirrorSafely(boolean force) {
+    private void mirrorSafely(final boolean force){NativeWorkGate.pipeline(new Runnable(){public void run(){mirrorSafelyUnlocked(force);}});}
+    private void mirrorSafelyUnlocked(boolean force) {
+        if(!NativePrimaryService.cloudMode(this))return;
         if(OtaManager.shouldYieldForUpdate(this)||!mirrorRunning.compareAndSet(false,true))return;
         if(!ServerWorkTracker.begin(this,"mirror","Αντίγραφο προσωπικού και τιμολογίων","Έλεγχος ενημερώσεων αντιγράφου")){mirrorRunning.set(false);return;}
         SharedPreferences p=getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE);
@@ -380,7 +390,9 @@ public final class SyncService extends Service {
             invoiceState(response.optString("jobId",job),response.has("attachment")||response.has("document") ? "Ολοκληρώθηκε" : "Νέα προσπάθεια στην ουρά",response.has("attachment")||response.has("document") ? 100 : 5,response.optString("ocrWarning",""));
         } catch (Exception error) { invoiceState(job,"Η επανεκκίνηση δεν ολοκληρώθηκε",0,safeMessage(error)); }
     }
-    private void invoiceSafely() {
+    private void invoiceSafely(){NativeWorkGate.pipeline(new Runnable(){public void run(){invoiceSafelyUnlocked();}});}
+    private void invoiceSafelyUnlocked() {
+        if(!NativePrimaryService.jobsAllowed(this))return;
         if (OtaManager.installationInProgress(getApplicationContext()) || OtaManager.shouldYieldForUpdate(getApplicationContext())) return;
         if (!invoiceRunning.compareAndSet(false,true)) return;
         if(!ServerWorkTracker.begin(this,"invoice","Επεξεργασία τιμολογίων","Έλεγχος αποθηκευμένης ουράς")){invoiceRunning.set(false);return;}
@@ -774,6 +786,7 @@ public final class SyncService extends Service {
 
     @Override
     public void onDestroy() {
+        if(!NativeColdRuntime.blocked(this))NativePrimaryService.get(this).pause();
         if (directServer != null) directServer.close();
         if (executor != null) executor.shutdownNow();
         if (pulseExecutor != null) pulseExecutor.shutdownNow();

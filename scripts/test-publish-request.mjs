@@ -26,11 +26,12 @@ function fixture(t) {
   return { cwd, git, source, runs, request, commit, context };
 }
 
-for (const mode of ['verify', 'publish']) test(`${mode} request pins tested source and controls deployment`, async t => {
+for (const mode of ['verify', 'candidate', 'publish']) test(`${mode} request pins tested source and controls deployment`, async t => {
   const f = fixture(t), request = f.request(mode), sha = f.commit();
   const result = await planPublication(f.context(sha));
   assert.equal(result.sourceCommit, f.source);
   assert.equal(result.publish, mode === 'publish');
+  assert.equal(result.buildCandidate === true, mode === 'candidate');
   assert.equal(result.checkRun, 10);
   assert.equal(result.requestId, request.requestId);
 });
@@ -124,4 +125,23 @@ test('production checkout is pinned and verification runs without deployment cre
   assert.match(workflow, /paths: \['\.github\/fleet-publish-request\.json'\]/);
   assert.match(workflow, /if: needs\.request\.outputs\.publish == 'true'/);
   assert.match(workflow, /ref: \$\{\{ needs\.request\.outputs\.source_commit \}\}/);
+});
+
+for (const mode of ['candidate', 'publish']) test(mode + ' still requires successful exact main CI and request-only commit', async t => {
+  const f = fixture(t); f.request(mode); f.runs[0].conclusion = 'failure';
+  await assert.rejects(planPublication(f.context(f.commit())), /must succeed/);
+});
+test('candidate workflow cannot publish, deploy, activate or probe production', () => {
+  const workflow = fs.readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /build_candidate:.*steps\.request\.outputs\.build_candidate/);
+  for (const step of ['Save full source and signed files as a GitHub release', 'Set publishing credential and deploy compatible Worker',
+    'Upload and activate verified Server, Client and Web together', 'Verify live signed APK bytes and personnel mirror reads']) {
+    const start = workflow.indexOf('      - name: ' + step);
+    assert.ok(start >= 0, step);
+    const block = workflow.slice(start, workflow.indexOf('\n      - ', start + 10));
+    assert.match(block, /if: needs\.request\.outputs\.publish == 'true'/, step + ' must require publish=true');
+  }
+  const configure = workflow.match(/      - run: node scripts\/configure-worker\.mjs\n[^\n]+/)[0];
+  assert.match(configure, /if: needs\.request\.outputs\.publish == 'true'/);
+  assert.match(workflow, /name: Save original-signed candidate without activation[\s\S]*?if: needs\.request\.outputs\.build_candidate == 'true'/);
 });

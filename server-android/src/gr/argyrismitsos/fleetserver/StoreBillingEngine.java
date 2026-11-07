@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 
 /** Store billing only. Provider/order day changes at 05:00 Athens; payroll is independent. */
 public final class StoreBillingEngine {
-    public static final int VERSION=1;
+    public static final int VERSION=2;
     private static final TimeZone ATHENS=TimeZone.getTimeZone("Europe/Athens");
     public static String businessDay(long instant){
         Calendar c=Calendar.getInstance(ATHENS,Locale.US);c.setTimeInMillis(instant);
@@ -52,10 +52,13 @@ public final class StoreBillingEngine {
     public static JSONObject day(String store,String businessDay,long count,JSONObject terms,String sourceAt,int retained,int reviews)throws Exception{
         OrdexaClient.day(businessDay);if(count<0||count>10000000)throw new IllegalArgumentException("Μη έγκυρο πλήθος παραγγελιών.");
         JSONObject r=new JSONObject().put("storeId",store).put("businessDay",businessDay).put("orderCount",count).put("sourceLastSuccessAt",sourceAt).put("retainedOrders",retained).put("reviewCount",reviews).put("engineVersion",VERSION).put("cutoffHour",5).put("timeZone","Europe/Athens");
+        // Verified zero orders always means zero charge, including imported
+        // legacy chargeOnZero terms. Source terms remain in their own history.
+        if(count==0)return r.put("billingState","ready").put("termsId",terms==null?"":terms.optString("id")).put("zeroDayRule",true).put("chargeOnZero",false).put("orderChargeCents",0).put("minimumTopUpCents",0).put("totalChargeCents",0);
         if(terms==null||!terms.optBoolean("supported",true)||!terms.has("unitPriceCents"))return r.put("billingState","needs_terms").put("termsId",terms==null?"":terms.optString("id")).put("orderChargeCents",JSONObject.NULL).put("minimumTopUpCents",JSONObject.NULL).put("totalChargeCents",JSONObject.NULL);
         long price=terms.getLong("unitPriceCents"),minimum=terms.getLong("dailyMinimumCents");if(price<0||minimum<0||price>100000000||minimum>100000000)throw new IllegalArgumentException("Μη έγκυροι όροι Fleet.");
         // Bounds above keep the product below 10^15 (also exact in JSON/JS).
-        long base=count*price,top=(count>0||terms.getBoolean("chargeOnZero"))?Math.max(0,minimum-base):0;
+        long base=count*price,top=Math.max(0,minimum-base);
         return r.put("billingState",reviews>0?"review":"ready").put("termsId",terms.getString("id")).put("unitPriceCents",price).put("dailyMinimumCents",minimum).put("chargeOnZero",terms.getBoolean("chargeOnZero")).put("orderChargeCents",base).put("minimumTopUpCents",top).put("totalChargeCents",base+top);
     }
 }

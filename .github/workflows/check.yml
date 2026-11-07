@@ -11,6 +11,27 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  ordexa-diagnostic:
+    name: Build separate manual Ordexa diagnostic
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: bash scripts/unpack-toolchain.sh
+      - run: node scripts/test-ordexa-diagnostic-native.mjs
+      - run: bash scripts/build-ordexa-diagnostic.sh
+      - name: Save manual diagnostic and source identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordexa-manual-diagnostic
+          path: .build/ordexa-diagnostic/
+          if-no-files-found: error
   check:
     runs-on: ubuntu-24.04
     steps:
@@ -34,7 +55,7 @@ jobs:
       - name: Install ripgrep for Android build scripts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ripgrep
+          sudo apt-get install -y ripgrep poppler-utils
       - run: npm ci
         working-directory: cloudflare-worker
       - run: bash scripts/check-all.sh
@@ -46,6 +67,8 @@ jobs:
       - name: Install browser for navigation verification
         run: npx playwright install chromium
         working-directory: cloudflare-worker
+      - run: node scripts/test-primary-transport-browser.mjs
+      - run: node scripts/test-native-management-browser.mjs
       - run: node scripts/test-store-billing-browser.mjs
       - run: node scripts/test-store-weekly-browser.mjs
       - run: node scripts/test-navigation-motion-browser.mjs
@@ -54,6 +77,7 @@ jobs:
       - run: node scripts/test-invoice-auto-browser.mjs
       - run: node scripts/test-ordexa-browser.mjs
       - run: node scripts/test-server-backup-browser.mjs
+      - run: node scripts/test-server-primary-browser.mjs
       - run: node scripts/test-server-reconnect-browser.mjs
       - run: node scripts/test-staff-schedule-browser.mjs
       - run: node scripts/test-schedule-management-browser.mjs
@@ -69,13 +93,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: navigation-motion-verification
+          include-hidden-files: true
           path: |
+            .build/primary-transport-browser/
+            .build/native-management-browser/
             verification/navigation-motion/
             verification/next-service/
             verification/ui-system/
             verification/invoice-auto/
             verification/ordexa/
             verification/server-backup/
+            verification/server-primary/
             verification/server-reconnect/
             verification/staff-schedule/
             verification/schedule-management/
@@ -89,9 +117,16 @@ jobs:
       - run: node scripts/test-static-routing.mjs
       - run: bash scripts/unpack-toolchain.sh
       - run: node scripts/test-server-large-storage-native.mjs
+      - run: node scripts/test-server-authority-stage-native.mjs
+      - run: node scripts/test-native-frozen-export-v3.mjs
+      - run: node scripts/test-native-primary-promotion.mjs
+      - run: node scripts/test-server-task-results-native.mjs
       - run: node scripts/test-store-billing-native.mjs
       - run: node scripts/test-store-billing-pipeline.mjs
+      - run: node scripts/test-cash-pilot-native.mjs
+      - run: node scripts/test-ordexa-cash-source-native.mjs
       - run: node scripts/test-ordexa-native.mjs
+      - run: node scripts/test-ordexa-order-evidence-native.mjs
       - run: node scripts/test-ordexa-reconnect-native.mjs
       - run: node scripts/test-ordexa-server-sync-native.mjs
       - run: node scripts/test-local-invoice-reader.mjs
@@ -99,13 +134,35 @@ jobs:
       - run: node scripts/test-invoice-reader-full.mjs
       - run: node scripts/test-invoice-transport.mjs
       - run: node scripts/test-server-ota-policy.mjs
+      - run: node scripts/test-server-boot-native.mjs
       - run: node scripts/test-server-http.mjs
+      - run: node scripts/test-primary-cipher-native.mjs
+      - run: node scripts/test-primary-lease-native.mjs
+      - run: node scripts/test-business-runtime-native.mjs
+      - name: Prepare independent financial export validators
+        run: |
+          python3 -m venv .build/financial-python
+          .build/financial-python/bin/pip install --disable-pip-version-check openpyxl==3.1.5 pypdf==6.10.0
+      - run: node scripts/test-financial-export-native.mjs
+        env:
+          FLEET_FINANCE_PYTHON: .build/financial-python/bin/python
+      - name: Save synthetic financial export verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: financial-export-verification
+          path: .build/verification/financial-export/
+          if-no-files-found: error
       - run: node scripts/test-server-snapshot-sync.mjs
       - run: node scripts/test-server-system-mirror.mjs
       - run: node scripts/test-server-offload-native.mjs
       - run: python3 scripts/prepare-invoice-dependencies.py .build/backup-test-deps
+      - run: node scripts/test-backup-write-buffering-native.mjs
+      - run: node scripts/test-portable-backup-native.mjs
+      - run: node scripts/test-backup-protection-ui.mjs
       - run: node scripts/test-backup-streaming-native.mjs
       - run: node scripts/test-backup-jobs-native.mjs
+      - run: node scripts/test-backup-json-writer-native.mjs
+      - run: node scripts/test-backup-restore-probe-native.mjs
       - run: node scripts/test-backup-retention-native.mjs
       - run: node scripts/test-backup-archive.mjs
       - run: node scripts/test-invoice-sources-native.mjs
@@ -120,6 +177,14 @@ jobs:
           mkdir -p private/signing
           keytool -genkeypair -keystore private/signing/fleet-control-release.p12 -storetype PKCS12 -alias test -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=Fleet CI' -storepass:env FLEET_STORE_PASSWORD -keypass:env FLEET_KEY_PASSWORD
           bash scripts/build-android.sh all
+      - run: node scripts/audit-apk-history.mjs
+      - name: Save actual APK security comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-security-comparison
+          path: .build/verification/apk-security/
+          if-no-files-found: error
       - run: node scripts/test-client-landscape-apk.mjs
       - name: Save packaged Client orientation verification
         uses: actions/upload-artifact@v4
@@ -150,3 +215,42 @@ jobs:
           name: complete-source
           path: verification/source/
           if-no-files-found: error
+
+  visual-review:
+    name: Review synthetic UI ${{ matrix.image }}
+    needs: check
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - mobile-390-cash-couriers.png
+          - mobile-390-cash-inline-breakdown.png
+          - mobile-390-cash-automatic.png
+          - mobile-390-cash-reconciliation.png
+          - mobile-390-cash-resume.png
+          - mobile-390-stores-financial.png
+          - mobile-390-payroll-review.png
+          - mobile-390-server-health.png
+          - 390-orders-protocol-pending.png
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: navigation-motion-verification
+          path: verification-ui
+      # Only fixed synthetic-fixture screenshots, never production screens or private files.
+      - name: Expose synthetic screenshot for visual inspection
+        env:
+          FLEET_REVIEW_IMAGE: ${{ matrix.image }}
+        run: |
+          python3 - <<'PY'
+          import os,pathlib,base64,json
+          name=os.environ['FLEET_REVIEW_IMAGE']
+          matches=list(pathlib.Path('verification-ui').rglob(name))
+          assert len(matches)==1, 'Missing/duplicate expected synthetic screenshot: '+name
+          data=matches[0].read_bytes()
+          assert data.startswith(b'\x89PNG\r\n\x1a\n') and len(data)<1024*1024
+          print('FLEET_UI_IMAGE_BEGIN')
+          print(json.dumps({'name':name,'mimeType':'image/png','data':base64.b64encode(data).decode()}))
+          print('FLEET_UI_IMAGE_END')
+          PY

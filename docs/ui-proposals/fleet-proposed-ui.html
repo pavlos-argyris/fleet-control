@@ -1,0 +1,271 @@
+<div id="fleet-roadmap-ui">
+  <div class="f-preview-tools" aria-label="Έλεγχοι προεπισκόπησης">
+    <span>Πρόταση UI · Δεδομένα επίδειξης</span>
+    <label>Προβολή <select id="f-device"><option value="desktop">Υπολογιστής</option><option value="phone">Κινητό / Client</option></select></label>
+    <label>Σενάριο <select id="f-scenario"><option value="online">Server συνδεδεμένος</option><option value="offline">Server εκτός σύνδεσης</option><option value="conflict">Ταυτόχρονη αλλαγή</option></select></label>
+  </div>
+  <div class="f-app">
+    <aside class="f-side">
+      <div class="f-brand"><span class="f-logo">FC</span><span>Fleet Control<small>Operations Suite</small></span></div>
+      <nav id="f-nav" aria-label="Κύρια πλοήγηση Fleet"></nav>
+      <div class="f-side-foot">Διαχειριστής<small>Προεπισκόπηση σχεδιασμού</small></div>
+    </aside>
+    <div class="f-workspace">
+      <header class="f-header"><div><small>FLEET CONTROL</small><h2 id="f-page-title">Αρχική</h2></div><span class="f-avatar" aria-label="Διαχειριστής">Δ</span></header>
+      <div class="f-mobile-menu"><label>Μενού <select id="f-mobile-view" aria-label="Μενού εφαρμογής"></select></label></div>
+      <div class="f-connection" id="f-connection"><span class="f-dot"></span><span id="f-connection-copy">Server συνδεδεμένος · Ενημέρωση 11:05</span><button type="button" class="f-link cursor-interaction" data-go="system">Λεπτομέρειες</button></div>
+      <div id="f-notice" role="status" aria-live="polite" hidden></div>
+      <main id="f-content">
+        <div class="f-heading"><div><span class="f-overline">Η ΕΠΙΧΕΙΡΗΣΗ ΣΗΜΕΡΑ</span><h3>Η εικόνα της ημέρας</h3></div><span class="f-muted">Πέμπτη 5 Νοεμβρίου</span></div>
+        <div class="f-metrics"><div><small>Ενεργές βάρδιες</small><strong>12</strong></div><div><small>Ενεργά μηχανάκια</small><strong>10</strong></div><div><small>Πληρωτέες ώρες εβδομάδας</small><strong>184,5</strong></div></div>
+        <div class="f-panels"><button type="button" class="f-action-panel cursor-interaction" data-go="payroll"><span class="f-tag f-warn">Προς έλεγχο</span><h3>3 θέματα μισθοδοσίας</h3><span>Άνοιγμα ελέγχου →</span></button><button type="button" class="f-action-panel cursor-interaction" data-go="cash"><span class="f-tag">Ταμείο διανομέων</span><h3>26,00 € εκκρεμούν</h3><span>Προβολή αποδόσεων →</span></button></div>
+        <section class="f-panel"><div class="f-panel-head"><h3>Live ενεργές βάρδιες</h3><button type="button" class="f-link cursor-interaction" data-go="shifts">Όλες →</button></div><div class="f-line"><span>Νίκος Δ.<small>08:00–16:00 · Μηχανάκι 03</small></span><span class="f-tag">Ενεργός</span></div><div class="f-line"><span>Γιώργος Κ.<small>09:00–17:00 · Μηχανάκι 12</small></span><span class="f-tag">Ενεργός</span></div></section>
+      </main>
+      <nav class="f-bottom" aria-label="Γρήγορη πλοήγηση"><button type="button" data-go="home" class="cursor-interaction">Αρχική</button><button type="button" data-go="shifts" class="cursor-interaction">Βάρδιες</button><button type="button" data-go="bikes" class="cursor-interaction">Μηχανάκια</button><button type="button" data-go="invoices" class="cursor-interaction">Τιμολόγια</button><button type="button" data-more class="cursor-interaction" aria-label="Περισσότερα μενού">Μενού</button></nav>
+    </div>
+  </div>
+  <dialog id="f-dialog"><form id="f-dialog-form"><div class="f-panel-head"><h3 id="f-dialog-title">Επεξεργασία</h3><button type="button" data-close class="f-btn cursor-interaction" aria-label="Κλείσιμο παραθύρου">Κλείσιμο</button></div><div id="f-dialog-content"></div><p id="f-dialog-result" aria-live="polite"></p><div class="f-buttons"><button type="button" data-close class="f-btn cursor-interaction">Άκυρο</button><button type="submit" id="f-dialog-save" class="f-btn f-primary cursor-interaction">Αποθήκευση</button></div></form></dialog>
+</div>
+<style>
+#fleet-roadmap-ui{--f-canvas:light-dark(#f3f7f8,#14272d);--f-panel:light-dark(#fff,#1b333a);--f-ink:light-dark(#172b35,#edf4f5);--f-muted:light-dark(#5e737d,#b3c7cc);--f-line:light-dark(#dce7e9,#36515a);--f-teal:light-dark(#087e6d,#73ddc2);--f-soft:light-dark(#e8f7f2,#183e39);--f-action:light-dark(#087e6d,#68cbb3);--f-action-ink:light-dark(#fff,#102b33);--f-warning:light-dark(#86600d,#f4cf7a);--f-warning-bg:light-dark(#fff4de,#443b23);--f-bad:light-dark(#a62d40,#ffacb6);--f-bad-bg:light-dark(#fff0f2,#482b32);font:14px/1.5 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--f-ink)}
+#fleet-roadmap-ui *{box-sizing:border-box}
+#fleet-roadmap-ui [hidden]{display:none!important}
+#fleet-roadmap-ui button,#fleet-roadmap-ui input,#fleet-roadmap-ui select,#fleet-roadmap-ui textarea{font:inherit;max-width:100%;color:inherit}
+#fleet-roadmap-ui button,#fleet-roadmap-ui select{min-height:42px}
+#fleet-roadmap-ui button{touch-action:manipulation}
+#fleet-roadmap-ui h2,#fleet-roadmap-ui h3,#fleet-roadmap-ui p{margin:0}
+#fleet-roadmap-ui h2{font-size:24px;font-weight:500;letter-spacing:-.035em}
+#fleet-roadmap-ui h3{font-size:17px;font-weight:500;letter-spacing:-.02em}
+#fleet-roadmap-ui strong,#fleet-roadmap-ui b{font-weight:500}
+#fleet-roadmap-ui small{display:block;font-size:12px;color:var(--f-muted);margin-top:3px}
+#fleet-roadmap-ui .f-preview-tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-bottom:12px;padding-right:90px}
+#fleet-roadmap-ui .f-preview-tools>span{color:var(--f-muted);flex:1 1 220px;font-size:12px}
+#fleet-roadmap-ui .f-preview-tools label{font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#fleet-roadmap-ui .f-preview-tools select{border:1px solid var(--f-line);background:var(--f-panel);border-radius:8px;padding:6px 9px;min-height:36px;font-size:12px}
+#fleet-roadmap-ui .f-app{display:grid;grid-template-columns:190px minmax(0,1fr);background:var(--f-canvas);border:1px solid var(--f-line);border-radius:18px;overflow:clip;min-height:680px}
+#fleet-roadmap-ui .f-side{background:light-dark(#102b33,#0c2027);color:#e8f2f3;padding:22px 12px;display:flex;flex-direction:column;gap:20px}
+#fleet-roadmap-ui .f-brand{display:flex;align-items:center;gap:10px;font-weight:500;padding:0 5px;font-size:15px}
+#fleet-roadmap-ui .f-brand small{color:#a7c1c5;font-size:11px}
+#fleet-roadmap-ui .f-logo{background:#087e6d;color:#fff;display:grid;place-items:center;width:35px;height:35px;border-radius:12px;flex-shrink:0}
+#fleet-roadmap-ui .f-side nav{display:grid;gap:3px}
+#fleet-roadmap-ui .f-nav-item{background:transparent;border:0;color:#bdd0d3;text-align:left;padding:9px 10px;display:flex;align-items:center;gap:10px;border-radius:10px;font-size:12px;min-height:39px}
+#fleet-roadmap-ui .f-nav-item.active{background:#234a4f;color:#fff;box-shadow:inset 3px 0 #12bfa5}
+#fleet-roadmap-ui .f-nav-item svg{width:17px;height:17px;flex-shrink:0}
+#fleet-roadmap-ui .f-new{font-size:10px;margin-left:auto;color:#98e2d1;border:1px solid #4c7777;border-radius:5px;padding:1px 4px}
+#fleet-roadmap-ui .f-side-foot{padding:15px 8px 0;border-top:1px solid #31515a;margin-top:auto;font-size:12px}
+#fleet-roadmap-ui .f-side-foot small{color:#a7c1c5;font-size:11px}
+#fleet-roadmap-ui .f-workspace{min-width:0;container-type:inline-size;container-name:fleet-workspace}
+#fleet-roadmap-ui .f-header{display:flex;align-items:center;justify-content:space-between;padding:22px 24px 16px;border-bottom:1px solid var(--f-line)}
+#fleet-roadmap-ui .f-header small,#fleet-roadmap-ui .f-overline{color:var(--f-teal);font-size:10px;letter-spacing:.11em;font-weight:500}
+#fleet-roadmap-ui .f-avatar{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--f-line);background:var(--f-panel);border-radius:50%}
+#fleet-roadmap-ui .f-connection{display:flex;align-items:center;gap:8px;padding:10px 24px;color:var(--f-teal);font-size:12px;flex-wrap:wrap;background:var(--f-soft)}
+#fleet-roadmap-ui .f-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
+#fleet-roadmap-ui .f-connection .f-link{margin-left:auto;min-height:24px}
+#fleet-roadmap-ui[data-scenario=offline] .f-connection{background:var(--f-warning-bg);color:var(--f-warning)}
+#fleet-roadmap-ui main{padding:24px;min-width:0;display:grid;gap:18px}
+#fleet-roadmap-ui .f-heading,#fleet-roadmap-ui .f-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#fleet-roadmap-ui .f-heading h3{font-size:21px;margin-top:4px}
+#fleet-roadmap-ui .f-muted{color:var(--f-muted);font-size:12px}
+#fleet-roadmap-ui .f-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+#fleet-roadmap-ui .f-metrics>div{background:var(--f-panel);border:1px solid var(--f-line);border-radius:14px;padding:15px;min-width:0}
+#fleet-roadmap-ui .f-metrics strong{display:block;font-size:25px;margin-top:6px;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+#fleet-roadmap-ui .f-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#fleet-roadmap-ui .f-action-panel{display:grid;gap:12px;background:var(--f-panel);border:1px solid var(--f-line);border-radius:16px;text-align:left;padding:18px}
+#fleet-roadmap-ui .f-action-panel>span:last-child{color:var(--f-teal);font-size:12px}
+#fleet-roadmap-ui .f-panel{border:1px solid var(--f-line);background:var(--f-panel);border-radius:16px;padding:18px;min-width:0}
+#fleet-roadmap-ui .f-panel-head{margin-bottom:12px}
+#fleet-roadmap-ui .f-tag{background:var(--f-soft);color:var(--f-teal);font-size:11px;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;width:fit-content}
+#fleet-roadmap-ui .f-warn{background:var(--f-warning-bg);color:var(--f-warning)}
+#fleet-roadmap-ui .f-bad{background:var(--f-bad-bg);color:var(--f-bad)}
+#fleet-roadmap-ui .f-line{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:13px 0;border-top:1px solid var(--f-line)}
+#fleet-roadmap-ui .f-line>span:first-child{min-width:0}
+#fleet-roadmap-ui .f-btn{background:var(--f-panel);border:1px solid var(--f-line);border-radius:10px;padding:9px 12px;font-size:12px}
+#fleet-roadmap-ui .f-primary{background:var(--f-action);color:var(--f-action-ink);border-color:var(--f-action)}
+#fleet-roadmap-ui .f-link{border:0;background:transparent;color:var(--f-teal);padding:5px 0;font-size:12px}
+#fleet-roadmap-ui button:disabled{opacity:.5}
+#fleet-roadmap-ui .f-buttons{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#fleet-roadmap-ui .f-tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--f-line);padding-bottom:10px}
+#fleet-roadmap-ui .f-tabs button{background:transparent;border:0;border-radius:9px;padding:9px 13px;font-size:12px}
+#fleet-roadmap-ui .f-tabs button.active{background:var(--f-soft);color:var(--f-teal)}
+#fleet-roadmap-ui .f-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#fleet-roadmap-ui .f-toolbar input,#fleet-roadmap-ui .f-toolbar select{border:1px solid var(--f-line);background:var(--f-panel);border-radius:9px;padding:8px;font-size:12px;min-height:42px}
+#fleet-roadmap-ui .f-table-wrap{overflow-x:auto}
+#fleet-roadmap-ui table{border-collapse:collapse;width:100%;font-size:12px;text-align:left}
+#fleet-roadmap-ui th{font-weight:500;color:var(--f-muted);font-size:11px;white-space:normal}
+#fleet-roadmap-ui td,#fleet-roadmap-ui th{padding:12px 9px;border-bottom:1px solid var(--f-line);vertical-align:middle}
+#fleet-roadmap-ui td:first-child,#fleet-roadmap-ui th:first-child{padding-left:0}
+#fleet-roadmap-ui td:last-child,#fleet-roadmap-ui th:last-child{padding-right:0}
+#fleet-roadmap-ui .f-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+#fleet-roadmap-ui .f-info{padding:12px 14px;border-radius:10px;background:var(--f-soft);color:var(--f-teal);font-size:12px}
+#fleet-roadmap-ui .f-info.f-warn{background:var(--f-warning-bg);color:var(--f-warning)}
+#fleet-roadmap-ui .f-info.f-bad{background:var(--f-bad-bg);color:var(--f-bad)}
+#fleet-roadmap-ui .f-detail{display:grid;gap:12px}
+#fleet-roadmap-ui .f-pair{display:flex;justify-content:space-between;gap:14px;padding:8px 0;flex-wrap:wrap}
+#fleet-roadmap-ui .f-pair span{color:var(--f-muted)}
+#fleet-roadmap-ui label.f-field{display:grid;gap:6px;margin-top:12px;font-size:12px}
+#fleet-roadmap-ui .f-field input,#fleet-roadmap-ui .f-field select,#fleet-roadmap-ui .f-field textarea{border:1px solid var(--f-line);border-radius:9px;background:var(--f-panel);padding:10px;font-size:16px;min-width:0;width:100%;color:var(--f-ink)}
+#fleet-roadmap-ui .f-field input:disabled{background:var(--f-canvas)}
+#fleet-roadmap-ui #f-notice{margin:16px 24px 0;padding:12px;border-radius:10px;background:var(--f-soft);color:var(--f-teal);font-size:12px}
+#fleet-roadmap-ui .f-empty{padding:22px 0;color:var(--f-muted)}
+#fleet-roadmap-ui .f-check{display:flex;gap:10px;align-items:center;padding:10px 0;font-size:13px}
+#fleet-roadmap-ui .f-check input{width:20px;height:20px;accent-color:var(--f-teal)}
+#fleet-roadmap-ui .f-mobile-menu,#fleet-roadmap-ui .f-bottom{display:none}
+#fleet-roadmap-ui dialog{width:min(470px,calc(100% - 24px));background:var(--f-panel);color:var(--f-ink);padding:20px;border:1px solid var(--f-line);border-radius:18px;box-shadow:0 15px 80px #102b3340}
+#fleet-roadmap-ui dialog::backdrop{background:#102b3370}
+#fleet-roadmap-ui dialog .f-buttons{justify-content:flex-end;margin-top:16px}
+#fleet-roadmap-ui #f-dialog-result{font-size:12px;margin-top:12px;color:var(--f-warning)}
+#fleet-roadmap-ui .f-app.f-phone{max-width:390px;margin:auto;grid-template-columns:1fr;min-height:680px}
+#fleet-roadmap-ui .f-phone .f-side{display:none}
+#fleet-roadmap-ui .f-phone .f-header{padding:18px 16px 14px}
+#fleet-roadmap-ui .f-phone main{padding:18px 14px}
+#fleet-roadmap-ui .f-phone .f-connection{padding:10px 14px}
+#fleet-roadmap-ui .f-phone .f-mobile-menu{display:none}
+#fleet-roadmap-ui .f-mobile-menu label{display:flex;gap:10px;align-items:center;font-size:12px}
+#fleet-roadmap-ui .f-mobile-menu select{flex:1;min-width:0;border:1px solid var(--f-line);background:var(--f-panel);border-radius:8px;padding:8px;font-size:16px}
+#fleet-roadmap-ui .f-phone .f-metrics{grid-template-columns:1fr 1fr}
+#fleet-roadmap-ui .f-phone .f-metrics>div:last-child{grid-column:1/-1}
+#fleet-roadmap-ui .f-phone .f-panels{grid-template-columns:1fr}
+#fleet-roadmap-ui .f-phone .f-bottom{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:var(--f-panel);border-top:1px solid var(--f-line);padding:6px;margin-top:10px}
+#fleet-roadmap-ui .f-bottom button{border:0;border-radius:8px;background:transparent;font-size:11px;padding:8px 1px;color:var(--f-muted);overflow-wrap:anywhere}
+#fleet-roadmap-ui .f-more-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+#fleet-roadmap-ui .f-more-grid button{text-align:left;min-height:48px}
+#fleet-roadmap-ui .f-bottom button.active{background:var(--f-soft);color:var(--f-teal)}
+@container fleet-workspace (max-width:560px){#fleet-roadmap-ui .f-stack-table,#fleet-roadmap-ui .f-stack-table tbody{display:block;width:100%}#fleet-roadmap-ui .f-stack-table thead{display:none}#fleet-roadmap-ui .f-stack-table tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 10px;border-bottom:1px solid var(--f-line);padding:15px 0}#fleet-roadmap-ui .f-stack-table td{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:5px;border:0;padding:0;white-space:normal;min-width:0}#fleet-roadmap-ui .f-stack-table td:first-child{display:block;grid-column:1/-1;font-size:14px}#fleet-roadmap-ui .f-stack-table td:not(:first-child)::before{content:attr(data-label);font-size:11px;color:var(--f-muted)}#fleet-roadmap-ui .f-stack-table td[data-label=""]::before{display:none}#fleet-roadmap-ui .f-stack-table .f-btn{width:100%}}
+@media(pointer:coarse){#fleet-roadmap-ui button,#fleet-roadmap-ui select{min-height:44px}}
+@media(max-width:700px){#fleet-roadmap-ui .f-app{grid-template-columns:1fr;min-height:0}#fleet-roadmap-ui .f-side{display:none}#fleet-roadmap-ui .f-header{padding:18px 16px 14px}#fleet-roadmap-ui main{padding:18px 14px}#fleet-roadmap-ui .f-connection{padding:10px 14px}#fleet-roadmap-ui .f-mobile-menu{display:none}#fleet-roadmap-ui .f-metrics{grid-template-columns:1fr 1fr}#fleet-roadmap-ui .f-metrics>div:last-child{grid-column:1/-1}#fleet-roadmap-ui .f-panels{grid-template-columns:1fr}#fleet-roadmap-ui .f-bottom{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:var(--f-panel);border-top:1px solid var(--f-line);padding:6px}#fleet-roadmap-ui .f-preview-tools{padding-right:0}#fleet-roadmap-ui .f-heading h3{font-size:20px}#fleet-roadmap-ui .f-table-wrap{max-width:100%}}
+</style>
+<script>
+(()=>{
+const root=document.getElementById('fleet-roadmap-ui');
+const q=s=>root.querySelector(s);
+const nav=[['home','Αρχική','house'],['shifts','Βάρδιες','clock-3'],['schedule','Πρόγραμμα','calendar-days'],['employees','Εργαζόμενοι','users'],['bikes','Μηχανάκια','bike'],['invoices','Τιμολόγια','file-text'],['stores','Καταστήματα','store'],['cash','Ταμείο διανομέων','wallet'],['payroll','Μισθοδοσία','badge-euro'],['reports','Αναφορές','chart-no-axes-combined'],['alerts','Ειδοποιήσεις','bell'],['audit','Αρχείο ενεργειών','history'],['recycle','Κάδος','archive-restore'],['system','Backup & Server','server'],['settings','Ρυθμίσεις','settings']];
+const home=q('#f-content').innerHTML;
+const state={view:'home',scenario:'online',storeTab:'finances',period:'day',cashTab:'couriers',payTab:'summary',systemTab:'health',employeeTab:'details',receipt:20,receiptEntries:[20],reviewed:false,overlapReviewed:false,matched:false,dialog:null};
+const money=n=>n.toLocaleString('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+const btn=(label,attr='',primary=false)=>`<button type="button" class="f-btn ${primary?'f-primary':''} cursor-interaction" ${attr}>${label}</button>`;
+const tabs=(items,current,kind)=>`<div class="f-tabs" aria-label="Καρτέλες">${items.map(([id,label])=>`<button type="button" class="${id===current?'active':''} cursor-interaction" data-${kind}="${id}" aria-pressed="${id===current}">${label}</button>`).join('')}</div>`;
+const heading=(over,title,action='')=>`<div class="f-heading"><div><span class="f-overline">${over}</span><h3>${title}</h3></div>${action}</div>`;
+const metrics=items=>`<div class="f-metrics">${items.map(([l,v])=>`<div><small>${l}</small><strong>${v}</strong></div>`).join('')}</div>`;
+const panel=(title,body,action='')=>`<section class="f-panel"><div class="f-panel-head"><h3>${title}</h3>${action}</div>${body}</section>`;
+const line=(l,v)=>`<div class="f-line"><span>${l}</span><span>${v}</span></div>`;
+const periodControl=()=>tabs([['day','Ημέρα'],['week','Εβδομάδα'],['month','Μήνας'],['range','Διάστημα']],state.period,'period');
+const toolbar=()=>`<div class="f-toolbar"><input aria-label="Από ημερομηνία" type="date" value="2026-11-04">${state.period==='range'?'<input aria-label="Έως ημερομηνία" type="date" value="2026-11-05">':''}<span class="f-muted">Ημέρα 05:00–05:00</span><span style="flex:1"></span>${btn('Excel','data-export="Excel"')}${btn('PDF','data-export="PDF"')}</div>`;
+const field=(label,value='',type='text',extra='')=>`<label class="f-field">${label}<input type="${type}" value="${value}" ${extra}></label>`;
+const offline=()=>state.scenario==='offline';
+function storeView(){
+ let body='';const factor=state.period==='day'?1:state.period==='week'?7:state.period==='month'?30:2;
+ if(state.storeTab==='finances')body=metrics([['Παραγγελίες',String(35*factor)],['Συμπληρώματα παγίων',money(10*factor)],['Συνολική χρέωση',money(90*factor)]])+panel('Χρεώσεις ανά κατάστημα',`<div class="f-table-wrap"><table><thead><tr><th>Κατάστημα</th><th class="f-num">Παραγγελίες</th><th class="f-num">Από παραγγελίες</th><th class="f-num">Συμπλήρωμα</th><th class="f-num">Σύνολο</th></tr></thead><tbody><tr><td>Κατάστημα Α<small>Ελάχιστο 40 € / ημέρα</small></td><td class="f-num">${15*factor}</td><td class="f-num">${money(30*factor)}</td><td class="f-num">${money(10*factor)}</td><td class="f-num">${money(40*factor)}</td></tr><tr><td>Κατάστημα Β<small>Ελάχιστο 25 € / ημέρα</small></td><td class="f-num">${20*factor}</td><td class="f-num">${money(50*factor)}</td><td class="f-num">${money(0)}</td><td class="f-num">${money(50*factor)}</td></tr><tr><td>Κατάστημα Γ<small>0 παραγγελίες → 0 πάγιο</small></td><td class="f-num">0</td><td class="f-num">${money(0)}</td><td class="f-num">${money(0)}</td><td class="f-num">${money(0)}</td></tr><tr><td><strong>Σύνολο</strong></td><td class="f-num">${35*factor}</td><td class="f-num">${money(80*factor)}</td><td class="f-num">${money(10*factor)}</td><td class="f-num">${money(90*factor)}</td></tr></tbody></table></div>`);
+ if(state.storeTab==='days')body=panel('Ανάλυση επιλεγμένης ημέρας',line('Κατάστημα Α<small>15 παραγγελίες · 30 € + 10 € συμπλήρωμα</small>',money(40))+line('Κατάστημα Β<small>20 παραγγελίες · χωρίς συμπλήρωμα</small>',money(50))+line('Κατάστημα Γ<small>Χωρίς παραγγελίες</small>',money(0))+'<div class="f-info">Πλήρης λήψη πηγής · Δημοσιευμένο αποτέλεσμα 05/11, 05:08</div>');
+ if(state.storeTab==='terms')body=panel('Όροι καταστήματος Α',line('Χρέωση ανά παραγγελία',money(2))+line('Ημερήσιο ελάχιστο',money(40))+line('Έναρξη ισχύος','01/11/2026')+`<label class="f-check"><input type="checkbox">Διατήρηση διαγραμμένων παραγγελιών στο Fleet</label><div class="f-info">Οι χρεώσεις καταστήματος και οι αποδόσεις διανομέα εμφανίζονται χωριστά.</div><div class="f-buttons" style="margin-top:14px">${btn('Ιστορικό τιμών','data-history')}${btn('Νέα τιμή από ημερομηνία','data-edit="store"',true)}</div>`);
+ return heading('ΟΙΚΟΝΟΜΙΚΗ ΕΙΚΟΝΑ','Καταστήματα')+tabs([['finances','Οικονομικά'],['days','Ανά ημέρα'],['terms','Χρεώσεις & επιλογές']],state.storeTab,'store-tab')+periodControl()+toolbar()+`<div class="f-info ${offline()?'f-warn':''}">${offline()?'Αποθηκευμένη προβολή · Τελευταία επιβεβαίωση 11:05':'Ολοκληρώθηκε στον Server · Δημοσιεύτηκε 11:05'}</div>`+body;
+}
+function cashView(){
+ const due=70,received=state.receipt+24,pending=due-received;
+ let body='';
+ if(state.cashTab==='couriers')body=metrics([['Προς απόδοση',money(due)],['Παραδόθηκαν',money(received)],['Υπόλοιπο',money(pending)]])+panel('Ανά διανομέα',`<div class="f-table-wrap"><table><thead><tr><th>Διανομέας</th><th class="f-num">Οφειλή</th><th class="f-num">Παραδόθηκαν</th><th class="f-num">Υπόλοιπο</th><th></th></tr></thead><tbody><tr><td>Νίκος Δ.<small>15 παραγγελίες · Κατηγορία Α</small></td><td class="f-num">30,00 €</td><td class="f-num">${money(state.receipt)}</td><td class="f-num">${money(30-state.receipt)}</td><td>${btn('Παραλαβή','data-edit="receipt"',true)}</td></tr><tr><td>Γιώργος Κ.<small>12 παραγγελίες · Κατηγορία Α</small></td><td class="f-num">24,00 €</td><td class="f-num">24,00 €</td><td class="f-num">0,00 €</td><td><span class="f-tag">Εξοφλήθηκε</span></td></tr><tr><td>Ελένη Μ.<small>8 παραγγελίες · Κατηγορία Α</small></td><td class="f-num">16,00 €</td><td class="f-num">0,00 €</td><td class="f-num">16,00 €</td><td>${btn('Ανάλυση','data-cash-detail')}</td></tr></tbody></table></div>`)+`<details class="f-panel"><summary class="cursor-interaction">Ανάλυση Νίκου Δ. ανά κατάστημα / κατηγορία</summary>${line('Κατάστημα Α · Κατηγορία Α<small>10 παραγγελίες × 2 €</small>','20,00 €')}${line('Κατάστημα Β · Κατηγορία Α<small>5 παραγγελίες × 2 €</small>','10,00 €')}</details>`;
+ if(state.cashTab==='movements')body=panel('Ιστορικό ταμείου',state.receiptEntries.map((amount,index)=>line('Παραλαβή από Νίκο Δ.<small>Διαχειριστής · 04/11, '+(index?'16:18':'16:10')+'</small>',money(amount))).join('')+line('Παραλαβή από Γιώργο Κ.<small>Διαχειριστής · 04/11, 17:02</small>',money(24))+`<div class="f-buttons">${btn('Διορθωτική κίνηση','data-edit="adjustment"')}</div>`);
+ if(state.cashTab==='rules')body=panel('Κανόνες απόδοσης',line('Κατηγορία Α<small>Καταστήματα Α και Β · Ισχύς από 01/11/2026</small>','2,00 € / παραγγελία')+`<div class="f-buttons">${btn('Νέος κανόνας','data-edit="cashrule"',true)}</div><div class="f-info" style="margin-top:14px">Η απόδοση χρημάτων δεν συμψηφίζεται με την ωρομίσθια μισθοδοσία.</div>`);
+ return heading('ΑΠΟΔΟΣΗ ΧΡΗΜΑΤΩΝ','Ταμείο διανομέων',btn('Χειροκίνητη καταχώριση','data-edit="manualcash"'))+tabs([['couriers','Ανά διανομέα'],['movements','Κινήσεις'],['rules','Κανόνες απόδοσης']],state.cashTab,'cash-tab')+`<div class="f-info f-warn">Αυτόματη αντιστοίχιση Ordexa: προς επιβεβαίωση. Το παράδειγμα χρησιμοποιεί ελεγμένες δοκιμαστικές καταχωρίσεις.</div>`+`<div class="f-toolbar"><input aria-label="Ημέρα ταμείου" type="date" value="2026-11-04"><select aria-label="Βάρδια"><option>Όλες οι βάρδιες</option><option>Πρωινή</option><option>Απογευματινή</option></select><span style="flex:1"></span>${btn('Excel','data-export="Excel"')}${btn('PDF','data-export="PDF"')}</div>`+body;
+}
+function shiftsView(){return heading('ΠΗΓΗ ΠΑΡΟΥΣΙΩΝ: ORDEXA','Βάρδιες',btn('Προς έλεγχο 3','data-go="payroll"'))+`<div class="f-toolbar"><input aria-label="Ημέρα βαρδιών" type="date" value="2026-11-04"><span class="f-muted">Τελευταίος συγχρονισμός 11:05 · κάθε 5 λεπτά</span></div>`+panel('Τετάρτη 4 Νοεμβρίου',`<div class="f-line"><span><strong>Νίκος Δ.</strong><small>Πραγματική παρουσία 18:14–00:55</small><small>Πληρωτέο 18:00–01:00 · 6 ώρες × 6 € + 1 ώρα × 10 €</small></span><span>${btn('Επεξεργασία','data-edit="shift"')}</span></div><div class="f-line"><span><strong>Γιώργος Κ.</strong><small>08:00–10:00 · 09:45–12:00 · 13:00–16:00</small><small>3 επιμέρους παρουσίες · μία καρτέλα εργαζομένου</small></span><span class="f-tag f-warn">Έλεγχος επικάλυψης</span></div><div class="f-line"><span><strong>Ελένη Μ.</strong><small>18:00–22:00 · Έγκυρη παρουσία εκτός προγράμματος</small></span><span class="f-tag f-warn">Εκτός προγράμματος</span></div>`);}
+function payrollView(){
+ let pending=(state.matched?0:1)+(state.reviewed?0:1)+(state.overlapReviewed?0:1);
+ let body=state.payTab==='summary'?metrics([['Πληρωτέες ώρες','184,5'],['Προς πληρωμή','1.167,00 €'],['Προς έλεγχο',String(pending)]])+panel('Μισθοδοσία εβδομάδας',line('Νίκος Δ.<small>Πληρωτέες 40 ώρες · περιλαμβάνονται νυχτερινές ζώνες</small>','264,00 €')+line('Γιώργος Κ.<small>Πληρωτέες 38 ώρες</small>','228,00 €')+line('Ελένη Μ.<small>Πληρωτέες 32 ώρες</small>','192,00 €')+'<small>Ενδεικτικές γραμμές από το σύνολο της ομάδας.</small>'):
+ `<div class="f-info ${state.matched?'':'f-bad'}">${state.matched?'Οι αντιστοιχίσεις επιβεβαιώθηκαν.':'1 θέμα που εμποδίζει το κλείδωμα · 2 ενημερωτικές προειδοποιήσεις'}</div>`+panel('Αντιστοίχιση παρουσίας',`<div class="f-detail"><span class="f-tag ${state.matched?'':'f-bad'}">${state.matched?'Αντιστοιχίστηκε':'Απαιτείται ενέργεια'}</span><p>Παρουσία Ordexa χωρίς επιβεβαιωμένο εργαζόμενο Fleet.</p><div class="f-pair"><span>Πραγματικά στοιχεία</span><strong>04/11 · 16:00–00:00</strong></div>${btn('Αντιστοίχιση εργαζομένου','data-edit="match"',true)}</div>`)+panel('Εκτός προγράμματος · Ελένη Μ.',`<div class="f-pair"><span>Πραγματική παρουσία</span><strong>18:00–22:00</strong></div><div class="f-pair"><span>Πληρωτέο / τρέχον ποσό</span><strong>4 ώρες · 24,00 €</strong></div><span class="f-tag ${state.reviewed?'':'f-warn'}">${state.reviewed?'Ελέγχθηκε · διατηρείται':'Ενημερωτικό · δεν μηδενίζει ώρες'}</span><div class="f-buttons" style="margin-top:14px">${btn('Επεξεργασία πληρωτέου','data-edit="shift"')}${btn('Ελέγχθηκε / διατηρείται','data-edit="review"',true)}</div>`)+panel('Νυχτερινή κάλυψη',`<div class="f-pair"><span>00:00–01:00</span><strong>3 από 3 θέσεις</strong></div><div class="f-pair"><span>01:00–02:00</span><strong>2 από 2 θέσεις</strong></div><small>Η νυχτερινή παρουσία ανήκει στην ημέρα έναρξης. Όριο πληρωμής 02:00.</small>`);
+ if(state.payTab==='review')body+=panel('Επικάλυψη παρουσιών · Γιώργος Κ.',`<div class="f-pair"><span>Πραγματικά διαστήματα</span><strong>08:00–10:00 · 09:45–12:00</strong></div><div class="f-pair"><span>Τρίτη παρουσία</span><strong>13:00–16:00</strong></div><span class="f-tag ${state.overlapReviewed?'':'f-warn'}">${state.overlapReviewed?'Ελέγχθηκε · διατηρείται':'Επικάλυψη 15 λεπτών · απαιτεί έλεγχο'}</span><div class="f-buttons" style="margin-top:14px">${btn('Έλεγχος πληρωτέου','data-edit="shift"')}${btn('Ελέγχθηκε / διατηρείται','data-edit="reviewoverlap"')}</div>`);
+ return heading('ΔΕΥΤΕΡΑ–ΚΥΡΙΑΚΗ','Μισθοδοσία',btn('Προεπισκόπηση κλειδώματος','data-lock',true))+`<div class="f-toolbar"><input aria-label="Εβδομάδα μισθοδοσίας" type="date" value="2026-11-02"><span class="f-muted">2–8 Νοεμβρίου 2026</span></div>`+tabs([['summary','Σύνοψη'],['review','Προς έλεγχο '+pending]],state.payTab,'pay-tab')+body;
+}
+function systemView(){
+ let body='';
+ if(state.systemTab==='health')body=panel('Υγεία συστήματος',line('Server<small>Τελευταία επικοινωνία 11:05</small>',`<span class="f-tag ${offline()?'f-warn':''}">${offline()?'Εκτός σύνδεσης':'Συνδεδεμένος'}</span>`)+line('Ordexa · παρουσίες<small>Τελευταία επιτυχής λήψη 11:05 · κάθε 5 λεπτά</small>','Ενημερωμένο')+line('Καταστήματα<small>Τελευταία ολοκλήρωση 10:08 · ωριαία / χειροκίνητα</small>','Ολοκληρώθηκε')+line('Ουρά αποστολών<small>Παλιότερη εκκρεμότητα: 7 λεπτά</small>','2 σε αναμονή')+line('Χώρος κινητού Server','8,4 GB διαθέσιμα')+line('Όρια D1<small>Δεν υπάρχει αξιόπιστη μέτρηση χρήσης</small>','Άγνωστα')+`<div class="f-buttons">${btn('Εξαγωγή διαγνωστικών','data-diagnostics')}${btn('Ειδοποιήσεις','data-go="alerts"')}</div>`);
+ if(state.systemTab==='backups')body=panel('Αντίγραφα ασφαλείας',line('Τελευταίο ολοκληρωμένο αντίγραφο<small>Κρυπτογραφημένο · επιλεγμένος φάκελος</small>','05/11 · 05:15')+line('Έλεγχος αρχείου / ακεραιότητας','Επιτυχής')+line('Δοκιμή ανάκτησης σε ξεχωριστή βάση','04/11 · επιτυχής')+`<div class="f-buttons">${btn('Δημιουργία αντιγράφου','data-backup',true)}${btn('Ιστορικό / έλεγχος','data-backup-check')}</div><small style="margin-top:12px">Η ολοκλήρωση εμφανίζεται όταν επιβεβαιωθεί από τον Server.</small>`);
+ if(state.systemTab==='apps')body=panel('Εφαρμογές Fleet Control',line('Client / Server','5.60.0 / 2.9.0')+line('Πηγή πακέτου','Επίσημη έκδοση Fleet')+line('Ακεραιότητα πακέτου','Επαληθευμένη')+line('Συμβατή υπογραφή ενημέρωσης','Επαληθευμένη')+`<div class="f-info f-warn">Ο έλεγχος Google Play Protect γίνεται από το Android κατά την εγκατάσταση.</div><div class="f-buttons" style="margin-top:14px">${btn('Λήψη Client APK','data-install',true)}${btn('Λεπτομέρειες έκδοσης','data-update-details')}</div>`);
+ return heading('ΛΕΙΤΟΥΡΓΙΑ ΚΑΙ ΑΣΦΑΛΕΙΑ','Backup & Server')+tabs([['health','Υγεία συστήματος'],['backups','Αντίγραφα'],['apps','Εφαρμογές']],state.systemTab,'system-tab')+body;
+}
+function employeesView(){
+ const bodies={
+ details:line('Εργαζόμενος','Νίκος Δ.')+line('Αντιστοίχιση Ordexa','Επιβεβαιωμένη')+line('Ανατεθειμένο μηχανάκι','Μηχανάκι 03')+btn('Επεξεργασία στοιχείων','data-edit="employee"'),
+ shifts:line('04/11 · Πραγματικά clock in/out','18:14–00:55')+btn('Άνοιγμα βαρδιών','data-go="shifts"'),
+ payroll:line('Εβδομάδα 2–8 Νοεμβρίου','264,00 €')+btn('Άνοιγμα μισθοδοσίας','data-go="payroll"'),
+ schedules:line('Δευτέρα 2 Νοεμβρίου','08:00–16:00')+btn('Άνοιγμα προγράμματος','data-go="schedule"'),
+ permissions:line('Ρόλος','Εργαζόμενος')+line('Οικονομικά στοιχεία άλλων εργαζομένων','Χωρίς πρόσβαση'),
+ history:line('Ενημέρωση στοιχείων<small>Από διαχειριστή</small>','04/11 · 15:00'),
+ cash:line('Προς απόδοση · 15 παραγγελίες','30,00 €')+line('Παραδόθηκαν',money(state.receipt))+line('Εκκρεμεί',money(30-state.receipt))+btn('Άνοιγμα στο Ταμείο','data-go="cash"',true)
+ };
+ return heading('ΟΜΑΔΑ','Εργαζόμενοι',btn('+ Νέος εργαζόμενος','data-edit="employee"',true))+panel('Καρτέλα Νίκου Δ.',tabs([['details','Στοιχεία'],['shifts','Βάρδιες'],['payroll','Μισθοδοσία'],['schedules','Πρόγραμμα'],['cash','Ταμείο'],['permissions','Δικαιώματα'],['history','Ιστορικό']],state.employeeTab,'employee-tab')+bodies[state.employeeTab]);
+}
+function genericView(kind){
+ if(kind==='schedule')return heading('ΕΒΔΟΜΑΔΙΑΙΟΣ ΠΡΟΓΡΑΜΜΑΤΙΣΜΟΣ','Πρόγραμμα προσωπικού',btn('Επεξεργασία','data-edit="schedule"',true))+`<div class="f-toolbar"><input aria-label="Εβδομάδα προγράμματος" type="date" value="2026-11-02">${btn('Πρότυπα βαρδιών','data-templates')}${btn('Πρότυπο Excel','data-export="Excel"')}</div>`+panel('Δευτέρα 2 Νοεμβρίου',line('Νίκος Δ.<small>Μηχανάκι 03</small>','08:00–16:00')+line('Γιώργος Κ.<small>Μηχανάκι 12</small>','16:00–00:00')+line('Ελένη Μ.<small>Μηχανάκι 07</small>','18:00–02:00'));
+ if(kind==='bikes')return heading('ΣΤΟΛΟΣ','Μηχανάκια',btn('Νέα καταχώριση','data-edit="bike"',true))+panel('Μηχανάκι 03',line('Χιλιόμετρα','24.500 km')+line('Επόμενο service','Σε 1.500 km')+line('Κατάσταση','Διαθέσιμο')+`<div class="f-buttons">${btn('Καταχώριση service','data-edit="service"')}${btn('Αναφορά μηχανής','data-edit="bikereport"')}</div>`);
+ if(kind==='invoices')return heading('ΕΛΕΓΧΟΣ ΤΙΜΟΛΟΓΙΩΝ','Τιμολόγια service',btn('Νέα ανάγνωση όλων','data-invoice-retry'))+panel('Προς επιβεβαίωση',line('Παραστατικό 001<small>Μηχανάκι 03 · Αναγνώστηκε στον Server</small>',btn('Έλεγχος','data-edit="invoice"'))+line('Παραστατικό 002<small>Η προηγούμενη απόπειρα απέτυχε</small>',btn('Επανάληψη','data-invoice-retry')));
+ if(kind==='reports')return heading('ΕΝΙΑΙΕΣ ΕΞΑΓΩΓΕΣ','Αναφορές')+panel('Τύπος αναφοράς',`<label class="f-field">Αναφορά<select id="f-report-type"><option>Οικονομικά καταστημάτων</option><option>Ταμείο διανομέων</option><option>Έλεγχος μισθοδοσίας</option></select></label><label class="f-field">Διάστημα<select><option>Επιλεγμένη ημέρα</option><option>Εβδομάδα Δευτέρα–Κυριακή</option><option>Μήνας</option><option>Από / έως</option></select></label><div class="f-buttons" style="margin-top:14px">${btn('Excel','data-export="Excel"',true)}${btn('PDF','data-export="PDF"')}</div><small style="margin-top:12px">Κοινά ποσά και χρόνος δεδομένων με την αντίστοιχη οθόνη.</small>`);
+ if(kind==='alerts')return heading('ΧΡΕΙΑΖΕΤΑΙ ΕΝΕΡΓΕΙΑ','Ειδοποιήσεις')+panel('Backup και συγχρονισμοί',line('2 αποτελέσματα σε αναμονή αποστολής<small>7 λεπτά · Μία ειδοποίηση για το ίδιο συμβάν</small>',btn('Το είδα','data-ack'))+line('Μισθοδοσία: εκκρεμής αντιστοίχιση<small>Εβδομάδα 2–8 Νοεμβρίου</small>',btn('Έλεγχος','data-go="payroll"')))+`<div class="f-info">Η ένδειξη «Το είδα» καταγράφει ενημέρωση· το πρόβλημα κλείνει όταν επιβεβαιωθεί ότι λύθηκε.</div>`;
+ if(kind==='audit')return heading('ΙΣΤΟΡΙΚΟ ΑΠΟΦΑΣΕΩΝ','Αρχείο ενεργειών')+panel('Πρόσφατες ενέργειες',line('Παραλαβή χρημάτων από διανομέα<small>Διαχειριστής · Νίκος Δ. · 04/11, 16:10</small>',money(state.receipt))+line('Διόρθωση πληρωτέου<small>Διαχειριστής · Διατηρήθηκαν οι ώρες Ordexa</small>','18:00–01:00')+line('Νέος όρος χρέωσης<small>Κατάστημα Α · Ισχύς από 01/11</small>','2,00 €'));
+ if(kind==='recycle')return heading('ΑΣΦΑΛΗΣ ΑΝΑΚΤΗΣΗ','Κάδος & ιστορικό διαγραφών')+panel('Διαγραμμένες καταχωρίσεις',line('Καταχώριση service<small>Μηχανάκι 07 · διαγράφηκε από διαχειριστή</small>',btn('Προβολή','data-recycle-preview'))+'<small>Η ανάκτηση παραμένει χωριστή ενέργεια με καταγραφή.</small>');
+ return heading('ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ','Ρυθμίσεις & ασφάλεια')+panel('Λειτουργία Server',line('Κύρια αποθήκευση','Server · SQLite')+line('Δικαιώματα συσκευών','Ανά ρόλο και ενέργεια')+btn('Συνδεδεμένες συσκευές','data-devices'))+panel('Ταμείο διανομέων',line('Ημέρα απόδοσης','Πρόταση: 05:00–05:00')+btn('Κανόνες ανά κατηγορία','data-cash-rules'))+panel('Υφιστάμενες ρυθμίσεις',line('Πηγή παρουσιών μισθοδοσίας','Ordexa')+line('Συγχρονισμός παρουσιών','Κάθε 5 λεπτά')+line('Ωράριο πληρωμής','08:00–02:00'));
+}
+function render(){
+ q('#f-page-title').textContent=nav.find(n=>n[0]===state.view)[1];
+ q('#f-content').innerHTML=state.view==='home'?home.replace('26,00 € εκκρεμούν',money(46-state.receipt)+' εκκρεμούν'):state.view==='stores'?storeView():state.view==='cash'?cashView():state.view==='shifts'?shiftsView():state.view==='payroll'?payrollView():state.view==='system'?systemView():state.view==='employees'?employeesView():genericView(state.view);
+ root.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===state.view));
+ q('#f-mobile-view').value=state.view;
+ root.querySelectorAll('#f-content table').forEach(table=>{table.classList.add('f-stack-table');const labels=[...table.querySelectorAll('thead th')].map(th=>th.textContent);table.querySelectorAll('tbody tr').forEach(tr=>[...tr.children].forEach((td,index)=>td.dataset.label=labels[index]||''));});
+ root.dataset.scenario=state.scenario;
+ q('#f-connection-copy').textContent=offline()?'Server εκτός σύνδεσης · Αποθηκευμένα στοιχεία 11:05':state.scenario==='conflict'?'Server συνδεδεμένος · Σενάριο ταυτόχρονης αλλαγής':'Server συνδεδεμένος · Ενημέρωση 11:05';
+ if(globalThis.lucide)lucide.createIcons({attrs:{width:17,height:17}});
+}
+function notice(s){q('#f-notice').hidden=false;q('#f-notice').textContent=s;}
+function showDialog(kind,context=''){
+ state.dialog=kind;let title='',body='',save='Αποθήκευση';
+ if(kind==='more'){title='Περισσότερα';body='<div class="f-more-grid">'+nav.filter(([id])=>!['home','shifts','bikes','invoices'].includes(id)).map(([id,label])=>btn(label+(id==='cash'?' · Νέο':''),'data-go="'+id+'"')).join('')+'</div>';}
+ else if(kind==='receipt'){title='Παραλαβή από Νίκο Δ.';body='<div class="f-pair"><span>Αρχική οφειλή</span><strong>30,00 €</strong></div><div class="f-pair"><span>Ήδη παραδόθηκαν</span><strong>'+money(state.receipt)+'</strong></div>'+field('Νέα παραλαβή (€)','10','number','id="f-amount" min="0.01" step="0.01" required')+field('Σημείωση','Παραλαβή στο τέλος βάρδιας','text','id="f-note" required');save='Καταχώριση παραλαβής';}
+ else if(kind==='shift'){const eleni=context.includes('Ελένη Μ.'),giorgos=context.includes('Γιώργος Κ.');title='Πληρωτέο · '+(eleni?'Ελένη Μ.':giorgos?'Γιώργος Κ.':'Νίκος Δ.');body='<span class="f-tag">Πραγματική πηγή: Ordexa</span>'+field('Πραγματική είσοδος / έξοδος',eleni?'18:00–22:00':giorgos?'08:00–10:00 · 09:45–12:00 · 13:00–16:00':'18:14–00:55','text','disabled')+field('Πληρωτέο διάστημα',eleni?'18:00–22:00':giorgos?'08:00–12:00 · 13:00–16:00':'18:00–01:00','text','required')+field('Σημείωση απόφασης','Διόρθωση από διαχειριστή','text','required')+'<small>Η μεταμεσονύκτια ώρα παραμένει στη μέρα έναρξης. Το προσχέδιο διατηρείται μέχρι την επιβεβαίωση.</small>';}
+ else if(kind==='match'){title='Αντιστοίχιση εργαζομένου';body='<div class="f-info">Ordexa · 04/11, 16:00–00:00</div><label class="f-field">Εργαζόμενος Fleet<select required><option>Νίκος Δ.</option><option>Γιώργος Κ.</option><option>Ελένη Μ.</option></select></label>'+field('Σημείωση','Επιβεβαιώθηκε η ταυτότητα','text','required');save='Επιβεβαίωση αντιστοίχισης';}
+ else if(kind==='review'||kind==='reviewoverlap'){title='Ελέγχθηκε / διατηρείται';body='<div class="f-info">'+(kind==='review'?'Διατηρούνται 4 ώρες και 24,00 €. Η παρουσία εκτός προγράμματος παραμένει πληρωτέα.':'Καταγράφεται χωριστή απόφαση για την επικάλυψη του Γιώργου Κ., με διατήρηση των πραγματικών timestamps.')+'</div>'+field('Αιτία / σημείωση','Επιβεβαιώθηκε η πραγματική παρουσία','text','required');save='Καταγραφή απόφασης';}
+ else if(kind==='store'){title='Νέα τιμή καταστήματος Α';body=field('Τιμή ανά παραγγελία (€)','2.00','number','step="0.01" required')+field('Ημερήσιο ελάχιστο (€)','40','number','min="0" required')+field('Ισχύει από','2026-11-06','date','required')+'<small>Η νέα τιμή διατηρεί το ιστορικό προηγούμενων χρεώσεων.</small>';}
+ else if(kind==='manualcash'){title='Χειροκίνητη καταχώριση ταμείου';body='<label class="f-field">Διανομέας<select><option>Νίκος Δ.</option><option>Γιώργος Κ.</option></select></label><label class="f-field">Κατηγορία<select><option>Κατηγορία Α · 2 €</option></select></label>'+field('Πλήθος επιβεβαιωμένων παραγγελιών','15','number','min="0" required')+field('Σημείωση πηγής','','text','required');}
+ else if(kind==='cashrule'){title='Κανόνας απόδοσης';body=field('Κατηγορία','Α','text','required')+field('Ποσό προς απόδοση ανά παραγγελία (€)','2','number','min="0" step="0.01" required')+field('Ισχύει από','2026-11-06','date','required');}
+ else if(kind==='adjustment'){title='Διορθωτική κίνηση ταμείου';body=field('Ποσό διόρθωσης (€)','-2','number','step="0.01" required')+field('Αιτία','Διόρθωση επιβεβαιωμένης καταχώρισης','text','required')+'<small>Η αρχική παραλαβή παραμένει στο ιστορικό.</small>';}
+ else {const labels={schedule:'Επεξεργασία προγράμματος',employee:'Στοιχεία εργαζομένου',bike:'Μηχανάκι',service:'Καταχώριση service',bikereport:'Αναφορά μηχανής',invoice:'Έλεγχος τιμολογίου'};title=labels[kind]||'Επεξεργασία';body=field('Καταχώριση',kind==='schedule'?'08:00–16:00':kind==='employee'?'Νίκος Δ.':kind==='bike'?'Μηχανάκι 03':'Στοιχεία καταχώρισης','text','required')+field('Σημείωση','','text');}
+ q('#f-dialog-title').textContent=title;q('#f-dialog-content').innerHTML=body;q('#f-dialog-result').textContent=offline()&&kind!=='more'?'Ο Server δεν είναι διαθέσιμος. Το προσχέδιο παραμένει εδώ.':'';q('#f-dialog-save').textContent=save;q('#f-dialog-save').disabled=offline();q('#f-dialog-save').hidden=kind==='more';q('#f-dialog').showModal();
+}
+q('#f-nav').innerHTML=nav.map(([id,label,icon])=>`<button type="button" class="f-nav-item cursor-interaction ${id==='home'?'active':''}" data-go="${id}"><i data-lucide="${icon}" aria-hidden="true"></i><span>${label}</span>${id==='cash'?'<span class="f-new">Νέο</span>':''}</button>`).join('');
+q('#f-mobile-view').innerHTML=nav.map(([id,l])=>`<option value="${id}">${l}</option>`).join('');
+q('#f-mobile-view').addEventListener('change',e=>{state.view=e.target.value;q('#f-notice').hidden=true;render();});
+q('#f-device').addEventListener('change',e=>q('.f-app').classList.toggle('f-phone',e.target.value==='phone'));
+q('#f-scenario').addEventListener('change',e=>{state.scenario=e.target.value;render();});
+root.addEventListener('click',e=>{
+ const b=e.target.closest('button');if(!b||!root.contains(b))return;
+ if(b.hasAttribute('data-more')){showDialog('more');return;}
+ if(b.dataset.go){if(q('#f-dialog').open)q('#f-dialog').close();state.view=b.dataset.go;q('#f-notice').hidden=true;render();return;}
+ const changes=[['storeTab','storeTab'],['period','period'],['cashTab','cashTab'],['payTab','payTab'],['systemTab','systemTab'],['employeeTab','employeeTab']];
+ for(const [key,ds] of changes)if(b.dataset[ds]){state[key]=b.dataset[ds];render();return;}
+ if(b.hasAttribute('data-close')){q('#f-dialog').close();return;}
+ if(b.dataset.edit){showDialog(b.dataset.edit,(b.closest('.f-line')||b.closest('.f-panel'))?.innerText||'');return;}
+ if(b.dataset.export){notice('Προεπισκόπηση: '+b.dataset.export+' με τα ίδια σύνολα, φίλτρα και χρόνο δεδομένων της οθόνης.');return;}
+ if(b.hasAttribute('data-cash-rules')){state.view='cash';state.cashTab='rules';render();return;}
+ if(b.hasAttribute('data-lock')){state.payTab='review';render();notice(!state.matched?'Το κλείδωμα περιμένει την αντιστοίχιση παρουσίας. Οι ενημερωτικές προειδοποιήσεις δεν μηδενίζουν ώρες.':'Προεπισκόπηση κλειδώματος: θα αποθηκευτεί το τρέχον ελεγμένο στιγμιότυπο.');return;}
+ if(b.hasAttribute('data-backup')){notice(offline()?'Δεν στάλθηκε αίτημα: ο Server είναι εκτός σύνδεσης.':'Προσομοίωση: το αίτημα backup στάλθηκε · αναμένεται επιβεβαίωση ολοκλήρωσης από τον Server.');return;}
+ if(b.hasAttribute('data-backup-check')){notice('Δύο χωριστά αποτελέσματα: έλεγχος ακεραιότητας αρχείου και πραγματική δοκιμή ανάκτησης σε απομονωμένη βάση.');return;}
+ if(b.hasAttribute('data-diagnostics')){notice('Προεπισκόπηση αναφοράς: εκδόσεις, χρόνοι συγχρονισμών, πλήθη ουρών και κωδικοί κατάστασης.');return;}
+ if(b.hasAttribute('data-ack')){b.textContent='Έγινε ενημέρωση';b.disabled=true;return;}
+ if(b.hasAttribute('data-history')){notice('Ιστορικό: 2,00 € / παραγγελία και 40,00 € ελάχιστο από 01/11/2026.');return;}
+ if(b.hasAttribute('data-install')||b.hasAttribute('data-update-details')){notice('Προεπισκόπηση: επαλήθευση πακέτου πριν ανοίξει ο εγκαταστάτης Android. Η απόφαση Play Protect εμφανίζεται από το Android.');return;}
+ if(b.hasAttribute('data-invoice-retry')){notice(offline()?'Δεν εκτελέστηκε επανάληψη: ο Server είναι εκτός σύνδεσης.':'Προσομοίωση: εργασία στην ουρά του Server · η ολοκλήρωση θα εμφανιστεί μετά την επιβεβαίωση.');return;}
+ if(b.hasAttribute('data-cash-detail')){notice('Ελένη Μ.: 8 παραγγελίες κατηγορίας Α × 2 € = 16 € προς απόδοση.');return;}
+ if(b.hasAttribute('data-devices')){notice('Προτεινόμενη διαχείριση: εγκεκριμένες συσκευές, δικαιώματα και ανάκληση πρόσβασης από τον Server.');return;}
+ if(b.hasAttribute('data-templates'))notice('Τα υπάρχοντα πρότυπα και η προστασία ανάθεσης μηχανών διατηρούνται.');
+ if(b.hasAttribute('data-recycle-preview'))notice('Προβολή αρχικής καταχώρισης και ιστορικού πριν από χωριστή επιβεβαίωση ανάκτησης.');
+});
+q('#f-dialog-form').addEventListener('submit',e=>{
+ e.preventDefault();if(offline())return;
+ if(state.scenario==='conflict'){q('#f-dialog-result').textContent='Η καταχώριση άλλαξε από άλλον διαχειριστή. Το δικό σου προσχέδιο διατηρείται. Χρειάζεται σύγκριση με τη νεότερη έκδοση πριν από νέα αποθήκευση.';q('#f-dialog-save').disabled=true;return;}
+ if(state.dialog==='receipt'){const n=Number(q('#f-amount').value);if(!Number.isFinite(n)||n<=0)return;state.receipt+=n;state.receiptEntries.push(n);}
+ if(state.dialog==='review')state.reviewed=true;
+ if(state.dialog==='reviewoverlap')state.overlapReviewed=true;
+ if(state.dialog==='match')state.matched=true;
+ q('#f-dialog').close();render();notice('Προσομοίωση: η ενέργεια επιβεβαιώθηκε από τον Server και καταγράφηκε στο ιστορικό.');
+});
+render();
+})();
+</script>

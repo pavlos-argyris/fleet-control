@@ -4,9 +4,34 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 python3 scripts/prepare-pdf-viewer.py
 python3 scripts/check-source-safety.py
 node scripts/code-map.mjs --check
+node scripts/test-d1-source-inventory.mjs
+node scripts/test-courier-cash-core.mjs
+node scripts/test-cash-auto-sqlite.mjs
+node --check scripts/test-cash-pilot-native.mjs
+node --check server-runtime/cash-auto.js
+node --check server-runtime/cash-contract.js
+node --check scripts/test-ordexa-cash-source-native.mjs
+node --check server-runtime/cash-source.js
+node --check scripts/test-ordexa-order-evidence-native.mjs
+node --check scripts/test-ordexa-diagnostic-native.mjs
+node scripts/test-backup-recovery-evidence.mjs
+node scripts/test-store-financial-report.mjs
+node scripts/test-payroll-review-core.mjs
+node scripts/test-fleet-health-core.mjs
+node scripts/test-server-health-diagnostics.mjs
+node scripts/test-server-authority-ui.mjs
+node scripts/test-primary-transport.mjs
+node scripts/test-native-management-ui.mjs
+node scripts/test-server-primary-ui.mjs
+node scripts/test-server-recovery-ui.mjs
+node scripts/test-server-backup-recovery-ui.mjs
+node scripts/test-android-manifest-audit.mjs
+node scripts/test-apk-audit-core.mjs
 python3 scripts/prepare-static-assets.py --check
 node scripts/prepare-direct-permissions.mjs --check
 node scripts/test-direct-relay.mjs
+node scripts/test-primary-state-atomic.mjs
+node scripts/test-primary-authority.mjs
 node scripts/test-direct-access-native.mjs
 node scripts/test-direct-websocket-native.mjs
 node scripts/test-direct-ui.mjs

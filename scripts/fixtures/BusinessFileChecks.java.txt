@@ -1,0 +1,42 @@
+package gr.argyrismitsos.fleetserver;
+import org.json.*;import java.io.*;import java.util.*;
+import android.database.sqlite.*;
+
+public final class BusinessFileChecks {
+    static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
+    static JSONObject body(JSONObject response)throws Exception{check(response.getInt("status")==200,"file API "+response);return new JSONObject(response.getString("body"));}
+    static JSONObject call(String path,String method,JSONObject data,String token)throws Exception{return BusinessTest.call(path,method,data,false,token);}
+    public static void run(BusinessObjects objects,BusinessSqlite sql,SQLiteDatabase db,String owner)throws Exception{
+        byte[] payload=new byte[710123];new java.security.SecureRandom().nextBytes(payload);System.arraycopy("%PDF-1.4\n".getBytes("UTF-8"),0,payload,0,9);
+        String id=UUID.randomUUID().toString(),sha=BusinessRuntime.sha256(payload);
+        JSONObject start=new JSONObject().put("id",id).put("name","δοκιμαστικό.pdf").put("type","application/pdf").put("size",payload.length).put("sha256",sha);
+        check(body(call("/api/native/files/start","POST",start,owner)).getLong("received")==0,"upload starts as a durable actor-bound handle");
+        for(int at=0;at<payload.length;at+=262144){
+            byte[] part=Arrays.copyOfRange(payload,at,Math.min(payload.length,at+262144));JSONObject chunk=new JSONObject().put("ref",id).put("offset",at).put("data",Base64.getEncoder().encodeToString(part));
+            JSONObject once=body(call("/api/native/files/chunk","POST",chunk,owner));check(once.getLong("received")==at+part.length,"exact chunk progress");
+            check(body(call("/api/native/files/chunk","POST",chunk,owner)).getLong("received")==at+part.length,"lost chunk reply does not append twice");
+        }
+        JSONObject finished=body(call("/api/native/files/finish","POST",new JSONObject().put("ref",id),owner));check(finished.getBoolean("complete")&&finished.getString("sha256").equals(sha),"actual byte size and SHA checked before completion");
+        JSONObject request=new JSONObject().put("url","https://fleet.fixture.invalid/api/native/files/"+id+"?offset=0").put("method","GET").put("headers",new JSONObject().put("Authorization","Bearer "+owner));
+        JSONObject read=body(BusinessTest.runtime.request(request,false,30000));check(read.getInt("length")==262144&&Arrays.equals(Base64.getDecoder().decode(read.getString("data")),Arrays.copyOf(payload,262144)),"encrypted-file API returns exact bounded binary chunks");
+        String actor=BusinessActor.resolve(sql,request,BusinessTest.PEPPER,false);objects.context("different-actor",BusinessTest.GEN,request.getString("url"));boolean rejected=false;try{objects.call("file.stat",new JSONObject().put("ref",id));}catch(Exception expected){rejected=true;}check(rejected,"another authenticated actor cannot reuse a private file handle");
+        objects.context(actor,"another-generation",request.getString("url"));rejected=false;try{objects.call("file.stat",new JSONObject().put("ref",id));}catch(Exception expected){rejected=true;}check(rejected,"old authority generation cannot reuse file handles");
+        objects.context(actor,BusinessTest.GEN,request.getString("url"));
+        String fingerprint=sql.call("sql.query",new JSONObject().put("sql","SELECT security_hash FROM native_file_transfers WHERE id=?").put("params",new JSONArray().put(id))).getJSONArray("results").getJSONObject(0).getString("security_hash");objects.security(fingerprint);
+        db.beginTransaction();try{
+            JSONObject stored=objects.call("objects.put",new JSONObject().put("key","service-documents/fixture/document.pdf").put("ref",id).put("metadata",new JSONObject().put("httpMetadata",new JSONObject().put("contentType","application/pdf")).put("customMetadata",new JSONObject().put("displayName","δοκιμαστικό.pdf"))));
+            check(stored.getLong("size")==payload.length,"private object stored without materializing file in JavaScript");db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+        JSONObject old=objects.call("objects.get",new JSONObject().put("key","service-documents/fixture/document.pdf"));
+        String slice=objects.call("file.slice",new JSONObject().put("ref",old.getString("ref")).put("start",0).put("end",16)).getString("ref");check(objects.call("file.read",new JSONObject().put("ref",slice).put("start",0).put("length",16)).getString("hex").equals(BusinessPrimitives.hex(Arrays.copyOf(payload,16))),"bounded MIME sniff reads exact file slice");
+        db.beginTransaction();try{objects.call("objects.delete",new JSONObject().put("key","service-documents/fixture/document.pdf"));}finally{db.endTransaction();}
+        check(objects.call("objects.get",new JSONObject().put("key","service-documents/fixture/document.pdf")).getBoolean("exists"),"rolled-back deletion preserves object and original bytes");
+        objects.context("","","");
+        for(String format:new String[]{"pdf","xlsx"}){
+            JSONObject response=call("/api/native/cash/export?from=2026-11-04&to=2026-11-04&format="+format,"GET",null,owner),file=response.getJSONObject("file");check(response.getInt("status")==200&&file.getLong("size")>1000&&file.getString("sha256").matches("[a-f0-9]{64}"),"actual native financial export produces a verified private handle");
+            ByteArrayOutputStream output=new ByteArrayOutputStream();long at=0;while(at<file.getLong("size")){JSONObject part=body(call("/api/native/files/"+file.getString("ref")+"?offset="+at,"GET",null,owner));byte[] bytes=Base64.getDecoder().decode(part.getString("data"));check(bytes.length>0&&bytes.length<=262144,"bounded export download advances");output.write(bytes);at+=bytes.length;}
+            check(BusinessRuntime.sha256(output.toByteArray()).equals(file.getString("sha256")),"PDF/Excel transfer SHA matches actual generated bytes");String magic=new String(output.toByteArray(),0,Math.min(8,output.size()),"ISO-8859-1");check(format.equals("pdf")?magic.startsWith("%PDF-"):magic.startsWith("PK"),"real generated file format survives API transfer");
+        }
+        System.out.println("PASS real native file APIs/objects: bounded resumable upload, lost chunk ACK, byte SHA, owner/generation isolation, immutable private object/slices, deletion rollback and actual PDF/XLSX generation plus verified chunk download.");
+    }
+}

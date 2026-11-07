@@ -99,6 +99,12 @@ public final class ServiceDocumentStore {
     public static File localFile(Context context, String key, String name) {
         return new File(new File(context.getFilesDir(), "service-documents"), sha256(key) + extension(name));
     }
+    public static File inventoryFile(Context context,JSONObject metadata)throws Exception{
+        String local=metadata.optString("localName","");
+        if(local.isEmpty())return localFile(context,metadata.optString("key"),metadata.optString("name"));
+        if(!local.matches("[a-f0-9]{64}-[a-f0-9]{64}\\.(pdf|png|jpg|webp|bin)"))throw new IOException("Μη έγκυρο ιδιωτικό όνομα τιμολογίου στο backup.");
+        return new File(new File(context.getFilesDir(),"service-documents"),local);
+    }
 
     public static byte[] createArchive(Context context, JSONObject fleet) throws Exception {
         JSONArray manifest = new JSONArray();
@@ -203,7 +209,7 @@ public final class ServiceDocumentStore {
                     JSONObject metadata = manifestByZipName.get(name);
                     if (metadata != null) {
                         byte[] content = readEntry(zip, 15 * 1024 * 1024);
-                        File target = localFile(context, metadata.optString("key", ""), metadata.optString("name", ""));
+                        File target = inventoryFile(context,metadata);
                         writeLocalBytes(target, content);
                         restoredFiles.put(metadata.optString("key", ""), target);
                     }

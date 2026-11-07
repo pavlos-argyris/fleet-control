@@ -20,7 +20,8 @@ public class StoresTest {
   check(billing(25,term(200,4000,false)).getLong("totalChargeCents")==5000,"above minimum");
   check(billing(9,term(250,0,false)).getLong("totalChargeCents")==2250,"no minimum");
   check(billing(0,term(200,4000,false)).getLong("totalChargeCents")==0,"zero day off");
-  check(billing(0,term(200,4000,true)).getLong("totalChargeCents")==4000,"zero day on");
+  check(billing(0,term(200,4000,true)).getLong("totalChargeCents")==0,"latest zero-day rule overrides legacy source chargeOnZero");
+  check(billing(0,null).getLong("totalChargeCents")==0,"verified no orders creates no charge even without terms");
   check(billing(9,term(0,0,false)).getLong("totalChargeCents")==0,"explicit free");
   check(billing(9,null).isNull("totalChargeCents"),"unknown is not free");
   JSONArray history=new JSONArray().put(term(200,4000,false)).put(term(250,4000,false).put("effectiveDay","2026-10-28"));

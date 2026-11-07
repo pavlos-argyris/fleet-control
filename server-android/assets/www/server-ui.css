@@ -1,4 +1,6 @@
 /* Shared Server surfaces: status, backups, updates and settings. */
+.server-shell .backup-recovery-result{margin:0 0 12px;font-size:.85rem;line-height:1.65;overflow-wrap:anywhere;word-break:break-word}
+.server-shell #settingsAuthority p{font-size:.85rem;line-height:1.65;overflow-wrap:anywhere}
 .server-shell{--server-green:#166442;--server-green-soft:#e8f5ed;--server-text:#182e25;--server-muted:#53695e;--server-line:#dce6df;--server-background:#f2f5f4;--server-panel:#fff;--ink:var(--server-text);--muted:var(--server-muted);--line:var(--server-line);--canvas:var(--server-background);--mint-dark:var(--server-green);background:var(--server-background)}
 .server-shell .server-header{background:linear-gradient(125deg,#153d2b,#10281d);border-radius:0 0 24px 24px}
 .server-shell .server-content{padding:20px 18px calc(max(72px,var(--fleet-server-nav-height,88px)) + 28px)}
@@ -65,3 +67,23 @@
 .server-shell .dialog-buttons>button,.server-shell .ota-actions>button{white-space:normal;overflow-wrap:anywhere;min-width:0}
 @media(max-width:480px){.server-shell .server-content{padding-left:12px;padding-right:12px}.server-group>summary{padding:15px}.server-group-body{padding:0 14px 14px}.server-shell .server-content .section-heading h2{font-size:1.15rem}.server-shell .server-group>summary h2{font-size:1rem}.server-shell .public-link{font-size:.75rem}.server-shell .invoice-processing-copy strong,.server-shell .invoice-processing-copy small{white-space:normal;overflow-wrap:anywhere}.ordexa-cadence div{flex-wrap:wrap}.ordexa-cadence dd{text-align:left}.server-shell .metrics span{font-size:.72rem}}
 @media(max-width:360px){.server-shell .two-fields{grid-template-columns:1fr}.server-shell .ui-server-links{grid-template-columns:1fr}.server-shell .device-health-grid{grid-template-columns:1fr}}
+
+
+/* Read-only System Health details, within the existing Server diagnostics dialog. */
+.operations-diagnostic-dialog [aria-label="Υγεία συστήματος"]{margin:16px 0 18px}
+.operations-diagnostic-dialog [aria-label="Υγεία συστήματος"] h3{font-size:15px;margin:0 0 10px}
+.operations-diagnostic-dialog [aria-label="Υγεία συστήματος"] .status-row{
+  display:grid;grid-template-columns:minmax(105px,0.9fr) minmax(0,1.6fr);
+  align-items:start;gap:8px 12px;min-height:0;padding:12px 14px
+}
+.operations-diagnostic-dialog [aria-label="Υγεία συστήματος"] .status-row strong{
+  font-size:13px;line-height:1.45
+}
+.operations-diagnostic-dialog [aria-label="Υγεία συστήματος"] .status-row span{
+  min-width:0;overflow-wrap:anywhere;font-size:13px;line-height:1.45;color:var(--muted)
+}
+@media(max-width:480px){
+  .operations-diagnostic-dialog [aria-label="Υγεία συστήματος"] .status-row{
+    grid-template-columns:minmax(0,1fr);gap:4px
+  }
+}

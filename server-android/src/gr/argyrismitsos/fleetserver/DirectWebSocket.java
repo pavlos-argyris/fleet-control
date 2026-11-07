@@ -14,12 +14,23 @@ public final class DirectWebSocket implements Closeable {
     private OutputStream output;
     private static final int MAX_FRAME = 4 * 1024 * 1024;
 
-    public void connect(String base, String key, String pairHash) throws Exception {
-        URL url = new URL(base);
-        if (!"https".equals(url.getProtocol()) || url.getUserInfo() != null || url.getQuery() != null || url.getRef() != null)
-            throw new IOException("Η απευθείας πρόσβαση χρειάζεται έγκυρη διεύθυνση HTTPS.");
-        if (!key.matches("[A-Za-z0-9_\\-]{24,512}") || !pairHash.matches("[a-f0-9]{64}"))
-            throw new IOException("Μη έγκυρα στοιχεία σύνδεσης Server.");
+    public void connect(String base,String key,String pairHash)throws Exception{
+        if(!key.matches("[A-Za-z0-9_\\-]{24,512}")||!pairHash.matches("[a-f0-9]{64}"))throw new IOException("Μη έγκυρα στοιχεία σύνδεσης Server.");
+        connectEndpoint(base,key,"/api/direct/connect","X-Fleet-Direct-Pair: "+pairHash);
+    }
+    public void connectPrimary(String base,String key,String proof)throws Exception{
+        if(!headerCredential(key)||proof==null||proof.length()<50||proof.length()>1024)throw new IOException("Μη έγκυρη επιβεβαίωση κύριου Server.");
+        for(int i=0;i<proof.length();i++)if(proof.charAt(i)<32||proof.charAt(i)>126)throw new IOException("Μη έγκυρη κεφαλίδα επιβεβαίωσης Server.");
+        connectEndpoint(base,key,"/api/primary/connect","X-Fleet-Primary-Proof: "+proof);
+    }
+    private static boolean headerCredential(String key){
+        if(key==null||key.length()<24||key.length()>512)return false;
+        for(int i=0;i<key.length();i++)if(key.charAt(i)<32||key.charAt(i)>126)return false;
+        return key.equals(key.trim());
+    }
+    private void connectEndpoint(String base,String key,String endpoint,String authorityHeader)throws Exception{
+        URL url=new URL(base);
+        if(!"https".equals(url.getProtocol())||url.getUserInfo()!=null||url.getQuery()!=null||url.getRef()!=null)throw new IOException("Η απευθείας πρόσβαση χρειάζεται έγκυρη διεύθυνση HTTPS.");
         int port = url.getPort() < 0 ? 443 : url.getPort();
         Socket tcp = new Socket();
         socket = tcp;
@@ -37,9 +48,9 @@ public final class DirectWebSocket implements Closeable {
         input = new BufferedInputStream(tls.getInputStream()); output = new BufferedOutputStream(tls.getOutputStream());
         byte[] nonce = new byte[16]; random.nextBytes(nonce);
         String challenge = Base64.encodeToString(nonce, Base64.NO_WRAP);
-        String path = url.getPath().replaceAll("/+$", "") + "/api/direct/connect";
+        String path = url.getPath().replaceAll("/+$", "") + endpoint;
         String host = url.getHost() + (port == 443 ? "" : ":" + port);
-        String request = "GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: " + challenge + "\r\nX-Fleet-Server-Key: " + key + "\r\nX-Fleet-Direct-Pair: " + pairHash + "\r\n\r\n";
+        String request = "GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: " + challenge + "\r\nX-Fleet-Server-Key: " + key + "\r\n"+authorityHeader+"\r\n\r\n";
         output.write(request.getBytes("UTF-8")); output.flush();
         String headers = readHeaders(input);
         String expected = Base64.encodeToString(MessageDigest.getInstance("SHA-1").digest((challenge + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes("UTF-8")), Base64.NO_WRAP);

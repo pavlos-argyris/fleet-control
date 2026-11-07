@@ -137,7 +137,10 @@ public final class OrdexaClient {
         if(shop!=null&&!shop.matches("[A-Za-z0-9_-]{1,100}"))throw new IllegalArgumentException("Μη έγκυρο κατάστημα Ordexa.");
         return storeRead(city,"/orders?from="+from+"&to="+to+"&page="+page+"&sort=at&dir=asc"+(shop==null?"":"&shopId="+shop));
     }
+    JSONObject ordersHttpObservation()throws Exception{return transport instanceof HttpsTransport?((HttpsTransport)transport).ordersObservation():new JSONObject().put("transportObserved",false);}
     static final class HttpsTransport implements Transport {
+        private JSONObject lastOrdersObservation;
+        JSONObject ordersObservation()throws Exception{return lastOrdersObservation==null?new JSONObject().put("transportObserved",false):new JSONObject(lastOrdersObservation.toString());}
         public JSONObject send(String url,String method,JSONObject body,String token)throws Exception{
             // Plans are generated above; keep an independent final transport fence.
             URL target=new URL(url);String path=target.getPath();
@@ -149,12 +152,13 @@ public final class OrdexaClient {
             if(!"https".equals(target.getProtocol())||!"api.ordexa.gr".equals(target.getHost())||target.getPort()!=-1||target.getUserInfo()!=null||target.getRef()!=null||(!login&&!read))throw new IOException("Η ενέργεια Ordexa αποκλείστηκε πριν αποσταλεί.");
             HttpsURLConnection connection=(HttpsURLConnection)target.openConnection();connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(20000);connection.setReadTimeout(30000);connection.setRequestMethod(method);connection.setRequestProperty("Accept","application/json");
             if(token.length()>0)connection.setRequestProperty("Authorization","Bearer "+token);
+            final boolean orders=read&&path.endsWith("/orders");final long started=System.nanoTime();int responseStatus=0,responseBytes=0;String media="unknown";
             try{
                 if(login){byte[] bytes=body.toString().getBytes(UTF8);connection.setDoOutput(true);connection.setRequestProperty("Content-Type","application/json");connection.setFixedLengthStreamingMode(bytes.length);try(OutputStream out=connection.getOutputStream()){out.write(bytes);}}
-                int status=connection.getResponseCode();if(status<200||status>=300)throw new HttpFailure(status);
-                ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream input=connection.getInputStream()){byte[] buf=new byte[16384];int n;while((n=input.read(buf))!=-1){if(out.size()+n>8*1024*1024)throw new IOException("Η αναφορά Ordexa ξεπερνά το ασφαλές όριο.");out.write(buf,0,n);}}
+                int status=connection.getResponseCode();responseStatus=status;String contentType=connection.getContentType();media=contentType!=null&&contentType.toLowerCase(Locale.ROOT).split(";",2)[0].trim().equals("application/json")?"application/json":"other";if(status<200||status>=300)throw new HttpFailure(status);
+                ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream input=connection.getInputStream()){byte[] buf=new byte[16384];int n;while((n=input.read(buf))!=-1){if(out.size()+n>8*1024*1024)throw new IOException("Η αναφορά Ordexa ξεπερνά το ασφαλές όριο.");out.write(buf,0,n);responseBytes+=n;}}
                 return new JSONObject(new String(out.toByteArray(),UTF8));
-            }finally{connection.disconnect();}
+            }finally{if(orders)lastOrdersObservation=new JSONObject().put("transportObserved",true).put("method","GET").put("route","/api/cities/{cityId}/orders").put("status",responseStatus).put("contentType",media).put("responseBytes",responseBytes).put("durationMs",Math.max(0,(System.nanoTime()-started)/1000000));connection.disconnect();}
         }
     }
 }

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {aggregateStoreFinancials} from '../cloudflare-worker/src/store-financial-report.js';
+const day=(storeId,day,orders,orderCents,topupCents)=>({storeId,day,orderCount:orders,orderChargeCents:orderCents,minimumTopUpCents:topupCents,totalChargeCents:orderCents===null||topupCents===null?null:orderCents+topupCents});
+let r=aggregateStoreFinancials({from:'2026-11-02',to:'2026-11-09',period:'week',aliases:{'pizza-hot-a':'pizza-hot','pizza-hot-b':'pizza-hot'},daily:[day('pizza-hot-a','2026-11-02',2,400,100),day('pizza-hot-b','2026-11-04',1,200,0),day('pizza-hot-a','2026-11-09',0,0,0)]});
+assert.equal(r.groups.length,2);assert.equal(r.groups[0].period,'2026-11-02');assert.equal(r.groups[0].orderCount,3);assert.equal(r.groups[0].totalChargeCents,700);assert.equal(r.groups[0].minimumTopUpCents,100);assert.deepEqual(r.groups[0].sourceStoreIds,['pizza-hot-a','pizza-hot-b']);assert.equal(r.coverageVerified,false);
+r=aggregateStoreFinancials({from:'2026-11-02',to:'2026-11-02',daily:[day('x','2026-11-02',0,0,0)]});assert.equal(r.groups[0].totalChargeCents,0);
+assert.throws(()=>aggregateStoreFinancials({from:'2026-11-02',to:'2026-11-02',daily:[day('x','2026-11-02',0,0,100)]}),/Zero orders/);
+assert.throws(()=>aggregateStoreFinancials({from:'2026-11-02',to:'2026-11-02',daily:[day('x','2026-11-02',1,200,0),day('x','2026-11-02',1,100,0)]}),/Conflicting/);
+r=aggregateStoreFinancials({from:'2026-11-02',to:'2026-11-02',daily:[day('x','2026-11-02',1,null,null)]});assert.equal(r.complete,false);assert.equal(r.groups[0].totalChargeCents,null);
+assert.equal(aggregateStoreFinancials({from:'2026-03-29',to:'2026-03-30',period:'week',daily:[day('x','2026-03-29',1,100,0),day('x','2026-03-30',1,100,0)]}).groups.length,2);
+assert.equal(aggregateStoreFinancials({from:'2026-10-25',to:'2026-10-25',daily:[day('x','2026-10-25',1,100,0)]}).groups[0].totalChargeCents,100);
+r=aggregateStoreFinancials({from:'2026-10-30',to:'2026-11-03',period:'range',daily:[day('x','2026-10-30',2,500,100),day('x','2026-11-03',1,300,0)]});assert.equal(r.groups.length,1);assert.equal(r.groups[0].period,'2026-10-30');assert.equal(r.groups[0].totalChargeCents,900);assert.equal(r.groups[0].orderCount,3);
+console.log('PASS store reporting core: explicit aliases, sum/weekly, 0-orders=0 minimum, partial sums unknown, DST business day stable.');
+
+// The native report route must reject stale alias edits at the SQLite write.
+await import('./test-store-alias-cas-sqlite.mjs');

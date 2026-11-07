@@ -20,7 +20,9 @@
       "alerts.view",
       "alerts.manage",
       "stores.view",
-      "stores.manage"
+      "stores.manage",
+      "cash.view",
+      "cash.manage"
     ],
     "payroll_manager": [
       "dashboard.view",
@@ -32,7 +34,9 @@
       "payroll.lock",
       "reports.view",
       "audit.view",
-      "alerts.view"
+      "alerts.view",
+      "cash.view",
+      "cash.manage"
     ],
     "fleet_manager": [
       "dashboard.view",
@@ -85,7 +89,9 @@
     "settings.manage",
     "security.manage",
     "stores.view",
-    "stores.manage"
+    "stores.manage",
+    "cash.view",
+    "cash.manage"
   ],
   "employee": [
     "clock_in_out",

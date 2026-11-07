@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {projectFleetHealth} from '../cloudflare-worker/src/fleet-health-core.js';
+const at='2026-11-04T20:00:00.000Z';
+let s=projectFleetHealth({at});assert.deepEqual(s.alerts,[]);assert.equal(s.server.status,'unknown');assert.equal(s.d1.status,'unknown');assert.equal(s.outbox.status,'unknown');
+s=projectFleetHealth({at,serverLastSeenAt:'2026-11-04T19:54:00Z',ordexaLastSuccessAt:'2026-11-04T19:46:00Z',outboxPending:0});assert.equal(s.server.status,'healthy');assert.equal(s.ordexa.status,'healthy');assert.equal(s.outbox.status,'healthy');
+s=projectFleetHealth({at,serverLastSeenAt:'2026-11-04T19:50:00Z',ordexaLastSuccessAt:'2026-11-04T19:30:00Z',outboxPending:4,outboxOldestAt:'2026-11-04T18:00:00Z'});assert(s.alerts.some(a=>a.code==='server-stale'));assert(s.alerts.some(a=>a.code==='outbox-stale'));assert(s.alerts.some(a=>a.code==='ordexa-stale'));
+s=projectFleetHealth({at,d1:{observedAt:'2026-11-04T19:50:00Z',rowsWritten:100001,rowsWriteLimit:100000}});assert.equal(s.d1.status,'quota-exceeded');
+s=projectFleetHealth({at,d1:{observedAt:'2026-11-04T16:00:00Z',rowsWritten:100001,rowsWriteLimit:100000}});assert.equal(s.d1.status,'unknown');
+s=projectFleetHealth({at,ordexaLastSuccessAt:'2040-01-01T00:00:00Z',outboxPending:2});assert.equal(s.ordexa.status,'unknown');assert.equal(s.outbox.status,'unknown');
+assert.equal('credentials' in s,false);assert.equal('token' in s,false);
+console.log('PASS health model: unknown/stale/measured, no fabricated D1 counters, no polling/secrets.');

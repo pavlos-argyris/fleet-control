@@ -43,6 +43,7 @@ public final class BackupManager {
     public static final String KEY_LAST_URI = "last_backup_uri";
     public static final String KEY_LAST_METADATA = "last_backup_metadata";
     public static final String KEY_VERIFICATION = "backup_verification";
+    public static final String KEY_RESTORE_TEST = "backup_isolated_restore_test_v1";
 
     private static final String KEY_EXPORT_LEDGER="backup_export_ledger_v1";
     private static final Object exportLedgerLock=new Object();
@@ -57,6 +58,10 @@ public final class BackupManager {
     static JSONObject preparePayload(Context context, FleetDataStore store) throws Exception {
         SharedPreferences preferences=context.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
         JSONObject export=store.fullBackupPayload();
+        export.put("settings",settingsPayload(context));return export;
+    }
+    static JSONObject settingsPayload(Context context)throws Exception{
+        SharedPreferences preferences=context.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
         JSONObject settings=new JSONObject();
         settings.put("workerUrl",preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL));
         settings.put("syncSeconds",preferences.getInt("sync_seconds",30));
@@ -65,7 +70,7 @@ public final class BackupManager {
         settings.put("backupFrequency",preferences.getString(KEY_FREQUENCY,"daily"));
         settings.put("automaticBackup",preferences.getBoolean("automatic_backup",true));
         settings.put("automaticStart",preferences.getBoolean("automatic_start",true));
-        export.put("settings",settings);return export;
+        return settings;
     }
 
     static void recordExported(Context context,JSONObject job)throws Exception {
@@ -74,14 +79,15 @@ public final class BackupManager {
         org.json.JSONArray ledger=new org.json.JSONArray(),previous;
         try{previous=new org.json.JSONArray(preferences.getString(KEY_EXPORT_LEDGER,"[]"));}catch(Exception malformed){previous=new org.json.JSONArray();}
         String fileName=job.getString("fileName"),stamp=fileName.matches("FleetControl_backup_\\d{8}_\\d{6}\\.fcbackup")?fileName.substring(20,fileName.length()-9):"";
-        String folder=job.getString("targetFolder"),dataId="",docsId="";
+        String folder=job.getString("targetFolder"),dataId="",docsId="",databaseId="";
         try{dataId=DocumentsContract.getDocumentId(Uri.parse(job.getString("dataUri")));}catch(Exception ignored){}
         if(job.optLong("docsBytes")>0)try{docsId=DocumentsContract.getDocumentId(Uri.parse(job.getString("docsUri")));}catch(Exception ignored){}
-        if(stamp.length()>0)ledger.put(new JSONObject().put("folder",folder).put("stamp",stamp).put("dataId",dataId).put("docsId",docsId).put("documents",job.optLong("docsBytes")>0).put("complete",job.optInt("missingDocuments")==0&&job.optBoolean("workforceIncluded")));
+        if(job.optLong("databaseBytes")>0)try{databaseId=DocumentsContract.getDocumentId(Uri.parse(job.getString("databaseUri")));}catch(Exception ignored){}
+        if(stamp.length()>0)ledger.put(new JSONObject().put("folder",folder).put("stamp",stamp).put("dataId",dataId).put("docsId",docsId).put("databaseId",databaseId).put("database",job.optLong("databaseBytes")>0).put("documents",job.optLong("docsBytes")>0).put("complete",job.optInt("missingDocuments")==0&&job.optBoolean("workforceIncluded")));
         for(int i=0;i<previous.length()&&ledger.length()<512;i++){JSONObject row=previous.optJSONObject(i);if(row!=null&&!(folder.equals(row.optString("folder"))&&stamp.equals(row.optString("stamp"))))ledger.put(row);}
         JSONObject metadata=new JSONObject().put("fileName",job.getString("fileName")).put("time",isoNow())
             .put("expectedDocuments",job.optInt("expectedDocuments")).put("includedDocuments",job.optInt("includedDocuments"))
-            .put("missingDocuments",job.optInt("missingDocuments")).put("workforceIncluded",job.optBoolean("workforceIncluded"));
+            .put("missingDocuments",job.optInt("missingDocuments")).put("workforceIncluded",job.optBoolean("workforceIncluded")).put("fullPrimaryDatabase",job.optLong("databaseBytes")>0).put("portable",job.optBoolean("portable")).put("restoreVerified",job.optJSONObject("nativeProof")!=null&&job.getJSONObject("nativeProof").optBoolean("restoreVerified"));
         preferences.edit().putString(KEY_EXPORT_LEDGER,ledger.toString())
             .putString(KEY_LAST_DAY,new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(new Date()))
             .putString(KEY_LAST_TIME,isoNow()).putString(KEY_LAST_URI,job.getString("dataUri"))
@@ -118,23 +124,23 @@ public final class BackupManager {
         }
     }
 
-    private static JSONObject readBackupRoot(Context context, Uri uri) throws Exception {
-        InputStream input = context.getContentResolver().openInputStream(uri);
-        if (input == null) throw new IllegalArgumentException("Το αρχείο backup δεν είναι διαθέσιμο.");
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        try {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                if (output.size() + read > MAX_BACKUP_BYTES) {
-                    throw new IllegalArgumentException("Το αρχείο backup είναι πολύ μεγάλο.");
-                }
-                output.write(buffer, 0, read);
+    private static JSONObject readBackupRoot(Context context,Uri uri)throws Exception{return readBackupRoot(context,uri,null);}
+    static JSONObject readBackupRoot(Context context,Uri uri,String password)throws Exception{
+        InputStream raw=context.getContentResolver().openInputStream(uri);if(raw==null)throw new IllegalArgumentException("Το αρχείο backup δεν είναι διαθέσιμο.");
+        java.io.PushbackInputStream input=new java.io.PushbackInputStream(new java.io.BufferedInputStream(raw),5);File plain=null;JSONObject root;boolean portable=false;
+        try{
+            byte[] prefix=new byte[5];int count=0,n;while(count<5&&(n=input.read(prefix,count,5-count))!=-1)count+=n;input.unread(prefix,0,count);
+            String magic=new String(prefix,0,count,Charset.forName("US-ASCII"));portable=magic.equals("FCB3\n");
+            InputStream json=input;
+            if(portable||magic.equals("FCB2\n")){
+                plain=File.createTempFile("fleet-read-manifest-",".json",context.getCacheDir());
+                try(BackupEnvelope envelope=BackupEnvelope.open(context)){envelope.decrypt(input,plain,"data",password);}
+                if(plain.length()>MAX_BACKUP_BYTES)throw new IllegalArgumentException("Το αρχείο δεδομένων backup είναι πολύ μεγάλο.");json=new java.io.FileInputStream(plain);
             }
-        } finally {
-            input.close();
-        }
-        JSONObject root = new JSONObject(new String(decryptIfNeeded(output.toByteArray()), Charset.forName("UTF-8")));
+            ByteArrayOutputStream output=new ByteArrayOutputStream();try{byte[] buffer=new byte[8192];while((n=json.read(buffer))!=-1){if(output.size()+n>MAX_BACKUP_BYTES)throw new IllegalArgumentException("Το αρχείο δεδομένων backup είναι πολύ μεγάλο.");output.write(buffer,0,n);}}finally{json.close();}
+            root=new JSONObject(new String(output.toByteArray(),Charset.forName("UTF-8")));root.put("_portableAuthenticated",portable);
+        }finally{input.close();if(plain!=null)plain.delete();}
+        if(NativeBackupReader.isNative(root)){NativeBackupReader.validate(root,portable);return root;}
         JSONObject fleet = root.optJSONObject("fleet");
         if (fleet == null && root.optJSONArray("bikes") != null) fleet = root;
         if (fleet == null || fleet.optJSONArray("bikes") == null) {
@@ -145,8 +151,9 @@ public final class BackupManager {
         return root;
     }
 
-    public static synchronized JSONObject readBackup(Context context, FleetDataStore store, Uri uri) throws Exception {
-        JSONObject root=readBackupRoot(context,uri);
+    public static synchronized JSONObject readBackup(Context context,FleetDataStore store,Uri uri)throws Exception{return readBackup(context,store,uri,null);}
+    public static synchronized JSONObject readBackup(Context context,FleetDataStore store,Uri uri,String password)throws Exception{
+        JSONObject root=readBackupRoot(context,uri,password);if(NativeBackupReader.isNative(root))return root;
         JSONObject fleet=root.optJSONObject("fleet");if(fleet==null)fleet=root;
         if (root.optJSONObject("workforce") == null) {
             JSONObject upgraded = store.fullBackupPayload();
@@ -183,8 +190,20 @@ public final class BackupManager {
         return keys;
     }
 
-    public static synchronized JSONObject verifyBackup(Context context, Uri uri) throws Exception {
-        JSONObject root=readBackupRoot(context,uri),fleet=root.optJSONObject("fleet");if(fleet==null)fleet=root;
+    public static synchronized JSONObject verifyBackup(Context context,Uri uri)throws Exception{return verifyBackup(context,uri,null);}
+    public static synchronized JSONObject verifyBackup(Context context,Uri uri,String password)throws Exception{return verifyBackup(context,uri,readBackupRoot(context,uri,password),password);}
+    static NativeBackupReader.Prepared readNative(final Context context,final Uri uri,JSONObject root,final String password)throws Exception{
+        try(final BackupEnvelope envelope=BackupEnvelope.open(context)){
+            return NativeBackupReader.open(root,context.getCacheDir(),new NativeBackupReader.Source(){public InputStream open(String kind)throws Exception{Uri sibling=findSiblingPart(context,uri,kind);return sibling==null?null:context.getContentResolver().openInputStream(sibling);}},new NativeBackupReader.Decoder(){public File decrypt(InputStream input,File file,String kind)throws Exception{return envelope.decrypt(input,file,kind,password);}});
+        }
+    }
+    private static JSONObject verifyBackup(Context context,Uri uri,JSONObject root,String password)throws Exception{
+        if(NativeBackupReader.isNative(root)){
+            try(NativeBackupReader.Prepared prepared=readNative(context,uri,root,password)){
+                JSONObject result=prepared.verification.put("fileName",queryDisplayName(context,uri)).put("checkedAt",isoNow());context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_VERIFICATION,result.toString()).apply();return result;
+            }
+        }
+        JSONObject fleet=root.optJSONObject("fleet");if(fleet==null)fleet=root;
         java.util.Set<String> expected=attachmentKeys(documentInventory(root)),found=new java.util.HashSet<String>();
         org.json.JSONArray bikes=fleet.optJSONArray("bikes");int historyCount=0;
         for(int i=0;i<bikes.length();i++){JSONObject b=bikes.optJSONObject(i);org.json.JSONArray h=b==null?null:b.optJSONArray("history");if(h!=null)historyCount+=h.length();}
@@ -195,7 +214,7 @@ public final class BackupManager {
             InputStream input=context.getContentResolver().openInputStream(docs);if(input==null)throw new IllegalArgumentException("Το αρχείο τιμολογίων δεν είναι αναγνώσιμο.");
             File plain=File.createTempFile("fleet-verify-",".zip",context.getCacheDir());
             try {
-            BackupCipher.decrypt(input,plain,encryptionKey());JSONObject metadata=root.optJSONObject("documentsBackup");String sha=metadata==null?"":metadata.optString("archiveSha256","");
+            try(BackupEnvelope envelope=BackupEnvelope.open(context)){envelope.decrypt(input,plain,"documents",password);}JSONObject metadata=root.optJSONObject("documentsBackup");String sha=metadata==null?"":metadata.optString("archiveSha256","");
             if(sha.length()>0&&!sha.equals(BackupArchiveVerifier.digest(plain)))throw new IllegalArgumentException("Το συνοδευτικό αρχείο τιμολογίων δεν αντιστοιχεί σε αυτό το backup.");
             java.util.Map<String,BackupArchiveVerifier.Item> items=BackupArchiveVerifier.inspect(new java.io.FileInputStream(plain));
             org.json.JSONArray manifest=new org.json.JSONArray(new String(items.get("fleet-control-documents.json").manifest,Charset.forName("UTF-8")));
@@ -220,12 +239,51 @@ public final class BackupManager {
         return result;
     }
 
-    public static JSONObject verifyAndRemember(Context context, Uri uri) throws Exception {
-        try { return verifyBackup(context,uri); }
+    public static JSONObject verifyAndRemember(Context context,Uri uri)throws Exception{return verifyAndRemember(context,uri,null);}
+    public static JSONObject verifyAndRemember(Context context,Uri uri,String password)throws Exception{
+        try{return verifyBackup(context,uri,password);}
         catch(Exception error){
             JSONObject failed=new JSONObject().put("fileName",queryDisplayName(context,uri)).put("checkedAt",isoNow()).put("readable",false).put("complete",false).put("message",error.getMessage()==null?"Το backup δεν ήταν αναγνώσιμο.":error.getMessage());
             context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_VERIFICATION,failed.toString()).apply();throw error;
         }
+    }
+
+    public static synchronized JSONObject testRestoreBackup(Context context,Uri uri)throws Exception{return testRestoreBackup(context,uri,null);}
+    public static synchronized JSONObject testRestoreBackup(Context context,Uri uri,String password)throws Exception{
+        if(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getBoolean("ota_quiescing",false))
+            throw new IllegalStateException("Προετοιμάζεται ενημέρωση. Περίμενε ή πάτησε Αναβολή πριν από νέα δοκιμή ανάκτησης.");
+        File plain=null;
+        try {
+            JSONObject root=readBackupRoot(context,uri,password);
+            if(NativeBackupReader.isNative(root)){
+                try(NativeBackupReader.Prepared prepared=readNative(context,uri,root,password)){
+                    JSONObject result=NativeBackupRestoreProbe.run(context,prepared.database,prepared.manifest,prepared.documents).put("checkedAt",isoNow()).put("fileName",queryDisplayName(context,uri));
+                    if(!context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_RESTORE_TEST,result.toString()).commit())throw new IllegalStateException("Δεν αποθηκεύτηκε το αποτέλεσμα της δοκιμής ανάκτησης.");return result;
+                }
+            }
+            JSONObject verification=verifyBackup(context,uri,root,password);
+            if(!verification.optBoolean("complete"))throw new IllegalArgumentException("Το αντίγραφο είναι ελλιπές. Διόρθωσε πρώτα τα στοιχεία κάλυψης και έλεγξέ το ξανά.");
+            Uri documents=findSiblingDocumentsArchive(context,uri);
+            if(documents!=null){
+                InputStream input=context.getContentResolver().openInputStream(documents);
+                if(input==null)throw new IllegalArgumentException("Το αρχείο τιμολογίων δεν είναι διαθέσιμο.");
+                plain=File.createTempFile("fleet-recovery-archive-",".zip",context.getCacheDir());
+                try(BackupEnvelope envelope=BackupEnvelope.open(context)){envelope.decrypt(input,plain,"documents",password);}
+                JSONObject metadata=root.optJSONObject("documentsBackup");
+                String expected=metadata==null?"":metadata.optString("archiveSha256","");
+                if(expected.length()>0&&!expected.equals(BackupArchiveVerifier.digest(plain)))throw new IllegalArgumentException("Το συνοδευτικό αρχείο άλλαξε μετά τον έλεγχο.");
+            }
+            JSONObject result=BackupRestoreProbe.run(context,root,documentInventory(root),plain,verification.getInt("expectedDocuments"));
+            result.put("checkedAt",isoNow()).put("fileName",queryDisplayName(context,uri));
+            if(!context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_RESTORE_TEST,result.toString()).commit())
+                throw new IllegalStateException("Ο έλεγχος ολοκληρώθηκε, αλλά δεν αποθηκεύτηκε το αποτέλεσμα. Επανάλαβε τη δοκιμή.");
+            return result;
+        } catch(Exception error) {
+            JSONObject failed=new JSONObject().put("checkedAt",isoNow()).put("fileName",queryDisplayName(context,uri))
+                .put("isolated",true).put("restoreVerified",false).put("message",error.getMessage()==null?"Η δοκιμή ανάκτησης δεν ολοκληρώθηκε.":error.getMessage());
+            context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY_RESTORE_TEST,failed.toString()).commit();
+            throw error;
+        } finally {if(plain!=null)plain.delete();}
     }
 
     public static synchronized JSONObject restoreBackup(Context context, FleetDataStore store, Uri uri) throws Exception {
@@ -234,6 +292,7 @@ public final class BackupManager {
 
     public static synchronized JSONObject restorePreparedBackup(Context context, FleetDataStore store, Uri uri, JSONObject prepared) throws Exception {
         JSONObject root = new JSONObject(prepared.toString());
+        if(NativeBackupReader.isNative(root))throw new IllegalArgumentException("Η πλήρης βάση απαιτεί την ειδική διαδικασία ανάκτησης κύριου Server. Δεν επιτρέπεται μερική εισαγωγή της ως παλαιό backup.");
         if(root.has("storeBilling")){JSONObject billing=root.getJSONObject("storeBilling");if(billing.getInt("schemaVersion")!=1||billing.getInt("cutoffHour")!=5)throw new IllegalArgumentException("Μη συμβατό αρχείο καταστημάτων στο backup.");StoreBillingStore.validateBackup(billing.getJSONArray("records"));}
         JSONObject fleet = root.getJSONObject("fleet");
         SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -255,6 +314,7 @@ public final class BackupManager {
         }
         JSONObject documentRestore = restoreSiblingDocuments(context, documentInventory(root), uri, root.optJSONObject("documentsBackup"));
         root.put("documentRestore", documentRestore);
+        ServerAuthorityStage.invalidate(store.getWritableDatabase());
         store.mergeFleet(fleet);
         store.setSystemExport(root);
         new StoreBillingStore(store).restore(root.optJSONObject("storeBilling")==null?new JSONArray():root.getJSONObject("storeBilling").getJSONArray("records"));StoreBillingSync.wake(store);
@@ -272,7 +332,7 @@ public final class BackupManager {
             if (input == null) return unavailable.put("message", "Το συνοδευτικό αρχείο τιμολογίων δεν είναι διαθέσιμο.");
             File plain=File.createTempFile("fleet-restore-",".zip",context.getCacheDir());
             try {
-            BackupCipher.decrypt(input,plain,encryptionKey());
+            try(BackupEnvelope envelope=BackupEnvelope.open(context)){envelope.decrypt(input,plain,"documents",null);}
             String expectedSha=metadata==null?"":metadata.optString("archiveSha256","");
             if(expectedSha.length()>0&&!expectedSha.equals(BackupArchiveVerifier.digest(plain)))throw new IllegalArgumentException("Το αρχείο τιμολογίων δεν αντιστοιχεί στο backup.");
             BackupArchiveVerifier.inspect(new java.io.FileInputStream(plain));
@@ -303,12 +363,13 @@ public final class BackupManager {
         return count;
     }
 
-    private static Uri findSiblingDocumentsArchive(Context context, Uri backupUri) {
+    private static Uri findSiblingDocumentsArchive(Context context,Uri backupUri){return findSiblingPart(context,backupUri,"documents");}
+    static Uri findSiblingPart(Context context,Uri backupUri,String kind){
         try {
             String backupName = queryDisplayName(context, backupUri);
             Matcher matcher = Pattern.compile("FleetControl_backup_(\\d{8}_\\d{6})\\.fcbackup", Pattern.CASE_INSENSITIVE).matcher(backupName);
             if (!matcher.find()) return null;
-            String expected = "FleetControl_documents_" + matcher.group(1) + ".fcdocs";
+            String expected = (kind.equals("database")?"FleetControl_database_":"FleetControl_documents_")+matcher.group(1)+(kind.equals("database")?".fcdb":".fcdocs");
             SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             String folderValue = preferences.getString(KEY_FOLDER_URI, "");
             if (folderValue == null || folderValue.length() == 0) return null;
@@ -332,7 +393,7 @@ public final class BackupManager {
         return null;
     }
 
-    private static String queryDisplayName(Context context, Uri uri) {
+    static String queryDisplayName(Context context, Uri uri) {
         Cursor cursor = null;
         try {
             cursor = context.getContentResolver().query(uri, new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null);
@@ -407,11 +468,16 @@ public final class BackupManager {
             java.util.Set<String> existing=new java.util.HashSet<String>(),seen=new java.util.HashSet<String>();
             org.json.JSONArray ledger=new org.json.JSONArray(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(KEY_EXPORT_LEDGER,"[]"));
             java.util.List<BackupRetention.Record> records=new ArrayList<BackupRetention.Record>();
-            for(int i=0;i<ledger.length();i++){JSONObject row=ledger.optJSONObject(i);if(row==null||!treeUri.toString().equals(row.optString("folder")))continue;String stamp=row.optString("stamp");if(!seen.add(stamp))continue;String primary="FleetControl_backup_"+stamp+".fcbackup",docs="FleetControl_documents_"+stamp+".fcdocs";if(!duplicates.contains(primary)&&row.optString("dataId").length()>0&&row.optString("dataId").equals(ids.get(primary)))existing.add(primary);if(row.optBoolean("documents")&&!duplicates.contains(docs)&&row.optString("docsId").length()>0&&row.optString("docsId").equals(ids.get(docs)))existing.add(docs);records.add(new BackupRetention.Record(stamp,row.optBoolean("documents"),row.optBoolean("complete")));}
+            for(int i=0;i<ledger.length();i++){
+                JSONObject row=ledger.optJSONObject(i);if(row==null||!treeUri.toString().equals(row.optString("folder")))continue;String stamp=row.optString("stamp");if(!seen.add(stamp))continue;
+                String primary="FleetControl_backup_"+stamp+".fcbackup",docs="FleetControl_documents_"+stamp+".fcdocs",database="FleetControl_database_"+stamp+".fcdb";
+                for(String[] part:new String[][]{{primary,"dataId"},{docs,"docsId"},{database,"databaseId"}})if(!duplicates.contains(part[0])&&row.optString(part[1]).length()>0&&row.optString(part[1]).equals(ids.get(part[0])))existing.add(part[0]);
+                records.add(new BackupRetention.Record(stamp,row.optBoolean("documents"),row.optBoolean("database"),row.optBoolean("complete")));
+            }
             // Unknown legacy files, partial attempts, incomplete coverage and
             // pending exports never count toward the retention cutoff.
             for(String stamp:BackupRetention.obsolete(records,existing,keep,BackupJobs.pendingStamps(context))){
-                for(String name:new String[]{"FleetControl_backup_"+stamp+".fcbackup","FleetControl_documents_"+stamp+".fcdocs"}){
+                for(String name:new String[]{"FleetControl_backup_"+stamp+".fcbackup","FleetControl_documents_"+stamp+".fcdocs","FleetControl_database_"+stamp+".fcdb"}){
                     String id=ids.get(name);if(id!=null&&existing.contains(name)&&!duplicates.contains(name))try{DocumentsContract.deleteDocument(resolver,DocumentsContract.buildDocumentUriUsingTree(treeUri,id));}catch(Exception ignored){}
                 }
             }

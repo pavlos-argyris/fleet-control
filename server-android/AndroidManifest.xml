@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="gr.argyrismitsos.fleetserver"
-    android:versionCode="54"
-    android:versionName="2.9.1">
+    android:versionCode="72"
+    android:versionName="2.10.18">
 
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -16,10 +16,11 @@
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <uses-sdk
-        android:minSdkVersion="23"
+        android:minSdkVersion="26"
         android:targetSdkVersion="34" />
 
     <application
+        android:name=".FleetApplication"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:icon="@drawable/ic_launcher"
@@ -43,10 +44,15 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <activity
+            android:name=".NativeRestartActivity"
+            android:process=":restore"
+            android:exported="false" />
+
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

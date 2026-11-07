@@ -4,8 +4,9 @@ import java.util.*;
 /** Only known, complete exports may cause older known exports to be pruned. */
 public final class BackupRetention {
     public static final class Record {
-        public final String stamp;public final boolean documents,complete;
-        public Record(String stamp,boolean documents,boolean complete){this.stamp=stamp;this.documents=documents;this.complete=complete;}
+        public final String stamp;public final boolean documents,database,complete;
+        public Record(String stamp,boolean documents,boolean complete){this(stamp,documents,false,complete);}
+        public Record(String stamp,boolean documents,boolean database,boolean complete){this.stamp=stamp;this.documents=documents;this.database=database;this.complete=complete;}
     }
     private BackupRetention(){}
     public static List<String> obsolete(List<Record> records,Set<String> existing,int keep,Set<String> pending){
@@ -15,6 +16,7 @@ public final class BackupRetention {
             if(stamp==null||!stamp.matches("\\d{8}_\\d{6}")||!record.complete||pending.contains(stamp))continue;
             if(!existing.contains("FleetControl_backup_"+stamp+".fcbackup"))continue;
             if(record.documents&&!existing.contains("FleetControl_documents_"+stamp+".fcdocs"))continue;
+            if(record.database&&!existing.contains("FleetControl_database_"+stamp+".fcdb"))continue;
             complete.add(stamp);
         }
         List<String> result=new ArrayList<String>();int count=0;
