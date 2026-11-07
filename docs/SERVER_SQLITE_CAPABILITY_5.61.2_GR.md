@@ -42,6 +42,19 @@ owner/lease/backup παραμένουν. Δεν εκτελείται παραγ�
 Οι δοκιμές JVM/SQLite με Android API contract δεν υποκαθιστούν την τελική
 φυσική εγκατάσταση και ολοκλήρωση της μεταφοράς.
 
+## Επαληθευμένη δημοσίευση
+
+Η [Fleet5.61.2 / Server2.10.20](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.61.2)
+ενεργοποιήθηκε στις 07/11/2026 23:36:45 UTC. Το [workflow42425177953](https://github.com/pavlos-argyris/fleet-control/actions/runs/42425177953)
+ολοκληρώθηκε SUCCESS με αρχικές υπογραφές. Το live probe 23:37:17 UTC
+επαλήθευσε πραγματικές λήψεις Client/Server και cloud mirror αναγνώσεις,
+με complete=true, failedRequests=[] και downloadsVerified=true.
+
+- APK source: `d5aca9ae24a3b6e2ffc54a77132b58a19739db01`.
+- Server SHA-256: `cbeed1e88e488fd52f57e836a9a220408b50501e98333416f42114bdb2d6f739`.
+- Πλήρες source ZIP SHA-256: `d39de3a5c579ac9669cf6ea78ac9d68185fae8a0beef130b274f241c521adc4a`.
+- Και τα 2.860 αρχεία του δημοσιευμένου source ZIP επαληθεύτηκαν σε bytes και executable modes έναντι Git.
+
 ## Συνέχεια στη συσκευή μετά τη δημοσίευση
 
 1. Αν η αποτυχημένη μεταφορά κρατά φραγή καταχωρίσεων, χρησιμοποίησε την
