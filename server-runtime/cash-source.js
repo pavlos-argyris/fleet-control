@@ -58,9 +58,10 @@ export async function cashSourceStatus(env,from,to){
   const rows=list(await env.DB.prepare("SELECT day,data FROM store_billing_local WHERE scope=? AND kind='cash_source_coverage' AND day BETWEEN ? AND ?").bind(source.scope,from,to).all());
   const pending=await env.DB.prepare("SELECT COUNT(*) n FROM store_billing_local WHERE scope=? AND kind='cash_refresh_request' AND day BETWEEN ? AND ?").bind(source.scope,from,to).first();
   const coverage=rows.map(row=>JSON.parse(row.data)),complete=coverage.filter(row=>row.identityVerified&&row.ordersCoverageComplete&&!row.needsSourceRefresh);
+  const identityRevision=await hash({scope:source.scope,coverage:rows.sort((a,b)=>a.day.localeCompare(b.day)).map(row=>[row.day,JSON.parse(row.data).runId||'',JSON.parse(row.data).observedAt||'',JSON.parse(row.data).needsSourceRefresh===true])});
   const times=complete.map(row=>row.lastCompleteAt).filter(at=>Number.isFinite(Date.parse(at))).sort();
   const expected=Math.round((Date.parse(to+'T12:00:00Z')-Date.parse(from+'T12:00:00Z'))/86400000)+1;
   return{...base,state:Number(pending.n)>0?'pending':coverage.some(row=>!row.identityVerified||!row.ordersCoverageComplete||row.needsSourceRefresh)?'partial':base.state,
-    sourceScope:source.scope,pendingDays:Number(pending.n),identityDaysComplete:complete.length,identityDaysExpected:expected,
+    sourceScope:source.scope,identityRevision,pendingDays:Number(pending.n),identityDaysComplete:complete.length,identityDaysExpected:expected,
     orderSnapshotCoverageComplete:complete.length===expected,lastOrderSnapshotAt:times.length?times[times.length-1]:null};
 }
