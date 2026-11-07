@@ -254,12 +254,14 @@
         "scripts/test-portable-backup-native.mjs",
         "scripts/test-backup-protection-ui.mjs",
         "scripts/test-business-runtime-native.mjs",
-        "scripts/test-backup-write-buffering-native.mjs"
+        "scripts/test-backup-write-buffering-native.mjs",
+        "scripts/test-cash-pilot-native.mjs"
       ],
       "related": [
         "server-foundation",
         "stores",
-        "invoices"
+        "invoices",
+        "courier-cash"
       ],
       "docs": [
         "docs/BACKUP_OTA_5.51.5_GR.md",
@@ -485,7 +487,8 @@
       ],
       "related": [
         "stores",
-        "shift-payroll"
+        "shift-payroll",
+        "backups"
       ],
       "docs": [
         "docs/ISSUE_60_PARALLEL_START_GR.md",

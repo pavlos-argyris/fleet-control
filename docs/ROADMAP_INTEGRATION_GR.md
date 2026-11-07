@@ -29,7 +29,7 @@ Source `dc5bf27f411800c6c5fc21973e5ec844d2277217`:
 - Full [42281646837](https://github.com/pavlos-argyris/fleet-control/actions/runs/42281646837) **SUCCESS**: πραγματικό Chromium, file-origin Client, native/runtime/backup tests, δύο test-signed APK, Worker dry-run και πλήρες source handoff.
 - Source artifact [13536870747](https://github.com/pavlos-argyris/fleet-control/actions/runs/42281646837/artifacts/13536870747), artifact ZIP SHA-256 `b1a2dc7007ad2c90d2b6b00f3bc5507a05e5845c6b404d908818a4096369c3c2`.
 
-Τρέχουσα υποψήφια έκδοση: Fleet/Web/Client5.61.0, Client104, Server2.10.17(71), Worker5.18.8.
+Τρέχουσα υποψήφια έκδοση: Fleet/Web/Client5.61.0, Client104, Server2.10.18(72), Worker5.18.8.
 Οι επόμενες αλλαγές audit/visual-review απαιτούν νέο exact-source CI πριν από συγχώνευση.
 
 ## Παράδοση και αποδοχή

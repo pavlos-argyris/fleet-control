@@ -27,8 +27,13 @@ public final class CashSync {
     }
     public static void tick(Context context,FleetDataStore fleet){
         long now=System.currentTimeMillis();if(now<next||!running.compareAndSet(false,true))return;
+        boolean tracked=false;
         try{
             if(NativePrimaryService.cloudMode(context)||!NativePrimaryService.jobsAllowed(context)){next=now+5000;return;}
+            // begin shares the OTA pause lock: an update either waits for this
+            // durable step, or prevents it from starting before its checkpoint.
+            if(!ServerWorkTracker.begin(context,"cash-auto","Αυτόματο Ταμείο","Ενημέρωση επαληθευμένων παραδόσεων")){next=now+1000;return;}
+            tracked=true;
             JSONObject source=OrdexaSync.storesContext(context);if(!source.optBoolean("configured")||source.optBoolean("historicalOnly")){next=now+5000;return;}
             StoreBillingStore store=new StoreBillingStore(fleet);String scope=source.getString("scope"),generation=source.getString("generation");JSONObject old=store.get(META),meta=old==null?new JSONObject():new JSONObject(old.toString());boolean changed=!scope.equals(meta.optString("scope"))||!generation.equals(meta.optString("generation"));
             JSONObject result=null;
@@ -46,6 +51,6 @@ public final class CashSync {
         }catch(Exception error){
             // No raw provider/identity/error body is copied to diagnostics.
             try{StoreBillingStore store=new StoreBillingStore(fleet);JSONObject meta=store.get(META);if(meta==null)meta=new JSONObject();store.put(META,"meta","","","",meta.put("error","Το αυτόματο Ταμείο θα επαναληφθεί. Οι προηγούμενες κινήσεις διατηρούνται.").put("lastTick",now),false);}catch(Exception ignored){}next=now+5000;
-        }finally{running.set(false);}
+        }finally{if(tracked)ServerWorkTracker.finish("cash-auto");running.set(false);}
     }
 }
