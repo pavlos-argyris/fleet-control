@@ -7,11 +7,12 @@ export function uploadErrorSummary(row){
  if(m.service!=='fleet-control'&&w.scriptName!=='fleet-control')return null;
  const urls=[m.trigger,w.event?.request?.url,w.event?.http?.request?.url];
  const matched=urls.some(url=>typeof url==='string'&&url.includes(PATH));
- const messages=[m.error,m.message,value?.error?.message,...(w.exceptions||[]).map(e=>e.message)].filter(x=>typeof x==='string');
+ const errorText=(entry,depth=0)=>{if(typeof entry==='string')return[entry];if(!entry||depth>3)return[];if(Array.isArray(entry))return entry.slice(0,5).flatMap(x=>errorText(x,depth+1));return['name','message','stack','cause'].flatMap(key=>errorText(entry[key],depth+1));};
+ const messages=[m.error,m.message,value?.error,value?.message,value?.exception,w.exceptions].flatMap(x=>errorText(x));
  const message=messages.join(' '),text=message+' '+(w.outcome||'');
  const category=/memory|heap|oom/i.test(text)?'memory':/cpu|exceededCpu/i.test(text)?'cpu':/D1|SQLITE|database/i.test(text)?'database':/R2|bucket|storage/i.test(text)?'storage':/body.*used|disturb/i.test(text)?'consumed-body':'other';
  const safe=matched?message.replace(/Bearer\s+[^\s"']+/gi,'Bearer [redacted]').replace(/[A-Za-z0-9_-]{24,}/g,'[opaque]').slice(0,500):undefined;
- return{matchedRelease:matched,outcome:w.outcome||null,cpuTimeMs:typeof w.cpuTimeMs==='number'?w.cpuTimeMs:null,category,...(safe?{message:safe}:{})};
+ return{...(matched?{fields:Object.keys(value).filter(k=>['message','level','name','error','stack','cause','exceptions','logs','$metadata','$workers'].includes(k))}:{}),matchedRelease:matched,outcome:w.outcome||null,cpuTimeMs:typeof w.cpuTimeMs==='number'?w.cpuTimeMs:null,category,...(safe?{message:safe}:{})};
 }
 export async function probeReleaseUpload({account,token,fetchImpl=fetch}){
  if(!/^[a-f0-9]{32}$/.test(account||'')||typeof token!=='string'||token.length<20)throw Error('Existing Cloudflare configuration required');
