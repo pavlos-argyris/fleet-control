@@ -533,6 +533,31 @@
         "docs/ISSUE_8_PLAY_PROTECT_AUDIT_GR.md",
         "docs/PLAY_PROTECT_REVIEW_PACKET_GR.md"
       ]
+    },
+    {
+      "id": "ordexa-diagnostic",
+      "title": "Separate manual read-only Ordexa protocol observation",
+      "paths": [
+        "ordexa-diagnostic-android/",
+        "scripts/build-ordexa-diagnostic.sh",
+        "scripts/check-ordexa-diagnostic-apk.py",
+        "server-android/src/gr/argyrismitsos/fleetserver/OrdexaClient.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/StoreBillingProtocol.java"
+      ],
+      "tests": [
+        "scripts/test-ordexa-diagnostic-native.mjs",
+        "scripts/test-ordexa-order-evidence-native.mjs",
+        "scripts/test-ordexa-native.mjs"
+      ],
+      "related": [
+        "ordexa-attendance",
+        "courier-cash",
+        "stores"
+      ],
+      "docs": [
+        "docs/ORDEXA_DIAGNOSTIC_GR.md",
+        "docs/ORDEXA_AUTO_CASH_20261107_GR.md"
+      ]
     }
   ]
 }

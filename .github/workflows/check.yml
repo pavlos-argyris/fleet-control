@@ -11,6 +11,27 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  ordexa-diagnostic:
+    name: Build separate manual Ordexa diagnostic
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: bash scripts/unpack-toolchain.sh
+      - run: node scripts/test-ordexa-diagnostic-native.mjs
+      - run: bash scripts/build-ordexa-diagnostic.sh
+      - name: Save manual diagnostic and source identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordexa-manual-diagnostic
+          path: .build/ordexa-diagnostic/
+          if-no-files-found: error
   check:
     runs-on: ubuntu-24.04
     steps:
