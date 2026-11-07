@@ -6,7 +6,7 @@ const periodKey=(d,period,from)=>period==='range'?from:period==='day'?d:period==
 async function scopeFor(url){const current=native('store.context');if(!current.configured||!current.scope)throw new NativeError(503,'Ρύθμισε πρώτα την ανάγνωση καταστημάτων στον Server.');const requested=url.searchParams.get('scope');if(requested&&requested!==current.scope)throw new NativeError(409,'Άλλαξε η ενεργή πηγή καταστημάτων. Άνοιξε ξανά την αναφορά.');return current.scope;}
 export async function storeReport(env,{from,to,period='day',scope,storeId=''}){
   day(from);day(to);if(!['day','week','month','range'].includes(period))throw new NativeError(400,'Επίλεξε ημέρα, εβδομάδα ή μήνα.');
-  const catalog=list(await env.DB.prepare("SELECT store_id,data FROM store_billing_local WHERE scope=? AND kind='store' ORDER BY store_id").bind(scope).all());
+  const catalog=list(await env.DB.prepare("SELECT id store_id,data FROM store_billing_local WHERE scope=? AND kind='store' ORDER BY id").bind(scope).all());
   if(!catalog.length)throw new NativeError(409,'Δεν έχει αποθηκευτεί ακόμη κατάλογος καταστημάτων.');
   const names=Object.fromEntries(catalog.map(r=>[r.store_id,JSON.parse(r.data).name||r.store_id]));
   const aliasRows=list(await env.DB.prepare('SELECT source_id,target_id,revision FROM native_store_aliases WHERE scope=?').bind(scope).all()),aliases=Object.fromEntries(aliasRows.filter(r=>r.target_id).map(r=>[r.source_id,r.target_id]));
@@ -45,7 +45,7 @@ export async function routeReports(request,env){
   if(url.pathname==='/api/native/store-financials/alias'&&request.method==='POST'){
     const b=await request.json(),source=text(b.sourceId,200),target=text(b.targetId,200),expected=integer(b.expectedRevision);
     if(!source||source===target||!target&&b.remove!==true)throw new NativeError(400,'Διάλεξε δύο διαφορετικά σταθερά IDs καταστημάτων.');
-    const catalog=list(await env.DB.prepare("SELECT store_id FROM store_billing_local WHERE scope=? AND kind='store' AND store_id IN (?,?)").bind(scope,source,target||source).all());if(catalog.length!==(target?2:1))throw new NativeError(400,'Τα καταστήματα δεν ανήκουν στην ενεργή πηγή.');
+    const catalog=list(await env.DB.prepare("SELECT id store_id FROM store_billing_local WHERE scope=? AND kind='store' AND id IN (?,?)").bind(scope,source,target||source).all());if(catalog.length!==(target?2:1))throw new NativeError(400,'Τα καταστήματα δεν ανήκουν στην ενεργή πηγή.');
     if(target&&await env.DB.prepare("SELECT 1 found FROM native_store_aliases WHERE scope=? AND target_id<>'' AND (source_id=? OR target_id=?)").bind(scope,target,source).first())throw new NativeError(409,'Δεν επιτρέπονται αλυσίδες ή κύκλοι αντιστοιχίσεων.');
     const before=await env.DB.prepare('SELECT * FROM native_store_aliases WHERE scope=? AND source_id=?').bind(scope,source).first();if(!target&&!before?.target_id)throw new NativeError(409,'Δεν υπάρχει ενεργή αντιστοίχιση για αφαίρεση.');if(Number(before?.revision||0)!==expected)throw new NativeError(409,'Η αντιστοίχιση άλλαξε. Άνοιξε ξανά την αναφορά.');
     // Preflight is for a useful conflict message; the SQLite write itself must

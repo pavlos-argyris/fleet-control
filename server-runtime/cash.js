@@ -28,7 +28,7 @@ async function rule(request,env,user){
   const b=await request.json(),store=text(b.storeId,200),category=text(b.category,80),effectiveDay=day(b.effectiveDay),rate=integer(b.rateCents),expected=integer(b.expectedRevision);
   if(!store||!category)throw new NativeError(400,'Επίλεξε κατάστημα και κατηγορία.');
   // Explicit stable Fleet store IDs only. Names never silently create aliases.
-  const exists=await env.DB.prepare("SELECT 1 found FROM store_billing_records WHERE kind='store' AND store_id=?").bind(store).first();
+  const exists=await env.DB.prepare("SELECT 1 found FROM store_billing_records WHERE kind='store' AND id=?").bind(store).first();
   if(!exists)throw new NativeError(400,'Το κατάστημα δεν βρέθηκε. Ενημέρωσε πρώτα τον κατάλογο καταστημάτων.');
   const previous=await env.DB.prepare('SELECT * FROM native_cash_rules WHERE store_id=? AND category=? AND effective_day=? ORDER BY revision DESC LIMIT 1').bind(store,category,effectiveDay).first();
   if(Number(previous?.revision||0)!==expected)throw new NativeError(409,'Ο κανόνας άλλαξε. Το προσχέδιο διατηρήθηκε.','rule_conflict');
@@ -116,7 +116,7 @@ export async function routeCash(request,env){
   if(url.pathname==='/api/native/cash/rider-links'&&request.method==='POST')return saveCashRiderLink(request,env,user);
   if(url.pathname==='/api/native/cash/rules'){
     if(request.method==='POST')return rule(request,env,user);
-    if(request.method==='GET')return reply({rules:list(await env.DB.prepare('SELECT * FROM native_cash_rules ORDER BY store_id,category,effective_day DESC,revision DESC').all()),employees:list(await env.DB.prepare('SELECT id,full_name,active,deleted_at FROM app_users ORDER BY full_name').all()),stores:list(await env.DB.prepare("SELECT store_id,data FROM store_billing_records WHERE kind='store' ORDER BY store_id").all()).map(s=>({id:s.store_id,name:JSON.parse(s.data).name||s.store_id})),automaticOrderMappingVerified:false,...await cashSourceCatalog(env)});
+    if(request.method==='GET')return reply({rules:list(await env.DB.prepare('SELECT * FROM native_cash_rules ORDER BY store_id,category,effective_day DESC,revision DESC').all()),employees:list(await env.DB.prepare('SELECT id,full_name,active,deleted_at FROM app_users ORDER BY full_name').all()),stores:list(await env.DB.prepare("SELECT id store_id,data FROM store_billing_records WHERE kind='store' ORDER BY id").all()).map(s=>({id:s.store_id,name:JSON.parse(s.data).name||s.store_id})),automaticOrderMappingVerified:false,...await cashSourceCatalog(env)});
   }
   if(url.pathname==='/api/native/cash/events'&&request.method==='POST')return event(request,env,user);
   if(url.pathname==='/api/native/cash'&&request.method==='GET'){const {from,to}=range(url),eventOffset=integer(Number(url.searchParams.get('offset')||0),0,10000000);return reply(await cashProjection(env,from,to,text(url.searchParams.get('courierId'),100),{eventOffset,eventLimit:200}));}

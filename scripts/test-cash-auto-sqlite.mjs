@@ -11,7 +11,7 @@ async function fixture(){
  const simulation=createSimulation();await simulation.db.exec(WORKFORCE_SCHEMA);
  const db=simulation.db;await db.exec(CASH_SCHEMA+CASH_AUTO_SCHEMA+"CREATE TABLE store_billing_local(id TEXT PRIMARY KEY,kind TEXT,scope TEXT,store_id TEXT,day TEXT,data TEXT,dirty INTEGER DEFAULT 0);");
  for(const id of ['employee-a','employee-b'])db.sqlite.prepare("INSERT INTO app_users(id,full_name,username,password_hash,password_salt,role,active,login_enabled,created_at,updated_at) VALUES(?,?,?,'','','employee',1,0,?,?)").run(id,id,id,new Date().toISOString(),new Date().toISOString());
- for(const shop of ['shop-a','shop-b']){db.sqlite.prepare("INSERT INTO store_billing_local VALUES(?,'store',?,?, '',?,0)").run(shop,scope,shop,JSON.stringify({id:shop}));db.sqlite.prepare("INSERT INTO native_cash_rules VALUES(?,?, 'Α','2026-01-01',1,250,?,'owner')").run('rule-'+shop,shop,new Date().toISOString());}
+ for(const shop of ['shop-a','shop-b']){db.sqlite.prepare("INSERT INTO store_billing_local VALUES(?,'store',?,'', '',?,0)").run(shop,scope,JSON.stringify({id:shop}));db.sqlite.prepare("INSERT INTO native_cash_rules VALUES(?,?, 'Α','2026-01-01',1,250,?,'owner')").run('rule-'+shop,shop,new Date().toISOString());}
  for(const[rider,employee]of[['17','employee-a'],['18','employee-b']])db.sqlite.prepare("INSERT INTO native_cash_rider_links VALUES(?,?,?,'2026-01-01',1,?,?,?,'owner')").run('link-'+rider,scope,rider,employee,employee,new Date().toISOString());
  const env={...simulation.env,LOCAL_PRIMARY:true,DB:db};return{...simulation,env};
 }

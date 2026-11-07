@@ -464,7 +464,8 @@
         "server-android/src/gr/argyrismitsos/fleetserver/CashSync.java",
         "scripts/fixtures/BusinessAutomaticCashChecks.java.txt",
         "scripts/fixtures/cash-auto-ui-data.mjs",
-        "scripts/fixtures/cash-auto-ui-checks.mjs"
+        "scripts/fixtures/cash-auto-ui-checks.mjs",
+        "scripts/fixtures/cash-auto-pipeline-checks.mjs"
       ],
       "tests": [
         "scripts/test-courier-cash-core.mjs",

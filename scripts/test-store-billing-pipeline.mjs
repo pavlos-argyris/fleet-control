@@ -1,3 +1,4 @@
+import {checkSharedCashPipeline} from './fixtures/cash-auto-pipeline-checks.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import http from 'node:http';
 import {execFileSync,execFile} from 'node:child_process';import {promisify} from 'node:util';
@@ -78,4 +79,5 @@ try{
  execFileSync('java',['-jar',compiler,'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',jar,'-d',dir,...['OrdexaClient','StoreBillingEngine','StoreBillingProtocol','StoreBillingStore','OrdexaCashOrderProtocol','OrdexaCashSourceStore','StoreBillingSync'].map(n=>root+n+'.java'),...java],{stdio:'inherit'});
  const run=await promisify(execFile)('java',['-Dfixture.origin='+origin,'-Dfixture.rpc='+path.join(dir,'sqlite_rpc.py'),'-Dfixture.db='+path.join(dir,'local.sqlite'),'-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetserver.Pipeline'],{timeout:180000,maxBuffer:2*1024*1024});process.stdout.write(run.stdout);
  assert.equal(scenario,9);assert.equal(lostAck,true,'native pipeline retried a lost publication acknowledgement');assert.equal(db.sqlite.prepare("SELECT COUNT(*) n FROM store_billing_records WHERE kind IN ('order','observation','removal')").get().n,0,"no raw order or deletion payload ever reaches D1");
+ await checkSharedCashPipeline(path.join(dir,'local.sqlite'),db,day);
 }finally{if(host)await new Promise(resolve=>host.close(resolve));db.sqlite.close();fs.rmSync(dir,{recursive:true,force:true});}
