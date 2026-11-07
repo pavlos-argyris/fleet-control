@@ -422,7 +422,8 @@
         "cloudflare-worker/public/primary-pending.js",
         "cloudflare-worker/public/primary-transport.js",
         "cloudflare-worker/public/primary-transport.css",
-        "scripts/fixtures/primary-browser-gateway.mjs"
+        "scripts/fixtures/primary-browser-gateway.mjs",
+        "scripts/fixtures/business-sqlite.mjs"
       ],
       "tests": [
         "scripts/test-d1-source-inventory.mjs",
@@ -450,7 +451,8 @@
       ],
       "docs": [
         "docs/ISSUE_59_D1_AUTHORITY_AUDIT_GR.md",
-        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md",
+        "docs/SERVER_SQLITE_CAPABILITY_5.61.2_GR.md"
       ]
     },
     {

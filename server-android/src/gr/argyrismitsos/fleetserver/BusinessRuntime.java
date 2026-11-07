@@ -18,6 +18,37 @@ public final class BusinessRuntime implements java.io.Closeable {
     private final Host host;
     private ScriptableObject scope;
     private volatile long deadline;
+    /** Report a bounded category only. Android SQLite messages can contain the
+     * full statement, including historical personal data or credential binds. */
+    private static String capabilityFailure(String command,Exception error){
+        String area="LOCAL";
+        if(command!=null){
+            if(command.matches("sql\\.(exec|query|raw|run|batch|request\\.begin|request\\.end)"))area="SQL_"+command.substring(4).replace('.','_').toUpperCase(Locale.US);
+            else if(command.startsWith("crypto."))area="CRYPTO";
+            else if(command.startsWith("objects.")||command.startsWith("file.")||command.equals("response.file"))area="FILES";
+            else if(command.equals("url.parse"))area="URL";
+            else if(command.equals("date.parts"))area="TIMEZONE";
+        }
+        String code="NATIVE_FAILURE";
+        Throwable cause=error;
+        for(int depth=0;cause!=null&&depth<8;depth++,cause=cause.getCause()){
+            if(cause.getClass().getName().startsWith("android.database.sqlite.")){
+                String message=String.valueOf(cause.getMessage()).toLowerCase(Locale.US);
+                code="SQLITE_ERROR";
+                if(message.contains("sqlite_misuse")||message.contains("empty sql statement"))code="SQLITE_EMPTY_STATEMENT";
+                else if(message.contains("query or rawquery"))code="SQLITE_QUERY_API";
+                else if(message.contains("no such function"))code="SQLITE_FUNCTION_UNAVAILABLE";
+                else if(message.contains("no such table")||message.contains("no such column")||message.contains("has no column"))code="SQLITE_SCHEMA";
+                else if(message.contains("database is locked")||message.contains("database is busy"))code="SQLITE_BUSY";
+                else if(message.contains("constraint"))code="SQLITE_CONSTRAINT";
+                break;
+            }
+            if(cause instanceof IOException)code="LOCAL_IO";
+            else if(cause instanceof IllegalArgumentException)code="INVALID_ARGUMENT";
+            if(cause.getCause()==cause)break;
+        }
+        return "Local capability failed ["+area+"/"+code+"]";
+    }
     private final ContextFactory contexts=new ContextFactory(){
         @Override protected Context makeContext(){
             Context c=super.makeContext();c.setInterpretedMode(true);c.setLanguageVersion(Context.VERSION_ES6);
@@ -38,7 +69,7 @@ public final class BusinessRuntime implements java.io.Closeable {
             BaseFunction capability=new BaseFunction(){@Override public Object call(Context cx,Scriptable s,Scriptable thisObject,Object[] args){
                 if(args.length!=2)throw Context.reportRuntimeError("Invalid native capability call");
                 try{return host.call(Context.toString(args[0]),Context.toString(args[1]));}
-                catch(Exception error){throw Context.reportRuntimeError("Local capability failed");}
+                catch(Exception error){throw Context.reportRuntimeError(capabilityFailure(Context.toString(args[0]),error));}
             }};
             capability.setParentScope(scope);capability.setPrototype(ScriptableObject.getFunctionPrototype(scope));
             ScriptableObject.defineProperty(scope,"__fleetNative",capability,ScriptableObject.READONLY|ScriptableObject.PERMANENT|ScriptableObject.DONTENUM);
