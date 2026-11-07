@@ -63,6 +63,6 @@ public class LargeStorageTest{
  }finally{s.close();}}
 }`);
 const sources=['Context','ContentValues','Cursor','SQLiteException','SQLiteDoneException','SQLiteStatement','SQLiteDatabase','SQLiteOpenHelper','LargeStorageTest'].map(n=>path.join(temp,n+'.java'));
-execFileSync('java',['-jar',path.join(root,'.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-classpath',jar,'-d',temp,...sources,...['FleetDataStore','HistoryMergePolicy','NextServiceNotes','StoreBillingStore','StoreBillingEngine','OrdexaClient'].map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java'))],{stdio:'inherit'});
+execFileSync('java',['-jar',path.join(root,'.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-classpath',jar,'-d',temp,...sources,...['FleetDataStore','HistoryMergePolicy','NextServiceNotes','StoreBillingStore','StoreBillingEngine','StoreBillingProtocol','OrdexaClient'].map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java'))],{stdio:'inherit'});
 execFileSync('java',['-Xmx384m','-Dfixture.rpc='+path.join(temp,'sqlite_rpc.py'),'-Dfixture.db='+path.join(temp,'fixture.db'),'-cp',temp+path.delimiter+jar,'LargeStorageTest'],{stdio:'inherit',timeout:120000});
 }finally{fs.rmSync(temp,{recursive:true,force:true});}

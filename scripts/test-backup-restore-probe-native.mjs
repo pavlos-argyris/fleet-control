@@ -82,7 +82,7 @@ public class ProbeTest {
   } finally {live.close();}
  }
 }`);
-  const sourceNames=['FleetDataStore','HistoryMergePolicy','NextServiceNotes','StoreBillingStore','StoreBillingEngine','OrdexaClient','ServiceDocumentStore','BackupArchiveVerifier','BackupRestoreProbe'];
+  const sourceNames=['FleetDataStore','HistoryMergePolicy','NextServiceNotes','StoreBillingStore','StoreBillingEngine','StoreBillingProtocol','OrdexaClient','ServiceDocumentStore','BackupArchiveVerifier','BackupRestoreProbe'];
   const files=fs.readdirSync(dir).filter(n=>n.endsWith('.java')).map(n=>path.join(dir,n));
   execFileSync('java',['-jar',path.join(root,'.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-classpath',jar,'-d',dir,...files,...sourceNames.map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java'))],{stdio:'inherit'});
   execFileSync('java',['-Xmx192m','-Dfixture.rpc='+path.join(dir,'sqlite_rpc.py'),'-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetserver.ProbeTest',dir],{stdio:'inherit',timeout:60000});

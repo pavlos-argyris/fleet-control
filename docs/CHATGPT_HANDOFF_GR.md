@@ -1,3 +1,10 @@
+## CI συνέχεια07/11 — ελλιπές compile input σε δύο native harnesses
+
+- Sourceea5133608f0b39384704afe14728b9066f4c3221: Fast42318707652 SUCCESS. Full42318707667 πέρασε πλήρες check-all και **όλους** τους Chromium suites (new cash inline320/390/1280 + file1024, Server diagnostics320/390/768, υπόλοιπα regression). Απέτυχε στο test-server-large-storage-native: το explicit compiler source list δεν περιείχε το πραγματικό StoreBillingProtocol που πλέον καλεί το StoreBillingStore. Το test APK build ήταν ήδη επιτυχές τοπικά· το σφάλμα είναι στο ελλιπές harness dependency graph, όχι δικαιολογία για κατάργηση assertion.
+- Προστέθηκε η πραγματική production class στα explicit source lists του μεγάλου storage και του backup-restore-probe, όπου εντοπίστηκε το ίδιο dependency. Καμία αλλαγή εφαρμογής/financial gate/versions, καμία χαλάρωση ελέγχων. Οι δύο πραγματικές native δοκιμές πέρασαν τοπικά (large Unicode SQLite storage και actual isolated restore/private PDFs/corruption rejection). Υποβάλλεται νέο exact-source full CI.
+- Κατέβηκε και επιθεωρήθηκε πραγματικά το synthetic browser artifact13552745649: mobile390 συνοπτική λίστα, inline250/300cents ανάλυση και Server proof-pending dialog. Ευανάγνωστα, πλήρης ένδειξη μη επαληθευμένου ποσού, καμία οριζόντια υπερχείλιση ή modal αντί inline· η μεγάλη οθόνη diagnostic είναι ξεχωριστή Settings λειτουργία. Δεν πρόκειται για πραγματικά οικονομικά/προσωπικά δεδομένα.
+- Το PR παραμένει draft, main3459b61 αμετάβλητο. Το GitHub προσωρινό PR check treee362d086 συμφωνεί ακριβώς με το αποθηκευμένο source tree· αυτό δεν είναι merge του branch στο main. Το πρώτο πραγματικό Ordexa protocol gate και οι φυσικές δοκιμές παραμένουν εκκρεμή όπως καταγράφηκαν παρακάτω.
+
 ## Ορόσημο07/11 — inline Ταμείο και ασφαλής παρατήρηση Ordexa, χωρίς ενεργοποίηση
 
 - Συνέχεια του4ca81c7 στο ίδιο draft PR#73 / codex/roadmap-integration-fleet-561, τοπικό work/pr73-ordexa-cash. **Η νεότερη απαγόρευση merge/deploy εξακολουθεί να ισχύει.** Δεν έγινε main merge, candidate request, production migration/restore/Ordexa write ή αλλαγή αρχικών κλειδιών.
