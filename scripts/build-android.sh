@@ -79,7 +79,7 @@ build_apk() {
   local invoice_jars=()
   if [[ "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
     python3 "$PROJECT_ROOT/scripts/prepare-invoice-dependencies.py" "$work_dir/invoice-deps"
-    python3 "$PROJECT_ROOT/scripts/prepare-business-dependencies.py" "$work_dir/invoice-deps/jars"
+    python3 "$PROJECT_ROOT/scripts/prepare-business-dependencies.py" "$work_dir/invoice-deps/jars" --resources "$work_dir/java-resources"
     (cd "$PROJECT_ROOT" && node scripts/build-business-runtime.mjs)
     mkdir -p "$work_dir/assets"
     cp -R "$source_dir/assets/." "$work_dir/assets/"
@@ -141,6 +141,11 @@ import sys,zipfile
 from pathlib import Path
 p=Path(sys.argv[1])
 with zipfile.ZipFile(p/'unsigned.apk','a',zipfile.ZIP_DEFLATED) as z:
+ for f in sorted((p/'java-resources').rglob('*')):
+  if not f.is_file():continue
+  name=f.relative_to(p/'java-resources').as_posix()
+  if name in z.namelist():raise SystemExit('Duplicate APK Java resource: '+name)
+  z.writestr(name,f.read_bytes())
  for f in sorted((p/'invoice-deps/lib').rglob('*.so')):z.writestr('lib/'+str(f.relative_to(p/'invoice-deps/lib')),f.read_bytes())
 PY
   fi
