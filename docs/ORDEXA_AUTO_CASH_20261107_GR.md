@@ -1,6 +1,12 @@
 # Αυτόματο Ταμείο Ordexa — εγκεκριμένη επέκταση07/11/2026
 
-Η απαίτηση είναι το [εγκεκριμένο σχόλιο του PR#73](https://github.com/pavlos-argyris/fleet-control/pull/73#issuecomment-6698903220). Νεότερη άδεια: merge/deploy όταν ολοκληρωθούν το συμφωνημένο scope και οι πύλες ελέγχου, χωρίς δεύτερη ίδια επιβεβαίωση. Το PR παραμένει υπό έλεγχο· δεν έγινε production merge/deploy/restore.
+Η απαίτηση είναι το [εγκεκριμένο σχόλιο του PR#73](https://github.com/pavlos-argyris/fleet-control/pull/73#issuecomment-6698903220).
+Μετά την πλήρη υλοποίηση και τους επιτυχείς ελέγχους, το PR συγχωνεύτηκε ως
+`527287a4a0b80685d1dd041792b36706f7c4e824` και η
+[Fleet 5.61.0](https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.61.0)
+δημοσιεύτηκε στις 07/11/2026. Η διάθεση της ενημέρωσης δεν εκτελεί παραγωγική
+μεταφορά ή restore. Η αυτόματη οικονομική λειτουργία απαιτεί ενεργή κύρια βάση,
+πλήρη συνεπή λήψη, αντιστοιχίσεις και επιλεγμένους κανόνες στον Server.
 
 ## Πραγματικά δεδομένα και επιβεβαίωση ιδιοκτήτη
 
@@ -28,11 +34,23 @@
 
 Το πλήρες physical SQLite/FCB3 περιέχει auto day/order state, immutable history, εξαιρέσεις/συμφιλιώσεις, source aliases/mappings/queue και το αρχικό ledger/receipts. Η ανάκτηση δεν επανενεργοποιεί παλιά primary identity. Το legacy selective store restore κρατά το cash history και επιβάλλει νέα source λήψη.
 
-Πέρασαν στοχευμένα actual Node SQLite1055/201 batch tests, πραγματικό Java/Rhino/SQLite native financial API με injection rollback/χαμένη απάντηση, πλήρες snapshot/FCB3/isolated/cold recovery και πραγματικοί Java reader/pilot tests. Ο συνδυαστικός έλεγχος καταναλώνει απευθείας το πραγματικό Java reader SQLite αρχείο:51 παραδόσεις→12750cents, επανάληψη χωρίς δεύτερη χρέωση και53 παραγγελίες στην ανεξάρτητη αναφορά καταστημάτων (δύο ρητά retained). Διορθώθηκαν οι catalog selectors σε cash/rules/reports/pilot: kind=store αναγνωρίζεται από primary id, ενώ store_id είναι κενό parent πεδίο. Τα fixtures πλέον χρησιμοποιούν αυτή την πραγματική μορφή. Νέες DOM assertions καλύπτουν reconciliation, explicit preview/CAS, exclusions, honest totals και open-only refresh. Το exact-head πλήρες CI, Chromium screenshots και δύο APK χρειάζονται επιβεβαίωση στο νέο checkpoint.
+Πέρασαν στοχευμένα actual Node SQLite1055/201 batch tests, πραγματικό Java/Rhino/SQLite native financial API με injection rollback/χαμένη απάντηση, πλήρες snapshot/FCB3/isolated/cold recovery και πραγματικοί Java reader/pilot tests. Ο συνδυαστικός έλεγχος καταναλώνει απευθείας το πραγματικό Java reader SQLite αρχείο:51 παραδόσεις→12750cents, επανάληψη χωρίς δεύτερη χρέωση και53 παραγγελίες στην ανεξάρτητη αναφορά καταστημάτων (δύο ρητά retained). Διορθώθηκαν οι catalog selectors σε cash/rules/reports/pilot: kind=store αναγνωρίζεται από primary id, ενώ store_id είναι κενό parent πεδίο. Τα fixtures πλέον χρησιμοποιούν αυτή την πραγματική μορφή. Νέες DOM assertions καλύπτουν reconciliation, explicit preview/CAS, exclusions, honest totals και open-only refresh.
+
+Το πλήρες [CI της δημοσιευμένης πηγής](https://github.com/pavlos-argyris/fleet-control/actions/runs/42406792334)
+και η [δημοσίευση/έλεγχος πραγματικών APK](https://github.com/pavlos-argyris/fleet-control/actions/runs/42407760150)
+ολοκληρώθηκαν επιτυχώς. Περιλαμβάνονται οι native/Workerd/Chromium έλεγχοι,
+οι οθόνες 320/390/1280 και file-origin Client 1024 και τα δύο APK. Η οπτική
+επιθεώρηση εντόπισε και διόρθωσε την αποκοπή του κουμπιού συμφιλίωσης στα 320 px.
+Ο πραγματικός CashSync/ServerWorkTracker ελέγχθηκε με παρτίδα σε εξέλιξη και
+ταυτόχρονη παύση OTA, πριν επιτραπεί το checkpoint του backup.
 
 Client/Web5.61.0(code104), Server2.10.18(code72), Worker5.18.8. Diagnostic παραμένει0.1.0/code1 χωρίς επανεγκατάσταση. Δεν έχει τρέξει το πλήρες Fleet source/financial pipeline στην παραγωγική συσκευή· Note10+/Drive/Keystore/Google/πραγματικό backup και πλήρες provider performance δεν δηλώνονται ως ελεγμένα. Οι272/149/117ms του sample δεν είναι πλήρες benchmark. Διατηρούνται οι κανόνες release/backup/primary activation· κανένα source artifact δεν είναι backup παραγωγικών δεδομένων.
 
 ## Ιστορικό checkpoint και αρχική πύλη
+
+Οι επόμενες παράγραφοι καταγράφουν το παλιότερο στάδιο πριν παραληφθούν το
+πραγματικό report και οι απαντήσεις του ιδιοκτήτη. Η τότε ένδειξη ανενεργού
+polling αφορά εκείνο το checkpoint. Η σημερινή κατάσταση περιγράφεται παραπάνω.
 
 Το source4ca81c7 πέρασε Fast42286421655/full42286421033. Περιέχει λειτουργικά
 native business/auth/backup/recovery, cash ledger, reports, payroll review και
