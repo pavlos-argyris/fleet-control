@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-1085ab22-0b0d-462b-844b-a57ef41a8550",
-  "sourceCommit": "0786a8da96a1a0977bd2cb2fc9c7c762145277cc",
-  "releaseVersion": "5.61.1",
-  "requestedAt": "2026-11-07T22:16:46.205Z",
-  "reason": "Εξουσιοδοτημένη διόρθωση Server 2.10.19: PR81, αναπαραγωγή ελλιπών πόρων Rhino στο δημοσιευμένο APK και επιτυχημένο ακριβές main CI. Αρχικές υπογραφές και πύλες μεταφοράς και backup."
+  "requestId": "fleet-04653d49-0622-4e34-ab4e-74358facb921",
+  "sourceCommit": "d5aca9ae24a3b6e2ffc54a77132b58a19739db01",
+  "releaseVersion": "5.61.2",
+  "requestedAt": "2026-11-07T23:25:00.282Z",
+  "reason": "Εξουσιοδοτημένη διόρθωση του Local capability failed στη μεταφορά δεδομένων στον Android Server, με επιτυχείς πλήρεις ελέγχους PR και ακριβούς main. Δημοσίευση Server 2.10.20 με τα αρχικά κλειδιά."
 }
