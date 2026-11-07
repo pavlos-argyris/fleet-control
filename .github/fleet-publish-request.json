@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-4773f84b-63ce-451f-8476-2ed21ae3b86d",
-  "sourceCommit": "527287a4a0b80685d1dd041792b36706f7c4e824",
-  "releaseVersion": "5.61.0",
-  "requestedAt": "2026-11-07T19:40:10.938Z",
-  "reason": "Εγκεκριμένη κοινή δημοσίευση του PR #73 και Fleet 5.61 μετά από επιτυχείς ελέγχους του ακριβούς PR και main, με τις αρχικές υπογραφές και χωρίς παραγωγική μεταφορά ή επαναφορά δεδομένων."
+  "requestId": "fleet-1085ab22-0b0d-462b-844b-a57ef41a8550",
+  "sourceCommit": "0786a8da96a1a0977bd2cb2fc9c7c762145277cc",
+  "releaseVersion": "5.61.1",
+  "requestedAt": "2026-11-07T22:16:46.205Z",
+  "reason": "Εξουσιοδοτημένη διόρθωση Server 2.10.19: PR81, αναπαραγωγή ελλιπών πόρων Rhino στο δημοσιευμένο APK και επιτυχημένο ακριβές main CI. Αρχικές υπογραφές και πύλες μεταφοράς και backup."
 }
