@@ -19,7 +19,7 @@ const SYSTEM={user_id:'native-ordexa-cash',full_name:'Αυτόματο Ταμε�
 const ACTIVE="c.kind='cash_source_coverage' AND json_extract(c.data,'$.runId')=json_extract(n.data,'$.runId') AND json_extract(c.data,'$.ordersCoverageComplete')=1 AND COALESCE(json_extract(c.data,'$.needsSourceRefresh'),0)=0 AND json_extract(c.data,'$.revision')=?";
 const EVENT_INSERT='INSERT INTO native_cash_events(id,kind,business_day,courier_id,courier_name,store_id,category,quantity,rate_cents,amount_cents,rule_id,reverses_id,source_key,notes,actor_id,actor_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)';
 const decode=value=>typeof value==='string'?JSON.parse(value):value;
-function requireSource(env){const source=cashContext();if(!env.LOCAL_PRIMARY||!source.configured||source.historicalOnly||!source.scope||!source.generation)throw new NativeError(409,'Χρειάζεται ενεργό Ordexa στην κύρια βάση Server.');return source;}
+function requireSource(env){const source=cashContext(env);if(!env.LOCAL_PRIMARY||!source.configured||source.historicalOnly||!source.scope||!source.generation)throw new NativeError(409,'Χρειάζεται ενεργό Ordexa στην κύρια βάση Server.');return source;}
 async function requestKey(scope,date){return 'cash-apply:'+await hash({scope,id:date});}
 export async function queueAutomaticDay(env,scope,date,reason='source'){
   const key=await requestKey(scope,date),data=JSON.stringify({day:date,reason,requestId:crypto.randomUUID(),requestedAt:stamp()});
@@ -140,7 +140,7 @@ export async function resumeAutomaticOrder(request,env,user){
   const id=crypto.randomUUID();await env.DB.prepare('INSERT INTO native_cash_auto_exclusions(id,scope,order_id,revision,excluded,notes,actor_id,created_at) VALUES(?,?,?,?,0,?,?,?)').bind(id,source.scope,String(b.orderId),expected+1,notes,user.user_id,stamp()).run();await queueAutomaticDay(env,source.scope,state.business_day,'resume');await audit(env,request,user,'cash_auto_resume','cash_order',String(b.orderId),previous,{revision:expected+1},notes);return reply({saved:true,queued:true});
 }
 export async function automaticCashStatus(env,sourceStatus,from,to){
-  const source=cashContext();if(!source.configured||!source.scope)return sourceStatus;if(source.historicalOnly)return{...sourceStatus,state:'stale',coverageVerified:false};
+  const source=cashContext(env);if(!source.configured||!source.scope)return sourceStatus;if(source.historicalOnly)return{...sourceStatus,state:'stale',coverageVerified:false};
   const days=list(await env.DB.prepare("SELECT d.*,c.data coverage,EXISTS(SELECT 1 FROM store_billing_local q WHERE q.scope=d.scope AND q.day=d.day AND q.kind='cash_apply_request') pending FROM native_cash_auto_days d JOIN store_billing_local c ON c.scope=d.scope AND c.day=d.day AND c.kind='cash_source_coverage' WHERE d.scope=? AND d.day BETWEEN ? AND ? ORDER BY d.day").bind(source.scope,from,to).all());
   const expected=Math.round((Date.parse(to+'T12:00:00Z')-Date.parse(from+'T12:00:00Z'))/86400000)+1;
   const ready=days.filter(row=>{const cov=decode(row.coverage);return row.state==='ready'&&!row.pending&&complete(cov)&&cov.sourceDigest===row.source_digest;}),all=ready.length===expected&&!sourceStatus.pendingDays&&!sourceStatus.financialJobError&&!['error','backoff','stale'].includes(sourceStatus.state),times=days.map(row=>row.source_complete_at).filter(at=>Number.isFinite(Date.parse(at))).sort();

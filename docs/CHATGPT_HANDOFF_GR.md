@@ -1,3 +1,17 @@
+## #85 — πραγματικοί shared cloud handlers / transactional executor, 08/11/2026
+
+- Νεότερη διόρθωση χρήστη: όλα εμφανίζονται, μαζί με μηχανάκια, αλλά πολύ αργά. Επαναβεβαίωσε συνέχιση/δημοσίευση. Δεν απαιτείται backup upload στη συνομιλία για ανάπτυξη.
+- Υλοποιήθηκαν request-scoped ports σε cash/source/automatic/reports/health/files/exports. Αφαιρέθηκε από exports η side-effect εισαγωγή Rhino web.js που θα αντικαθιστούσε global Web APIs σε πραγματικό Worker. Το native fallback διατηρείται.
+- Νέος Cloudflare SQLite D1-shaped adapter και ολόκληρο async storage.transaction business+audit+receipt, πραγματικό rollback5xx/throw, post-commit signals, ανά-DB core schema cache. Πρώτος CloudBusiness executor είναι **μη καταχωρισμένος στο production routing**. Δεν αποτελεί ενεργή cloud επιστροφή.
+- Actual Workerd tests cloud-business-db/runtime PASS: πλήρης rollback/concurrent unique writes, πραγματικό schema/bootstrap/PBKDF2 login/me, cash rules/CAS/source/health χωρίς D1 binding/Android. Scoped imports/context/concurrent health/catalogue/report και native fallback PASS. Native πλήρες suite με5.624 queries/backup/restore/cash/files/migration PASS πριν από τη μικρή αλλαγή ανά-DB schema cache· επανεκτελείται για το ακριβές τελικό source. Πλήρες local/CI δεν προεξοφλείται.
+- Εκκρεμούν cloud file/export ports, πραγματικό resumable Android→cloud transfer με backup/συμφωνία/objects/fences, συνταξιοδότηση client pin, Ordexa cloud-mode delta, offline-server Web/Client acceptance, versions/exact-source CI/υπογραφές/δημοσίευση. Καμία παραγωγική μεταβολή, άρση D1 fence ή release. Μη δημοσιεύσεις σκέτο prototype ως ολοκληρωμένο update.
+
+## Συνέχεια #85 — δεδομένα διαθέσιμα αλλά αργά / επιστροφή cloud, 08/11/2026
+
+- Νεότερη διόρθωση χρήστη: όλα τα δεδομένα εμφανίζονται, μαζί με τα μηχανάκια, αλλά πολύ αργά. Δεν είναι επιβεβαιωμένη απώλεια/κενός στόλος. Ρητή επανάληψη εντολής συνέχισης και δημοσίευσης. Δεν απαιτείται upload backup στη συνομιλία για ανάπτυξη· η αντίστροφη διαδικασία πρέπει να πάρει και να ελέγξει snapshot στη συσκευή πριν αλλάξει authority.
+- Συνεχίζεται το υπάρχον PR#85/head067537d36207c79d515f8f6238f286450a0a07e6. Πρώτο implementation βήμα: request-scoped ports κοινών feature handlers για Cloudflare. Έπειτα αντίστροφη μεταφορά/ενεργοποίηση/δημοσίευση μετά από ελέγχους. Η αρχική read-only προεργασία δεν είναι ολοκληρωμένο update.
+- Καμία παραγωγική διαγραφή ή τυφλή αντικατάσταση D1. Νεότερα Android/cloud-only δεδομένα, ιστορικά/αρχεία και αναβαθμίσεις διατηρούνται.
+
 ## Κρίσιμη διευκρίνιση 08/11 — μηχανάκια μόνο κενά
 
 Ο χρήστης διευκρίνισε δύο φορές: τα υπόλοιπα εμφανίζονται, μόνο τα μηχανάκια δείχνουν κανένα. Απαγορεύει διαγραφή δεδομένων Cloudflare. Καμία κενή native/UI λίστα δεν αντικαθιστά cloud snapshot· κρατούνται και cloud-only δεδομένα. Χρειάζεται πραγματική read-only διάκριση fleet_snapshot/vehicle_archives/auth/iframe πριν από διάγνωση απώλειας. Προστέθηκε ξεχωριστό empty-source/nonempty-cloud regression στο preflight (3 tests PASS). Δεν εκτελέστηκε παραγωγική εγγραφή.

@@ -41,14 +41,20 @@
         "cloudflare-worker/src/mirror-delta.js",
         "cloudflare-worker/src/change-events.js",
         "cloudflare-worker/public/live-changes.js",
-        "scripts/cloud-return-preflight.py"
+        "scripts/cloud-return-preflight.py",
+        "server-runtime/ports.js",
+        "cloudflare-worker/src/cloud-business-db.js",
+        "cloudflare-worker/src/cloud-business.js"
       ],
       "tests": [
         "scripts/test-worker-model.mjs",
         "scripts/test-change-events.mjs",
         "scripts/test-mirror-compound-limit.mjs",
         "scripts/test-personnel-d1.mjs",
-        "scripts/test-cloud-return-preflight.py"
+        "scripts/test-cloud-return-preflight.py",
+        "scripts/test-business-cloud-ports.mjs",
+        "scripts/test-cloud-business-db.mjs",
+        "scripts/test-cloud-business-runtime.mjs"
       ],
       "related": [
         "server-foundation",

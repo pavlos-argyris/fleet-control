@@ -9,10 +9,10 @@ CREATE TRIGGER IF NOT EXISTS native_cash_links_immutable_update BEFORE UPDATE ON
 CREATE TRIGGER IF NOT EXISTS native_cash_links_immutable_delete BEFORE DELETE ON native_cash_rider_links BEGIN SELECT RAISE(ABORT,'cash_links_are_versioned'); END;
 `;
 export const ORDER_IDENTITY_CONTRACT={...CASH_ORDER_CONTRACT,automaticWritesEnabled:false};
-function context(){return cashContext();}
-function currentScope(required=false){const value=context();if(required&&(!value.configured||!value.scope))throw new NativeError(409,'Σύνδεσε πρώτα το Ordexa στον Server.','ordexa_not_configured');return value;}
+function context(env){return cashContext(env);}
+function currentScope(env,required=false){const value=context(env);if(required&&(!value.configured||!value.scope))throw new NativeError(409,'Σύνδεσε πρώτα το Ordexa στον Server.','ordexa_not_configured');return value;}
 export async function cashSourceCatalog(env){
-  const source=currentScope();if(!source.configured||!source.scope)return{sourceScope:null,riders:[],riderLinks:[],identityContract:ORDER_IDENTITY_CONTRACT};
+  const source=currentScope(env);if(!source.configured||!source.scope)return{sourceScope:null,riders:[],riderLinks:[],identityContract:ORDER_IDENTITY_CONTRACT};
   const aliases=list(await env.DB.prepare("SELECT data FROM store_billing_local WHERE scope=? AND kind='cash_rider_alias' ORDER BY json_extract(data,'$.observedAt') DESC,id").bind(source.scope).all());
   const current=list(await env.DB.prepare("SELECT json_extract(n.data,'$.sourceRiderId') riderId,json_extract(n.data,'$.nickname') nickname,MAX(json_extract(c.data,'$.observedAt')) observedAt FROM store_billing_local n JOIN store_billing_local c ON c.scope=n.scope AND c.kind='cash_source_coverage' AND c.day=n.day AND json_extract(c.data,'$.runId')=json_extract(n.data,'$.runId') WHERE n.scope=? AND n.kind='cash_snapshot_order' AND json_extract(n.data,'$.sourceRiderId') IS NOT NULL GROUP BY riderId,nickname ORDER BY observedAt DESC,riderId,nickname").bind(source.scope).all());
   const riders=new Map();
@@ -23,7 +23,7 @@ export async function cashSourceCatalog(env){
 }
 export async function saveCashRiderLink(request,env,user){
   await actor(request,env,'employees.manage');
-  const b=await request.json(),source=currentScope(true);
+  const b=await request.json(),source=currentScope(env,true);
   if(b.scope!==source.scope)throw new NativeError(409,'Άλλαξε η σύνδεση Ordexa. Το προσχέδιο διατηρήθηκε.','source_conflict');
   const rider=String(b.riderId??''),employee=b.employeeId===null||b.employeeId===''?null:b.employeeId,effective=day(b.effectiveDay),expected=integer(b.expectedRevision);
   if(!/^\d{1,16}$/.test(rider)||!Number.isSafeInteger(Number(rider))||employee!==null&&(typeof employee!=='string'||employee.length>100))throw new NativeError(400,'Επίλεξε έγκυρο διανομέα και εργαζόμενο.');
@@ -39,7 +39,7 @@ export async function saveCashRiderLink(request,env,user){
   return reply({saved:true,id,revision:expected+1},201);
 }
 export async function queueCashSourceRefresh(request,env,user){
-  const source=currentScope(true);if(!env.LOCAL_PRIMARY||source.historicalOnly||!source.generation)throw new NativeError(409,'Χρειάζεται ενεργή σύνδεση Ordexa στον κύριο Server.');
+  const source=currentScope(env,true);if(!env.LOCAL_PRIMARY||source.historicalOnly||!source.generation)throw new NativeError(409,'Χρειάζεται ενεργή σύνδεση Ordexa στον κύριο Server.');
   const b=await request.json(),from=day(b.from),to=day(b.to);if(to<from||to>addDay(from,30))throw new NativeError(400,'Επίλεξε έως31 ημέρες για τη λήψη παραγγελιών.');
   // Native 4xx responses may commit auth/security bookkeeping. Validate capacity before
   // writing any queue cells; all request handlers already share the same SQLite transaction.
@@ -55,7 +55,7 @@ export async function queueCashSourceRefresh(request,env,user){
   return reply({queued:true,state:'pending',source:'shared-orders-reader',queuedDays,automaticWritesEnabled:false},202);
 }
 export async function cashSourceStatus(env,from,to){
-  const source=currentScope(),base={state:'awaiting-source',protocolVerified:true,identityFieldsVerified:true,coverageVerified:false,lastCompleteAt:null,lastAttemptAt:null,automaticPollingEnabled:false,proposedPilotIntervalSeconds:120,timeSemanticsVerified:true,cancellationSemanticsVerified:true,
+  const source=currentScope(env),base={state:'awaiting-source',protocolVerified:true,identityFieldsVerified:true,coverageVerified:false,lastCompleteAt:null,lastAttemptAt:null,automaticPollingEnabled:false,proposedPilotIntervalSeconds:120,timeSemanticsVerified:true,cancellationSemanticsVerified:true,
     reason:'Παράδοση βάσει ώρας Ordexa. Ακύρωση μόνο μετά από πλήρη συνεπή επαναληπτική λήψη.'};
   if(!source.configured||!source.scope)return{...base,state:'source-not-configured',reason:'Σύνδεσε πρώτα το Ordexa στον Server. Οι καταγεγραμμένες κινήσεις παραμένουν διαθέσιμες.'};
   const rows=list(await env.DB.prepare("SELECT day,data FROM store_billing_local WHERE scope=? AND kind='cash_source_coverage' AND day BETWEEN ? AND ?").bind(source.scope,from,to).all());

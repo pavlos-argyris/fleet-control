@@ -1,3 +1,15 @@
+## Πρόοδος πραγματικής υλοποίησης — 08/11/2026
+
+Νεότερη διόρθωση χρήστη: τα δεδομένα εμφανίζονται όλα, μαζί με τα μηχανάκια, αλλά αργούν πολύ. Δεν υπάρχει επιβεβαιωμένη απώλεια. Επανέλαβε άμεση συνέχιση και δημοσίευση. Δεν χρειάζεται upload προσωπικού backup στη συνομιλία για ανάπτυξη. Η τελική μεταφορά πρέπει να κάνει αυτόματα πλήρες τοπικό backup στη συσκευή και επαλήθευση πριν αλλάξει authority.
+
+- `server-runtime/ports.js`: request-scoped business context/async host ports, διατήρηση υπάρχουσας native fallback. Όλα τα cash source/automatic/rules, reports, health, files και exports χρησιμοποιούν το εκάστοτε env. Η εισαγωγή exports σε πραγματικό Worker δεν αντικαθιστά πλέον global Request/Response/URL/crypto/fetch με Rhino shims.
+- `cloud-business-db.js`: D1-shaped adapter πάνω σε Cloudflare-owned SQLite με πραγματικό `storage.transaction()` για ολόκληρο async handler + audit + receipts. `meta.changes` προέρχεται από SQLite changes(), όχι από rowsWritten που μπορεί να περιλαμβάνει triggers/ευρετήρια. 5xx/throws κάνουν πραγματικό rollback.
+- `cloud-business.js`: πρώτος πραγματικός cloud executor των κοινών handlers, χωρίς D1 binding/Android runtime. Request-specific context/ports, complete-operation transaction, post-commit notifications και schema cache που δεν επιβιώνει rollback. **Δεν έχει καταχωριστεί στο production routing ή ενεργοποιηθεί.** Η επιλογή Cloudflare-owned SQLite επιτρέπει τις υπάρχουσες οικονομικές transactions χωρίς μετατροπή τους σε μη ατομικά D1 statements· δεν αλλάζει/διαγράφει την υπάρχουσα D1. Πριν release χρειάζονται ολοκληρωμένοι host adapters και μεταφορά.
+- Το core Worker schema cache έγινε ανά DB, ώστε δύο διαφορετικές cloud/native βάσεις στο ίδιο isolate να μην μοιράζονται λάθος successful-schema flag.
+- Συνθετικοί έλεγχοι πραγματικού Workerd επιβεβαιώνουν atomic financial/audit/receipt rollback, concurrent unique writes, πραγματικό bootstrap/PBKDF2 login/me και cash rule/CAS/source/health χωρίς D1 ή κινητό. Οι έλεγχοι είναι development evidence, όχι παραγωγική μεταφορά ή πλήρες release.
+
+Εκκρεμούν cloud file/export ports, ελεγμένη πλήρης αντίστροφη μεταφορά από Android με ιδιωτικά αρχεία, retiring του pinned identity, cloud-mode Ordexa πηγή/συγχρονισμός, Web/Client offline-server acceptance, versions/exact-source CI/υπογραφές και κανονική δημοσίευση. **Δεν έγινε production write/activation ή δημοσίευση.**
+
 # Επιστροφή σε Cloudflare primary — 08/11/2026
 
 ## Νεότερη εξουσιοδότηση

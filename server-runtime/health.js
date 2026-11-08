@@ -1,3 +1,4 @@
+import {businessPort} from './ports.js';
 import {projectFleetHealth} from '../cloudflare-worker/src/fleet-health-core.js';
 import {publishChanges} from '../cloudflare-worker/src/change-events.js';
 import {list,reply,NativeError,actor,audit,text,stamp} from './common.js';
@@ -5,7 +6,6 @@ export const HEALTH_SCHEMA=`
 CREATE TABLE IF NOT EXISTS native_health_incidents(id TEXT PRIMARY KEY,code TEXT NOT NULL,generation INTEGER NOT NULL,severity TEXT NOT NULL,first_at TEXT NOT NULL,last_at TEXT NOT NULL,resolved_at TEXT,ack_at TEXT,ack_by TEXT,notes TEXT NOT NULL DEFAULT '',UNIQUE(code,generation));
 CREATE UNIQUE INDEX IF NOT EXISTS native_health_open_code ON native_health_incidents(code) WHERE resolved_at IS NULL;
 `;
-const native=globalThis.FleetHost;
 const labels={
   'server-stale':{title:'Ο Server δεν έχει πρόσφατη επικοινωνία',action:'Έλεγξε την υπηρεσία και τη σύνδεση του κινητού Server.',signal:'server'},
   'ordexa-stale':{title:'Οι παρουσίες Ordexa χρειάζονται ενημέρωση',action:'Έλεγξε τη σύνδεση Ordexa στον Server και ζήτησε συγχρονισμό.',signal:'ordexa'},
@@ -20,7 +20,7 @@ function safeSnapshot(raw){
   const take=['at','serverLastSeenAt','ordexaLastSuccessAt','backupLastVerifiedRestoreAt','outboxPending','outboxOldestAt','d1'];const result={};for(const key of take)if(raw[key]!==undefined)result[key]=raw[key];return result;
 }
 export async function healthSnapshot(env){
-  const raw=native('health.snapshot'),result=projectFleetHealth(safeSnapshot(raw)),now=Date.parse(result.observedAt);
+  const raw=await businessPort(env,'health.snapshot'),result=projectFleetHealth(safeSnapshot(raw)),now=Date.parse(result.observedAt);
   const storesAt=Date.parse(raw.storesLastSuccessAt);result.stores={status:!Number.isFinite(storesAt)||storesAt>now?'unknown':now-storesAt>2*3600000?'stale':'healthy',observedAt:Number.isFinite(storesAt)?raw.storesLastSuccessAt:null};
   result.space={status:Number.isSafeInteger(raw.freeBytes)&&raw.freeBytes>=0?(raw.freeBytes<256*1024*1024?'low':'healthy'):'unknown',freeBytes:Number.isSafeInteger(raw.freeBytes)&&raw.freeBytes>=0?raw.freeBytes:null};
   const verifiedAt=Date.parse(raw.backupFileVerifiedAt);result.backupFile={status:Number.isFinite(verifiedAt)&&verifiedAt<=now?'readable':'unknown',observedAt:Number.isFinite(verifiedAt)&&verifiedAt<=now?raw.backupFileVerifiedAt:null};

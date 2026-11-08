@@ -1,3 +1,4 @@
+import {businessContext} from './ports.js';
 /** Genuine HTTP identity report + owner's explicit semantic confirmation07/11/2026.
  * These facts are code-owned; request/diagnostic flags cannot enable money. */
 export const CASH_ORDER_CONTRACT=Object.freeze({
@@ -9,6 +10,4 @@ export const CASH_ORDER_CONTRACT=Object.freeze({
   timeSemanticsVerified:true,cancellationSemanticsVerified:true,
   pilotIntervalSeconds:120
 });
-export function cashContext(){
-  try{return typeof globalThis.FleetHost==='function'?globalThis.FleetHost('store.context')||{}:{};}catch{return{};}
-}
+export const cashContext=businessContext;
