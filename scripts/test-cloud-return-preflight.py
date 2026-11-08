@@ -34,6 +34,19 @@ class PreflightTest(unittest.TestCase):
             self.assertEqual(history['state'], 'content_difference_requires_reconciliation')
             self.assertEqual(report['tables'][0]['state'], 'cloud_only_requires_classification')
 
+    def test_empty_fleet_must_not_replace_cloud(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a, b = (Path(folder) / name for name in ('source.db', 'cloud.db'))
+            for path, bikes in ((a, []), (b, [{'id': 'private-bike-id'}])):
+                with sqlite3.connect(path) as db:
+                    db.execute('CREATE TABLE fleet_snapshot(id INTEGER PRIMARY KEY, data TEXT)')
+                    db.execute('INSERT INTO fleet_snapshot VALUES(1,?)', (json.dumps({'bikes': bikes}),))
+            report = module.compare(a, b)
+            self.assertTrue(report['emptySourceFleetWithCloudData'])
+            self.assertTrue(report['cloudDataMustBePreserved'])
+            self.assertFalse(report['activationAllowed'])
+            self.assertNotIn('private-bike-id', json.dumps(report))
+
     def test_invalid_or_live_input_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'snapshot.db'

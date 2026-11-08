@@ -64,6 +64,13 @@ def inspect_snapshot(filename):
             schema = [list(c[1:]) for c in columns]
             digest = hashlib.sha256(json.dumps(sorted(rows.items()), separators=(',', ':')).encode()).hexdigest()
             tables[name] = {'columns': schema, 'rows': sum(rows.values()), 'contentSha256': digest, '_rows': rows}
+            if name == 'fleet_snapshot':
+                snapshot = connection.execute('SELECT data FROM fleet_snapshot WHERE id=1').fetchone()
+                if snapshot:
+                    fleet = json.loads(snapshot[0])
+                    if not isinstance(fleet, dict) or not isinstance(fleet.get('bikes'), list):
+                        raise ValueError('Invalid fleet snapshot')
+                    tables[name]['fleetBikeCount'] = len(fleet['bikes'])
         return tables
     finally:
         connection.close()
@@ -91,7 +98,11 @@ def compare(source_path, cloud_path):
             item['sourceOnlyRows'] = sum((a['_rows'] - b['_rows']).values())
             item['cloudOnlyRows'] = sum((b['_rows'] - a['_rows']).values())
         result.append(item)
+    source_bikes = source.get('fleet_snapshot', {}).get('fleetBikeCount')
+    cloud_bikes = cloud.get('fleet_snapshot', {}).get('fleetBikeCount')
     return {'schema': 1, 'readOnly': True, 'activationAllowed': False,
+            'cloudDataMustBePreserved': True,
+            'emptySourceFleetWithCloudData': source_bikes == 0 and isinstance(cloud_bikes, int) and cloud_bikes > 0,
             'restoreVerified': False, 'objectsVerified': False,
             'note': 'Comparison only. Table classification, object transfer, writer fencing, backup and exact-source release checks are still required.',
             'tables': result}
@@ -104,7 +115,7 @@ def main():
     args = parser.parse_args()
     try:
         print(json.dumps(compare(args.source, args.cloud), ensure_ascii=False, indent=2))
-    except (ValueError, sqlite3.DatabaseError, OSError):
+    except (ValueError, sqlite3.DatabaseError, OSError, TypeError):
         # Database errors can contain data/SQL. Do not echo them to diagnostics.
         parser.exit(2, 'Snapshot comparison failed; check consistent exports and integrity locally.\n')
 
