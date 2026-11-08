@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 python3 scripts/prepare-pdf-viewer.py
 python3 scripts/check-source-safety.py
+python3 scripts/test-cloud-return-preflight.py
 node scripts/code-map.mjs --check
 node scripts/test-d1-source-inventory.mjs
 node scripts/test-courier-cash-core.mjs

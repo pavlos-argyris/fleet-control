@@ -40,13 +40,15 @@
         "cloudflare-worker/src/snapshot-store.js",
         "cloudflare-worker/src/mirror-delta.js",
         "cloudflare-worker/src/change-events.js",
-        "cloudflare-worker/public/live-changes.js"
+        "cloudflare-worker/public/live-changes.js",
+        "scripts/cloud-return-preflight.py"
       ],
       "tests": [
         "scripts/test-worker-model.mjs",
         "scripts/test-change-events.mjs",
         "scripts/test-mirror-compound-limit.mjs",
-        "scripts/test-personnel-d1.mjs"
+        "scripts/test-personnel-d1.mjs",
+        "scripts/test-cloud-return-preflight.py"
       ],
       "related": [
         "server-foundation",
@@ -54,7 +56,8 @@
         "shift-payroll"
       ],
       "docs": [
-        "docs/REQUEST_REDUCTION_5.48.0_GR.md"
+        "docs/REQUEST_REDUCTION_5.48.0_GR.md",
+        "docs/CLOUD_PRIMARY_RETURN_GR.md"
       ]
     },
     {

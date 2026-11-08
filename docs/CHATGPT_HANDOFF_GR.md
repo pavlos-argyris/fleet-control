@@ -1,3 +1,10 @@
+## ΝΕΑ ΑΝΑΘΕΣΗ — επιστροφή σε Cloudflare primary, 08/11/2026
+
+- Ο ιδιοκτήτης εξουσιοδότησε άμεσα υλοποίηση και δημοσίευση: όλες οι αναβαθμίσεις παραμένουν, κύρια αποθήκευση/login στο Cloudflare, Android ως βοηθητικός Ordexa reader. Νεότερη εντολή υπερισχύει της native-primary αρχιτεκτονικής.
+- Branch `work/cloud-primary-return-20261108` από main `bc957e4cc21a0410e1ea71a83858c5887f2f9c59`. Δεν υπάρχει ενεργό αντίστοιχο PR στην αρχική αναζήτηση. Δημόσιο descriptor επιβεβαίωσε active/connected· δεν μπορεί να χρησιμοποιηθεί η παλιά ακύρωση.
+- Αρχικό read-only `scripts/cloud-return-preflight.py` και συνθετικό regression (2 tests PASS) για σύγκριση standalone SQLite snapshots με ακριβή types/duplicates, χωρίς row values ή writes. Οδηγός `docs/CLOUD_PRIMARY_RETURN_GR.md` καταγράφει πραγματικές εξαρτήσεις, ασφαλή σειρά και εκκρεμή υλοποίηση.
+- Δεν έχουν υλοποιηθεί cloud native-feature adapters/reverse transfer/cutover/identity retirement. Δεν έχει γίνει production migration ή δημοσίευση. Πρώτη εξωτερική ανάγκη: πρόσφατο πλήρες φορητό backup ενεργού Server και ασφαλές D1 snapshot· δημόσιο descriptor δεν τα παρέχει. Μην παρουσιάσεις το helper ως ολοκληρωμένη επιστροφή, μη σηκώσεις απλώς το παλιό writer fence.
+
 ## ΔΗΜΟΣΙΕΥΤΗΚΕ Η ΔΙΟΡΘΩΣΗ — Server 2.10.20 / Fleet 5.61.2
 
 - Το `Local capability failed (bundled-business#2)` αναπαράχθηκε πριν τη διόρθωση με τον πραγματικό runtime και τον αυστηρότερο Android SQLite adapter. Η διόρθωση παραλείπει μη εκτελέσιμα σχόλια από sql.exec και δίνει ασφαλείς συγκεκριμένες κατηγορίες σφαλμάτων. Δεν αποκαλύπτει SQL, bind values ή προσωπικά δεδομένα. Η ακριβής φυσική ολοκλήρωση στη συσκευή παραμένει προς παρατήρηση.
