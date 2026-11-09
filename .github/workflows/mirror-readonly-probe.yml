@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/mirror-readonly-probe.yml', 'scripts/probe-server-mirror.mjs', 'scripts/tail-server-mirror.mjs']
+    paths: ['.github/workflows/mirror-readonly-probe.yml', 'scripts/probe-server-mirror.mjs', 'scripts/probe-primary-policy.mjs', 'scripts/test-probe-primary-policy.mjs', 'scripts/tail-server-mirror.mjs']
 permissions:
   contents: read
 jobs:
@@ -18,10 +18,27 @@ jobs:
         with:
           node-version: '24'
       - run: node scripts/test-mirror-compound-limit.mjs
+      - run: node scripts/test-probe-primary-policy.mjs
+      - name: Load immutable published release manifest and verify its checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FLEET_TAG="fleet-v$(node -p 'JSON.parse(require("fs").readFileSync("release-config.json", "utf8")).releaseVersion')"
+          mkdir -p dist
+          gh release download "$FLEET_TAG" --pattern release-manifest.json --pattern SHA256SUMS.txt --dir dist
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';import crypto from 'node:crypto';
+          const raw=fs.readFileSync('dist/release-manifest.json'),manifest=JSON.parse(raw),version=JSON.parse(fs.readFileSync('release-config.json','utf8')).releaseVersion;
+          const checksum=fs.readFileSync('dist/SHA256SUMS.txt','utf8').split(/\r?\n/).map(line=>line.match(/^([a-f0-9]{64})  release-manifest\.json$/)).find(Boolean);
+          if(!checksum||crypto.createHash('sha256').update(raw).digest('hex')!==checksum[1]||!/^[a-f0-9]{40}$/.test(manifest.sourceCommit)||manifest.releaseId!=='v'+version+'-'+manifest.sourceCommit.slice(0,12))throw Error('Saved release manifest is invalid');
+          fs.appendFileSync(process.env.GITHUB_ENV,'FLEET_VERIFY_DEPLOYED_SOURCE='+manifest.sourceCommit+'\n');
+          console.log(JSON.stringify({readOnly:true,releaseId:manifest.releaseId,sourceCommit:manifest.sourceCommit}));
+          JS
       - name: Read-only deployed APK and mirror diagnosis
         env:
           FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
           FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
+          FLEET_REQUIRE_HEALTHY_MIRROR: 'true'
         run: node scripts/probe-server-mirror.mjs
       - name: Save counts, HTTP status and Ray IDs only
         if: always()

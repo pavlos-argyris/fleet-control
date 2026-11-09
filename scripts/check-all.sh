@@ -34,6 +34,7 @@ node scripts/test-server-backup-recovery-ui.mjs
 node scripts/test-android-manifest-audit.mjs
 node scripts/test-apk-audit-core.mjs
 node scripts/test-fetch-release-reference.mjs
+node scripts/test-probe-primary-policy.mjs
 python3 scripts/prepare-static-assets.py --check
 node scripts/prepare-direct-permissions.mjs --check
 node scripts/test-direct-relay.mjs
