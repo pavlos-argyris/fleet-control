@@ -29,7 +29,7 @@ public final class CloudBackupDatabase {
             }finally{db.endTransaction();}progress.stage(name,copied,t.getLong("rows"));}
             if(copied!=t.getLong("rows"))throw new IOException("Δεν συμφωνεί το πλήθος εγγραφών backup.");
         }
-        JSONArray sequences=point.optJSONArray("sequences");if(sequences!=null)for(int i=0;i<sequences.length();i++){JSONObject seq=sequences.getJSONObject(i);if(names.contains(seq.getString("name")))db.execSQL("UPDATE sqlite_sequence SET seq=CAST(? AS INTEGER) WHERE name=?",new Object[]{seq.getString("seq"),seq.getString("name")});}
+        JSONArray sequences=point.optJSONArray("sequences");if(sequences!=null)for(int i=0;i<sequences.length();i++){JSONObject seq=sequences.getJSONObject(i);if(names.contains(seq.getString("name"))){Long.parseLong(seq.getString("seq"));db.execSQL("UPDATE sqlite_sequence SET seq=CAST(? AS INTEGER) WHERE name=?",new Object[]{seq.getString("seq"),seq.getString("name")});db.execSQL("INSERT INTO sqlite_sequence(name,seq) SELECT ?,CAST(? AS INTEGER) WHERE NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name=?)",new Object[]{seq.getString("name"),seq.getString("seq"),seq.getString("name")});}}
         db.execSQL("UPDATE fleet_settings SET value='' WHERE key='runtime_schema_version'");
     }
 }
