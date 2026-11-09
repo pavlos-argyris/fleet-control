@@ -185,6 +185,8 @@ jobs:
           bash scripts/build-android.sh all
       - run: node scripts/test-business-runtime-resources.mjs --apk
       - run: node scripts/audit-apk-history.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Save actual APK security comparison
         if: always()
         uses: actions/upload-artifact@v4

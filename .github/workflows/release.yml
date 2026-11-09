@@ -128,6 +128,8 @@ jobs:
         run: bash scripts/build-android.sh all
       - run: node scripts/verify-apks.mjs
       - run: node scripts/audit-apk-history.mjs --production
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Save original-signed APK security comparison
         if: always()
         uses: actions/upload-artifact@v4

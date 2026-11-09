@@ -34,7 +34,7 @@ async function historicalFile(reference) {
   const file = path.join(cache,reference.fileName);
   if (fs.existsSync(file) && fs.statSync(file).size === reference.size && await shaFile(file) === reference.sha256) return file;
   const temporary = file + '.partial'; let size = 0;
-  const response = await fetchReleaseReference(reference.url);
+  const response = await fetchReleaseReference(reference.url,{repository:references.repository,assetId:reference.assetId});
   assert.ok(response.ok && response.body,'Historical release download failed: ' + reference.tag + ' HTTP ' + response.status);
   if (response.headers.has('content-length')) assert.equal(Number(response.headers.get('content-length')),reference.size,'Historical release size header');
   const bound = new Transform({transform(chunk,encoding,done) {

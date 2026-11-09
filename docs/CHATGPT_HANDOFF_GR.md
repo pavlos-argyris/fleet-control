@@ -1,4 +1,9 @@
 ## #85 συνέχεια μετά τη συγχώνευση — 09/11/2026
+## #85 — ολοκλήρωση ελέγχου ιστορικών APK, 09/11/2026
+
+- Source8ebd889 / exact main42569969196 πέρασε εφαρμογή/browser/native και τα δύο APK, αλλά σταμάτησε ξανά σε HTTP504 από public release download του pinned fleet-v5.37.0. Καμία αποτυχία υπογραφής/περιεχομένου και καμία παράκαμψη.
+- Προστέθηκε fallback στο επίσημο binary Release Assets API με το ήδη αποθηκευμένο repository/assetId, περιορισμένες επαναλήψεις και το υπάρχον repository token μόνο προς API. Αμετάβλητα size/SHA256/αρχικά πιστοποιητικά και production signing requirements. Actual λήψη και πλήρης σύγκριση και των4 historical APK PASS τοπικά· dependency-free helper regression PASS. Το CI/publish χρησιμοποιεί το υφιστάμενο GitHub token χωρίς νέα secrets/scopes.
+- Ακολουθεί νέο exact-main full CI της αποθηκευμένης πηγής, κανονικό request-only commit και αρχικά υπογεγραμμένη δημοσίευση. Καμία παραγωγική μεταφορά/διαγραφή/restore ή ενεργοποίηση5.62.0 μέχρι αυτή την καταγραφή. Το κουμπί επιστροφής στη συσκευή παραμένει το φυσικό βήμα του ιδιοκτήτη μετά την εγκατάσταση.
 
 - PR#85 συγχωνεύτηκε από2264cafe (Fast42564327618/full42564327628 SUCCESS,11jobs/9 οθόνες ελέγχθηκαν πραγματικά) σε mainb4472b7/treec8e76ab. Δεν έγινε publish request ή παραγωγική μεταφορά.
 - Exact main42565651161 πέρασε tests και δύο APK builds αλλά απέτυχε στο historical APK download: πρώτη προσπάθεια fleet-v5.60.1 HTTP504, δεύτερη fleet-v5.37.0 HTTP504. Δεν απέτυχε integrity/signature check. Προστέθηκε bounded transient HTTP/network retry4 προσπαθειών, με διατήρηση ακριβών pinned URLs/μεγέθους/SHA256/αρχικών πιστοποιητικών. Dependency-free retry regression PASS.
