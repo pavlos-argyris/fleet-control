@@ -24,8 +24,8 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
             return checked(service.call(request,identity,service.epoch,true));
         }});
     }
-    public static boolean jobsAllowed(Context context){try{NativePrimaryService service=get(context);String phase=NativePrimaryState.read(service.store.getReadableDatabase()).optString("phase","cloud");return phase.equals("cloud")||phase.equals("active")&&service.available();}catch(Exception error){return false;}}
-    public static boolean cloudMode(Context context){try{return NativePrimaryState.read(get(context).store.getReadableDatabase()).optString("phase","cloud").equals("cloud");}catch(Exception error){return false;}}
+    public static boolean jobsAllowed(Context context){try{NativePrimaryService service=get(context);String phase=NativePrimaryState.read(service.store.getReadableDatabase()).optString("phase","cloud");return (phase.equals("cloud")||phase.equals("cloud_remote"))||phase.equals("active")&&service.available();}catch(Exception error){return false;}}
+    public static boolean cloudMode(Context context){try{return NativePrimaryState.read(get(context).store.getReadableDatabase()).optString("phase","cloud").matches("cloud|cloud_remote");}catch(Exception error){return false;}}
     private final Context context;
     private final FleetDataStore store;
     private final ThreadPoolExecutor business=new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<Runnable>(16));
@@ -45,7 +45,7 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
     private boolean local(String address)throws Exception{
         URL url=new URL(address);String path=url.getPath();
         if(!path.startsWith("/api/")||path.startsWith("/api/primary/")||path.startsWith("/api/deploy/releases/")||path.equals("/api/server-update")||path.equals("/api/client-update"))return false;
-        JSONObject state=NativePrimaryState.read(store.getReadableDatabase());if(state.optString("phase","cloud").equals("cloud"))return false;
+        JSONObject state=NativePrimaryState.read(store.getReadableDatabase());if(state.optString("phase","cloud").matches("cloud|cloud_remote"))return false;
         if(!origin(url).equals(state.optString("realm")))throw new IOException("Η διεύθυνση δεν αντιστοιχεί στην κύρια βάση. Η παλιά βάση cloud δεν χρησιμοποιήθηκε.");
         if(!state.optString("phase").equals("active")||!started)throw new IOException("Η κύρια βάση Server δεν είναι ακόμη διαθέσιμη. Τα αποθηκευμένα δεδομένα διατηρούνται.");
         return true;
@@ -90,6 +90,10 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
     }
     private JSONObject call(JSONObject request,JSONObject identity,String capturedEpoch,boolean internal)throws Exception{
         engine(identity);guard.begin(capturedEpoch,false);return engine.request(request,internal,internal?30000:20000);
+    }
+    public JSONObject cloudSourceContext()throws Exception{return execute(new Callable<JSONObject>(){public JSONObject call()throws Exception{return port("store.context",new JSONObject(),null);}});}
+    public void freezeForCloudReturn(final String transferId)throws Exception{
+        execute(new Callable<Void>(){public Void call()throws Exception{JSONObject state=NativePrimaryState.read(store.getReadableDatabase());String phase=state.optString("phase");if(!phase.equals("active")&&!phase.equals("cloud_return"))throw new IOException("Η κύρια βάση άλλαξε πριν από την επιστροφή.");store.getWritableDatabase().execSQL("UPDATE native_primary_state SET phase='cloud_return',source_revision=? WHERE id=1",new Object[]{transferId});return null;}});pause();
     }
     /** Called only by the migration controller before frozen promotion. */
     public JSONObject initializeCandidate(final JSONObject identity)throws Exception{return execute(new Callable<JSONObject>(){public JSONObject call()throws Exception{engine(identity);guard.begin("",true);JSONObject request=new JSONObject().put("url",identity.getString("realm")+"/api/status").put("method","GET").put("headers",new JSONObject().put("X-Fleet-Server-Key",ServerConfig.SERVER_KEY));JSONObject response=engine.request(request,true,30000);if(response.getInt("status")!=200)throw new IOException("Δεν προετοιμάστηκε το τοπικό σχήμα.");return new JSONObject(asset("manifest.json"));}});}

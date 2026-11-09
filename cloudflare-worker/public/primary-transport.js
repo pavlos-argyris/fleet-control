@@ -10,7 +10,7 @@
   const failure=(status,error,code)=>new Response(JSON.stringify({error,code}),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
   const originKey=origin=>'pin:'+origin;
   const sameIdentity=(a,b)=>a&&b&&['realm','generation','publicKey','publicSalt','fingerprint'].every(key=>a[key]===b[key]);
-  function stateFor(origin){if(!states.has(origin))states.set(origin,{origin,mode:'unknown',at:0,descriptor:null,pin:null,loading:null,trust:null,bindings:new Map(),intents:new Map(),epoch:0});return states.get(origin);}
+  function stateFor(origin){if(!states.has(origin))states.set(origin,{origin,mode:'unknown',at:0,descriptor:null,pin:null,cloudPin:null,loading:null,trust:null,bindings:new Map(),intents:new Map(),epoch:0});return states.get(origin);}
   function target(url){
     if(url.protocol!=='https:'||!url.pathname.startsWith('/api/')||exempt.test(url.pathname))return false;
     const config=root.FLEET_CONFIG||{},origins=[config.apiBase,config.legacyApiBase,root.location.origin].filter(Boolean).map(v=>{try{return new URL(v,root.location.href).origin;}catch{return '';}});
@@ -56,13 +56,17 @@
     if(!force&&state.descriptor&&Date.now()-state.at<30000)return state.descriptor;
     if(state.loading)return state.loading;
     state.loading=(async()=>{
-      state.pin=state.pin||(await storage.read(originKey(state.origin)))?.identity||null;
+      const accepted=await storage.read(originKey(state.origin));state.pin=accepted?.kind==='pin'?accepted.identity:null;state.cloudPin=accepted?.kind==='cloud-pin'?accepted:null;
       const response=await rawFetch(state.origin+'/api/primary/descriptor',{cache:'no-store',credentials:'omit',signal:AbortSignal.timeout?AbortSignal.timeout(10000):undefined});
       let value;try{value=await response.json();}catch{}
       if((response.status===404||response.ok&&!value?.mode)&&!response.headers.get('X-Fleet-Primary-Protocol')&&!state.pin)value={mode:'cloud',legacy:true};
       else if(!response.ok)throw Error('Δεν επιβεβαιώθηκε η κύρια βάση Server.');
       await cipher.descriptor(value,state.origin);
-      if(state.pin&&value.mode==='cloud')throw Error('Ο αποθηκευμένος Server δεν συμφωνεί με τη σύνδεση. Το προσχέδιο διατηρήθηκε.');
+      if(value.mode==='cloud'&&(state.pin||state.cloudPin||value.backend==='cloud-sqlite')){
+        const identity=state.pin||state.cloudPin?.identity||{realm:value.realm,generation:value.generation,publicKey:value.publicKey,publicSalt:value.publicSalt,fingerprint:value.fingerprint};
+        if(identity.realm!==state.origin||!await cipher.cloudReturn(value,identity)||state.cloudPin&&state.cloudPin.targetId!==value.cloudBusiness)throw Error('Δεν επαληθεύτηκε η υπογεγραμμένη επιστροφή στο Cloudflare. Το προσχέδιο διατηρήθηκε.');
+        if(!state.cloudPin){const record={id:originKey(state.origin),kind:'cloud-pin',origin:state.origin,identity,targetId:value.cloudBusiness,certificate:value.cloudReturn};await storage.write(record,true);state.cloudPin=record;state.pin=null;state.epoch++;state.bindings.clear();await storage.clearReads(state.origin);}
+      }
       state.mode=value.mode;state.descriptor=value;state.at=Date.now();return value;
     })().finally(()=>{state.loading=null;});return state.loading;
   }
@@ -158,7 +162,7 @@
       const epoch=state.epoch,who=write?await binding(state,identity,request.headers,request.signal):null,value=await payload(request);
       if(write){operation=await intent(state,identity,who,request.method,request.url,value.normalized,request.headers.get('X-Fleet-Operation'));headers['x-fleet-operation']=operation.operation;}
       const body=await wirePayload(state,identity,headers,value,request.signal),result=await packet(state,identity,{url:request.url,method:request.method,headers,...body},request.signal);
-      if(epoch!==state.epoch||!sameIdentity((await storage.read(originKey(state.origin)))?.identity,identity))return failure(409,'Η συνεδρία ή η ταυτότητα Server άλλαξε. Το προσχέδιο διατηρήθηκε· έλεγξε ξανά την καταχώριση.','session_changed');
+      if(epoch!==state.epoch||((await storage.read(originKey(state.origin)))?.kind!=='pin'||!sameIdentity((await storage.read(originKey(state.origin)))?.identity,identity)))return failure(409,'Η συνεδρία ή η ταυτότητα Server άλλαξε. Το προσχέδιο διατηρήθηκε· έλεγξε ξανά την καταχώριση.','session_changed');
       const principal=await rememberPrincipal(state,identity,request.headers,result),response=await reconstruct(state,identity,headers,result,request.signal);
       if(epoch!==state.epoch)return failure(409,'Η συνεδρία άλλαξε. Το προσχέδιο διατηρήθηκε· έλεγξε ξανά την καταχώριση.','session_changed');
       let code='';try{code=JSON.parse(result.body||'{}').code||'';}catch{}
@@ -166,7 +170,7 @@
       if(request.method==='GET'&&response.status===200&&response.headers.get('Content-Type')?.includes('json')&&!request.url.includes('/api/native/files/')){
         try{const key=await cacheKey(state,identity,request.headers,request.url,principal),body=key&&await response.clone().text();if(key&&body.length<=8*1024*1024){await storage.write({id:key.id,kind:'cache',origin:state.origin,generation:identity.generation,actor:key.who.actor,principal:key.who.principal,at:Date.now(),bytes:encoder.encode(body).length,body,headers:{'Content-Type':'application/json','X-Fleet-Primary-Generation':identity.generation}});await storage.trim();}}catch{/* Read cache is optional; the authenticated response remains usable. */}
       }
-      if(epoch!==state.epoch||!sameIdentity((await storage.read(originKey(state.origin)))?.identity,identity)){await storage.clearReads(state.origin,principal?.actor);return failure(409,'Η συνεδρία ή η ταυτότητα Server άλλαξε. Το προσχέδιο διατηρήθηκε.','session_changed');}
+      if(epoch!==state.epoch||((await storage.read(originKey(state.origin)))?.kind!=='pin'||!sameIdentity((await storage.read(originKey(state.origin)))?.identity,identity))){await storage.clearReads(state.origin,principal?.actor);return failure(409,'Η συνεδρία ή η ταυτότητα Server άλλαξε. Το προσχέδιο διατηρήθηκε.','session_changed');}
       report('online','Server συνδεδεμένος · '+new Date().toLocaleTimeString('el-GR'),{origin:state.origin,generation:identity.generation});return response;
     }catch(error){
       state.at=0;if(error.response)return reconstruct(state,identity,headers,error.response,request.signal);
@@ -175,12 +179,28 @@
       return failure(error.userAction?409:error.name==='AbortError'?408:503,error.message||'Δεν ήταν δυνατή η σύνδεση με τον Server.',operation?'operation_unconfirmed':'primary_unavailable');
     }
   }
+  async function cloudFetch(state,request){
+    if(!state.cloudPin)return rawFetch(request.clone());const identity=state.cloudPin.identity,epoch=state.epoch;let operation;
+    try{
+      const headers=new Headers(request.headers),write=mutation(request.method)&&!withoutReceipt.test(new URL(request.url).pathname);
+      let value;if(write){
+        const check=await rawFetch(state.origin+'/api/auth/me',{headers:{Authorization:headers.get('authorization')||''},cache:'no-store',signal:request.signal});
+        const who=await rememberPrincipal(state,identity,headers,{status:check.status,headers:Object.fromEntries(check.headers)});if(!check.ok)return check;if(!who?.actor)return failure(401,'Χρειάζεται επιβεβαίωση λογαριασμού.','cloud_auth_required');
+        value=await payload(request);operation=await intent(state,identity,who,request.method,request.url,value.normalized,headers.get('x-fleet-operation')||'');headers.set('X-Fleet-Operation',operation.operation);
+      }
+      const wire=write&&!value.items?new Request(request,{headers,body:value.wire.body}):new Request(request,{headers});
+      const response=await rawFetch(wire),principal=await rememberPrincipal(state,identity,headers,{status:response.status,headers:Object.fromEntries(response.headers)});
+      const accepted=await storage.read(originKey(state.origin));if(epoch!==state.epoch||accepted?.kind!=='cloud-pin'||accepted.targetId!==state.cloudPin.targetId)return failure(409,'Η συνεδρία ή η κύρια βάση άλλαξε. Το προσχέδιο διατηρήθηκε.','session_changed');
+      if(operation){let code='';try{code=(await response.clone().json()).code||'';}catch{}if(response.ok||response.status>=400&&response.status<500&&![408,429].includes(response.status)&&!['operation_authorization_changed','operation_conflict'].includes(code))await storage.remove(operation.id);}
+      report('cloud','');return response;
+    }catch(error){report('unconfirmed',operation?'Η αποθήκευση στο Cloudflare δεν επιβεβαιώθηκε. Επανάλαβε το ίδιο προσχέδιο.':String(error.message||'Δεν επιβεβαιώθηκε η σύνδεση Cloudflare.'));return failure(503,error.message||'Δεν επιβεβαιώθηκε η σύνδεση Cloudflare.',operation?'operation_unconfirmed':'cloud_unavailable');}
+  }
   async function fetchPrimary(input,init){
     const request=new Request(input instanceof Request?input:new URL(String(input),root.location.href),init),url=new URL(request.url);if(!target(url))return rawFetch(input,init);
     const state=stateFor(url.origin);let identity;
     try{identity=await descriptor(state);}catch(error){if(state.pin){const saved=await cached(state,state.pin,request);if(saved)return saved;}return failure(503,error.message,'primary_unavailable');}
     if(identity.mode==='cloud'){
-      const response=await rawFetch(request.clone());if(response.status===503){let data;try{data=await response.clone().json();}catch{}if(data?.code==='primary_transport_required'){state.at=0;try{identity=await descriptor(state,true);}catch(error){return failure(503,error.message,'primary_unavailable');}if(identity.mode==='active')return nativeFetch(state,identity,request);}}
+      const response=await cloudFetch(state,request);if(response.status===503){let data;try{data=await response.clone().json();}catch{}if(data?.code==='primary_transport_required'){state.at=0;try{identity=await descriptor(state,true);}catch(error){return failure(503,error.message,'primary_unavailable');}if(identity.mode==='active')return nativeFetch(state,identity,request);}}
       report('cloud','');return response;
     }
     if(identity.mode!=='active'){const saved=state.pin&&await cached(state,state.pin,request);if(saved)return saved;report('transition','Η βάση Server προετοιμάζεται. Τα προσχέδια διατηρούνται.');return failure(503,'Η βάση Server προετοιμάζεται. Δοκίμασε ξανά χωρίς να κλείσεις το προσχέδιο.','primary_transition');}

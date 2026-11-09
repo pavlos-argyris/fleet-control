@@ -1,6 +1,6 @@
 import { recoveryItems, recoveryResult } from './invoice-recovery.js';
 import { routeDirectRelay } from './direct-relay.js';
-import {routePrimary,primaryState} from './primary-authority.js';
+import {routePrimary,primaryState,forwardCloudBusiness} from './primary-authority.js';
 import { invoiceReadComparison, READ_FIELDS } from './invoice-read-identity.js';
 import { retryFailedInvoice } from './invoice-retry.js';
 import { routeChangeEvents, publishChanges, changedScopes } from './change-events.js';
@@ -60,7 +60,7 @@ ${INVOICE_IMPORT_SCHEMA}
 INSERT OR IGNORE INTO fleet_snapshot (id, version, data, source, updated_at) VALUES (1, 0, '{"bikes":[]}', 'canonical', datetime('now'));
 `;
 
-let schemaPromise;
+const schemaPromises = new WeakMap();
 let activeWebReleaseCache = { value: null, expiresAt: 0, db: null };
 let statusResponseCache = { value: null, expiresAt: 0, db: null };
 
@@ -90,7 +90,7 @@ export default {
   },
   async scheduled(controller, env, context) {
     context.waitUntil((async () => {
-      if((await primaryState(env)).mode!=='cloud')return;
+      const primary=await primaryState(env);if(primary.mode==='cloud'&&primary.cloudBusiness){await forwardCloudBusiness(new Request(primary.realm+'/_cloud-maintain',{headers:{'X-Fleet-Server-Key':env.SERVER_KEY}}),env,primary.cloudBusiness);return;}if(primary.mode!=='cloud')return;
       await ensureSchema(env);
       await trimMirrorJournal(env);
       const before=(await mirrorHead(env)).cursor;
@@ -118,7 +118,8 @@ function withServerTiming(response, startedAt) {
 
 async function ensureSchema(env) {
   if (!env.DB) throw new Error("Missing DB binding");
-  if (!schemaPromise) schemaPromise = (async () => {
+  let schemaPromise=schemaPromises.get(env.DB);
+  if (!schemaPromise) { schemaPromise = (async () => {
     // A Worker isolate may be recreated after a period of inactivity. Avoid
     // replaying the complete schema on every cold start once this release has
     // already verified the database.
@@ -137,9 +138,11 @@ async function ensureSchema(env) {
     ]);
     await setSetting(env, "runtime_schema_version", RUNTIME_SCHEMA_VERSION);
   })().catch((error) => {
-      schemaPromise = undefined;
+      schemaPromises.delete(env.DB);
       throw error;
     });
+    schemaPromises.set(env.DB,schemaPromise);
+  }
   await schemaPromise;
 }
 

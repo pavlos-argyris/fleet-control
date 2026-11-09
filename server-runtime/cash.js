@@ -37,7 +37,7 @@ async function rule(request,env,user){
   // itself so a stale second administrator cannot create another rule version.
   const saved=await env.DB.prepare('INSERT INTO native_cash_rules(id,store_id,category,effective_day,revision,rate_cents,created_at,created_by) SELECT ?,?,?,?,?,?,?,? WHERE COALESCE((SELECT MAX(revision) FROM native_cash_rules WHERE store_id=? AND category=? AND effective_day=?),0)=?').bind(id,store,category,effectiveDay,expected+1,rate,stamp(),user.user_id,store,category,effectiveDay,expected).run();
   if(Number(saved?.meta?.changes)!==1)throw new NativeError(409,'Ο κανόνας άλλαξε. Το προσχέδιο διατηρήθηκε.','rule_conflict');
-  const source=cashContext();if(source.configured&&source.scope)await queueAutomaticDays(env,source.scope,effectiveDay);
+  const source=cashContext(env);if(source.configured&&source.scope)await queueAutomaticDays(env,source.scope,effectiveDay);
   await audit(env,request,user,'cash_rule_version','cash_rule',id,previous,value,'Νέα έκδοση κανόνα· οι παλιές κινήσεις διατηρούν την τιμή τους');return reply({saved:true,rule:value},201);
 }
 // Atomic tariff fence: the selected rule must still be the latest effective
@@ -77,7 +77,7 @@ async function event(request,env,user){
   const id=crypto.randomUUID(),at=stamp();
   const inserted=await env.DB.prepare(CASH_EVENT_INSERT_SQL).bind(id,kind,businessDay,courierId,courierName,store,category,quantity,rate,amount,ruleId,reverses,kind==='assessment'?'manual:'+id:null,notes,user.user_id,user.full_name||user.username,at,kind,ruleId,store,category,businessDay).run();
   if(Number(inserted?.meta?.changes)!==1)throw new NativeError(409,'Άλλαξε η τιμή απόδοσης πριν από την αποθήκευση. Το προσχέδιο διατηρήθηκε.','rule_conflict');
-  const source=cashContext();if(kind==='reversal'){const original=await env.DB.prepare('SELECT * FROM native_cash_events WHERE id=?').bind(reverses).first();await preserveAutomaticReversal(env,original,user,notes);}else if(kind==='assessment'&&source.configured&&source.scope)await queueAutomaticDay(env,source.scope,businessDay,'manual-change');
+  const source=cashContext(env);if(kind==='reversal'){const original=await env.DB.prepare('SELECT * FROM native_cash_events WHERE id=?').bind(reverses).first();await preserveAutomaticReversal(env,original,user,notes);}else if(kind==='assessment'&&source.configured&&source.scope)await queueAutomaticDay(env,source.scope,businessDay,'manual-change');
   await audit(env,request,user,'cash_'+kind,'cash_event',id,null,{kind,businessDay,courierId,storeId:store,category,quantity,rateCents:rate,amountCents:amount,reversesId:reverses},notes);
   return reply({saved:true,id},201);
 }
@@ -98,8 +98,8 @@ export async function cashProjection(env,from,to,courierId='',{eventOffset=0,eve
   const sync=await automaticCashStatus(env,await cashSourceStatus(env,from,to),from,to);
   return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:sync.coverageVerified?'ordexa-confirmed':'recorded-pending',automaticOrderMappingVerified:sync.coverageVerified===true,sync,couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
 }
-function sourceEvidence(){
-  try{return typeof globalThis.FleetHost==='function'?globalThis.FleetHost('store.context').cashOrdersProtocol||null:null;}catch{return null;}
+function sourceEvidence(env){
+  try{return cashContext(env).cashOrdersProtocol||null;}catch{return null;}
 }
 export async function routeCash(request,env){
   const url=new URL(request.url);
@@ -107,7 +107,7 @@ export async function routeCash(request,env){
   if(!url.pathname.startsWith('/api/native/cash'))return null;
   if(url.pathname==='/api/native/cash/export')return null;
   const user=await actor(request,env,request.method==='GET'&&!url.pathname.endsWith('/protocol-evidence')?'cash.view':'cash.manage');
-  if(url.pathname==='/api/native/cash/protocol-evidence'&&request.method==='GET')return reply({report:'Ordexa cash protocol evidence',schemaVersion:1,automaticWritesEnabled:false,identityContract:ORDER_IDENTITY_CONTRACT,requiredProof:['complete-source-snapshot','employee-mapping','historical-tariff','manual-reconciliation'],evidence:sourceEvidence()});
+  if(url.pathname==='/api/native/cash/protocol-evidence'&&request.method==='GET')return reply({report:'Ordexa cash protocol evidence',schemaVersion:1,automaticWritesEnabled:false,identityContract:ORDER_IDENTITY_CONTRACT,requiredProof:['complete-source-snapshot','employee-mapping','historical-tariff','manual-reconciliation'],evidence:sourceEvidence(env)});
   if(url.pathname==='/api/native/cash/automatic'&&request.method==='GET'){const {from,to}=range(url);return reply(await automaticCashOverview(env,from,to));}
   if(url.pathname==='/api/native/cash/automatic/preview'&&request.method==='GET')return reply(await cashAutomaticPreview(env,day(url.searchParams.get('day'))));
   if(url.pathname==='/api/native/cash/automatic/reconcile'&&request.method==='POST')return reconcileManualCash(request,env,user);

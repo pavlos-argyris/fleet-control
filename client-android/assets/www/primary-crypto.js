@@ -5,10 +5,14 @@
   const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',typeof value==='string'?encoder.encode(value):value)),b=>b.toString(16).padStart(2,'0')).join('');
   const context=value=>'fleet-primary-v1:'+value.realm+':'+value.generation+':';
   async function descriptor(value,origin){
-    if(!value||!['cloud','preparing','aborting','active','recovering'].includes(value.mode))throw Error('Δεν επιβεβαιώθηκε το πρωτόκολλο της κύριας βάσης.');
+    if(!value||!['cloud','preparing','aborting','active','recovering','returning'].includes(value.mode))throw Error('Δεν επιβεβαιώθηκε το πρωτόκολλο της κύριας βάσης.');
     if(value.mode!=='active')return value;
     if(value.realm!==origin||!origin.startsWith('https://')||!/^[a-f0-9-]{36}$/.test(value.generation||'')||!/^[-_A-Za-z0-9]{122}$/.test(value.publicKey||'')||!/^[-_A-Za-z0-9]{43}$/.test(value.publicSalt||'')||!/^([a-f0-9]){64}$/.test(value.fingerprint||'')||await hash(value.publicKey)!==value.fingerprint)throw Error('Δεν συμφωνεί η ταυτότητα της κύριας βάσης.');
     await crypto.subtle.importKey('spki',decode(value.publicKey),{name:'ECDH',namedCurve:'P-256'},false,[]);return value;
+  }
+  async function cloudReturn(value,identity){
+    const c=value?.cloudReturn;if(value?.mode!=='cloud'||value.backend!=='cloud-sqlite'||!c||c.realm!==identity.realm||c.sourceGeneration!==identity.generation||c.targetId!==value.cloudBusiness||!/^[a-f0-9-]{36}$/.test(c.targetId||'')||!/^[a-f0-9]{64}$/.test(c.inventoryHash||'')||await hash(identity.publicKey)!==identity.fingerprint)return false;
+    try{const key=await crypto.subtle.importKey('spki',decode(identity.publicKey),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,decode(c.signature,86),encoder.encode('fleet-cloud-return-v1|'+identity.realm+'|'+identity.generation+'|'+c.targetId+'|'+c.inventoryHash));}catch{return false;}
   }
   async function seal(identity,request){
     const keys=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']),other=await crypto.subtle.importKey('spki',decode(identity.publicKey),{name:'ECDH',namedCurve:'P-256'},false,[]),shared=new Uint8Array(await crypto.subtle.deriveBits({name:'ECDH',public:other},keys.privateKey,256));
@@ -24,5 +28,5 @@
       try{if(clear.length>MAX_CLEAR)throw Error('Μεγάλη ασφαλής απάντηση Server.');const result=JSON.parse(new TextDecoder().decode(clear));if(!Number.isInteger(result.status)||result.status<200||result.status>599||!result.headers||typeof result.headers!=='object')throw Error('Μη έγκυρη ασφαλής απάντηση.');return result;}finally{clear.fill(0);}
     }};
   }
-  root.FleetPrimaryCrypto={seal,descriptor,hash,encode,decode,MAX_CLEAR};
+  root.FleetPrimaryCrypto={seal,descriptor,cloudReturn,hash,encode,decode,MAX_CLEAR};
 })(globalThis);

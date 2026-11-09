@@ -59,4 +59,11 @@ public final class PrimaryCipher {
         String message="fleet-primary-connect-v1|"+identity.getString("realm")+"|"+identity.getString("generation")+"|"+nonce;if(!message.equals(challenge.getString("message")))throw new GeneralSecurityException("Primary challenge context changed");
         Signature signer=Signature.getInstance("SHA256withECDSA");signer.initSign(own(identity));signer.update(message.getBytes("UTF-8"));return new JSONObject().put("nonce",nonce).put("generation",identity.getString("generation")).put("signature",encode(rawSignature(signer.sign())));
     }
+    public static JSONObject cloudReturnCertificate(JSONObject identity,String targetId,String inventoryHash)throws Exception{
+        if(!targetId.matches("[a-f0-9-]{36}")||!inventoryHash.matches("[a-f0-9]{64}"))throw new GeneralSecurityException("Invalid cloud return identity");
+        String message="fleet-cloud-return-v1|"+identity.getString("realm")+"|"+identity.getString("generation")+"|"+targetId+"|"+inventoryHash;
+        Signature signer=Signature.getInstance("SHA256withECDSA");signer.initSign(own(identity));signer.update(message.getBytes("UTF-8"));
+        return new JSONObject().put("realm",identity.getString("realm")).put("sourceGeneration",identity.getString("generation")).put("targetId",targetId).put("inventoryHash",inventoryHash).put("signature",encode(rawSignature(signer.sign())));
+    }
+
 }

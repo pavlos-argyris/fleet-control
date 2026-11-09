@@ -1,3 +1,4 @@
+import {CloudBusiness} from './cloud-business.js';
 import { DirectRelay } from './direct-relay.js';
 import {PrimaryAuthority,primaryJson} from './primary-authority.js';
 // Signals contain scope names only. All data reads still pass their normal authorization.
@@ -53,9 +54,10 @@ export class FleetEvents {
  constructor(ctx,env){this.ctx=ctx;this.env=env;this.direct=new DirectRelay(ctx);this.primary=new PrimaryAuthority(ctx,changed=>this.broadcast(changed));if(typeof WebSocketRequestResponsePair!=='undefined')ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping','pong'));}
  async fetch(request){
   const url=new URL(request.url);
+  if(url.hostname==='cloud-business.internal'){if(!this.business)this.business=new CloudBusiness(this.ctx,this.env);return this.business.fetch(request);}
   if(url.pathname.startsWith('/primary/'))return this.primary.fetch(request);
   await this.primary.ready;
-  if(url.pathname.startsWith('/direct/'))return this.primary.state.mode==='cloud'?this.direct.fetch(request):primaryJson({error:'Χρησιμοποίησε την κύρια ασφαλή σύνδεση Server.'},409);
+  if(url.pathname.startsWith('/direct/'))return this.primary.state.mode==='cloud'&&!this.primary.state.cloudBusiness?this.direct.fetch(request):primaryJson({error:'Χρησιμοποίησε την κύρια ασφαλή σύνδεση Server.'},409);
   if(url.pathname==='/connect'&&request.headers.get('Upgrade')==='websocket'){
    if(this.ctx.getWebSockets().length>=256)return new Response('Busy',{status:503});
    const pair=new WebSocketPair(),client=pair[0],server=pair[1],until=Number(request.headers.get('X-Fleet-Until'));
@@ -77,7 +79,7 @@ export class FleetEvents {
    const allowed=changed.filter(s=>saved.scopes.includes(s));if(allowed.length)try{ws.send(JSON.stringify({type:'changed',scopes:allowed}));}catch{}
   }
  }
- async alarm(){let next=Infinity;for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(saved?.direct||saved?.primary)continue;if(!saved||saved.until<=Date.now()){try{ws.close(1000,'renew');}catch{}}else next=Math.min(next,saved.until);}if(Number.isFinite(next))await this.ctx.storage.setAlarm(next);}
+ async alarm(){if((await this.ctx.storage.get('cloud-business.configuration'))?.active){this.business||=new CloudBusiness(this.ctx,this.env);return this.business.alarm();}let next=Infinity;for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(saved?.direct||saved?.primary)continue;if(!saved||saved.until<=Date.now()){try{ws.close(1000,'renew');}catch{}}else next=Math.min(next,saved.until);}if(Number.isFinite(next))await this.ctx.storage.setAlarm(next);}
  webSocketMessage(ws,message){if(ws.deserializeAttachment()?.primary)return this.primary.message(ws,message);if(ws.deserializeAttachment()?.direct)return this.direct.message(ws,message);if(message==='ping')ws.send('pong');else ws.close(1008,'signals only');}
  webSocketClose(ws,code,reason){this.direct.failPending(ws);this.primary.failPending(ws);try{ws.close(code,reason);}catch{}}
  webSocketError(ws){this.direct.failPending(ws);this.primary.failPending(ws);try{ws.close(1011,'reconnect');}catch{}}

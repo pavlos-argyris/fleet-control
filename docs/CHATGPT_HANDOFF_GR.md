@@ -1,3 +1,42 @@
+## #85 — ολοκληρωμένη cloud επιστροφή, έλεγχοι πριν δημοσίευση, 09/11/2026
+
+- Fleet5.62.0/Client5.62.0(105)/Server2.11.0(75)/Web5.62.0/Worker5.19.0. Υλοποιήθηκαν typed/resumable πλήρης μεταφορά, πραγματικό τοπικό backup/restore πριν freeze-cutover, ιδιωτικά immutable R2 αρχεία, signed pin retirement, direct cloud auth/business και τρέχον cloud FCB3 backup. Παλιά D1/fences και R2 δεν αντικαθίστανται. Ο πλήρης οδηγός `docs/CLOUD_PRIMARY_RETURN_GR.md` περιγράφει εγκατάσταση/φυσικό κουμπί και όρια.
+- Ordexa cloud source: source-only revision/CAS journal, όχι repeated lastSeenRun writes. Cash day manifests ζητούν μόνο αλλαγμένες identities· staged batches δεν αλλάζουν active source και ενεργοποιούνται atomic μετά πλήρη digest. Δοκιμάστηκαν201 παραγγελίες,200+1 financial batch, unchanged refresh χωρίς201 rewrites, partial scan/confirmed absence, source-only guards. Νέα γενιά recovery δεσμεύεται πριν serialized cloud freeze· άκυρη άδεια δεν κλείνει cloud.
+- PASS actual Workerd complete return (μεγάλη Unicode/99 columns/πλήρες backup/recovery), shipped Client cloud retirement, actual Java P256/JSONObject receipt interoperability, actual native full runtime/typed reconstruction/FCB3/private files/isolated restore (9.183SQLqueries). Independent cloud PDF/XLSX openpyxl/pypdf PASS και πρώτη σελίδα ελέγχθηκε οπτικά. Τελευταίες προσθήκες πηγής/οδηγιών ξαναπερνούν πλήρες exact-source CI, δεν προεξοφλείται επιτυχία.
+- Τοπικό APK Server2.11.0 χτίστηκε με προσωρινό ignored test key πριν τις τελευταίες source κλάσεις· δεν διανέμεται. Απαιτούνται τελικό πλήρες CI/Android builds, κανονική αρχική υπογραφή και publish. **Δεν έχει εκτελεστεί παραγωγική μεταφορά ή δημοσίευση της5.62.0.** Το φυσικό κουμπί στη συσκευή θα πάρει/ελέγξει το πραγματικό backup.
+- Branch/PR παραμένουν `work/cloud-primary-return-20261108` / #85. Προηγούμενο αποθηκευμένο remote checkpoint3e2c111 (Fast/full SUCCESS). Το παρόν checkpoint αποθηκεύεται πριν τους τελικούς ελέγχους· ακολουθεί επιβεβαιωμένο commit/run evidence.
+
+## #85 συνέχεια ολοκλήρωσης — 09/11/2026
+
+- Επιβεβαιώθηκαν exact3e2c111 Fast42510579734 και full42510579712 SUCCESS. Main παραμένει bc957e4, κανένα νέο merge/άλλη επιστροφή.
+- Αναλαμβάνονται πλέον τα εκκρεμή: cloud financial export/private files, typed resumable αντίστροφη μεταφορά σε fresh Cloudflare SQLite object (παλιά D1 ανέπαφη), υπογεγραμμένη αποδέσμευση client pin, cloud Ordexa delta και Server UI έναρξης/συνέχειας. Η τελική έκδοση/δημοσίευση έχει ήδη εξουσιοδοτηθεί· δεν γίνεται αυτόματη παραγωγική μεταφορά από agent χωρίς συσκευή. Η εγκατάσταση και το κουμπί επιστροφής στη συσκευή θα εκκινήσουν τη νέα ελεγμένη διαδικασία.
+- Δεν επαναλαμβάνονται ολοκληρωμένοι πυρήνες. Κοινά αρχεία: primary-authority/change-events/worker, sharedruntimeports, NativePrimaryService/State/Migration UI, Sync/CashSync, versions/build/releaseconfig/CODE_MAP. Διατηρούνται τα δεδομένα, οικονομικοί κανόνες, Ordexa μόνο ανάγνωση, αρχικά κλειδιά και όλες οι release πύλες.
+
+## #85 — πραγματικοί shared cloud handlers / transactional executor, 08/11/2026
+
+- Νεότερη διόρθωση χρήστη: όλα εμφανίζονται, μαζί με μηχανάκια, αλλά πολύ αργά. Επαναβεβαίωσε συνέχιση/δημοσίευση. Δεν απαιτείται backup upload στη συνομιλία για ανάπτυξη.
+- Υλοποιήθηκαν request-scoped ports σε cash/source/automatic/reports/health/files/exports. Αφαιρέθηκε από exports η side-effect εισαγωγή Rhino web.js που θα αντικαθιστούσε global Web APIs σε πραγματικό Worker. Το native fallback διατηρείται.
+- Νέος Cloudflare SQLite D1-shaped adapter και ολόκληρο async storage.transaction business+audit+receipt, πραγματικό rollback5xx/throw, post-commit signals, ανά-DB core schema cache. Πρώτος CloudBusiness executor είναι **μη καταχωρισμένος στο production routing**. Δεν αποτελεί ενεργή cloud επιστροφή.
+- Actual Workerd tests cloud-business-db/runtime PASS: πλήρης rollback/concurrent unique writes, πραγματικό schema/bootstrap/PBKDF2 login/me, cash rules/CAS/source/health χωρίς D1 binding/Android. Scoped imports/context/concurrent health/catalogue/report και native fallback PASS. Native πλήρες suite με5.624 queries/backup/restore/cash/files/migration PASS πριν από τη μικρή αλλαγή ανά-DB schema cache· επανεκτελείται για το ακριβές τελικό source. Πλήρες local/CI δεν προεξοφλείται.
+- Εκκρεμούν cloud file/export ports, πραγματικό resumable Android→cloud transfer με backup/συμφωνία/objects/fences, συνταξιοδότηση client pin, Ordexa cloud-mode delta, offline-server Web/Client acceptance, versions/exact-source CI/υπογραφές/δημοσίευση. Καμία παραγωγική μεταβολή, άρση D1 fence ή release. Μη δημοσιεύσεις σκέτο prototype ως ολοκληρωμένο update.
+
+## Συνέχεια #85 — δεδομένα διαθέσιμα αλλά αργά / επιστροφή cloud, 08/11/2026
+
+- Νεότερη διόρθωση χρήστη: όλα τα δεδομένα εμφανίζονται, μαζί με τα μηχανάκια, αλλά πολύ αργά. Δεν είναι επιβεβαιωμένη απώλεια/κενός στόλος. Ρητή επανάληψη εντολής συνέχισης και δημοσίευσης. Δεν απαιτείται upload backup στη συνομιλία για ανάπτυξη· η αντίστροφη διαδικασία πρέπει να πάρει και να ελέγξει snapshot στη συσκευή πριν αλλάξει authority.
+- Συνεχίζεται το υπάρχον PR#85/head067537d36207c79d515f8f6238f286450a0a07e6. Πρώτο implementation βήμα: request-scoped ports κοινών feature handlers για Cloudflare. Έπειτα αντίστροφη μεταφορά/ενεργοποίηση/δημοσίευση μετά από ελέγχους. Η αρχική read-only προεργασία δεν είναι ολοκληρωμένο update.
+- Καμία παραγωγική διαγραφή ή τυφλή αντικατάσταση D1. Νεότερα Android/cloud-only δεδομένα, ιστορικά/αρχεία και αναβαθμίσεις διατηρούνται.
+
+## Κρίσιμη διευκρίνιση 08/11 — μηχανάκια μόνο κενά
+
+Ο χρήστης διευκρίνισε δύο φορές: τα υπόλοιπα εμφανίζονται, μόνο τα μηχανάκια δείχνουν κανένα. Απαγορεύει διαγραφή δεδομένων Cloudflare. Καμία κενή native/UI λίστα δεν αντικαθιστά cloud snapshot· κρατούνται και cloud-only δεδομένα. Χρειάζεται πραγματική read-only διάκριση fleet_snapshot/vehicle_archives/auth/iframe πριν από διάγνωση απώλειας. Προστέθηκε ξεχωριστό empty-source/nonempty-cloud regression στο preflight (3 tests PASS). Δεν εκτελέστηκε παραγωγική εγγραφή.
+
+## ΝΕΑ ΑΝΑΘΕΣΗ — επιστροφή σε Cloudflare primary, 08/11/2026
+
+- Ο ιδιοκτήτης εξουσιοδότησε άμεσα υλοποίηση και δημοσίευση: όλες οι αναβαθμίσεις παραμένουν, κύρια αποθήκευση/login στο Cloudflare, Android ως βοηθητικός Ordexa reader. Νεότερη εντολή υπερισχύει της native-primary αρχιτεκτονικής.
+- Branch `work/cloud-primary-return-20261108` από main `bc957e4cc21a0410e1ea71a83858c5887f2f9c59`. Δεν υπάρχει ενεργό αντίστοιχο PR στην αρχική αναζήτηση. Δημόσιο descriptor επιβεβαίωσε active/connected· δεν μπορεί να χρησιμοποιηθεί η παλιά ακύρωση.
+- Αρχικό read-only `scripts/cloud-return-preflight.py` και συνθετικό regression (2 tests PASS) για σύγκριση standalone SQLite snapshots με ακριβή types/duplicates, χωρίς row values ή writes. Οδηγός `docs/CLOUD_PRIMARY_RETURN_GR.md` καταγράφει πραγματικές εξαρτήσεις, ασφαλή σειρά και εκκρεμή υλοποίηση.
+- Δεν έχουν υλοποιηθεί cloud native-feature adapters/reverse transfer/cutover/identity retirement. Δεν έχει γίνει production migration ή δημοσίευση. Πρώτη εξωτερική ανάγκη: πρόσφατο πλήρες φορητό backup ενεργού Server και ασφαλές D1 snapshot· δημόσιο descriptor δεν τα παρέχει. Μην παρουσιάσεις το helper ως ολοκληρωμένη επιστροφή, μη σηκώσεις απλώς το παλιό writer fence.
+
 ## ΔΗΜΟΣΙΕΥΤΗΚΕ Η ΔΙΟΡΘΩΣΗ — Server 2.10.20 / Fleet 5.61.2
 
 - Το `Local capability failed (bundled-business#2)` αναπαράχθηκε πριν τη διόρθωση με τον πραγματικό runtime και τον αυστηρότερο Android SQLite adapter. Η διόρθωση παραλείπει μη εκτελέσιμα σχόλια από sql.exec και δίνει ασφαλείς συγκεκριμένες κατηγορίες σφαλμάτων. Δεν αποκαλύπτει SQL, bind values ή προσωπικά δεδομένα. Η ακριβής φυσική ολοκλήρωση στη συσκευή παραμένει προς παρατήρηση.

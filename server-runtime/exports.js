@@ -1,8 +1,7 @@
-import {NativeFile} from './web.js';
+import {businessPort,businessContext} from './ports.js';
 import {cashProjection} from './cash.js';
 import {storeReport} from './reports.js';
 import {actor,range,text,NativeError} from './common.js';
-const native=globalThis.FleetHost;
 const col=(label,type='text',width=100)=>({label,type,width});
 const coverage=value=>value?'Πλήρη στοιχεία':'Ελλιπή στοιχεία - δεν είναι τελικό σύνολο';
 const cell=value=>value===undefined?null:value;
@@ -27,7 +26,8 @@ export async function routeExports(request,env){
   const format=url.searchParams.get('format');if(!['xlsx','pdf'].includes(format))throw new NativeError(400,'Επίλεξε Excel ή PDF.');
   let spec;
   if(cash){const table=url.searchParams.get('table'),result=await cashProjection(env,from,to,text(url.searchParams.get('courierId'),100),{eventLimit:table==='events'?5001:0});if(table==='events'&&result.eventCount>5000)throw new NativeError(413,'Για αναλυτικές κινήσεις επίλεξε έως 5.000 εγγραφές ανά εξαγωγή. Η συγκεντρωτική αναφορά καλύπτει όλο το διάστημα.');spec=cashExportSpec(result,table);}
-  else{const scope=native('store.context');if(!scope.configured)throw new NativeError(503,'Χρειάζεται ρύθμιση καταστημάτων στον Server.');if(url.searchParams.has('scope')&&url.searchParams.get('scope')!==scope.scope)throw new NativeError(409,'Άλλαξε η πηγή της αναφοράς.');spec=storeExportSpec(await storeReport(env,{from,to,period:url.searchParams.get('period')||'day',scope:scope.scope,storeId:text(url.searchParams.get('storeId'),200)}));}
-  const file=new NativeFile(native('reports.export',{format,spec}));
+  else{const scope=businessContext(env);if(!scope.configured)throw new NativeError(503,'Χρειάζεται ρύθμιση καταστημάτων στον Server.');if(url.searchParams.has('scope')&&url.searchParams.get('scope')!==scope.scope)throw new NativeError(409,'Άλλαξε η πηγή της αναφοράς.');spec=storeExportSpec(await storeReport(env,{from,to,period:url.searchParams.get('period')||'day',scope:scope.scope,storeId:text(url.searchParams.get('storeId'),200)}));}
+  const exported=await businessPort(env,'reports.export',{format,spec});
+  const file=env.BUSINESS_PORT?exported:new File(exported);
   return new Response(file,{headers:{'Content-Type':format==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="Fleet_'+(cash?'Cash':'Stores')+'_'+from+'_'+to+'.'+format+'"','Cache-Control':'private, no-store'}});
 }

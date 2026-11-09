@@ -1,3 +1,4 @@
+import {cloudObjectKey} from './cloud-transfer.js';
 // One small control record and an opaque relay in the existing Durable Object.
 // Business rows, credentials, clear requests and response receipts stay on Server.
 import {MIRROR_TABLES} from './mirror-delta.js';
@@ -21,7 +22,7 @@ async function smallBody(request,max=16384){
 async function serverAllowed(request,env){const v=request.headers.get('X-Fleet-Server-Key')||'';return v.length>=24&&v.length<=512&&env.SERVER_KEY&&await directHash(v)===await directHash(env.SERVER_KEY);}
 async function ticket(request,env){const raw=request.headers.get('X-Fleet-Primary-Ticket')||'';if(!/^[A-Za-z0-9_-]{43}$/.test(raw))return null;const r=await invoke(env,'verify',{ticketHash:await directHash(raw)});return r.ok?r.json():null;}
 const rows=result=>result.results||[];
-const publicDescriptor=state=>({mode:state.mode,generation:state.generation||'',realm:state.realm||'',publicKey:state.publicKey||'',publicSalt:state.publicSalt||'',fingerprint:state.fingerprint||'',connected:!!state.connected});
+const publicDescriptor=state=>({...(state.cloudBusiness?{backend:'cloud-sqlite',cloudBusiness:state.cloudBusiness,cloudReturn:state.cloudReturn}:{}),mode:state.mode,generation:state.generation||'',realm:state.realm||'',publicKey:state.publicKey||'',publicSalt:state.publicSalt||'',fingerprint:state.fingerprint||'',connected:!!state.connected});
 
 export async function primaryState(env){if(!env.FLEET_EVENTS)return {mode:'cloud'};const r=await invoke(env,'state');if(!r.ok)throw Error('Authority coordinator unavailable');return r.json();}
 async function ownerPassword(env,body){
@@ -66,6 +67,49 @@ async function fence(env,user,ticketHash){
   const result=await env.DB.batch(commands);return !!result[result.length-1]?.meta?.changes;
 }
 
+export const cloudBusinessStub=(env,id)=>env.FLEET_EVENTS.get(env.FLEET_EVENTS.idFromName('cloud-primary:'+id));
+export function forwardCloudBusiness(request,env,id){const u=new URL(request.url);return cloudBusinessStub(env,id).fetch(new Request('https://cloud-business.internal'+u.pathname+u.search,request));}
+async function returnControl(env,id,action,body){return cloudBusinessStub(env,id).fetch(new Request('https://cloud-business.internal/_cloud-transfer/'+action,{method:'POST',body:JSON.stringify(body)}));}
+async function routeCloudReturn(request,env,state){
+ if(!await serverAllowed(request,env))return failure(401,'Χρειάζεται ο εξουσιοδοτημένος Server.');
+ const u=new URL(request.url),action=u.pathname.slice('/api/primary/cloud-return/'.length);
+ const raw=request.headers.get('X-Fleet-Primary-Ticket')||'';if(!/^[A-Za-z0-9_-]{43}$/.test(raw))return failure(403,'Λείπει η άδεια επιστροφής.');
+ const ticketHash=await directHash(raw),verified=await invoke(env,'return-verify',{ticketHash});if(!verified.ok)return verified;state=await verified.json();
+ if(action==='status'&&state.mode==='active')return primaryJson({active:false,started:false});
+ if(state.mode==='cloud'){if(['status','finish'].includes(action))return primaryJson({active:true,cloudBusiness:state.cloudBusiness,cloudReturn:state.cloudReturn});return failure(409,'Η επιστροφή έχει ήδη ολοκληρωθεί.');}
+ if(action==='object-bytes'){
+  if(state.mode!=='returning')return failure(409,'Δεν έχει δεσμευτεί η επιστροφή.');const key=u.searchParams.get('key'),sha=u.searchParams.get('sha256'),size=Number(u.searchParams.get('size'));
+  if(typeof key!=='string'||key.length<1||key.length>500||!HASH.test(sha||'')||!Number.isSafeInteger(size)||size<1||size>50*1024*1024)return failure(400,'Μη έγκυρο αρχείο επιστροφής.');
+  const objectKey=cloudObjectKey(state.returning.transferId,key,sha),head=await env.SERVICE_DOCS.head(objectKey),actual=head?.checksums?.sha256?Array.from(new Uint8Array(head.checksums.sha256),v=>v.toString(16).padStart(2,'0')).join(''):'';
+  if(request.method==='GET')return primaryJson({stored:head?.size===size&&actual===sha});
+  if(request.method!=='PUT'||Number(request.headers.get('Content-Length'))!==size)return failure(400,'Δεν επιβεβαιώθηκε το μέγεθος αρχείου.');
+  if(head?.size!==size||actual!==sha){try{const saved=await env.SERVICE_DOCS.put(objectKey,request.body,{sha256:sha});if(!saved||saved.size!==size)throw Error('size');}catch{return failure(409,'Το αποτύπωμα ή η μεταφορά αρχείου δεν συμφωνεί.');}}
+  return primaryJson({stored:true});
+ }
+ if(request.method!=='POST')return failure(405,'Η επιστροφή απαιτεί τη σωστή ενέργεια.');let body;try{body=await smallBody(request,12*1024*1024);}catch{return failure(413,'Η παρτίδα επιστροφής είναι πολύ μεγάλη.');}
+ if(action==='init'){
+  if(!ID.test(body.transferId||'')||body.generation!==state.generation||!HASH.test(body.inventoryHash||'')||body.ownerId!==state.ownerId)return failure(409,'Άλλαξε η ταυτότητα επιστροφής.');
+  const reserved=await invoke(env,'return-begin',{ticketHash,transferId:body.transferId,inventoryHash:body.inventoryHash,certificate:body.certificate});if(!reserved.ok)return reserved;state=await(await invoke(env,'state')).json();
+ }
+ if(state.mode!=='returning'||body.generation!==state.generation||body.transferId!==state.returning.transferId||body.inventoryHash!==state.returning.inventoryHash)return failure(409,'Άλλαξε η δεσμευμένη μεταφορά.');
+ const id=state.returning.transferId;
+ if(action==='init')return returnControl(env,id,'init',{...body,realm:state.realm,eventSigningKey:state.eventKey});
+ if(['rows','object','prepare','status'].includes(action))return returnControl(env,id,action,body);
+ if(action==='finish'){
+  if(Date.now()<state.returning.notBefore)return primaryJson({waiting:true,notBefore:state.returning.notBefore});
+  const enabled=await returnControl(env,id,'enable',body);if(!enabled.ok)return enabled;
+  // Execute the actual signed core against the candidate before changing routing.
+  const probe=await forwardCloudBusiness(new Request(state.realm+'/api/status',{headers:{'X-Fleet-Server-Key':env.SERVER_KEY}}),env,id);if(!probe.ok)return failure(409,'Η νέα βάση χρειάζεται επιτυχή έλεγχο λειτουργίας.');
+  return invoke(env,'return-activate',{ticketHash,transferId:id,inventoryHash:body.inventoryHash});
+ }
+ return failure(404,'Άγνωστη ενέργεια επιστροφής.');
+}
+async function validReturnCertificate(state,certificate,transferId,inventoryHash){try{
+ if(!certificate||certificate.realm!==state.realm||certificate.sourceGeneration!==state.generation||certificate.targetId!==transferId||certificate.inventoryHash!==inventoryHash||!/^[A-Za-z0-9_-]{86}$/.test(certificate.signature||''))return false;
+ const key=await crypto.subtle.importKey('spki',decode(state.publicKey),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+ return crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,decode(certificate.signature),utf8.encode('fleet-cloud-return-v1|'+state.realm+'|'+state.generation+'|'+transferId+'|'+inventoryHash));
+ }catch{return false;}}
+
 /** Runs before ensureSchema. No normal D1 access after a committed handover. */
 export async function routePrimary(request,env,helpers={}){
   if(env.LOCAL_PRIMARY)return null;
@@ -76,6 +120,7 @@ export async function routePrimary(request,env,helpers={}){
   // once primary authority is preparing/active, including an old open socket.
   if(path.startsWith('/api/direct/')||path==='/direct.html')return null;
   const state=await primaryState(env);
+  if(path.startsWith('/api/primary/cloud-return/'))return routeCloudReturn(request,env,state);
   if(path==='/api/primary/descriptor'&&request.method==='GET')return primaryJson(publicDescriptor(state));
   if(path==='/api/primary/request'&&request.method==='POST'){
     if(state.mode!=='active')return failure(503,'Η κύρια βάση Server δεν είναι ενεργή.');
@@ -91,6 +136,7 @@ export async function routePrimary(request,env,helpers={}){
       return coordinator(env).fetch(new Request('https://events.internal/primary/connect',{headers:{Upgrade:'websocket','X-Fleet-Primary-Proof':request.headers.get('X-Fleet-Primary-Proof')||''}}));
     }
     if(path==='/api/primary/prepare'&&request.method==='POST'){
+      if(state.cloudBusiness)return failure(409,'Η κύρια βάση λειτουργεί στο Cloudflare. Δεν χρησιμοποιείται η παλιά D1 ως πηγή νέας μεταφοράς.');
       const body=await smallBody(request),ticketHash=await directHash(body.ticket||'');
       if(!/^[A-Za-z0-9_-]{43}$/.test(body.ticket||'')||!ID.test(body.generation||'')||!/^[A-Za-z0-9_-]{122}$/.test(body.publicKey||'')||!/^[A-Za-z0-9_-]{43}$/.test(body.publicSalt||'')||!HASH.test(body.recoveryHash||''))return failure(400,'Μη έγκυρη προετοιμασία Server.');
       const resume=await invoke(env,'verify',{ticketHash});
@@ -114,11 +160,14 @@ export async function routePrimary(request,env,helpers={}){
       if(path==='/api/primary/recovery/prepare'){
         if(!ID.test(body.generation||'')||!/^[A-Za-z0-9_-]{122}$/.test(body.publicKey||'')||!/^[A-Za-z0-9_-]{43}$/.test(body.publicSalt||'')||!HASH.test(body.newRecoveryHash||'')||!HASH.test(body.contentHash||'')||body.restoreVerified!==true||body.documentsVerified!==true||body.accountsReviewed!==true)return failure(409,'Χρειάζεται πλήρης δοκιμή ανάκτησης και έλεγχος λογαριασμών πριν από την αλλαγή Server.');
         try{await crypto.subtle.importKey('spki',decode(body.publicKey),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);}catch{return failure(400,'Μη έγκυρη νέα ταυτότητα Server.');}
-        return invoke(env,'recovery-prepare',{recoveryHash,generation:body.generation,publicKey:body.publicKey,publicSalt:body.publicSalt,newRecoveryHash:body.newRecoveryHash,contentHash:body.contentHash,realm:url.origin});
+        const reserved=await invoke(env,'recovery-prepare',{recoveryHash,generation:body.generation,publicKey:body.publicKey,publicSalt:body.publicSalt,newRecoveryHash:body.newRecoveryHash,contentHash:body.contentHash,realm:url.origin});
+        if(reserved.ok&&state.cloudBusiness){const frozen=await returnControl(env,state.cloudBusiness,'freeze-recovery',{});if(!frozen.ok)return frozen;}
+        return reserved;
       }
       if(path==='/api/primary/recovery/finish'){
         if(!ID.test(body.reservation||'')||!ID.test(body.generation||''))return failure(400,'Μη έγκυρη επιβεβαίωση ανάκτησης.');
         if(body.newBackupVerified!==true||!HASH.test(body.newBackupHash||''))return failure(409,'Χρειάζεται νέο επαληθευμένο backup πριν ολοκληρωθεί η αλλαγή Server.');
+        if(state.mode==='recovering'&&state.cloudBusiness&&state.recoveryHash===recoveryHash&&state.recoveryReservation===body.reservation&&state.next?.generation===body.generation){const frozen=await returnControl(env,state.cloudBusiness,'freeze-recovery',{});if(!frozen.ok)return frozen;}
         return invoke(env,'recovery-finish',{generation:body.generation,reservation:body.reservation,recoveryHash,newBackupHash:body.newBackupHash});
       }
       return failure(404,'Η ενέργεια ανάκτησης δεν βρέθηκε.');
@@ -197,6 +246,12 @@ export async function routePrimary(request,env,helpers={}){
     }
     return failure(404,'Η ενέργεια μεταφοράς δεν βρέθηκε.');
   }
+  if(state.mode==='cloud'&&state.cloudBusiness){
+    if(helpers.distribution&&(/^\/api\/(deploy\/releases\/|client-update$|server-update$)/.test(path)||path.startsWith('/download/')))return helpers.distribution();
+    if(!path.startsWith('/api/'))return env.ASSETS.fetch(request);
+    if(path==='/api/events'&&request.method==='GET'&&helpers.events)return helpers.events(state.eventKey);
+    return forwardCloudBusiness(request,env,state.cloudBusiness);
+  }
   if(state.mode==='cloud')return null;
   if(helpers.distribution&&(/^\/api\/(deploy\/releases\/|client-update$|server-update$)/.test(path)||path.startsWith('/download/')))return helpers.distribution();
   if(!path.startsWith('/api/'))return env.ASSETS.fetch(request);
@@ -226,6 +281,23 @@ export class PrimaryAuthority {
     await this.ready;const path=new URL(request.url).pathname.slice('/primary/'.length),body=request.method==='POST'?await request.json():{};
     if(path==='state')return primaryJson({...this.state,connected:!!this.socket()});
     if(path==='verify')return ['preparing','aborting','active'].includes(this.state.mode)&&this.state.ticketHash===body.ticketHash?primaryJson(this.state):failure(403,'Η άδεια μεταφοράς δεν ισχύει.');
+    if(path==='return-verify')return (['active','returning'].includes(this.state.mode)||this.state.mode==='cloud'&&this.state.cloudBusiness)&&this.state.ticketHash===body.ticketHash?primaryJson(this.state):failure(403,'Η άδεια επιστροφής δεν ισχύει.');
+    if(path==='return-begin'){
+      const result=await this.change(async s=>{
+        if(s.ticketHash!==body.ticketHash||!['active','returning'].includes(s.mode))return{response:failure(409,'Η κύρια βάση άλλαξε.')};
+        if(s.mode==='returning'){if(s.returning.transferId!==body.transferId||s.returning.inventoryHash!==body.inventoryHash)return{response:failure(409,'Έχει δεσμευτεί άλλη επιστροφή.')};return{response:primaryJson({reserved:true})};}
+        if(!ID.test(body.transferId||'')||!HASH.test(body.inventoryHash||'')||!await validReturnCertificate(s,body.certificate,body.transferId,body.inventoryHash))return{response:failure(403,'Δεν επαληθεύτηκε η υπογεγραμμένη επιστροφή.')};
+        s.mode='returning';s.returning={transferId:body.transferId,inventoryHash:body.inventoryHash,certificate:body.certificate,notBefore:Date.now()+31000};return{save:true,response:primaryJson({reserved:true})};
+      });if(result.ok)this.closeAll();return result;
+    }
+    if(path==='return-activate'){
+      const result=await this.change(s=>{
+        if(s.mode==='cloud'&&s.cloudBusiness===body.transferId&&s.ticketHash===body.ticketHash)return{response:primaryJson({active:true,cloudBusiness:s.cloudBusiness,cloudReturn:s.cloudReturn})};
+        if(s.mode!=='returning'||s.ticketHash!==body.ticketHash||s.returning.transferId!==body.transferId||s.returning.inventoryHash!==body.inventoryHash)return{response:failure(409,'Άλλαξε η δεσμευμένη επιστροφή.')};
+        if(Date.now()<s.returning.notBefore)return{response:primaryJson({waiting:true,notBefore:s.returning.notBefore},409)};
+        s.mode='cloud';s.cloudBusiness=s.returning.transferId;s.cloudReturn=s.returning.certificate;delete s.returning;s.cloudActivatedAt=new Date().toISOString();return{save:true,response:primaryJson({active:true,cloudBusiness:s.cloudBusiness,cloudReturn:s.cloudReturn})};
+      });if(result.ok)this.closeAll();return result;
+    }
     if(path==='attempt')return this.change(s=>{const now=Date.now(),attempt=s.attempt||{since:now,count:0};if(now-attempt.since>900000){attempt.since=now;attempt.count=0;}if(attempt.count>=8)return{response:failure(429,'Περίμενε 15 λεπτά πριν επαναλάβεις επιβεβαίωση ιδιοκτήτη.')};attempt.count++;s.attempt=attempt;return{save:true,response:primaryJson({allowed:true})};});
     if(path==='begin')return this.change(s=>{if(s.mode!=='cloud')return{response:failure(409,'Υπάρχει άλλη μεταφορά.')};Object.assign(s,body,{mode:'preparing',fenced:false,eventKey:crypto.randomUUID()+crypto.randomUUID(),fingerprint:''});return{save:true,response:primaryJson({prepared:true})};});
     if(path==='fenced')return this.change(s=>{if(s.mode!=='preparing'||s.ticketHash!==body.ticketHash)return{response:failure(409,'Η μεταφορά άλλαξε.')};s.fenced=true;return{save:true,response:primaryJson(s)};});
@@ -238,7 +310,7 @@ export class PrimaryAuthority {
     if(path==='recovery-prepare'){
       const result=await this.change(s=>{
         if(s.mode==='recovering'&&s.recoveryHash===body.recoveryHash&&s.next?.generation===body.generation&&s.next?.publicKey===body.publicKey&&s.next?.publicSalt===body.publicSalt&&s.next?.recoveryHash===body.newRecoveryHash&&s.next?.contentHash===body.contentHash)return{response:primaryJson({reserved:true,generation:body.generation,notBefore:s.recoveryNotBefore,reservation:s.recoveryReservation})};
-        const eligible=s.mode==='active'?s.recoveryHash===body.recoveryHash:s.mode==='recovering'&&(s.recoveryHash===body.recoveryHash||s.next?.recoveryHash===body.recoveryHash);
+        const eligible=(s.mode==='active'||s.mode==='cloud'&&s.cloudBusiness)?s.recoveryHash===body.recoveryHash:s.mode==='recovering'&&(s.recoveryHash===body.recoveryHash||s.next?.recoveryHash===body.recoveryHash);
         if(!eligible||s.generation===body.generation||body.recoveryHash===body.newRecoveryHash||s.realm!==body.realm)return{response:failure(403,'Το αντίγραφο δεν επιτρέπεται να αντικαταστήσει τον τρέχοντα Server.')};
         // A verified candidate backup is itself sufficient to resume on a third
         // device if the second phone fails before handover finishes. Promote
@@ -258,7 +330,7 @@ export class PrimaryAuthority {
         if(s.mode!=='recovering'||s.recoveryHash!==body.recoveryHash||s.recoveryReservation!==body.reservation||s.next?.generation!==body.generation)return{response:failure(403,'Η άδεια ανάκτησης άλλαξε.')};
         if(Date.now()<s.recoveryNotBefore)return{response:primaryJson({waiting:true,notBefore:s.recoveryNotBefore},409)};
         s.lastRecovery={reservation:s.recoveryReservation,recoveryHash:s.recoveryHash,backupHash:body.newBackupHash};Object.assign(s,s.next,{mode:'active',eventKey:crypto.randomUUID()+crypto.randomUUID(),activatedAt:new Date().toISOString()});s.fingerprint=await directHash(s.publicKey);
-        delete s.next;delete s.recoveryNotBefore;delete s.recoveryReservation;delete s.ticketHash;
+        delete s.next;delete s.recoveryNotBefore;delete s.recoveryReservation;delete s.ticketHash;delete s.cloudBusiness;delete s.cloudReturn;
         return{save:true,response:primaryJson({active:true,generation:s.generation,eventSigningKey:s.eventKey,contentHash:s.contentHash})};
       });if(result.ok)this.closeAll();return result;
     }

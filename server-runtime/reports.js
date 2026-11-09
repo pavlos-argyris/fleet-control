@@ -1,9 +1,9 @@
+import {businessContext} from './ports.js';
 import {aggregateStoreFinancials} from '../cloudflare-worker/src/store-financial-report.js';
 import {list,reply,NativeError,text,day,range,actor,audit,stamp,addDay,integer,hash} from './common.js';
 export const REPORT_SCHEMA="CREATE TABLE IF NOT EXISTS native_store_aliases(scope TEXT NOT NULL,source_id TEXT NOT NULL,target_id TEXT NOT NULL,revision INTEGER NOT NULL,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL,PRIMARY KEY(scope,source_id));";
-const native=globalThis.FleetHost;
 const periodKey=(d,period,from)=>period==='range'?from:period==='day'?d:period==='month'?d.slice(0,7):addDay(d,-((new Date(d+'T12:00:00Z').getUTCDay()+6)%7));
-async function scopeFor(url){const current=native('store.context');if(!current.configured||!current.scope)throw new NativeError(503,'Ρύθμισε πρώτα την ανάγνωση καταστημάτων στον Server.');const requested=url.searchParams.get('scope');if(requested&&requested!==current.scope)throw new NativeError(409,'Άλλαξε η ενεργή πηγή καταστημάτων. Άνοιξε ξανά την αναφορά.');return current.scope;}
+async function scopeFor(url,env){const current=businessContext(env);if(!current.configured||!current.scope)throw new NativeError(503,'Ρύθμισε πρώτα την ανάγνωση καταστημάτων στον Server.');const requested=url.searchParams.get('scope');if(requested&&requested!==current.scope)throw new NativeError(409,'Άλλαξε η ενεργή πηγή καταστημάτων. Άνοιξε ξανά την αναφορά.');return current.scope;}
 export async function storeReport(env,{from,to,period='day',scope,storeId=''}){
   day(from);day(to);if(!['day','week','month','range'].includes(period))throw new NativeError(400,'Επίλεξε ημέρα, εβδομάδα ή μήνα.');
   const catalog=list(await env.DB.prepare("SELECT id store_id,data FROM store_billing_local WHERE scope=? AND kind='store' ORDER BY id").bind(scope).all());
@@ -41,7 +41,7 @@ export async function storeReport(env,{from,to,period='day',scope,storeId=''}){
 export async function routeReports(request,env){
   const url=new URL(request.url);if(!url.pathname.startsWith('/api/native/store-financials'))return null;
   if(url.pathname==='/api/native/store-financials/export')return null;
-  const user=await actor(request,env,request.method==='GET'?'stores.view':'stores.manage'),scope=await scopeFor(url);
+  const user=await actor(request,env,request.method==='GET'?'stores.view':'stores.manage'),scope=await scopeFor(url,env);
   if(url.pathname==='/api/native/store-financials/alias'&&request.method==='POST'){
     const b=await request.json(),source=text(b.sourceId,200),target=text(b.targetId,200),expected=integer(b.expectedRevision);
     if(!source||source===target||!target&&b.remove!==true)throw new NativeError(400,'Διάλεξε δύο διαφορετικά σταθερά IDs καταστημάτων.');

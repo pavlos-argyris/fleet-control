@@ -116,7 +116,7 @@ public final class SyncService extends Service {
         ordexaPayrollExecutor=Executors.newSingleThreadScheduledExecutor();
         ordexaPayrollExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){NativeWorkGate.pipeline(new Runnable(){public void run(){if(NativePrimaryService.jobsAllowed(SyncService.this))OrdexaPayrollSync.tick(getApplicationContext(),store);}});}},15,10,TimeUnit.SECONDS);
         storeBillingExecutor=Executors.newSingleThreadScheduledExecutor();
-        storeBillingExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){NativeWorkGate.pipeline(new Runnable(){public void run(){if(NativePrimaryService.jobsAllowed(SyncService.this)){CashSync.tick(getApplicationContext(),store);StoreBillingSync.tick(getApplicationContext(),store);}}});}},20000,250,TimeUnit.MILLISECONDS);
+        storeBillingExecutor.scheduleWithFixedDelay(new Runnable(){public void run(){NativeWorkGate.pipeline(new Runnable(){public void run(){if(NativePrimaryService.jobsAllowed(SyncService.this)){CloudSourceSync.tick(getApplicationContext(),store);CashSync.tick(getApplicationContext(),store);StoreBillingSync.tick(getApplicationContext(),store);}}});}},20000,250,TimeUnit.MILLISECONDS);
         // Connectivity must stay live even during ten parallel local reads,
         // lengthy AI results, Drive backup or a full mirror download.
         pulseExecutor = Executors.newSingleThreadScheduledExecutor();

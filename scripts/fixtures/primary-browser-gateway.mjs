@@ -38,7 +38,13 @@ export async function primaryGateway({handler}={}){
   async function fetch(input,init){
     const request=new Request(input,init),url=new URL(request.url);outer.push({url:request.url,headers:Object.fromEntries(request.headers),body:request.method==='POST'?await request.clone().text():''});
     if(url.pathname==='/api/primary/descriptor')return Response.json({...identity,mode},{headers:{'X-Fleet-Primary-Protocol':'1'}});
-    if(url.pathname!=='/api/primary/request')return Response.json({legacy:true});
+    if(url.pathname!=='/api/primary/request'){
+      if(mode!=='cloud'||!identity.cloudBusiness)return Response.json({legacy:true});
+      const response=await business({url:request.url,method:request.method,headers:Object.fromEntries(request.headers),body:['GET','HEAD'].includes(request.method)?'':await request.text()});
+      if(lose&&request.method!=='GET'){lose=false;throw new TypeError('lost cloud ACK');}
+      return new Response(response.body,{status:response.status,headers:response.headers});
+    }
+    if(mode!=='active')return Response.json({error:'authority retired'},{status:503});
     if(offline)return Response.json({error:'offline'},{status:503});
     const packet=await request.json(),other=await crypto.subtle.importKey('spki',decode(packet.epk),{name:'ECDH',namedCurve:'P-256'},false,[]),shared=new Uint8Array(await crypto.subtle.deriveBits({name:'ECDH',public:other},keys.privateKey,256));
     const context='fleet-primary-v1:'+identity.realm+':'+identity.generation+':',key=await crypto.subtle.importKey('raw',await crypto.subtle.digest('SHA-256',Buffer.concat([utf8.encode(context+identity.publicSalt+':'),shared])),'AES-GCM',false,['encrypt','decrypt']),aad=direction=>utf8.encode(context+direction+':'+packet.nonce+':'+packet.epk);
@@ -47,5 +53,5 @@ export async function primaryGateway({handler}={}){
     const iv=crypto.getRandomValues(new Uint8Array(12)),sealed=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad('response')},key,utf8.encode(JSON.stringify(response)));
     return Response.json({v:1,nonce:tamper?'0'.repeat(32):packet.nonce,epk:packet.epk,iv:encode(iv),ciphertext:encode(sealed)});
   }
-  return {origin,identity,fetch,requests,outer,transfers,get writes(){return writes;},set offline(value){offline=value;},set lose(value){lose=value;},set tamper(value){tamper=value;},set mode(value){mode=value;},set principal(value){principal=value;},set deny(value){deny=value;},hold(promise){held=promise;},changeGeneration(){identity={...identity,generation:randomUUID()};this.identity=identity;}};
+  return {async returnCloud({invalid=false}={}){const certificate={realm:origin,sourceGeneration:identity.generation,targetId:randomUUID(),inventoryHash:'c'.repeat(64)},privateKey=await crypto.subtle.importKey('pkcs8',await crypto.subtle.exportKey('pkcs8',keys.privateKey),{name:'ECDSA',namedCurve:'P-256'},false,['sign']);certificate.signature=encode(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},privateKey,utf8.encode('fleet-cloud-return-v1|'+origin+'|'+identity.generation+'|'+certificate.targetId+'|'+certificate.inventoryHash)));if(invalid)certificate.signature='A'.repeat(86);identity={...identity,backend:'cloud-sqlite',cloudBusiness:certificate.targetId,cloudReturn:certificate};this.identity=identity;mode='cloud';return identity;},setDescription(value){identity=value;this.identity=identity;mode=value.mode||mode;},origin,identity,fetch,requests,outer,transfers,get writes(){return writes;},set offline(value){offline=value;},set lose(value){lose=value;},set tamper(value){tamper=value;},set mode(value){mode=value;},set principal(value){principal=value;},set deny(value){deny=value;},hold(promise){held=promise;},changeGeneration(){identity={...identity,generation:randomUUID()};this.identity=identity;}};
 }

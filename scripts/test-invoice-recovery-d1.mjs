@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs';import os from 
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-recovery-'));let runtime;
 try{
- await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+ await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main']});
  runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'recovery'},bindings:{SERVER_KEY:'fixture-key',PIN_PEPPER:'fixture-pepper'}}));
  const db=await runtime.getD1Database('DB'),call=async(p,body,token)=>{const response=await runtime.dispatchFetch('https://fixture'+p,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{'X-Fleet-Server-Key':'fixture-key'})},body:body?JSON.stringify(body):undefined});return {status:response.status,data:await response.json(),headers:response.headers};};
  const boot=await call('/api/auth/bootstrap',{fullName:'Synthetic D1 Recovery',username:'recoveryd1',password:'RecoveryD1Fixture!7'});assert.equal(boot.status,200);const token=boot.data.token;

@@ -147,11 +147,16 @@ jobs:
       - run: node scripts/test-financial-export-native.mjs
         env:
           FLEET_FINANCE_PYTHON: .build/financial-python/bin/python
+      - run: node scripts/test-cloud-financial-export.mjs
+        env:
+          FLEET_FINANCE_PYTHON: .build/financial-python/bin/python
       - name: Save synthetic financial export verification
         uses: actions/upload-artifact@v4
         with:
           name: financial-export-verification
-          path: .build/verification/financial-export/
+          path: |
+            .build/verification/financial-export/
+            .build/verification/cloud-financial-export/
           if-no-files-found: error
       - run: node scripts/test-server-snapshot-sync.mjs
       - run: node scripts/test-server-system-mirror.mjs

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs';import os from 
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url));const {Miniflare,convertV4MiniflareOptions}=require('miniflare');const {build}=require('esbuild');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-d1-offload-'));let mf;
 try{
-await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(temp,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(temp,'worker.mjs'),bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main']});
 mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(temp,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'offload-fixture'},r2Buckets:['RELEASES','SERVICE_DOCS'],bindings:{SERVER_KEY:'d1-fixture-key',PIN_PEPPER:'d1-test-pepper'}}));
 const headers={'X-Fleet-Server-Key':'d1-fixture-key','Content-Type':'application/json'};
 let res=await mf.dispatchFetch('https://fixture.invalid/api/status',{headers});assert.equal(res.status,200,await res.text());

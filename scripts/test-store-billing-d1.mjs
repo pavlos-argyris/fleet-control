@@ -3,7 +3,7 @@ import fs from 'node:fs';import os from 'node:os';import path from 'node:path';i
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-stores-d1-'));let runtime;
 try{
- await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+ await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main']});
  runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'stores-fixture'},bindings:{SERVER_KEY:'stores-fixture',PIN_PEPPER:'stores-pepper'}}));
  const db=await runtime.getD1Database('DB');
  const call=async(url,body,token)=>{const response=await runtime.dispatchFetch('https://fixture'+url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{'X-Fleet-Server-Key':'stores-fixture'})},body:body?JSON.stringify(body):undefined});return {status:response.status,data:await response.json()};};
