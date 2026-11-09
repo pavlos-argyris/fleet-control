@@ -5,6 +5,8 @@ export function diagnosticError(value,secrets=[]){
  let clean=raw;for(const secret of secrets)if(secret)clean=clean.replaceAll(secret,'[REDACTED]');
  const quota=clean.match(/exceeded the daily Durable Objects free tier limit of\s*([\d,]+)\s*(rows_written|rows_read|requests|duration)/i);
  if(quota)return{kind:'durable_objects_daily_quota',metric:quota[2].toLowerCase(),limit:Number(quota[1].replaceAll(',',''))};
+ const legacyQuota=clean.match(/Exceeded allowed (rows written|rows read|duration) in Durable Objects free tier/i);
+ if(legacyQuota)return{kind:'durable_objects_daily_quota',metric:legacyQuota[1].toLowerCase().replace('rows written','rows_written').replace('rows read','rows_read')};
  const codes=[...new Set(clean.match(/\b(?:SQLITE_[A-Z_]+|D1_ERROR|D1_EXEC_ERROR)\b/g)||[])];
  if(codes.length)return{kind:'database_error',codes};
  if(/CPU time limit|exceeded.*CPU/i.test(clean))return{kind:'cpu_limit'};
