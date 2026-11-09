@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-04653d49-0622-4e34-ab4e-74358facb921",
-  "sourceCommit": "d5aca9ae24a3b6e2ffc54a77132b58a19739db01",
-  "releaseVersion": "5.61.2",
-  "requestedAt": "2026-11-07T23:25:00.282Z",
-  "reason": "Εξουσιοδοτημένη διόρθωση του Local capability failed στη μεταφορά δεδομένων στον Android Server, με επιτυχείς πλήρεις ελέγχους PR και ακριβούς main. Δημοσίευση Server 2.10.20 με τα αρχικά κλειδιά."
+  "requestId": "fleet-bafd3f18-2976-4fb1-81d4-fe0fc787e828",
+  "sourceCommit": "df511c425953ef962c215f243d058f55df329252",
+  "releaseVersion": "5.62.0",
+  "requestedAt": "2026-11-09T09:27:31.806Z",
+  "reason": "Ο ιδιοκτήτης ζήτησε άμεση υλοποίηση και δημοσίευση της επιστροφής στο Cloudflare, με όλες τις αναβαθμίσεις και διατήρηση των υπαρχόντων δεδομένων."
 }
