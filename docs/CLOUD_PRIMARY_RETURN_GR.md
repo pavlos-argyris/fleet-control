@@ -34,7 +34,7 @@
 
 ## Ordexa και όρια χρήσης
 
-Ο reader και ο υπολογισμός καταστημάτων παραμένουν στο κινητό. Source-only journal με revision/CAS στέλνει μικρές παρτίδες και δεν χάνει τοπική αλλαγή όταν έρχεται παλιό ACK. Αλλαγή μόνο του lastSeenRun δεν ξαναγράφει παραγγελία στο cloud.
+Ο reader και ο υπολογισμός καταστημάτων παραμένουν στο κινητό. Source-only journal με revision/CAS στέλνει μικρές παρτίδες και δεν χάνει τοπική αλλαγή όταν έρχεται παλιό ACK. Αλλαγή μόνο του lastSeenRun δεν ξαναγράφει παραγγελία στο cloud. Αμετάβλητα ημερήσια οικονομικά δεν ξαναγράφονται για νέο timestamp. Μία πλήρης ημερήσια απόδειξη δεσμεύει τις σταθερές τιμές όλων των καταστημάτων και τη νέα φρεσκάδα. Αλλαγμένο αποτέλεσμα χωρίς τη νέα αντίστοιχη απόδειξη παραμένει άγνωστο. Τα επιμέρους cursors/stages του reader δεν ξαναγράφονται ως κεντρική κατάσταση.
 
 Για το Ταμείο, κάθε πλήρης ημερήσια ανάγνωση στέλνει απογραφή σταθερών order IDs/fingerprints. Το Cloudflare ζητά μόνο νέες/αλλαγμένες ταυτότητες. Οι παρτίδες πηγαίνουν σε ιδιωτικό staging και η ενεργή ημερήσια πηγή αλλάζει σε μία συναλλαγή μόνο όταν συμφωνήσει ολόκληρη η απογραφή. Αμετάβλητη ανάγνωση ανανεώνει την απόδειξη φρεσκάδας, χωρίς ξαναγράψιμο όλων των παραγγελιών. Μερική/αποτυχημένη ανάγνωση διατηρεί τις προηγούμενες χρεώσεις. Μετά την παραλαβή, η οικονομική εφαρμογή συνεχίζεται με cloud alarms και μικρές ατομικές παρτίδες ακόμη κι αν ο reader αποσυνδεθεί. Οι υπάρχουσες πύλες πλήρους coverage, mapping, ιστορικών τιμών, συμφιλίωσης manual ποσών και έως200 οικονομικών IDs ανά παρτίδα ισχύουν.
 
@@ -48,7 +48,7 @@
 
 ## Επαλήθευση κώδικα
 
-- `scripts/test-cloud-return.mjs`: πραγματικό Workerd/D1/SQLite-DO/R2, πλήρης υπογεγραμμένη μεταφορά,64bit/REAL/empty-BLOB/NULL/4,6MB Unicode/99 στήλες, ιδιωτικά αρχεία, resume/χαμένο ACK, cloud login/2 μηχανάκια/new cash/CAS/PDF χωρίς Android socket,201-order atomic staged source/200+1 οικονομική παρτίδα, unchanged manifest, επιβεβαιωμένη απουσία/μερική λήψη, συνεπές backup και fenced recovery. Παλιά D1/R2 ανέπαφα.
+- `scripts/test-cloud-return.mjs`: πραγματικό Workerd/D1/SQLite-DO/R2, πλήρης υπογεγραμμένη μεταφορά,64bit/REAL/empty-BLOB/NULL/4,6MB Unicode/99 στήλες, ιδιωτικά αρχεία, resume/χαμένο ACK, cloud login/2 μηχανάκια/new cash/CAS/PDF χωρίς Android socket,57 καταστήματα×30 ανανεώσεις με30 proof writes αντί1.710 timestamp rewrites, staged αλλαγή αποτελέσματος που μένει άγνωστη πριν νέα απόδειξη,201-order atomic staged source/200+1 οικονομική παρτίδα, unchanged manifest, επιβεβαιωμένη απουσία/μερική λήψη, συνεπές backup και fenced recovery. Παλιά D1/R2 ανέπαφα.
 - `scripts/test-cloud-return-client.mjs` και `scripts/test-primary-cipher-native.mjs`: shipped Web/Client, πραγματική Java υπογραφή/receipt serialization, tamper/target fences, replay σε cloud και διατήρηση προσχεδίου.
 - `scripts/test-business-runtime-native.mjs` / `CloudReturnChecks`: πραγματικός Android exporter/importer σε real SQLite, >5MB ιστορικό, ανακατασκευή cloud backup, source journal/CAS και κανονικό κρυπτογραφημένο FCB3/decrypt/isolated restore με ιδιωτικά αρχεία.
 - `scripts/test-cloud-financial-export.mjs`: πραγματικά PDF/OOXML, ανεξάρτητα openpyxl/pypdf, ελληνικό font, ακριβή ποσά, άγνωστα/κείμενο formulas και επαναλαμβανόμενες κεφαλίδες. Η πρώτη σελίδα έχει επιθεωρηθεί οπτικά.

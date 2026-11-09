@@ -1,3 +1,4 @@
+import {matchesStoreProof} from './store-proof.js';
 import {businessContext} from './ports.js';
 import {aggregateStoreFinancials} from '../cloudflare-worker/src/store-financial-report.js';
 import {list,reply,NativeError,text,day,range,actor,audit,stamp,addDay,integer,hash} from './common.js';
@@ -21,7 +22,7 @@ export async function storeReport(env,{from,to,period='day',scope,storeId=''}){
     const snapshot=snapshots.get(d+'|'+shop.store_id),proof=coverage.get(d),canonical=aliases[shop.store_id]||shop.store_id,key=periodKey(d,period,from)+'|'+canonical;
     let reason='',monetary=false;
     if(!snapshot)reason='Δεν έχει υπολογιστεί η ημέρα.';
-    else if(!proof||proof.needsSourceRefresh||!proof.sourceAt||snapshot.sourceLastSuccessAt!==proof.sourceAt)reason='Δεν έχει επαληθευτεί πλήρης ανάγνωση της ημέρας.';
+    else if(!matchesStoreProof(snapshot,proof,shop.store_id,env.CLOUD_PRIMARY))reason='Δεν έχει επαληθευτεί πλήρης ανάγνωση της ημέρας.';
     else if(snapshot.storeId!==shop.store_id||snapshot.businessDay!==d||snapshot.cutoffHour!==5||snapshot.timeZone!=='Europe/Athens')reason='Ασύμβατο ημερήσιο στιγμιότυπο.';
     else if(snapshot.orderCount===0&&(snapshot.orderChargeCents!==0||snapshot.minimumTopUpCents!==0||snapshot.totalChargeCents!==0))reason='Παλιότερο αποτέλεσμα με χρέωση σε μηδενική ημέρα· χρειάζεται επανυπολογισμός.';
     else if(snapshot.billingState==='needs_terms'||[snapshot.orderChargeCents,snapshot.minimumTopUpCents,snapshot.totalChargeCents].some(n=>n===null||!Number.isSafeInteger(n)||n<0))reason='Χρειάζεται έλεγχος ιστορικών όρων χρέωσης.';

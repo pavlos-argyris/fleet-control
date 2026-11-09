@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';import {fetchReleaseReference} from './fetch-release-reference.mjs';
+let calls=0,delays=[];const url='https://github.com/fixture/releases/download/pinned.apk';const result=await fetchReleaseReference(url,{fetcher:async value=>{assert.equal(value,url);calls++;return new Response(calls<3?'temporary':'verified-by-caller',{status:calls<3?504:200});},pause:async d=>delays.push(d)});assert.equal(calls,3);assert.equal(await result.text(),'verified-by-caller');assert.deepEqual(delays,[1000,2000]);
+calls=0;assert.equal((await fetchReleaseReference(url,{fetcher:async()=>{calls++;return new Response('missing',{status:404});},pause:async()=>{throw Error('permanent response must not retry');}})).status,404);assert.equal(calls,1);
+calls=0;assert.equal((await fetchReleaseReference(url,{fetcher:async()=>{calls++;return new Response('temporary',{status:503});},pause:async()=>{}})).status,503);assert.equal(calls,4);
+calls=0;await assert.rejects(()=>fetchReleaseReference(url,{fetcher:async()=>{calls++;throw new TypeError('network unavailable');},pause:async()=>{}}),/network unavailable/);assert.equal(calls,4);
+console.log('PASS bounded release-reference retry: transient HTTP/network failures, fixed URL, exponential delay, permanent failure unchanged; artifact integrity checks remain mandatory in the APK auditor.');

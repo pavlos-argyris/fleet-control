@@ -550,12 +550,14 @@
         "server-android/src/gr/argyrismitsos/fleetserver/BootReceiver.java",
         "scripts/apk-audit-core.mjs",
         "scripts/audit-apk-history.mjs",
-        "android-build-support/apk-audit-references.json"
+        "android-build-support/apk-audit-references.json",
+        "scripts/fetch-release-reference.mjs"
       ],
       "tests": [
         "scripts/test-android-manifest-audit.mjs",
         "scripts/test-server-boot-native.mjs",
-        "scripts/test-apk-audit-core.mjs"
+        "scripts/test-apk-audit-core.mjs",
+        "scripts/test-fetch-release-reference.mjs"
       ],
       "related": [
         "release-ci",
