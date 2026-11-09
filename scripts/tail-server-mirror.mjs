@@ -1,6 +1,6 @@
 // Only our own tagged descriptor GETs are observed. No business writes or D1 reads.
 import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {spawn} from 'node:child_process';
-import {diagnosticError} from './tail-error-safety.mjs';
+import {diagnosticError,tailProbeEvent,tailProbeShape} from './tail-error-safety.mjs';
 const key=process.env.FLEET_SERVER_KEY,token=process.env.CLOUDFLARE_API_TOKEN,worker=process.env.FLEET_WORKER_NAME||'fleet-control';
 if(!key||!token||worker!=='fleet-control')throw new Error('Diagnostic configuration unavailable');
 const base=new URL(process.env.FLEET_WORKER_URL||'https://fleet-control.pavlosargyris.workers.dev');if(base.origin!=='https://fleet-control.pavlosargyris.workers.dev'||base.pathname!=='/')throw new Error('Unexpected diagnostic origin');
@@ -8,12 +8,11 @@ const probe=crypto.randomUUID(),report={readOnly:true,checkedAt:new Date().toISO
 const save=()=>fs.writeFileSync('verification/mirror-probe/tail-report.json',JSON.stringify(report,null,2)+'\n');
 const safe=value=>diagnosticError(value,[key,token]);
 const child=spawn(process.execPath,[path.resolve('cloudflare-worker/node_modules/wrangler/bin/wrangler.js'),'tail',worker,'--config',path.resolve('.build/mirror-tail.json'),'--format','json','--header','X-Fleet-Probe:'+probe],{env:{...process.env,WRANGLER_SEND_METRICS:'false'},stdio:['ignore','pipe','pipe']});
-let connected=false,buffer='',depth=0,inString=false,escaped=false,started=false,exitCode=null;report.stdoutBytes=0;report.stderrBytes=0;
+let connected=false,buffer='',depth=0,inString=false,escaped=false,started=false,exitCode=null;report.stdoutBytes=0;report.stderrBytes=0;report.tailShapes=[];
 child.on('exit',code=>exitCode=code);child.on('error',()=>{exitCode=-1;});child.stderr.on('data',chunk=>{report.stderrBytes+=chunk.length;const text=chunk.toString();if(/Connected to|waiting for logs|Successfully created tail/i.test(text))connected=true;if(/403|not authorized|Authentication error|permission/i.test(text))report.tailPermissionError=true;});
 function event(value){
- const data=value?.data||value,entry=data?.event,request=entry?.request;if(!request)return;const url=new URL(request.url);
- if(url.pathname!=='/api/primary/descriptor'||url.searchParams.get('diagnostic')!==probe)return;
- const row={path:url.pathname,outcome:data.outcome,status:entry.response?.status,cpuTimeMs:data.cpuTime,exceptions:(data.exceptions||[]).map(safe),logs:(data.logs||[]).filter(l=>l.level==='error').map(l=>({level:'error',errors:(Array.isArray(l.message)?l.message:[l.message]).map(safe)}))};
+ if(report.tailShapes.length<6){report.tailShapes.push(tailProbeShape(value));save();}
+ const row=tailProbeEvent(value,probe,[key,token]);if(!row)return;connected=true;
  report.events.push(row);save();console.log(JSON.stringify(row));
 }
 child.stdout.on('data',chunk=>{report.stdoutBytes+=chunk.length;const text=chunk.toString();if(/Connected to|waiting for logs|Successfully created tail/i.test(text))connected=true;

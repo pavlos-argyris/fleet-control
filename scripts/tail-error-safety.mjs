@@ -13,3 +13,17 @@ export function diagnosticError(value,secrets=[]){
  const type=typeof value==='object'&&['Error','TypeError','ReferenceError','RangeError','SyntaxError'].includes(value?.name)?value.name:'Error';
  return{kind:'unclassified_error',type,messageSha256:crypto.createHash('sha256').update(clean).digest('hex')};
 }
+
+export function tailProbeShape(value){
+ const data=value?.event?value:value?.data&&typeof value.data==='object'?value.data:value;
+ return{keys:['data','event','logs','exceptions','outcome','type','message','events','payload'].filter(k=>Object.hasOwn(value||{},k)),dataType:typeof value?.data,eventType:typeof data?.event,requestType:typeof data?.event?.request,urlType:typeof data?.event?.request?.url};
+}
+
+export function tailProbeEvent(value,probe,secrets=[]){
+ const data=value?.event?value:value?.data&&typeof value.data==='object'?value.data:value;
+ const entry=data?.event,request=entry?.request;if(!request||typeof request.url!=='string')return null;
+ let url;try{url=new URL(request.url);}catch{return null;}
+ let header;try{header=new Headers(request.headers||{}).get('X-Fleet-Probe');}catch{}
+ if(url.pathname!=='/api/primary/descriptor'||url.searchParams.get('diagnostic')!==probe&&header!==probe)return null;
+ return{path:url.pathname,outcome:data.outcome,status:entry.response?.status,cpuTimeMs:data.cpuTime,exceptions:(data.exceptions||[]).map(e=>diagnosticError(e,secrets)),logs:(data.logs||[]).filter(l=>l.level==='error').map(l=>({level:'error',errors:(Array.isArray(l.message)?l.message:[l.message]).map(e=>diagnosticError(e,secrets))}))};
+}
