@@ -16,7 +16,9 @@ export function diagnosticError(value,secrets=[]){
   return{kind:'platform_error',message};
  }
  const type=typeof value==='object'&&['Error','TypeError','ReferenceError','RangeError','SyntaxError'].includes(value?.name)?value.name:'Error';
- return{kind:'unclassified_error',type,messageSha256:crypto.createHash('sha256').update(clean).digest('hex')};
+ const vocabulary=new Set('error typeerror referenceerror cannot read properties undefined null authority coordinator unavailable durable object objects storage database sql sqlite request requests handler global scope different context input output gate constructor blockconcurrencywhile operation operations disallowed allowed asynchronous io i o outside callback promise promises transaction transactions closed reset resetting evicted aborted destroyed unavailable failed failure fetch binding namespace event code limit quota exceeded rows_written rows_read worker workers runtime internal rpc receiver response json parse unexpected token invalid method function is not a the this its in from within of to for on behalf has been was due and'.split(' '));
+ const diagnosticWords=(first.match(/[A-Za-z_]+/g)||[]).map(word=>vocabulary.has(word.toLowerCase())?word.toLowerCase():'?').join(' ').slice(0,500);
+ return{kind:'unclassified_error',type,messageSha256:crypto.createHash('sha256').update(clean).digest('hex'),diagnosticWords};
 }
 
 export function tailProbeShape(value){
