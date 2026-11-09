@@ -79,7 +79,7 @@ export class FleetEvents {
    const allowed=changed.filter(s=>saved.scopes.includes(s));if(allowed.length)try{ws.send(JSON.stringify({type:'changed',scopes:allowed}));}catch{}
   }
  }
- async alarm(){let next=Infinity;for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(saved?.direct||saved?.primary)continue;if(!saved||saved.until<=Date.now()){try{ws.close(1000,'renew');}catch{}}else next=Math.min(next,saved.until);}if(Number.isFinite(next))await this.ctx.storage.setAlarm(next);}
+ async alarm(){if((await this.ctx.storage.get('cloud-business.configuration'))?.active){this.business||=new CloudBusiness(this.ctx,this.env);return this.business.alarm();}let next=Infinity;for(const ws of this.ctx.getWebSockets()){const saved=ws.deserializeAttachment();if(saved?.direct||saved?.primary)continue;if(!saved||saved.until<=Date.now()){try{ws.close(1000,'renew');}catch{}}else next=Math.min(next,saved.until);}if(Number.isFinite(next))await this.ctx.storage.setAlarm(next);}
  webSocketMessage(ws,message){if(ws.deserializeAttachment()?.primary)return this.primary.message(ws,message);if(ws.deserializeAttachment()?.direct)return this.direct.message(ws,message);if(message==='ping')ws.send('pong');else ws.close(1008,'signals only');}
  webSocketClose(ws,code,reason){this.direct.failPending(ws);this.primary.failPending(ws);try{ws.close(code,reason);}catch{}}
  webSocketError(ws){this.direct.failPending(ws);this.primary.failPending(ws);try{ws.close(1011,'reconnect');}catch{}}

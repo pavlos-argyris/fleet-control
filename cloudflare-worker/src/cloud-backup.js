@@ -14,7 +14,7 @@ export async function routeCloudBackup(request,env,configuration,storage){
   const old=await storage.get('cloud-business.backup'),id=crypto.randomUUID(),tables=[];
   const schema=rows(sql,"SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").filter(t=>transferable(t.name)||['fleet_mirror_state','fleet_mirror_changes'].includes(t.name));
   for(const t of schema){const info=rows(sql,`PRAGMA table_xinfo(${sqlName(t.name)})`);if(info.some(c=>c.hidden||c.name==='_backup_source_row')||info.length>99)throw Error('Unsupported backup columns');sql.exec(`CREATE TABLE ${copyName(id,t.name)} AS SELECT _rowid_ AS _backup_source_row,* FROM ${sqlName(t.name)}`);tables.push({name:t.name,sql:t.sql,columns:info.map(c=>c.name),rows:rows(sql,`SELECT COUNT(*) n FROM ${copyName(id,t.name)}`)[0].n});}
-  sql.exec(`CREATE TABLE ${copyName(id,'_objects')} AS SELECT * FROM _cloud_objects`);
+  sql.exec(`CREATE TABLE ${copyName(id,'_objects')} AS SELECT * FROM _cloud_objects WHERE deleted=0`);
   const point={schema:1,id,realm:configuration.realm,generation:configuration.generation,capturedAt:new Date().toISOString(),tables,objectCount:rows(sql,`SELECT COUNT(*) n FROM ${copyName(id,'_objects')}`)[0].n,sequences:rows(sql,'SELECT name,CAST(seq AS TEXT) seq FROM sqlite_sequence')};
   await storage.put('cloud-business.backup',point);
   if(old){for(const t of old.tables)sql.exec(`DROP TABLE IF EXISTS ${copyName(old.id,t.name)}`);sql.exec(`DROP TABLE IF EXISTS ${copyName(old.id,'_objects')}`);}

@@ -1,3 +1,4 @@
+import {applyAutomaticCashBatch} from '../../server-runtime/cash-auto.js';
 import {routeCloudBackup} from './cloud-backup.js';
 import {principalSecurity,nativeObjectOrder} from '../../server-runtime/security.js';
 import {authenticateExternal} from './workforce.js';
@@ -10,11 +11,13 @@ import {cloudBusinessDatabase,cloudBusinessTransaction} from './cloud-business-d
 import {FEATURE_SCHEMA,routeFeatures} from '../../server-runtime/features.js';
 import {RECEIPT_SCHEMA,beginOperation,finishOperation} from '../../server-runtime/receipts.js';
 
-/** Cloud-owned execution of the shared business code. Not publicly registered:
- * authority routing and a verified migration must be installed before activation.
+/** Private execution of the shared business code in the cloud-owned database.
+ * Only verified authority routing can enter an activated instance.
  * D1 is not read or mutated by this executor. */
 export class CloudBusiness {
   constructor(ctx,env,ports){this.ctx=ctx;this.env=env;this.ports=ports;this.DB=cloudBusinessDatabase(ctx.storage);this.ready=null;this.transfer=new CloudTransfer(ctx,env);}
+  async scheduleCash(env){if(!env.BUSINESS_CONTEXT?.configured)return;const pending=await env.DB.prepare("SELECT 1 found FROM store_billing_local WHERE scope=? AND kind='cash_apply_request' LIMIT 1").bind(env.BUSINESS_CONTEXT.scope).first();if(!pending)return;const next=Date.now()+1000,alarm=await this.ctx.storage.getAlarm();if(alarm===null||alarm>next)await this.ctx.storage.setAlarm(next);}
+  async alarm(){const cfg=await this.ctx.storage.get('cloud-business.configuration');if(!cfg?.active)return;const response=await this.fetch(new Request('https://cloud-business.internal/_cloud-maintain',{headers:{'X-Fleet-Server-Key':this.env.SERVER_KEY}}));if(!response.ok)throw Error('Cloud maintenance needs retry');}
   async fetch(request){
     return this.ctx.blockConcurrencyWhile(async()=>{
      try{
@@ -42,9 +45,9 @@ export class CloudBusiness {
       let initialized=false,actorId='',fingerprint='';
       const response=await cloudBusinessTransaction(this.ctx.storage,async()=>{
         if(!this.ready){await this.DB.exec(RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA);initialized=true;}
-        if(path==='/_cloud-maintain'){if(!request.localInternal)return Response.json({error:'Forbidden'},{status:403});const pending=[];await worker.scheduled(null,environment,{waitUntil:p=>pending.push(p)});await Promise.all(pending);return Response.json({ok:true});}
+        if(path==='/_cloud-maintain'){if(!request.localInternal)return Response.json({error:'Forbidden'},{status:403});const pending=[];await worker.scheduled(null,environment,{waitUntil:p=>pending.push(p)});await Promise.all(pending);const automatic=configuration.context?.configured?await applyAutomaticCashBatch(environment):{idle:true};if(automatic.changed)changes.push('cash');await this.scheduleCash(environment);return Response.json({ok:true,automatic});}
         const backup=await routeCloudBackup(request,environment,configuration,this.ctx.storage);if(backup)return backup;
-        const source=await routeCloudSource(request,environment,configuration,this.ctx.storage);if(source){if(source.changed)changes.push('cash','stores');return source.response;}
+        const source=await routeCloudSource(request,environment,configuration,this.ctx.storage);if(source){if(source.changed)changes.push('cash','stores');await this.scheduleCash(environment);return source.response;}
         if(request.headers.has('Authorization'))try{const actor=await authenticateExternal(request,environment);actorId=actor.user_id;fingerprint=await principalSecurity(environment,actor);}catch{}
         let receiptRequest=request,receiptForm={};
         if(request.headers.has('X-Fleet-Operation')&&(request.headers.get('Content-Type')||'').includes('multipart/form-data')){
@@ -55,6 +58,7 @@ export class CloudBusiness {
         const dispatch=value=>worker.fetch(value,environment,{waitUntil(){}});
         const response=await routeFeatures(request,environment,dispatch)||await dispatch(request);
         await finishOperation(operation,response,environment);
+        if(response.ok&&!['GET','HEAD','OPTIONS'].includes(request.method))await this.scheduleCash(environment);
         return response;
       });
       if(initialized&&response.status<500)this.ready=true;
