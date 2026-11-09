@@ -75,6 +75,7 @@ async function routeCloudReturn(request,env,state){
  const u=new URL(request.url),action=u.pathname.slice('/api/primary/cloud-return/'.length);
  const raw=request.headers.get('X-Fleet-Primary-Ticket')||'';if(!/^[A-Za-z0-9_-]{43}$/.test(raw))return failure(403,'Λείπει η άδεια επιστροφής.');
  const ticketHash=await directHash(raw),verified=await invoke(env,'return-verify',{ticketHash});if(!verified.ok)return verified;state=await verified.json();
+ if(action==='status'&&state.mode==='active')return primaryJson({active:false,started:false});
  if(state.mode==='cloud'){if(['status','finish'].includes(action))return primaryJson({active:true,cloudBusiness:state.cloudBusiness,cloudReturn:state.cloudReturn});return failure(409,'Η επιστροφή έχει ήδη ολοκληρωθεί.');}
  if(action==='object-bytes'){
   if(state.mode!=='returning')return failure(409,'Δεν έχει δεσμευτεί η επιστροφή.');const key=u.searchParams.get('key'),sha=u.searchParams.get('sha256'),size=Number(u.searchParams.get('size'));

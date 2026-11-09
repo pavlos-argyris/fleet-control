@@ -60,6 +60,7 @@ export class CloudTransfer {
    for(const t of body.tables)sql.exec('INSERT INTO _cloud_transfer_progress VALUES(?,0,?,NULL)',t.name,'0'.repeat(64));
    transfer={...body,inventoryHash,prepared:false,objectCount:0,objectChain:'0'.repeat(64),lastObject:null};delete transfer.inventoryJson;await storage.put('cloud-business.transfer',transfer);return this.status(transfer);
   }
+  if(!transfer&&action==='status')return{active:false,started:false};
   if(!transfer||body.generation!==transfer.generation||body.transferId!==transfer.transferId||body.inventoryHash!==transfer.inventoryHash)throw Error('Transfer generation changed');
   if(action==='status')return this.status(transfer);
   if(action==='row'||action==='rows'){

@@ -37,6 +37,7 @@ try{
  const control=(action,extra={})=>call('/api/primary/cloud-return/'+action,{generation,transferId,inventoryHash,...extra},header);
  const init={schema:1,inventoryJson,ownerId:owner,authPepper:pepper,eventSigningKey:seed.eventSigningKey,context:{configured:true,scope:'source-fixture',generation:'provider-generation'},backup:{restoreVerified:true,databaseSha256:'c'.repeat(64)},certificate};
  assert.equal((await control('init',{...init,certificate:{...certificate,signature:'x'.repeat(86)}})).status,403);assert.equal(ok(await call('/api/primary/descriptor')).mode,'active');
+ assert.equal(ok(await control('status')).started,false,'resume before reservation can still initialize');assert.equal((await control('init',{...init,backup:{restoreVerified:false,databaseSha256:'c'.repeat(64)}})).status,409);assert.equal(ok(await control('status')).started,false,'lost/uncommitted candidate initialization remains resumable');
  ok(await control('init',init));assert.equal(ok(await call('/api/primary/descriptor')).mode,'returning');assert.equal((await call('/api/auth/me')).status,503);
  assert.equal((await control('prepare')).status,409,'missing rows cannot activate');
  for(const t of ordered){const rows=rowsByTable.get(t.name);for(let start=0;start<rows.length;start+=64){const page=rows.slice(start,start+64);ok(await control('rows',{table:t.name,rows:page}));ok(await control('rows',{table:t.name,rows:page}));}}
