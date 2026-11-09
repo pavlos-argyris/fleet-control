@@ -10,6 +10,11 @@ export function diagnosticError(value,secrets=[]){
  if(/CPU time limit|exceeded.*CPU/i.test(clean))return{kind:'cpu_limit'};
  if(/Memory limit|out of memory|exceeded.*memory/i.test(clean))return{kind:'memory_limit'};
  if(/Authentication error|not authorized|permission denied/i.test(clean))return{kind:'permission_error'};
+ const first=clean.split(/\r?\n/)[0];
+ if(/^(?:(?:Error|TypeError|ReferenceError|RPCError):\s*)?(?:The Durable Object|Your Durable Object|Durable Object|Cannot perform I\/O|Cannot read properties|Too many|Worker|The script|No such actor|Actor|Failed to fetch|fetch failed|RPC|Service temporarily|Operation)/i.test(first)){
+  const message=first.replace(/https?:\/\/\S+/g,'[URL]').replace(/(["'`])[^"'`]*\1/g,'[TEXT]').replace(/[A-Za-z0-9_+\/-]{32,}={0,2}/g,'[IDENTIFIER]').slice(0,500);
+  return{kind:'platform_error',message};
+ }
  const type=typeof value==='object'&&['Error','TypeError','ReferenceError','RangeError','SyntaxError'].includes(value?.name)?value.name:'Error';
  return{kind:'unclassified_error',type,messageSha256:crypto.createHash('sha256').update(clean).digest('hex')};
 }

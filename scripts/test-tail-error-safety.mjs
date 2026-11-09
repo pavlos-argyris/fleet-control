@@ -7,6 +7,8 @@ const result=diagnosticError(new TypeError('Cannot read private-client-name serv
 assert.equal(result.kind,'unclassified_error');assert.equal(result.type,'TypeError');assert.match(result.messageSha256,/^[a-f0-9]{64}$/);
 for(const forbidden of ['private-client-name','server-secret','api-token','Cannot read'])assert(!JSON.stringify(result).includes(forbidden));
 assert.deepEqual(result,diagnosticError(new TypeError('Cannot read private-client-name different-secret new-token'),['different-secret','new-token']));
+const platform=diagnosticError(new Error('The Durable Object storage operation failed for "private-row-value" server-secret api-token\nprivate stack'),['server-secret','api-token']);
+assert.equal(platform.kind,'platform_error');for(const text of ['private-row-value','server-secret','api-token','private stack'])assert(!JSON.stringify(platform).includes(text));
 console.log('PASS live tail safety: exact quota metric/limit, database codes and CPU classification; arbitrary customer values, credentials and raw exception messages never exported.');
 const probe='own-probe',event={event:{request:{url:'https://fixture/api/primary/descriptor?diagnostic='+probe},response:{status:500}},outcome:'ok',exceptions:[],logs:[{level:'error',message:['You have exceeded the daily Durable Objects free tier limit of 100,000 rows_written.']}]};
 for(const shape of [event,{...event,data:'not-an-event'},{data:event}])assert.equal(tailProbeEvent(shape,probe).logs[0].errors[0].metric,'rows_written');
