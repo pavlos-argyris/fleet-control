@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs';import os from 
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-ordexa-migration-'));let runtime;
 try{
- await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+ await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main']});
  const options=convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'migration-fixture'},resourcePersistencePath:path.join(dir,'d1'),bindings:{SERVER_KEY:'synthetic-migration',PIN_PEPPER:'synthetic-pepper'}});
  const start=async()=>{runtime=new Miniflare(options);const response=await runtime.dispatchFetch('https://fixture/api/status');assert.equal(response.status,200,await response.text());return runtime.getD1Database('DB');};
  let db=await start();

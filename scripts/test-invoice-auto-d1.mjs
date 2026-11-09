@@ -4,7 +4,7 @@ const require=createRequire(new URL('../cloudflare-worker/package.json',import.m
 const {Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
 const folder=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-invoice-auto-d1-'));let runtime;
 try {
- await build({entryPoints:[path.resolve('cloudflare-worker/src/worker.js')],bundle:true,format:'esm',platform:'neutral',outfile:path.join(folder,'worker.mjs')});
+ await build({entryPoints:[path.resolve('cloudflare-worker/src/worker.js')],bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main'],outfile:path.join(folder,'worker.mjs')});
  runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(folder,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'invoice-auto-d1'},r2Buckets:{SERVICE_DOCS:'invoice-auto-files'},bindings:{SERVER_KEY:'auto-d1-server',PIN_PEPPER:'auto-d1-pepper'}}));
  const db=await runtime.getD1Database('DB');
  const call=async(url,body,token)=>{const r=await runtime.dispatchFetch('http://fixture'+url,{method:body?'POST':'GET',headers:token?{Authorization:'Bearer '+token,'Content-Type':'application/json'}:{'X-Fleet-Server-Key':'auto-d1-server','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json()};};

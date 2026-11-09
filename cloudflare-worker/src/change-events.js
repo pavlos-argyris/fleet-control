@@ -1,3 +1,4 @@
+import {CloudBusiness} from './cloud-business.js';
 import { DirectRelay } from './direct-relay.js';
 import {PrimaryAuthority,primaryJson} from './primary-authority.js';
 // Signals contain scope names only. All data reads still pass their normal authorization.
@@ -53,9 +54,10 @@ export class FleetEvents {
  constructor(ctx,env){this.ctx=ctx;this.env=env;this.direct=new DirectRelay(ctx);this.primary=new PrimaryAuthority(ctx,changed=>this.broadcast(changed));if(typeof WebSocketRequestResponsePair!=='undefined')ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping','pong'));}
  async fetch(request){
   const url=new URL(request.url);
+  if(url.hostname==='cloud-business.internal'){if(!this.business)this.business=new CloudBusiness(this.ctx,this.env);return this.business.fetch(request);}
   if(url.pathname.startsWith('/primary/'))return this.primary.fetch(request);
   await this.primary.ready;
-  if(url.pathname.startsWith('/direct/'))return this.primary.state.mode==='cloud'?this.direct.fetch(request):primaryJson({error:'Χρησιμοποίησε την κύρια ασφαλή σύνδεση Server.'},409);
+  if(url.pathname.startsWith('/direct/'))return this.primary.state.mode==='cloud'&&!this.primary.state.cloudBusiness?this.direct.fetch(request):primaryJson({error:'Χρησιμοποίησε την κύρια ασφαλή σύνδεση Server.'},409);
   if(url.pathname==='/connect'&&request.headers.get('Upgrade')==='websocket'){
    if(this.ctx.getWebSockets().length>=256)return new Response('Busy',{status:503});
    const pair=new WebSocketPair(),client=pair[0],server=pair[1],until=Number(request.headers.get('X-Fleet-Until'));

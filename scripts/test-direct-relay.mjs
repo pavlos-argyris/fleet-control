@@ -8,7 +8,7 @@ try {
   assert.equal(await (await worker.fetch(new Request('https://fixture/direct.html'),env)).text(),'emergency static entry');
   assert.equal((await worker.fetch(new Request('https://fixture/api/direct/request',{method:'OPTIONS'}),env)).status,200);
   assert.equal(reads,0,'emergency entry and CORS precede any schema/database access');
-  await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(folder,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+  await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(folder,'worker.mjs'),bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main']});
   // No DB binding at all. A hidden schema/auth query would fail the test.
   runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(folder,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',durableObjects:{FLEET_EVENTS:{className:'FleetEvents',useSQLite:true}},bindings:{SERVER_KEY:'synthetic-direct-server-key-123456'}}));
   const pair='a'.repeat(43),pairHash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pair))).toString('hex');

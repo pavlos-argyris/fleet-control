@@ -7,7 +7,7 @@ try{
  fs.writeFileSync(path.join(temp,'entry.mjs'),`import {CloudBusiness} from ${JSON.stringify(path.resolve('cloudflare-worker/src/cloud-business.js'))};
  export class BusinessFixture extends CloudBusiness{
  constructor(ctx,env){super(ctx,env,async command=>{if(command==='health.snapshot')return{at:new Date().toISOString()};throw Error('fixture unsupported host service');});this.start=ctx.blockConcurrencyWhile(async()=>{
- await ctx.storage.put('cloud-business.configuration',{active:true,authPepper:'cloud-fixture-private-pepper',eventSigningKey:'cloud-fixture-event-key-at-least-32',context:{configured:true,scope:'fixture-source',generation:'fixture-generation'}});
+ await ctx.storage.put('cloud-business.configuration',{active:true,realm:'https://fixture',authPepper:'cloud-fixture-private-pepper',eventSigningKey:'cloud-fixture-event-key-at-least-32',context:{configured:true,scope:'fixture-source',generation:'fixture-generation'}});
  ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS store_billing_local(id TEXT PRIMARY KEY,kind TEXT NOT NULL,scope TEXT NOT NULL,store_id TEXT NOT NULL DEFAULT '',day TEXT NOT NULL DEFAULT '',data TEXT NOT NULL,dirty INTEGER NOT NULL DEFAULT 0)");});}
  async fetch(request){await this.start;if(new URL(request.url).pathname==='/fixture/seed'){
  this.ctx.storage.sql.exec("INSERT INTO store_billing_records(id,kind,scope,store_id,day,data,updated_at) VALUES('shop','store','fixture-source','','','{\\"name\\":\\"Συνθετικό\\"}','2026-11-08T12:00:00Z')");return Response.json({ok:true});}return super.fetch(request);}}

@@ -1,51 +1,57 @@
-## Πρόοδος πραγματικής υλοποίησης — 08/11/2026
+# Επιστροφή της κύριας βάσης στο Cloudflare — Fleet5.62.0 / Server2.11.0
 
-Νεότερη διόρθωση χρήστη: τα δεδομένα εμφανίζονται όλα, μαζί με τα μηχανάκια, αλλά αργούν πολύ. Δεν υπάρχει επιβεβαιωμένη απώλεια. Επανέλαβε άμεση συνέχιση και δημοσίευση. Δεν χρειάζεται upload προσωπικού backup στη συνομιλία για ανάπτυξη. Η τελική μεταφορά πρέπει να κάνει αυτόματα πλήρες τοπικό backup στη συσκευή και επαλήθευση πριν αλλάξει authority.
+Η νεότερη εντολή του ιδιοκτήτη είναι κύρια αποθήκευση/login στο Cloudflare, με διατήρηση όλων των αναβαθμίσεων. Διευκρίνισε ότι τα δεδομένα, μαζί με τα μηχανάκια, εμφανίζονται αλλά αργούν. Δεν υπάρχει επιβεβαιωμένη απώλεια. Η έκδοση λογισμικού και η μεταφορά πραγματικών δεδομένων είναι δύο ξεχωριστά βήματα· δεν δηλώνεται παραγωγική μεταφορά από συνθετικά tests.
 
-- `server-runtime/ports.js`: request-scoped business context/async host ports, διατήρηση υπάρχουσας native fallback. Όλα τα cash source/automatic/rules, reports, health, files και exports χρησιμοποιούν το εκάστοτε env. Η εισαγωγή exports σε πραγματικό Worker δεν αντικαθιστά πλέον global Request/Response/URL/crypto/fetch με Rhino shims.
-- `cloud-business-db.js`: D1-shaped adapter πάνω σε Cloudflare-owned SQLite με πραγματικό `storage.transaction()` για ολόκληρο async handler + audit + receipts. `meta.changes` προέρχεται από SQLite changes(), όχι από rowsWritten που μπορεί να περιλαμβάνει triggers/ευρετήρια. 5xx/throws κάνουν πραγματικό rollback.
-- `cloud-business.js`: πρώτος πραγματικός cloud executor των κοινών handlers, χωρίς D1 binding/Android runtime. Request-specific context/ports, complete-operation transaction, post-commit notifications και schema cache που δεν επιβιώνει rollback. **Δεν έχει καταχωριστεί στο production routing ή ενεργοποιηθεί.** Η επιλογή Cloudflare-owned SQLite επιτρέπει τις υπάρχουσες οικονομικές transactions χωρίς μετατροπή τους σε μη ατομικά D1 statements· δεν αλλάζει/διαγράφει την υπάρχουσα D1. Πριν release χρειάζονται ολοκληρωμένοι host adapters και μεταφορά.
-- Το core Worker schema cache έγινε ανά DB, ώστε δύο διαφορετικές cloud/native βάσεις στο ίδιο isolate να μην μοιράζονται λάθος successful-schema flag.
-- Συνθετικοί έλεγχοι πραγματικού Workerd επιβεβαιώνουν atomic financial/audit/receipt rollback, concurrent unique writes, πραγματικό bootstrap/PBKDF2 login/me και cash rule/CAS/source/health χωρίς D1 ή κινητό. Οι έλεγχοι είναι development evidence, όχι παραγωγική μεταφορά ή πλήρες release.
+## Εγκατάσταση και χρήση
 
-Εκκρεμούν cloud file/export ports, ελεγμένη πλήρης αντίστροφη μεταφορά από Android με ιδιωτικά αρχεία, retiring του pinned identity, cloud-mode Ordexa πηγή/συγχρονισμός, Web/Client offline-server acceptance, versions/exact-source CI/υπογραφές και κανονική δημοσίευση. **Δεν έγινε production write/activation ή δημοσίευση.**
+1. Εγκατάστησε τις κανονικές υπογεγραμμένες ενημερώσεις Server2.11.0 και Client5.62.0 πάνω στις υπάρχουσες εφαρμογές. Το Web ενημερώνεται από την κανονική έκδοση.
+2. Κράτησε εκτός κινητού τον ήδη ρυθμισμένο φορητό κωδικό backup. Στον Server άνοιξε Ρυθμίσεις → Κύρια βάση δεδομένων → **Επιστροφή στο Cloudflare**.
+3. Κράτησε τον Server ανοικτό, συνδεδεμένο και με διαθέσιμο χώρο. Η εφαρμογή παγώνει τις νέες εγγραφές, δημιουργεί πλήρες φορητό κρυπτογραφημένο backup, δοκιμάζει πραγματική ανάκτηση σε ξεχωριστή βάση και μεταφέρει τα δεδομένα/ιδιωτικά αρχεία. Προηγούμενα αντίγραφα διατηρούνται.
+4. Η επιτυχία επιβεβαιώνεται μόνο με **Η κύρια βάση λειτουργεί στο Cloudflare**. Αν διακοπεί, πάτησε **Συνέχεια επιστροφής**. Η παύση κρατά τη βάση παγωμένη μέχρι να συνεχιστεί η ίδια επαληθευμένη μεταφορά· δεν ανοίγει δεύτερο writer.
+5. Μετά την επιτυχία συνδέεσαι κανονικά στο Web/Client με τον υπάρχοντα λογαριασμό. Η χρήση της αποθηκευμένης βάσης δεν χρειάζεται ανοικτό Android Server. Η λήψη νέων στοιχείων Ordexa συνεχίζει να χρειάζεται συνδεδεμένο Server και έγκυρη σύνδεση Ordexa. Οι χρόνοι τελευταίας επιτυχίας παραμένουν πραγματικοί.
 
-# Επιστροφή σε Cloudflare primary — 08/11/2026
+Η δημοσίευση του Worker δεν πατά αυτόματα το κουμπί ούτε μεταφέρει παραγωγικά δεδομένα. Αν η κύρια βάση είναι ακόμη στον Server, η εφαρμογή συνεχίζει με την υπάρχουσα διαδρομή μέχρι το ελεγμένο handover.
 
-## Νεότερη εξουσιοδότηση
+## Τι αποθηκεύεται πού
 
-Ο ιδιοκτήτης ζήτησε διατήρηση όλων των αναβαθμίσεων, κύρια αποθήκευση στη D1 και απευθείας login/χρήση Web και Client μέσω Cloudflare. Ο Android Server παραμένει αναγνώστης Ordexa/βοηθητικός υπολογιστής. Έδωσε ρητή άδεια υλοποίησης και δημοσίευσης. Η παρούσα οδηγία υπερισχύει της προηγούμενης επιλογής native primary. Δεν επιτρέπονται εικονική επιτυχία, απώλεια νεότερων δεδομένων ή απλή άρση του writer fence στην παλιά D1.
+| Τμήμα | Ευθύνη μετά την ενεργοποίηση |
+|---|---|
+| Cloudflare SQLite στο υπάρχον FleetEvents Durable Object binding | Κύρια βάση, λογαριασμοί, στόλος, πρόγραμμα, βάρδιες/μισθοδοσία, οικονομικά, ιστορικά, αποφάσεις, audit και αποδείξεις ενεργειών |
+| Υπάρχον ιδιωτικό R2 | Αμετάβλητες εκδόσεις εγγράφων, παλιά πρωτότυπα και διανομή εκδόσεων |
+| Υπάρχουσα D1 | Παραμένει ανέπαφη και με τον παλιό writer fence για τις επιχειρησιακές εγγραφές· διατηρεί τις υφιστάμενες εργασίες διανομής έκδοσης |
+| Android Server | Ordexa μόνο ανάγνωση, τοπική άντληση/υπολογισμοί, αποστολή αλλαγών και δημιουργία φορητών backup της τρέχουσας cloud βάσης |
 
-## Νεότερη κρίσιμη διευκρίνιση ιδιοκτήτη
+Η νέα Cloudflare SQLite επιλέχθηκε για πλήρεις ατομικές συναλλαγές business/audit/receipts σε όλους τους υπάρχοντες handlers. Δεν αρκεί άρση του fence της παλιάς D1: εκεί λείπουν οι νεότερες native εγγραφές και τα νέα οικονομικά modules. Δεν προστίθεται νέα πληρωμένη υπηρεσία ή αλλαγή πλάνου/κλειδιών. Χρησιμοποιούνται το υπάρχον SQLite Durable Object binding και R2.
 
-Τα υπόλοιπα δεδομένα εμφανίζονται· μόνο τα μηχανάκια φαίνονται μηδενικά. Δεν τεκμηριώνεται απώλεια ή καθολική μη προσβασιμότητα. Καμία διαγραφή/αντικατάσταση cloud δεδομένων. Η κενή native/UI λίστα δεν αποτελεί πηγή αλήθειας για αντικατάσταση της D1. Ο έλεγχος πρέπει να διακρίνει fleet_snapshot.bikes, vehicle_archives, κρυμμένα/φιλτραρισμένα μηχανάκια, auth και iframe transport error από πραγματικό κενό στόλο. Όσα υπάρχουν μόνο στο cloud διατηρούνται μέχρι ρητή συμφιλίωση. Το αρχικό εργαλείο επισημαίνει χωριστά empty source fleet / nonempty cloud, χωρίς να εκθέτει IDs.
+## Προστασία μεταφοράς
 
-## Πραγματικά ευρήματα
+- Προστατευμένη άδεια της ενεργής εγκατάστασης, έλεγχος ιδιοκτήτη, υπογραφή P-256 με την ήδη αποδεκτή ταυτότητα Server. Το πιστοποιητικό δεσμεύει origin, αρχική generation, μοναδικό cloud target και hash πλήρους απογραφής.
+- Παύση provider/background writers και serialized freeze του native business executor πριν το backup. Το coordinator κλείνει το native socket και περιμένει περισσότερο από κάθε παλιό lease πριν ενεργοποιήσει την cloud διαδρομή.
+- Νέα ιδιωτική candidate βάση, χωρίς αντικατάσταση D1. Ακριβείς SQLite τύποι, INTEGER64 ως κείμενο, REAL, BLOB/κενό BLOB/NULL, rowid, hashes/πλήθη ανά πίνακα, σχέσεις/quick_check και αρχικός ενεργός owner. Άγνωστο/μη συμβατό σχήμα ή υπερβολικό κελί σταματά με ασφάλεια, χωρίς παράλειψη δεδομένων.
+- Παρτίδες έως64 εγγραφές με byte bounds, checkpoint και έλεγχο επανάληψης. Ιδιωτικά αρχεία αποστέλλονται σε νέα αμετάβλητα R2 keys, με SHA-256/μέγεθος· δεν γράφονται πάνω στα πρωτότυπα. Τελική επαναπογραφή του παγωμένου source πριν activate.
+- Χαμένη τελική απάντηση ανακτάται με το ίδιο πιστοποιητικό και target. Το τοπικό `cloud_remote` δεν γράφει ξανά ως native primary. Τα πρωτότυπα SQLite/αρχεία του κινητού παραμένουν.
+- Web/Client αποδέχονται την επιστροφή μόνο με επαλήθευση της υπογραφής της παλιάς pinned ταυτότητας. Κρατούν αποδεικτικό του cloud target, καθαρίζουν παλιές read caches, διατηρούν προσχέδια και εκκρεμείς ταυτότητες ενεργειών. Οι ήδη αποθηκευμένες native αποδείξεις αναγνωρίζονται και στο cloud· χαμένη απάντηση δεν διπλασιάζει οικονομική εγγραφή.
 
-- Δημόσιο read-only descriptor στην αρχή ελέγχου: `mode=active`, `connected=true`. Η ολοκληρωμένη ενεργοποίηση δεν ακυρώνεται από `/api/primary/abort`.
-- Το `routePrimary` προηγείται του ensureSchema και της παλιάς διαδρομής D1. Οι D1 business tables έχουν writer-fence triggers. Αλλαγή descriptor μόνο δεν αποκαθιστά σωστά τη βάση.
-- Τα Web/Client αποθηκεύουν accepted server identity. Η νέα cloud ενεργοποίηση χρειάζεται ρητή αυθεντική απόδειξη αποδέσμευσης της παλιάς authority και καθαρισμό/λήξη των παλιών συνεδριών. Μην αποδυναμώσεις γενικά το encrypted transport ή αποδεχθείς παλιό cloud ως fallback.
-- Τα νέα `server-runtime` cash/reports/payroll review/health handlers χρησιμοποιούν D1-compatible SQL αλλά και native ports. Δεν αρκεί ένα Worker redeploy: `FleetHost`, private files/exports, store context και οι νέοι local tables πρέπει να αποκτήσουν πραγματική cloud υλοποίηση.
-- `store_billing_local`, source snapshots, mappings, immutable cash ledger/history, aliases, payroll αποφάσεις και native objects χρειάζονται ταξινόμηση και επαληθευμένη μεταφορά. Τα local paths/Keystore/device identity/Ordexa credentials δεν μεταφέρονται στη D1.
+## Ordexa και όρια χρήσης
 
-## Σειρά υλοποίησης
+Ο reader και ο υπολογισμός καταστημάτων παραμένουν στο κινητό. Source-only journal με revision/CAS στέλνει μικρές παρτίδες και δεν χάνει τοπική αλλαγή όταν έρχεται παλιό ACK. Αλλαγή μόνο του lastSeenRun δεν ξαναγράφει παραγγελία στο cloud.
 
-1. Λήψη πρόσφατου πλήρους φορητού backup από τη συσκευή και χωριστό D1/R2 rollback αντίγραφο. Η δημόσια περιγραφή δεν περιέχει τις επιχειρησιακές εγγραφές και δεν αποδεικνύει backup.
-2. Read-only inventory/σύγκριση συνεπών SQLite snapshots. Καμία σιωπηρή παράλειψη άγνωστου πίνακα, schema, 64-bit integer, REAL, BLOB ή duplicate row. Έλεγχος καταχωρίσεων που υπάρχουν μόνο στη μία πλευρά. Ταυτότητα/credentials μένουν ιδιωτικά.
-3. Shared business handlers με request-scoped cloud ports, D1 schemas και R2 exports/files. Όλες οι νέες οθόνες πρέπει να λειτουργούν και χωρίς κινητό συνδεδεμένο. Πραγματική διατήρηση scope, historical tariffs, source coverage, receipts/reversals και CAS.
-4. Αντίστροφη μεταφορά με αυθεντικοποιημένο resumable staging, ατομικό έλεγχο hashes/πληθών/σχέσεων και πλήρη έλεγχο objects. Προσωρινό σταμάτημα όλων των native writers/jobs/outbox για τελικό συνεπές snapshot. Καμία ταυτόχρονη εγγραφή δύο primary.
-5. Activate cloud μόνο μετά πλήρη αντιπαραβολή και backend readiness. Crash-safe coordinator/local state, χαμένο ACK/resume, replay rejection και rollback χωρίς διαγραφή πρωτοτύπου. Το παλιό native lease/transport πρέπει να πάψει να γράφει πριν δεχτεί cloud writes.
-6. Android cloud-mode εργασίες Ordexa στέλνουν μόνο αλλαγές/παρτίδες. Μεταγενέστερη συνδεσιμότητα δεν επανενεργοποιεί native primary. Μετρημένος D1 προϋπολογισμός, όχι υπόσχεση ότι το free όριο επαρκεί.
-7. Πραγματικά D1/SQLite/objects/transport και offline-server Web/Client acceptance, πλήρες exact-head/main CI, αρχικές υπογραφές και κανονική exact-source δημοσίευση. Η δημοσίευση λογισμικού και η μεταφορά παραγωγικών δεδομένων καταγράφονται χωριστά.
+Για το Ταμείο, κάθε πλήρης ημερήσια ανάγνωση στέλνει απογραφή σταθερών order IDs/fingerprints. Το Cloudflare ζητά μόνο νέες/αλλαγμένες ταυτότητες. Οι παρτίδες πηγαίνουν σε ιδιωτικό staging και η ενεργή ημερήσια πηγή αλλάζει σε μία συναλλαγή μόνο όταν συμφωνήσει ολόκληρη η απογραφή. Αμετάβλητη ανάγνωση ανανεώνει την απόδειξη φρεσκάδας, χωρίς ξαναγράψιμο όλων των παραγγελιών. Μερική/αποτυχημένη ανάγνωση διατηρεί τις προηγούμενες χρεώσεις. Οι υπάρχουσες πύλες πλήρους coverage, mapping, ιστορικών τιμών, συμφιλίωσης manual ποσών και έως200 οικονομικών IDs ανά παρτίδα ισχύουν.
 
-## Υπάρχον πρώτο εργαλείο
+Δεν υπόσχεται απεριόριστη δωρεάν Cloudflare χρήση. Η [επίσημη τιμολόγηση SQLite Durable Objects](https://developers.cloudflare.com/durable-objects/platform/pricing/) περιλαμβάνει ημερήσια όρια δωρεάν reads/writes, όπως η D1. Υπάρχουν επίσης [όρια SQL/αποθήκευσης](https://developers.cloudflare.com/durable-objects/platform/limits/). Τα οικονομικά ιστορικά, τα indexes και τα πλήρη backup καταναλώνουν πραγματικές εγγραφές. Το νέο πρωτόκολλο αποφεύγει τις επαναλαμβανόμενες πλήρεις εγγραφές· πραγματικός προϋπολογισμός χρειάζεται μέτρηση με τον παραγωγικό όγκο. Αν ένα όριο σταματήσει μεταφορά, διατηρείται το ελεγμένο checkpoint και το αρχικό αντίγραφο.
 
-`python3 scripts/cloud-return-preflight.py --source SOURCE_SNAPSHOT.db --cloud CLOUD_SNAPSHOT.db`
+## Backup και ανάκτηση
 
-Είναι μόνο το πρώτο read-only εργαλείο σύγκρισης, όχι αντίστροφη μεταφορά ή ολοκληρωμένο backend. Δέχεται ήδη συνεπή standalone SQLite snapshots, όχι FCB3/ZIP ή live database. Δεν εκτελεί DDL/import/activate και επιστρέφει πάντοτε `activationAllowed=false`. Δεν δημοσιεύονται παραγωγικά δεδομένα ή exports στο GitHub.
+Στο `cloud_remote`, backup σημαίνει την **τρέχουσα cloud βάση**, όχι την αποσυρμένη τοπική SQLite. Δημιουργείται ιδιωτικό συνεπές σημείο μέσα σε μία cloud συναλλαγή. Επόμενες business εγγραφές δεν αλλάζουν τις σελίδες αυτού του backup. Οι typed σελίδες και οι αμετάβλητες εκδόσεις ιδιωτικών αρχείων ανακατασκευάζονται σε ξεχωριστή ιδιωτική SQLite στο κινητό, επαληθεύονται και περνούν από τον κανονικό FCB3 builder και πραγματικό isolated restore. Το νεότερο επιτυχές cloud σημείο αντικαθιστά μόνο τα προσωρινά αντίγραφα του προηγούμενου σημείου, ποτέ τους canonical πίνακες/αρχεία. Τα πλήρη snapshots κοστίζουν ανάλογα με τον όγκο και δεν δημιουργούνται με κάθε συγχρονισμό.
 
-`python3 scripts/test-cloud-return-preflight.py` επαληθεύει 64-bit ακρίβεια, INTEGER≠REAL, empty BLOB≠NULL, διπλότυπα, ανισότητα δεδομένων, απουσία row values από output, read-only και απόρριψη WAL/missing files. Δεν αποτελεί πραγματικό production reconciliation ή full CI.
+Ανάκτηση σε νέο native Server διατηρεί τον υπάρχοντα ρητό έλεγχο λογαριασμών/πλήρους backup/φορητού κωδικού. Πρώτα δεσμεύεται έγκυρη νέα authority, έπειτα παγώνει serialized ο cloud writer. Λανθασμένη άδεια ή ίδια generation δεν μπορεί να παγώσει τη βάση. Το νέο επαληθευμένο backup και η λήξη παλιών leases εξακολουθούν να απαιτούνται. Κανένας agent δεν εκτελεί παραγωγικό restore/delete χωρίς ξεχωριστή σχετική εξουσιοδότηση.
 
-## Κατάσταση
+## Επαλήθευση κώδικα
 
-Ολοκληρώθηκαν η στοχευμένη ανάλυση και το αρχικό εργαλείο με συνθετικούς ελέγχους. Δεν έχουν υλοποιηθεί ακόμη τα βήματα 3–7. Δεν έγινε production migration, activation, restore, D1 write ή δημοσίευση. Πρώτη εξωτερική ανάγκη: πρόσφατο πλήρες φορητό backup του ενεργού Android Server και ασφαλής πρόσβαση σε snapshot της D1. Δεν ζητούνται κωδικοί στη συνομιλία ή δημόσιο GitHub.
+- `scripts/test-cloud-return.mjs`: πραγματικό Workerd/D1/SQLite-DO/R2, πλήρης υπογεγραμμένη μεταφορά,64bit/REAL/empty-BLOB/NULL/4,6MB Unicode/99 στήλες, ιδιωτικά αρχεία, resume/χαμένο ACK, cloud login/2 μηχανάκια/new cash/CAS/PDF χωρίς Android socket,201-order atomic staged source/200+1 οικονομική παρτίδα, unchanged manifest, επιβεβαιωμένη απουσία/μερική λήψη, συνεπές backup και fenced recovery. Παλιά D1/R2 ανέπαφα.
+- `scripts/test-cloud-return-client.mjs` και `scripts/test-primary-cipher-native.mjs`: shipped Web/Client, πραγματική Java υπογραφή/receipt serialization, tamper/target fences, replay σε cloud και διατήρηση προσχεδίου.
+- `scripts/test-business-runtime-native.mjs` / `CloudReturnChecks`: πραγματικός Android exporter/importer σε real SQLite, >5MB ιστορικό, ανακατασκευή cloud backup, source journal/CAS και κανονικό κρυπτογραφημένο FCB3/decrypt/isolated restore με ιδιωτικά αρχεία.
+- `scripts/test-cloud-financial-export.mjs`: πραγματικά PDF/OOXML, ανεξάρτητα openpyxl/pypdf, ελληνικό font, ακριβή ποσά, άγνωστα/κείμενο formulas και επαναλαμβανόμενες κεφαλίδες. Η πρώτη σελίδα έχει επιθεωρηθεί οπτικά.
+- Το read-only `scripts/cloud-return-preflight.py` παραμένει βοηθητικό εργαλείο σύγκρισης ήδη συνεπών standalone snapshots. Δεν ενεργοποιεί βάση ούτε υποκαθιστά το handover.
+
+Το exact-source CI, οι κανονικές υπογραφές APK και η τελική δημοσίευση καταγράφονται στο κοινό handoff όταν ολοκληρωθούν. Η φυσική εγκατάσταση/Keystore/χώρος και τα πραγματικά δεδομένα της συσκευής δεν υποκαθίστανται από development fixtures.

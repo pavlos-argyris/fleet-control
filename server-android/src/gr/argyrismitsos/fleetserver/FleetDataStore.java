@@ -128,7 +128,7 @@ public final class FleetDataStore extends SQLiteOpenHelper implements java.io.Cl
         result.put("systemMirrorTime", getSystemUpdatedAt());
         return result;
     }
-    private static boolean nativePrimary(SQLiteDatabase db){if(readLargeText(db,"SELECT name FROM sqlite_master WHERE type='table' AND name='native_primary_state'")==null)return false;String phase=readLargeText(db,"SELECT phase FROM native_primary_state WHERE id=1");return java.util.Arrays.asList("prepared","active","needs_recovery","recovering").contains(phase);}
+    private static boolean nativePrimary(SQLiteDatabase db){if(readLargeText(db,"SELECT name FROM sqlite_master WHERE type='table' AND name='native_primary_state'")==null)return false;String phase=readLargeText(db,"SELECT phase FROM native_primary_state WHERE id=1");return java.util.Arrays.asList("prepared","active","cloud_return","needs_recovery","recovering").contains(phase);}
 
     private int arrayLength(JSONObject parent, String key) {
         if (parent == null || parent.optJSONArray(key) == null) return 0;

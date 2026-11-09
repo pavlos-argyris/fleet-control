@@ -4,7 +4,7 @@ const require=createRequire(new URL('../cloudflare-worker/package.json',import.m
 const {Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
 const folder=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-review-d1-'));let runtime;
 try{
- await build({entryPoints:[path.resolve('cloudflare-worker/src/worker.js')],bundle:true,format:'esm',platform:'neutral',outfile:path.join(folder,'worker.mjs')});
+ await build({entryPoints:[path.resolve('cloudflare-worker/src/worker.js')],bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main'],outfile:path.join(folder,'worker.mjs')});
  runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(folder,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'review-d1-fixture'},bindings:{SERVER_KEY:'review-d1-server',PIN_PEPPER:'review-d1-pepper'}}));
  const db=await runtime.getD1Database('DB');
  const call=async(url,body,token)=>{const response=await runtime.dispatchFetch('http://fixture'+url,{method:body?'POST':'GET',headers:token?{Authorization:'Bearer '+token,'Content-Type':'application/json'}:{'X-Fleet-Server-Key':'review-d1-server','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:response.status,data:await response.json()};};

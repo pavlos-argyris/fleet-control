@@ -1,6 +1,6 @@
 import { recoveryItems, recoveryResult } from './invoice-recovery.js';
 import { routeDirectRelay } from './direct-relay.js';
-import {routePrimary,primaryState} from './primary-authority.js';
+import {routePrimary,primaryState,forwardCloudBusiness} from './primary-authority.js';
 import { invoiceReadComparison, READ_FIELDS } from './invoice-read-identity.js';
 import { retryFailedInvoice } from './invoice-retry.js';
 import { routeChangeEvents, publishChanges, changedScopes } from './change-events.js';
@@ -90,7 +90,7 @@ export default {
   },
   async scheduled(controller, env, context) {
     context.waitUntil((async () => {
-      if((await primaryState(env)).mode!=='cloud')return;
+      const primary=await primaryState(env);if(primary.mode==='cloud'&&primary.cloudBusiness){await forwardCloudBusiness(new Request(primary.realm+'/_cloud-maintain',{headers:{'X-Fleet-Server-Key':env.SERVER_KEY}}),env,primary.cloudBusiness);return;}if(primary.mode!=='cloud')return;
       await ensureSchema(env);
       await trimMirrorJournal(env);
       const before=(await mirrorHead(env)).cursor;

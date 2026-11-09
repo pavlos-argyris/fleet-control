@@ -7,7 +7,7 @@ const require=createRequire(new URL('../cloudflare-worker/package.json',import.m
 const {Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-primary-'));let runtime;
 try{
- await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+ await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main']});
  runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'primary-fixture'},r2Buckets:{SERVICE_DOCS:'primary-docs-fixture'},durableObjects:{FLEET_EVENTS:{className:'FleetEvents',useSQLite:true}},bindings:{SERVER_KEY:'primary-fixture-server-key-at-least-32',PIN_PEPPER:'primary-fixture-pepper'}}));
  const db=await runtime.getD1Database('DB'),hub=await runtime.getDurableObjectNamespace('FLEET_EVENTS'),serverKey='primary-fixture-server-key-at-least-32';
  const raw=(url,body,extra={})=>runtime.dispatchFetch('https://fixture'+url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Fleet-Server-Key':serverKey,...extra},body:body?JSON.stringify(body):undefined});

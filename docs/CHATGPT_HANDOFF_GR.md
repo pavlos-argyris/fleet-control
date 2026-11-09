@@ -1,3 +1,17 @@
+## #85 — ολοκληρωμένη cloud επιστροφή, έλεγχοι πριν δημοσίευση, 09/11/2026
+
+- Fleet5.62.0/Client5.62.0(105)/Server2.11.0(75)/Web5.62.0/Worker5.19.0. Υλοποιήθηκαν typed/resumable πλήρης μεταφορά, πραγματικό τοπικό backup/restore πριν freeze-cutover, ιδιωτικά immutable R2 αρχεία, signed pin retirement, direct cloud auth/business και τρέχον cloud FCB3 backup. Παλιά D1/fences και R2 δεν αντικαθίστανται. Ο πλήρης οδηγός `docs/CLOUD_PRIMARY_RETURN_GR.md` περιγράφει εγκατάσταση/φυσικό κουμπί και όρια.
+- Ordexa cloud source: source-only revision/CAS journal, όχι repeated lastSeenRun writes. Cash day manifests ζητούν μόνο αλλαγμένες identities· staged batches δεν αλλάζουν active source και ενεργοποιούνται atomic μετά πλήρη digest. Δοκιμάστηκαν201 παραγγελίες,200+1 financial batch, unchanged refresh χωρίς201 rewrites, partial scan/confirmed absence, source-only guards. Νέα γενιά recovery δεσμεύεται πριν serialized cloud freeze· άκυρη άδεια δεν κλείνει cloud.
+- PASS actual Workerd complete return (μεγάλη Unicode/99 columns/πλήρες backup/recovery), shipped Client cloud retirement, actual Java P256/JSONObject receipt interoperability, actual native full runtime/typed reconstruction/FCB3/private files/isolated restore (9.183SQLqueries). Independent cloud PDF/XLSX openpyxl/pypdf PASS και πρώτη σελίδα ελέγχθηκε οπτικά. Τελευταίες προσθήκες πηγής/οδηγιών ξαναπερνούν πλήρες exact-source CI, δεν προεξοφλείται επιτυχία.
+- Τοπικό APK Server2.11.0 χτίστηκε με προσωρινό ignored test key πριν τις τελευταίες source κλάσεις· δεν διανέμεται. Απαιτούνται τελικό πλήρες CI/Android builds, κανονική αρχική υπογραφή και publish. **Δεν έχει εκτελεστεί παραγωγική μεταφορά ή δημοσίευση της5.62.0.** Το φυσικό κουμπί στη συσκευή θα πάρει/ελέγξει το πραγματικό backup.
+- Branch/PR παραμένουν `work/cloud-primary-return-20261108` / #85. Προηγούμενο αποθηκευμένο remote checkpoint3e2c111 (Fast/full SUCCESS). Το παρόν checkpoint αποθηκεύεται πριν τους τελικούς ελέγχους· ακολουθεί επιβεβαιωμένο commit/run evidence.
+
+## #85 συνέχεια ολοκλήρωσης — 09/11/2026
+
+- Επιβεβαιώθηκαν exact3e2c111 Fast42510579734 και full42510579712 SUCCESS. Main παραμένει bc957e4, κανένα νέο merge/άλλη επιστροφή.
+- Αναλαμβάνονται πλέον τα εκκρεμή: cloud financial export/private files, typed resumable αντίστροφη μεταφορά σε fresh Cloudflare SQLite object (παλιά D1 ανέπαφη), υπογεγραμμένη αποδέσμευση client pin, cloud Ordexa delta και Server UI έναρξης/συνέχειας. Η τελική έκδοση/δημοσίευση έχει ήδη εξουσιοδοτηθεί· δεν γίνεται αυτόματη παραγωγική μεταφορά από agent χωρίς συσκευή. Η εγκατάσταση και το κουμπί επιστροφής στη συσκευή θα εκκινήσουν τη νέα ελεγμένη διαδικασία.
+- Δεν επαναλαμβάνονται ολοκληρωμένοι πυρήνες. Κοινά αρχεία: primary-authority/change-events/worker, sharedruntimeports, NativePrimaryService/State/Migration UI, Sync/CashSync, versions/build/releaseconfig/CODE_MAP. Διατηρούνται τα δεδομένα, οικονομικοί κανόνες, Ordexa μόνο ανάγνωση, αρχικά κλειδιά και όλες οι release πύλες.
+
 ## #85 — πραγματικοί shared cloud handlers / transactional executor, 08/11/2026
 
 - Νεότερη διόρθωση χρήστη: όλα εμφανίζονται, μαζί με μηχανάκια, αλλά πολύ αργά. Επαναβεβαίωσε συνέχιση/δημοσίευση. Δεν απαιτείται backup upload στη συνομιλία για ανάπτυξη.

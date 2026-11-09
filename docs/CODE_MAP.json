@@ -591,6 +591,34 @@
         "docs/ORDEXA_DIAGNOSTIC_GR.md",
         "docs/ORDEXA_AUTO_CASH_20261107_GR.md"
       ]
+    },
+    {
+      "id": "cloud-primary-return",
+      "title": "Cloudflare κύρια βάση / επιστροφή και Ordexa delta",
+      "paths": [
+        "cloudflare-worker/src/cloud-*.js",
+        "server-android/src/gr/argyrismitsos/fleetserver/Cloud*.java",
+        "server-android/src/gr/argyrismitsos/fleetserver/NativeBackupPreparation.java",
+        "server-runtime/security.js",
+        "cloudflare-worker/public/fonts/*",
+        "scripts/fixtures/CloudReturnChecks.java.txt"
+      ],
+      "tests": [
+        "scripts/test-cloud-return.mjs",
+        "scripts/test-cloud-return-client.mjs",
+        "scripts/test-cloud-financial-export.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-primary-cipher-native.mjs",
+        "scripts/test-server-primary-ui.mjs"
+      ],
+      "related": [
+        "worker-core",
+        "d1-migration",
+        "server-foundation"
+      ],
+      "docs": [
+        "docs/CLOUD_PRIMARY_RETURN_GR.md"
+      ]
     }
   ]
 }

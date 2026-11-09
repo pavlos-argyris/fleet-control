@@ -11,6 +11,8 @@ node scripts/test-cash-auto-sqlite.mjs
 node scripts/test-business-cloud-ports.mjs
 node scripts/test-cloud-business-db.mjs
 node scripts/test-cloud-business-runtime.mjs
+node scripts/test-cloud-return.mjs
+node scripts/test-cloud-return-client.mjs
 node --check scripts/test-cash-pilot-native.mjs
 node --check server-runtime/cash-auto.js
 node --check server-runtime/cash-contract.js

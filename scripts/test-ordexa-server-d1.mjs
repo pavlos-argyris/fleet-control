@@ -3,7 +3,7 @@ import {nativeOrdexaEngine} from './fixtures/native-ordexa-engine.mjs';import {p
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{Miniflare,convertV4MiniflareOptions}=require('miniflare'),{build}=require('esbuild');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-server-pay-d1-')),native=nativeOrdexaEngine();let runtime;
 try{
- await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
+ await build({entryPoints:['cloudflare-worker/src/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral',mainFields:['browser','module','main']});
  runtime=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',d1Databases:{DB:'server-pay-fixture'},bindings:{SERVER_KEY:'synthetic-server-pay',PIN_PEPPER:'synthetic-pepper'}}));const db=await runtime.getD1Database('DB');let token;
  const call=async(url,options={})=>{let body=options.body,headers={'Content-Type':'application/json',...(options.server?{'X-Fleet-Server-Key':'synthetic-server-pay'}:{Authorization:'Bearer '+(options.token||token)}),...options.headers};
   if(url.endsWith('/publish')&&body?.payload){const {payload,...envelope}=body;headers['X-Fleet-Projection']=JSON.stringify(envelope);body=JSON.stringify(payload);}else if(body!==undefined)body=JSON.stringify(body);

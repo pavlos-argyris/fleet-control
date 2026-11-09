@@ -5,7 +5,7 @@ const root=process.cwd(),temp=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-financ
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url));
 try{
  execFileSync('python3',['scripts/prepare-invoice-dependencies.py','.build/business-build-deps'],{stdio:'inherit'});
- const {build}=require('esbuild');const bundled=await build({stdin:{contents:"export {cashExportSpec,storeExportSpec} from './server-runtime/exports.js';",resolveDir:root},bundle:true,write:false,format:'iife',globalName:'FinancialSpecs',platform:'neutral'});
+ const {build}=require('esbuild');const bundled=await build({stdin:{contents:"export {cashExportSpec,storeExportSpec} from './server-runtime/exports.js';",resolveDir:root},bundle:true,write:false,format:'iife',globalName:'FinancialSpecs',platform:'neutral',mainFields:['browser','module','main']});
  const context=vm.createContext({__fleetNative(){throw Error('Export specification unexpectedly requested native I/O');}});vm.runInContext(bundled.outputFiles[0].text,context);const api=context.FinancialSpecs;
  const cash=api.cashExportSpec({from:'2026-11-04',to:'2026-11-04',couriers:[{courierName:'Συνθετικός διανομέας',orders:15,dueCents:3000,receivedCents:2000,balanceCents:1000,breakdown:[{storeId:'Δοκιμαστικό κατάστημα',category:'Α',orders:15,dueCents:3000}]}],events:[]});
  assert.deepEqual(JSON.parse(JSON.stringify(cash.tables[0].rows[0])),['Συνθετικός διανομέας',15,3000,2000,1000]);
