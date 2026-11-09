@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/mirror-readonly-probe.yml', 'scripts/probe-server-mirror.mjs', 'scripts/probe-primary-policy.mjs', 'scripts/test-probe-primary-policy.mjs', 'scripts/tail-server-mirror.mjs']
+    paths: ['.github/workflows/mirror-readonly-probe.yml', 'scripts/probe-server-mirror.mjs', 'scripts/probe-primary-policy.mjs', 'scripts/test-probe-primary-policy.mjs', 'scripts/tail-server-mirror.mjs', 'scripts/tail-error-safety.mjs', 'scripts/test-tail-error-safety.mjs']
 permissions:
   contents: read
 jobs:
@@ -19,6 +19,7 @@ jobs:
           node-version: '24'
       - run: node scripts/test-mirror-compound-limit.mjs
       - run: node scripts/test-probe-primary-policy.mjs
+      - run: node scripts/test-tail-error-safety.mjs
       - name: Load immutable published release manifest and verify its checksum
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,6 +41,19 @@ jobs:
           FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
           FLEET_REQUIRE_HEALTHY_MIRROR: 'true'
         run: node scripts/probe-server-mirror.mjs
+      - name: Install pinned read-only log client
+        if: always()
+        working-directory: cloudflare-worker
+        run: npm ci --ignore-scripts
+      - name: Diagnose own tagged request errors without business data
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
+          FLEET_WORKER_NAME: ${{ vars.FLEET_WORKER_NAME }}
+          FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
+        run: node scripts/tail-server-mirror.mjs
       - name: Save counts, HTTP status and Ray IDs only
         if: always()
         uses: actions/upload-artifact@v4

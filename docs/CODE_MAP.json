@@ -364,7 +364,9 @@
         "scripts/verify-apks.mjs",
         "scripts/prepare-business-dependencies.py",
         "scripts/probe-server-mirror.mjs",
-        "scripts/probe-primary-policy.mjs"
+        "scripts/probe-primary-policy.mjs",
+        "scripts/tail-server-mirror.mjs",
+        "scripts/tail-error-safety.mjs"
       ],
       "tests": [
         "scripts/test-publish-request.mjs",
@@ -372,7 +374,8 @@
         "scripts/test-ota-releases.mjs",
         "scripts/test-web-release-inventory.mjs",
         "scripts/test-business-runtime-resources.mjs",
-        "scripts/test-probe-primary-policy.mjs"
+        "scripts/test-probe-primary-policy.mjs",
+        "scripts/test-tail-error-safety.mjs"
       ],
       "related": [
         "android-client",

@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {diagnosticError} from './tail-error-safety.mjs';
+assert.deepEqual(diagnosticError(new Error('You have exceeded the daily Durable Objects free tier limit of 100,000 rows_written.')),{kind:'durable_objects_daily_quota',metric:'rows_written',limit:100000});
+assert.deepEqual(diagnosticError('D1_ERROR: SQLITE_CONSTRAINT private row value'),{kind:'database_error',codes:['D1_ERROR','SQLITE_CONSTRAINT']});
+assert.deepEqual(diagnosticError('Worker exceeded CPU time limit'),{kind:'cpu_limit'});
+const result=diagnosticError(new TypeError('Cannot read private-client-name server-secret api-token'),['server-secret','api-token']);
+assert.equal(result.kind,'unclassified_error');assert.equal(result.type,'TypeError');assert.match(result.messageSha256,/^[a-f0-9]{64}$/);
+for(const forbidden of ['private-client-name','server-secret','api-token','Cannot read'])assert(!JSON.stringify(result).includes(forbidden));
+assert.deepEqual(result,diagnosticError(new TypeError('Cannot read private-client-name different-secret new-token'),['different-secret','new-token']));
+console.log('PASS live tail safety: exact quota metric/limit, database codes and CPU classification; arbitrary customer values, credentials and raw exception messages never exported.');
