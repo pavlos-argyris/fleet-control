@@ -25,6 +25,7 @@ export class Probe{
     sql.exec('INSERT INTO wide_fixture VALUES('+Array(99).fill('?').join(',')+')',...Array.from({length:99},(_,i)=>'στήλη '+i));
     sql.exec('CREATE TABLE typed_fixture(id TEXT PRIMARY KEY,n INTEGER,r REAL,b BLOB,v TEXT)');
     sql.exec("INSERT INTO typed_fixture VALUES('typed',9223372036854775807,1.0,x'',NULL)");
+    sql.exec('CREATE TABLE control_fixture(v TEXT)');sql.exec('INSERT INTO control_fixture(rowid,v) VALUES(CAST(? AS INTEGER),?)','-9223372036854775808',String.fromCharCode(0,34,92).repeat(200000));sql.exec("INSERT INTO control_fixture(rowid,v) VALUES(0,'zero rowid')");
     await this.env.PRIVATE.put('original/placeholder','placeholder');
     sql.exec("WITH RECURSIVE c(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM c WHERE n<299) INSERT INTO _cloud_objects SELECT printf('a%03d',n),11,'','original/placeholder','{}',0 FROM c");
     for(const key of ['doc','\ue000','🛵']){const target='original/'+key;await this.env.PRIVATE.put(target,'original '+key);sql.exec('INSERT INTO _cloud_objects VALUES(?,?,?,?,?,0)',key,new TextEncoder().encode('original '+key).length,'',target,'{}');}
@@ -78,6 +79,7 @@ export default{fetch(r,e){return e.PROBE.get(e.PROBE.idFromName('test')).fetch(r
   state=await next();
  }
  assert(changedObject,'private map changed after its first pages were captured');assert(!state.pending,'consistent point completes after recapturing dirty data');assert(totalSql>=before);assert.equal(totalSql,afterMutations,'only explicit test mutations produced SQL writes during capture');
+ const controls=ok(await call('/api/server/cloud-backup/rows?point='+state.id+'&table=control_fixture')).rows;assert.equal(controls[0].rowid,'-9223372036854775808');assert.equal(controls[0].values[0][1],String.fromCharCode(0,34,92).repeat(200000));assert.equal(ok(await call('/api/server/cloud-backup/rows?point='+state.id+'&table=control_fixture&after=-9223372036854775808')).rows[0].rowid,'0');
  assert.equal(state.storage,'r2-v2');assert.equal(state.sequences.find(s=>s.name==='sequence_fixture').seq,'9000');assert.equal(ok(await call('/api/server/cloud-backup/continue',{job})).id,state.id,'lost completion ACK is idempotent');
  assert.equal((await query("SELECT name FROM sqlite_master WHERE name LIKE '_cloud_backup_%'")).length,1,'only retained legacy clone exists');
  const dataUrl='/api/server/cloud-backup/rows?point='+state.id+'&table=store_billing_local';let after=null,count=0,found=false;

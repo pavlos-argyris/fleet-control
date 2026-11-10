@@ -7,13 +7,15 @@ const encoded=new TextEncoder(),PAGE_BYTES=512*1024;
 export const backupRows=(sql,table,after=null)=>{
  // Estimate first, so a group of large cells cannot materialize64 huge rows.
  // Then read column groups below the SQLite-DO100-result-column limit.
- let terms=table.columns.map(c=>`COALESCE(length(CAST(${sqlName(c)} AS BLOB)),0)*2`);
+ // JSON quoting can expand control characters sixfold. Measure encoded text;
+ // BLOB values use hexadecimal. Keep large individual cells bounded too.
+ let terms=table.columns.map(c=>{const q=sqlName(c);return `CASE typeof(${q}) WHEN 'blob' THEN length(${q})*2 WHEN 'null' THEN 4 ELSE length(CAST(json_quote(CAST(${q} AS TEXT)) AS BLOB)) END`;});
  // Balance additions: a left-deep99-column sum exceeds DO expression depth100.
  while(terms.length>1)terms=Array.from({length:Math.ceil(terms.length/2)},(_,i)=>terms[i*2+1]?`(${terms[i*2]}+${terms[i*2+1]})`:terms[i*2]);
  const sizes=terms[0];
  const ids=rows(sql,`SELECT CAST(_rowid_ AS TEXT) source_row,${sizes} bytes FROM ${sqlName(table.name)} ${after===null?'':'WHERE _rowid_>CAST(? AS INTEGER)'} ORDER BY _rowid_ LIMIT 64`,...(after===null?[]:[after]));
  let bytes=0;const selected=[];
- for(const id of ids){const estimate=Number(id.bytes)+table.columns.length*48+100;if(selected.length&&bytes+estimate>PAGE_BYTES)break;if(estimate>24*1024*1024)throw new NativeError(413,'Μία εγγραφή είναι πολύ μεγάλη για ασφαλές cloud backup.');selected.push({rowid:id.source_row,values:[]});bytes+=estimate;}
+ for(const id of ids){const estimate=Number(id.bytes)+table.columns.length*48+100;if(selected.length&&bytes+estimate>PAGE_BYTES)break;if(estimate>12*1024*1024)throw new NativeError(413,'Μία εγγραφή είναι πολύ μεγάλη για ασφαλές cloud backup.');selected.push({rowid:id.source_row,values:[]});bytes+=estimate;}
  if(!selected.length)return [];
  for(let offset=0;offset<table.columns.length;offset+=40){
   const columns=table.columns.slice(offset,offset+40),fields=columns.flatMap((c,i)=>{const q=sqlName(c);return [`typeof(${q}) t${i}`,`CASE typeof(${q}) WHEN 'null' THEN NULL WHEN 'blob' THEN hex(${q}) WHEN 'real' THEN printf('%!.17g',${q}) ELSE CAST(${q} AS TEXT) END v${i}`];});
