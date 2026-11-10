@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-bafd3f18-2976-4fb1-81d4-fe0fc787e828",
-  "sourceCommit": "df511c425953ef962c215f243d058f55df329252",
-  "releaseVersion": "5.62.0",
-  "requestedAt": "2026-11-09T09:27:31.806Z",
-  "reason": "Ο ιδιοκτήτης ζήτησε άμεση υλοποίηση και δημοσίευση της επιστροφής στο Cloudflare, με όλες τις αναβαθμίσεις και διατήρηση των υπαρχόντων δεδομένων."
+  "requestId": "fleet-b1cf1f87-a162-4ded-a86b-81e879be47fe",
+  "sourceCommit": "471c4e9052f419767ef3949917d1d7e6bab42a9c",
+  "releaseVersion": "5.62.1",
+  "requestedAt": "2026-11-10T18:07:57.996Z",
+  "reason": "Νεότερη εντολή ιδιοκτήτη10/11/2026: συνέχισε την επιστροφή στο Cloudflare· θα ενεργοποιήσει προσωρινά Workers Paid. Δημοσίευση της ελεγμένης5.62.1 με αρχικές υπογραφές και πλήρη πηγή, διατήρηση μειώσεων εγγραφών και όλων των δεδομένων. Το Tunnel PR88 παραμένει ανεξάρτητο. Χωρίς παραγωγικό restore/delete ή D1 business fallback."
 }
