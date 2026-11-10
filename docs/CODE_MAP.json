@@ -366,7 +366,8 @@
         "scripts/probe-server-mirror.mjs",
         "scripts/probe-primary-policy.mjs",
         "scripts/tail-server-mirror.mjs",
-        "scripts/tail-error-safety.mjs"
+        "scripts/tail-error-safety.mjs",
+        "scripts/measure-cloud-write-cost.mjs"
       ],
       "tests": [
         "scripts/test-publish-request.mjs",
