@@ -20,11 +20,14 @@ LD_LIBRARY_PATH="$FC_POC_LIBS" "$FC_POC_AAPT" package -x -f \
 LD_LIBRARY_PATH="$FC_POC_LIBS" "$FC_POC_AAPT" package -f -m -J "$FC_POC_TMP/gen" \
   -M tunnel-poc-android/AndroidManifest.xml -S tunnel-poc-android/res -A "$FC_POC_OUT/assets" \
   -I "$FC_POC_TMP/fgs.apk" -I "$FC_POC_JAR" -F "$FC_POC_TMP/resources.ap_"
-mapfile -t FC_POC_SOURCES < <(rg --files tunnel-poc-android/src -g '*.java' | sort)
+mapfile -t FC_POC_SOURCES < <(python3 -c 'from pathlib import Path; print("\n".join(str(p) for p in sorted(Path("tunnel-poc-android/src").rglob("*.java"))))')
+test "${#FC_POC_SOURCES[@]}" -gt 0
 java -jar "$FC_POC_TOOLS/usr/share/java/eclipse-jdt-core-3.32.0.jar" -proc:none -source 8 -target 8 -encoding UTF-8 \
   -cp "$FC_POC_JAR" -d "$FC_POC_TMP/classes" "${FC_POC_SOURCES[@]}"
+test -f "$FC_POC_TMP/classes/gr/argyrismitsos/fleettunnelpoc/PocService.class"
 java -jar "$FC_POC_TOOLS/usr/share/java/com.android.dx-10.0.0.jar" --dex --min-sdk-version=26 \
   --output="$FC_POC_TMP/classes.dex" "$FC_POC_TMP/classes"
+test -s "$FC_POC_TMP/classes.dex"
 cp "$FC_POC_OUT/lib/arm64-v8a/libcloudflared.so" "$FC_POC_TMP/lib/arm64-v8a/"
 cp "$FC_POC_TMP/resources.ap_" "$FC_POC_TMP/unsigned.apk"
 (cd "$FC_POC_TMP" && LD_LIBRARY_PATH="$FC_POC_LIBS" "$FC_POC_AAPT" add unsigned.apk classes.dex lib/arm64-v8a/libcloudflared.so >/dev/null)
