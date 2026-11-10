@@ -18,6 +18,7 @@
 | Μηχανάκια και service | `service-operations.js`, `fleet-operations*.js`, `NextServiceNotes.java` | `test-fleet-operations-*.mjs`, `test-service-*.mjs` |
 | Backup/restore | `Backup*.java`, `HistoryMergePolicy.java` | `test-backup-*.mjs` |
 | Direct encrypted access | `Direct*.java`, `direct-relay.js`, `direct-*.js` | `test-direct-*.mjs` |
+| #87 απομονωμένο Android Tunnel PoC | `tunnel-poc-android/`, `build-tunnel-poc-connector.py`, `probe-tunnel-poc.mjs` | `test-tunnel-poc.mjs`, `test-tunnel-poc-dns.py` |
 | Client APK / mobile web | `client-android/src/.../MainActivity.java`, `portal.html`, `fleet-navigation.js` | `test-client-landscape*.mjs`, `test-ui-system*.mjs` |
 | Server UI και reconnect | `server-android/assets/www/server-*.js`, `MainActivity.java` | `test-server-reconnect-*.mjs`, `test-server-settings-recovery.mjs` |
 | Build, OTA, GitHub CI | `.github/workflows/`, `scripts/build-android.sh`, `release-config.json` | `test-publish-request.mjs`, `test-ota-releases.mjs` |

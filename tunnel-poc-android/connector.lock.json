@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/cloudflare/cloudflared.git",
+  "version": "2026.10.7",
+  "commit": "872b241f94871665c1c157adefcf90c11f0ead96",
+  "goVersion": "go1.27.3",
+  "goos": "android",
+  "goarch": "arm64",
+  "cgo": "0",
+  "buildmode": "pie",
+  "androidApi": 26,
+  "productionApproved": false
+}

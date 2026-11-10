@@ -1,0 +1,52 @@
+name: Isolated Android Tunnel PoC
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tunnel-poc-android/**'
+      - 'scripts/*tunnel-poc*'
+      - 'docs/ANDROID_TUNNEL_POC_GR.md'
+      - 'docs/ISSUE_87_ANDROID_TUNNEL_AUDIT_GR.md'
+      - '.github/workflows/tunnel-poc.yml'
+permissions:
+  contents: read
+concurrency:
+  group: tunnel-poc-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-test-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - run: bash scripts/unpack-toolchain.sh
+      - run: node scripts/test-tunnel-poc.mjs
+      - name: Test exact Android DNS addition without external DNS requests
+        run: python3 scripts/test-tunnel-poc-dns.py --go "$(command -v go)"
+      - name: Fetch official source, not a third party Android binary
+        run: git clone --depth 1 --branch 2026.10.7 https://github.com/cloudflare/cloudflared.git "$RUNNER_TEMP/fleet-cloudflared-source"
+      - name: Build pinned connector with checksummed modules
+        run: python3 scripts/build-tunnel-poc-connector.py --source "$RUNNER_TEMP/fleet-cloudflared-source" --go "$(command -v go)"
+      - name: Build and inspect separate TEST package
+        run: bash scripts/build-tunnel-poc.sh
+      - name: Save complete Fleet source and checksums
+        run: |
+          git archive --format=zip --output .build/tunnel-poc/Fleet_Full_Source.zip HEAD
+          cd .build/tunnel-poc
+          sha256sum Fleet_Full_Source.zip >> SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: isolated-android-tunnel-poc
+          path: .build/tunnel-poc/
+          if-no-files-found: error
+          retention-days: 14
