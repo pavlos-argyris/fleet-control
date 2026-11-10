@@ -119,6 +119,10 @@ export async function routePrimary(request,env,helpers={}){
   // No control lookup for old emergency direct paths; FleetEvents blocks those
   // once primary authority is preparing/active, including an old open socket.
   if(path.startsWith('/api/direct/')||path==='/direct.html')return null;
+  // Distribution has its own unchanged deployment/Server authorization. It is
+  // independent of business authority in every mode and must remain reachable
+  // to deliver a repair even when the coordinator's storage quota is exhausted.
+  if(helpers.distribution&&(/^\/api\/(deploy\/releases\/|client-update$|server-update$)/.test(path)||path.startsWith('/download/')))return helpers.distribution();
   const state=await primaryState(env);
   if(path.startsWith('/api/primary/cloud-return/'))return routeCloudReturn(request,env,state);
   if(path==='/api/primary/descriptor'&&request.method==='GET')return primaryJson(publicDescriptor(state));
@@ -247,13 +251,11 @@ export async function routePrimary(request,env,helpers={}){
     return failure(404,'Η ενέργεια μεταφοράς δεν βρέθηκε.');
   }
   if(state.mode==='cloud'&&state.cloudBusiness){
-    if(helpers.distribution&&(/^\/api\/(deploy\/releases\/|client-update$|server-update$)/.test(path)||path.startsWith('/download/')))return helpers.distribution();
     if(!path.startsWith('/api/'))return env.ASSETS.fetch(request);
     if(path==='/api/events'&&request.method==='GET'&&helpers.events)return helpers.events(state.eventKey);
     return forwardCloudBusiness(request,env,state.cloudBusiness);
   }
   if(state.mode==='cloud')return null;
-  if(helpers.distribution&&(/^\/api\/(deploy\/releases\/|client-update$|server-update$)/.test(path)||path.startsWith('/download/')))return helpers.distribution();
   if(!path.startsWith('/api/'))return env.ASSETS.fetch(request);
   if(path==='/api/events'&&request.method==='GET'&&helpers.events)return helpers.events(state.eventKey);
   return primaryJson({error:state.mode==='preparing'?'Η βάση μεταφέρεται στον Server. Οι αλλαγές δεν έχουν αποθηκευτεί· διατήρησε το προσχέδιο.':'Η ενέργεια χρειάζεται την ασφαλή σύνδεση με τον Server.',code:'primary_transport_required',mode:state.mode,generation:state.generation},503);

@@ -3,6 +3,7 @@ import {routeCloudBackup} from './cloud-backup.js';
 import {principalSecurity,nativeObjectOrder} from '../../server-runtime/security.js';
 import {authenticateExternal} from './workforce.js';
 import {CloudTransfer} from './cloud-transfer.js';
+import {ensureCloudStoreIndexes} from './cloud-store-indexes.js';
 import {cloudHost,cloudDocumentBucket} from './cloud-host.js';
 import {routeCloudSource} from './cloud-source.js';
 import {directHash} from './direct-relay.js';
@@ -44,7 +45,7 @@ export class CloudBusiness {
       // in-memory schema success flag while its actual DDL was rolled back.
       let initialized=false,actorId='',fingerprint='';
       const response=await cloudBusinessTransaction(this.ctx.storage,async()=>{
-        if(!this.ready){await this.DB.exec(RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA);initialized=true;}
+        if(!this.ready){await this.DB.exec(RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA);ensureCloudStoreIndexes(this.ctx.storage.sql);initialized=true;}
         if(path==='/_cloud-maintain'){if(!request.localInternal)return Response.json({error:'Forbidden'},{status:403});const pending=[];await worker.scheduled(null,environment,{waitUntil:p=>pending.push(p)});await Promise.all(pending);const automatic=configuration.context?.configured?await applyAutomaticCashBatch(environment):{idle:true};if(automatic.changed)changes.push('cash');await this.scheduleCash(environment);return Response.json({ok:true,automatic});}
         const backup=await routeCloudBackup(request,environment,configuration,this.ctx.storage);if(backup)return backup;
         const source=await routeCloudSource(request,environment,configuration,this.ctx.storage);if(source){if(source.changed)changes.push('cash','stores');await this.scheduleCash(environment);return source.response;}

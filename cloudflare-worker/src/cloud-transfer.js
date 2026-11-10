@@ -2,6 +2,7 @@ import {directHash} from './direct-relay.js';
 import {FEATURE_SCHEMA} from '../../server-runtime/features.js';
 import {RECEIPT_SCHEMA} from '../../server-runtime/receipts.js';
 import {MIRROR_SCHEMA} from './mirror-delta.js';
+import {ensureCloudStoreIndexes} from './cloud-store-indexes.js';
 export const CLOUD_TRANSFER_VERSION=1;
 const NAME=/^[A-Za-z_][A-Za-z0-9_]{0,120}$/;
 const HASH=/^[a-f0-9]{64}$/;
@@ -98,7 +99,7 @@ export class CloudTransfer {
    const owner=queryRows(sql,"SELECT id FROM app_users WHERE id=? AND role='owner' AND active=1 AND login_enabled=1 AND deleted_at IS NULL",transfer.ownerId)[0];if(!owner)throw Error('Transferred owner is inactive');
    for(const sequence of transfer.sequences||[]){sql.exec('UPDATE sqlite_sequence SET seq=CAST(? AS INTEGER) WHERE name=?',sequence.seq,sequence.name);sql.exec('INSERT INTO sqlite_sequence(name,seq) SELECT ?,CAST(? AS INTEGER) WHERE NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name=?)',sequence.name,sequence.seq,sequence.name);}
    // Install only code-owned indexes/triggers; source SQL triggers are never accepted.
-   sql.exec(RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA);sql.exec(MIRROR_SCHEMA);sql.exec("CREATE INDEX IF NOT EXISTS cloud_store_source ON store_billing_local(scope,kind,day,store_id);CREATE INDEX IF NOT EXISTS cloud_store_order_identity ON store_billing_local(scope,kind,json_extract(data,'$.sourceOrderId'));");
+   sql.exec(RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA);sql.exec(MIRROR_SCHEMA);ensureCloudStoreIndexes(sql);
    // Force the signed core schema upgrade on first request, not a stale source cache flag.
    sql.exec("UPDATE fleet_settings SET value='' WHERE key='runtime_schema_version'");
    transfer.prepared=true;await storage.put('cloud-business.transfer',transfer);return{prepared:true,inventoryHash:transfer.inventoryHash};

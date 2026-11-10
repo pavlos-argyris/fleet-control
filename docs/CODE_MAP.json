@@ -618,7 +618,8 @@
         "scripts/test-cloud-financial-export.mjs",
         "scripts/test-business-runtime-native.mjs",
         "scripts/test-primary-cipher-native.mjs",
-        "scripts/test-server-primary-ui.mjs"
+        "scripts/test-server-primary-ui.mjs",
+        "scripts/test-cloud-backup.mjs"
       ],
       "related": [
         "worker-core",
@@ -626,7 +627,8 @@
         "server-foundation"
       ],
       "docs": [
-        "docs/CLOUD_PRIMARY_RETURN_GR.md"
+        "docs/CLOUD_PRIMARY_RETURN_GR.md",
+        "docs/CLOUD_WRITE_REDUCTION_GR.md"
       ]
     }
   ]

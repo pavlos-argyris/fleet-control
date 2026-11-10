@@ -1027,7 +1027,10 @@ async function authenticate(request, env, requiredPermission = "") {
     await audit(env, request, row, "unauthorized_attempt", "permission", requiredPermission, null, null, "", false);
     throw new ApiError(403, "Δεν έχεις δικαίωμα για αυτή την ενέργεια.", "forbidden");
   }
-  if (epoch - Number(row.session_last_seen_at || 0) >= AUTH_TOUCH_SECONDS) {
+  // Cloud presence metadata is coalesced; every request still revalidates the
+  // current session, expiry, user state and permissions from the authoritative DB.
+  const touchSeconds = env.CLOUD_PRIMARY ? 5 * 60 : AUTH_TOUCH_SECONDS;
+  if (epoch - Number(row.session_last_seen_at || 0) >= touchSeconds) {
     const now = nowIso();
     const refreshedExpiry = Number(row.persistent) ? epoch + PERSISTENT_SESSION_SECONDS : Number(row.expires_at || epoch);
     await env.DB.batch([

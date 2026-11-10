@@ -27,14 +27,16 @@ export async function healthSnapshot(env){
   if(result.stores.status==='stale')result.alerts.push({code:'stores-stale',severity:'warning'});if(result.space.status==='low')result.alerts.push({code:'space-low',severity:'critical'});
   const codes=new Set(result.alerts.map(a=>a.code)),at=result.observedAt;let changed=false;
   for(const alert of result.alerts){
-    if(!labels[alert.code])continue;const active=await env.DB.prepare('SELECT id,last_at FROM native_health_incidents WHERE code=? AND resolved_at IS NULL').bind(alert.code).first();
-    if(active)await env.DB.prepare('UPDATE native_health_incidents SET last_at=?,severity=? WHERE id=?').bind(at,alert.severity,active.id).run();
+    if(!labels[alert.code])continue;const active=await env.DB.prepare('SELECT id,severity FROM native_health_incidents WHERE code=? AND resolved_at IS NULL').bind(alert.code).first();
+    // observedAt is the live observation. Persist incident timestamps only for
+    // state transitions, so repeatedly viewing an unchanged alert is read-only.
+    if(active){if(active.severity!==alert.severity){await env.DB.prepare('UPDATE native_health_incidents SET last_at=?,severity=? WHERE id=?').bind(at,alert.severity,active.id).run();changed=true;}}
     else{const prior=await env.DB.prepare('SELECT COALESCE(MAX(generation),0) n FROM native_health_incidents WHERE code=?').bind(alert.code).first();await env.DB.prepare('INSERT INTO native_health_incidents(id,code,generation,severity,first_at,last_at) VALUES(?,?,?,?,?,?)').bind(crypto.randomUUID(),alert.code,Number(prior.n)+1,alert.severity,at,at).run();changed=true;}
   }
   const open=list(await env.DB.prepare('SELECT id,code FROM native_health_incidents WHERE resolved_at IS NULL').all());
   for(const incident of open){
     const signal=labels[incident.code]?.signal,status=result[signal]?.status;
-    if(!codes.has(incident.code)&&['healthy','pending','measured'].includes(status)){await env.DB.prepare('UPDATE native_health_incidents SET resolved_at=? WHERE id=? AND resolved_at IS NULL').bind(at,incident.id).run();changed=true;}
+    if(!codes.has(incident.code)&&['healthy','pending','measured'].includes(status)){await env.DB.prepare('UPDATE native_health_incidents SET resolved_at=?,last_at=? WHERE id=? AND resolved_at IS NULL').bind(at,at,incident.id).run();changed=true;}
   }
   const incidents=list(await env.DB.prepare('SELECT * FROM native_health_incidents ORDER BY resolved_at IS NULL DESC,last_at DESC LIMIT 200').all()).map(i=>({...i,...labels[i.code],acknowledged:!!i.ack_at,resolved:!!i.resolved_at}));
   if(changed)await publishChanges(env,['status','workforce']);
