@@ -27,11 +27,21 @@ public class PocTest {
   }
   credentials.put("TunnelSecret","not-a-tunnel-secret");try{PocConfig.validate("poc.example.com",credentials.toString());throw new AssertionError("invalid credentials accepted");}catch(Exception expected){}
   try{PocConfig.validate("poc.example.com",new String(new char[20000]));throw new AssertionError("oversize accepted");}catch(Exception expected){}
+  PocQuickUrl url=new PocQuickUrl();if(url.line("https://before.trycloudflare.com")!=null)throw new AssertionError("unannounced URL");
+  url.line("INF Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):");
+  for(String invalid:new String[]{"https://a.trycloudflare.com.evil.invalid","https://a.trycloudflare.com/?token=private","https://u:p@a.trycloudflare.com","http://a.trycloudflare.com","https://a.b.trycloudflare.com","nothttps://a.trycloudflare.com","https://evil.invalid/?next=https://a.trycloudflare.com"})if(url.line(invalid)!=null)throw new AssertionError("unsafe quick URL accepted");
+  if(!"https://safe-test.trycloudflare.com".equals(url.line("2026 INF | https://safe-test.trycloudflare.com  |")))throw new AssertionError("announced quick origin");
+  if(url.line("https://second.trycloudflare.com")!=null)throw new AssertionError("URL repinning");
+  final java.util.List<String> found=new java.util.ArrayList<String>();String stream="Your quick Tunnel has been created!\\n";
+  stream=stream.replace("\\n","\n")+new String(new char[9000]).replace('\0','X')+" https://overflow.trycloudflare.com\n| https://fragmented-test.trycloudflare.com |\nraw-secret-log\nhttps://later.trycloudflare.com\n";
+  InputStream fragments=new FilterInputStream(new ByteArrayInputStream(stream.getBytes("UTF-8"))){public int read(byte[]b)throws IOException{return super.read(b,0,1);}};
+  new PocQuickUrl().scan(fragments,new PocQuickUrl.Sink(){public void found(String origin){found.add(origin);}});
+  if(found.size()!=1||!found.get(0).equals("https://fragmented-test.trycloudflare.com"))throw new AssertionError("bounded fragmented URL-only scan");
   PocOrigin origin=new PocOrigin(0);
   try{System.out.println(origin.port());System.out.flush();System.in.read();}finally{origin.close();}
  }
 }`);
-  try{execFileSync('java',['-jar',compiler,'-proc:none','-source','8','-target','8','-nowarn','-cp',json+path.delimiter+android,'-d',dir,path.join(dir,'Base64.java'),path.join(dir,'PocTest.java'),path.join(source,'PocOrigin.java'),path.join(source,'PocConfig.java')],{stdio:'pipe'});}catch(error){throw Error(String(error.stderr||error));}
+  try{execFileSync('java',['-jar',compiler,'-proc:none','-source','8','-target','8','-nowarn','-cp',json+path.delimiter+android,'-d',dir,path.join(dir,'Base64.java'),path.join(dir,'PocTest.java'),path.join(source,'PocOrigin.java'),path.join(source,'PocConfig.java'),path.join(source,'PocQuickUrl.java')],{stdio:'pipe'});}catch(error){throw Error(String(error.stderr||error));}
   child=spawn('java',['-cp',dir+path.delimiter+json+path.delimiter+android,'gr.argyrismitsos.fleettunnelpoc.PocTest'],{stdio:['pipe','pipe','pipe']});
   let stderr='';child.stderr.on('data',chunk=>stderr+=chunk);
   const port=await Promise.race([new Promise((resolve,reject)=>{child.stdout.once('data',chunk=>resolve(Number(String(chunk).trim())));child.once('exit',code=>reject(Error('Java origin stopped '+code+': '+stderr)));}),new Promise((_,reject)=>setTimeout(()=>reject(Error('Java origin startup timeout')),10000).unref())]);
@@ -54,6 +64,11 @@ public class PocTest {
   for(const value of ['http://poc.example.com','https://u:p@poc.example.com','https://poc.workers.dev','https://poc.example.com/path','https://poc.example.com/#secret','https://poc.example.com/?token=x'])assert.throws(()=>origin(value));
   await assert.rejects(probe('https://poc.example.com',{concurrency:2,fetcher:reject}));
   const fixture=()=>new Response(JSON.stringify({...health,observedAtMs:Date.now()}),{headers:{'cache-control':'no-store'}});
+  assert.throws(()=>origin('https://safe-test.trycloudflare.com'));
+  assert.equal(origin('https://safe-test.trycloudflare.com',{allowQuick:true}),'https://safe-test.trycloudflare.com');
+  assert.throws(()=>origin('https://a.b.trycloudflare.com',{allowQuick:true}));
+  await assert.rejects(probe('https://safe-test.trycloudflare.com',{fetcher:reject}));
+  const quickReport=await probe('https://safe-test.trycloudflare.com',{fetcher:fixture,allowQuick:true,rounds:1});assert.equal(quickReport.transport,'quick-test');assert.equal(quickReport.productionReady,false);assert.equal(quickReport.physicalAcceptanceVerified,false);assert.equal(quickReport.summary.successful,30);
   const report=await probe('https://poc.example.com',{fetcher:fixture});assert.equal(report.summary.successful,90);assert.equal(report.summary.consistent,true);assert.equal(report.physicalAcceptanceVerified,false);
   const stale=await probe('https://poc.example.com',{rounds:1,fetcher:()=>new Response(JSON.stringify({...health,observedAtMs:1}),{headers:{'cache-control':'no-store'}})});assert.equal(stale.summary.successful,0);
   const huge=await probe('https://poc.example.com',{rounds:1,fetcher:()=>new Response('x'.repeat(9000),{headers:{'cache-control':'no-store'}})});assert.equal(huge.summary.successful,0);
@@ -63,5 +78,5 @@ public class PocTest {
   for(const file of fs.readdirSync(source))assert.doesNotMatch(fs.readFileSync(path.join(source,file),'utf8'),/fleetserver\.|FleetDataStore|CloudReturnController|DirectRelay|\/api\/primary/);
   const exited=once(child,'exit');child.stdin.end('\n');const [code]=await exited;assert.equal(code,0,stderr);child=null;
   await assert.rejects(request('GET /poc/v1/health HTTP/1.1\r\nHost: a\r\n\r\n'));
-  console.log('PASS actual Java loopback origin/config validation: 30 concurrent synthetic requests, no business routes, bounded HTTP framing, shutdown; probe rejects stale/oversize/mixed instances. No physical/Tunnel claim.');
+  console.log('PASS actual Java loopback/config/Quick URL: 30 concurrent synthetic requests, no business routes, bounded framing, fragmented/oversized log rejection and first-announced-origin pin; explicit Quick probe flag with no readiness claim; stale/oversize/mixed instances rejected. No physical/Tunnel claim.');
 }finally{child?.kill();fs.rmSync(dir,{recursive:true,force:true});}

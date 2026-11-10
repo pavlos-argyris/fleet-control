@@ -3,9 +3,10 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-export function origin(value){
+export function origin(value,{allowQuick=false}={}){
   const parsed=new URL(value);
-  if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.port||parsed.search||parsed.hash||parsed.pathname!=='/'||!parsed.hostname.includes('.')||/^[\d.]+$/.test(parsed.hostname)||parsed.hostname.endsWith('.workers.dev')||parsed.hostname.endsWith('.trycloudflare.com'))throw Error('Provide only a dedicated Named Tunnel HTTPS origin, without credentials/path/query.');
+  const quick=parsed.hostname.endsWith('.trycloudflare.com');
+  if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.port||parsed.search||parsed.hash||parsed.pathname!=='/'||!parsed.hostname.includes('.')||/^[\d.]+$/.test(parsed.hostname)||parsed.hostname.endsWith('.workers.dev')||quick&&(!allowQuick||!/^([a-z0-9]+-)*[a-z0-9]+\.trycloudflare\.com$/.test(parsed.hostname)))throw Error('Provide only a dedicated HTTPS test origin, without credentials/path/query. Temporary Quick Tunnel origins require --quick-test.');
   return parsed.origin;
 }
 export function summarize(samples){
@@ -13,8 +14,8 @@ export function summarize(samples){
   const ids=new Set(samples.filter(s=>s.ok).map(s=>s.instanceId));
   return {requests:samples.length,successful:samples.filter(s=>s.ok).length,p50Ms:pick(.5),p95Ms:pick(.95),bytes:samples.reduce((n,s)=>n+s.bytes,0),instances:ids.size,consistent:samples.every(s=>s.ok)&&ids.size===1};
 }
-export async function probe(base,{rounds=3,concurrency=30,fetcher=fetch}={}){
-  base=origin(base);if(!Number.isInteger(rounds)||rounds<1||rounds>10||!Number.isInteger(concurrency)||concurrency<30||concurrency>60)throw Error('Use 1–10 rounds and 30–60 concurrent diagnostic requests.');
+export async function probe(base,{rounds=3,concurrency=30,fetcher=fetch,allowQuick=false}={}){
+  base=origin(base,{allowQuick});if(!Number.isInteger(rounds)||rounds<1||rounds>10||!Number.isInteger(concurrency)||concurrency<30||concurrency>60)throw Error('Use 1–10 rounds and 30–60 concurrent diagnostic requests.');
   const samples=[];
   for(let round=0;round<rounds;round++)await Promise.all(Array.from({length:concurrency},async()=>{
     const at=performance.now();let bytes=0;
@@ -27,10 +28,11 @@ export async function probe(base,{rounds=3,concurrency=30,fetcher=fetch}={}){
       samples.push({ok,ms:performance.now()-at,bytes,instanceId:ok?data.instanceId:null});
     }catch{samples.push({ok:false,ms:performance.now()-at,bytes,instanceId:null});}
   }));
-  return {schemaVersion:1,source:'fleet-tunnel-poc-probe',observedAt:new Date().toISOString(),concurrency,rounds,syntheticOnly:true,physicalAcceptanceVerified:false,summary:summarize(samples)};
+  return {schemaVersion:1,source:'fleet-tunnel-poc-probe',transport:new URL(base).hostname.endsWith('.trycloudflare.com')?'quick-test':'named-test',observedAt:new Date().toISOString(),concurrency,rounds,syntheticOnly:true,productionReady:false,physicalAcceptanceVerified:false,summary:summarize(samples)};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
   try{
-    const report=await probe(process.argv[2]);const output=process.argv[3]||'.build/tunnel-poc-probe.json';fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2));if(!report.summary.consistent)process.exitCode=1;
+    const args=process.argv.slice(2),allowQuick=args.includes('--quick-test'),positional=args.filter(x=>x!=='--quick-test');if(positional.length<1||positional.length>2||positional.some(x=>x.startsWith('--')))throw Error('Usage: node scripts/probe-tunnel-poc.mjs [--quick-test] https://test-origin [report.json]');
+    const report=await probe(positional[0],{allowQuick});const output=positional[1]||'.build/tunnel-poc-probe.json';fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2));if(!report.summary.consistent)process.exitCode=1;
   }catch(error){console.error(error.message);process.exitCode=1;}
 }

@@ -37,7 +37,7 @@ export FC_POC_PASSWORD=fleet-tunnel-test-only
 keytool -genkeypair -keystore "$FC_POC_TMP/test-only.p12" -storetype PKCS12 -alias tunnel-test \
   -keyalg RSA -keysize 2048 -validity 365 -dname 'CN=Fleet Tunnel PoC TEST ONLY' \
   -storepass:env FC_POC_PASSWORD -keypass:env FC_POC_PASSWORD >/dev/null 2>&1
-FC_POC_APK="$FC_POC_OUT/Fleet_Tunnel_TEST_0.1.0.apk"
+FC_POC_APK="$FC_POC_OUT/Fleet_Tunnel_TEST_0.2.0.apk"
 java -jar "$FC_POC_TOOLS/usr/share/java/apksigner-31.0.2.jar" sign \
   --ks "$FC_POC_TMP/test-only.p12" --ks-key-alias tunnel-test --ks-pass env:FC_POC_PASSWORD \
   --key-pass env:FC_POC_PASSWORD --out "$FC_POC_APK" "$FC_POC_TMP/aligned.apk"
@@ -46,5 +46,5 @@ LD_LIBRARY_PATH="$FC_POC_LIBS" "$FC_POC_AAPT" dump xmltree "$FC_POC_APK" Android
 python3 scripts/check-tunnel-poc-apk.py "$FC_POC_OUT"
 cp docs/ANDROID_TUNNEL_POC_GR.md "$FC_POC_OUT/README.md"
 git rev-parse HEAD > "$FC_POC_OUT/SOURCE_COMMIT.txt"
-(cd "$FC_POC_OUT" && sha256sum Fleet_Tunnel_TEST_0.1.0.apk cloudflared-upstream-source.tar > SHA256SUMS.txt)
+(cd "$FC_POC_OUT" && sha256sum Fleet_Tunnel_TEST_0.2.0.apk cloudflared-upstream-source.tar > SHA256SUMS.txt)
 echo "Built separate TEST package; no Fleet update or cutover."

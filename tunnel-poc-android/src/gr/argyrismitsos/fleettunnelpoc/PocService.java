@@ -14,6 +14,8 @@ import java.util.concurrent.*;
 
 /** Explicitly enabled test service. No Fleet runtime, database, relay, or tokens. */
 public final class PocService extends Service {
+    private static volatile boolean active;
+    public static boolean active(){return active;}
     private ScheduledExecutorService supervisor;
     private volatile Process connector;
     private PocOrigin origin;
@@ -32,6 +34,7 @@ public final class PocService extends Service {
             Intent launch=new Intent(this,PocActivity.class);PendingIntent pending=PendingIntent.getActivity(this,0,launch,0x04000000);
             startForeground(8701,builder.setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("Fleet Tunnel TEST").setContentText("Μόνο συνθετική δοκιμή • χωρίς δεδομένα Fleet").setOngoing(true).setContentIntent(pending).build());
             PocConfig.cleanRuntime(this);
+            getSharedPreferences("poc",0).edit().remove("publicUrl").apply();active=true;
             supervisor=Executors.newSingleThreadScheduledExecutor();supervisor.scheduleWithFixedDelay(new Runnable(){public void run(){tick();}},0,5,TimeUnit.SECONDS);
         }catch(Exception error){status("Αδυναμία εκκίνησης υπηρεσίας δοκιμής");stopSelf();}
     }
@@ -46,29 +49,44 @@ public final class PocService extends Service {
         if(!info.getString("sha256").matches("[a-f0-9]{64}")||!binary.isFile()||!binary.canExecute()||!digest(binary).equals(info.getString("sha256")))throw new IOException("Unverified packaged binary");
         getSharedPreferences("poc",0).edit().putString("connectorSha256",info.getString("sha256")).apply();return binary;
     }
-    private synchronized void stopConnector(){Process prior=connector;connector=null;if(prior!=null){prior.destroy();try{if(!prior.waitFor(2,TimeUnit.SECONDS))prior.destroyForcibly();}catch(InterruptedException interrupted){Thread.currentThread().interrupt();}}PocConfig.cleanRuntime(this);}
+    private synchronized void stopConnector(){Process prior=connector;connector=null;getSharedPreferences("poc",0).edit().remove("publicUrl").apply();if(prior!=null){prior.destroy();try{if(!prior.waitFor(2,TimeUnit.SECONDS))prior.destroyForcibly();}catch(InterruptedException interrupted){Thread.currentThread().interrupt();}}PocConfig.cleanRuntime(this);}
+    private synchronized void quickUrl(Process source,String url){
+        SharedPreferences prefs=getSharedPreferences("poc",0);
+        if(connector==source&&prefs.getBoolean("enabled",false)&&prefs.getString("mode","").equals("quick"))prefs.edit().putString("publicUrl",url).apply();
+    }
+    private synchronized void readerFinished(Process source){if(connector==source){getSharedPreferences("poc",0).edit().remove("publicUrl").apply();status("Η σύνδεση δοκιμής έκλεισε • αναμονή επανάληψης");}}
+    private void drain(final Process source,final boolean quick){
+        new Thread(new Runnable(){public void run(){
+            try(InputStream input=source.getInputStream()){
+                if(quick)new PocQuickUrl().scan(input,new PocQuickUrl.Sink(){public void found(String url){quickUrl(source,url);}});
+                else{byte[] discard=new byte[4096];while(input.read(discard)!=-1){/* Named credentials/logs are never parsed or retained. */}}
+            }catch(IOException ignored){}finally{readerFinished(source);}
+        }},"fleet-poc-log-drain").start();
+    }
     private synchronized void tick(){
         if(!getSharedPreferences("poc",0).getBoolean("enabled",false)){stopSelf();return;}
         try{
-            JSONObject config=PocConfig.read(this);
+            SharedPreferences prefs=getSharedPreferences("poc",0);final boolean quick=prefs.getString("mode",prefs.contains("sealed")?"named":"quick").equals("quick");
+            JSONObject config=quick?null:PocConfig.read(this);
             if(origin==null){origin=new PocOrigin(PocOrigin.PORT);getSharedPreferences("poc",0).edit().putString("instanceId",origin.instance()).apply();}
             if(wake==null){wake=((PowerManager)getSystemService(POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"FleetTunnelPoc:Test");wake.setReferenceCounted(false);wake.acquire();}
             ConnectivityManager connectivity=(ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);Network current=connectivity.getActiveNetwork();LinkProperties properties=current==null?null:connectivity.getLinkProperties(current);
             StringBuilder dns=new StringBuilder();if(properties!=null)for(InetAddress server:properties.getDnsServers()){if(dns.length()>0)dns.append(',');dns.append(server.getHostAddress());}
-            String signature=String.valueOf(current)+"|"+dns;
+            String signature=String.valueOf(current)+"|"+dns+"|"+quick+"|"+prefs.getLong("configurationRevision",0);
             if(!signature.equals(network)){stopConnector();network=signature;nextStart=0;failures=0;}
             if(current==null||dns.length()==0){status("Χωρίς ενεργό δίκτυο/DNS • η δοκιμή περιμένει");return;}
-            if(running(connector)){if(SystemClock.elapsedRealtime()-processStarted>60000)failures=0;status("Connector σε λειτουργία • απαιτείται εξωτερική επαλήθευση");return;}
+            if(running(connector)){if(SystemClock.elapsedRealtime()-processStarted>60000)failures=0;status(quick?"Προσωρινή δοκιμή • έλεγξε τη διεύθυνση από άλλο δίκτυο":"Connector σε λειτουργία • απαιτείται εξωτερική επαλήθευση");return;}
             if(SystemClock.elapsedRealtime()<nextStart){status("Αποσύνδεση connector • αυτόματη επανάληψη");return;}
-            stopConnector();File binary=verifiedBinary(),file=PocConfig.runtime(this,config);
-            ProcessBuilder builder=new ProcessBuilder(binary.getAbsolutePath(),"tunnel","--config",file.getAbsolutePath(),"--no-autoupdate","run",config.getJSONObject("credentials").getString("TunnelID"));
+            stopConnector();File binary=verifiedBinary();ProcessBuilder builder;
+            if(quick)builder=new ProcessBuilder(binary.getAbsolutePath(),"tunnel","--no-autoupdate","--protocol","http2","--metrics","127.0.0.1:18788","--loglevel","info","--transport-loglevel","error","--url","http://127.0.0.1:"+PocOrigin.PORT);
+            else{File file=PocConfig.runtime(this,config);builder=new ProcessBuilder(binary.getAbsolutePath(),"tunnel","--config",file.getAbsolutePath(),"--no-autoupdate","run",config.getJSONObject("credentials").getString("TunnelID"));}
             builder.environment().clear();builder.environment().put("FLEET_POC_DNS",dns.toString());builder.environment().put("TMPDIR",getCacheDir().getAbsolutePath());
             builder.environment().put("SSL_CERT_DIR","/apex/com.android.conscrypt/cacerts:/system/etc/security/cacerts");builder.redirectErrorStream(true);
             final Process started=builder.start();connector=started;processStarted=SystemClock.elapsedRealtime();nextStart=processStarted+Math.min(60000,1000L<<Math.min(6,failures++));
-            new Thread(new Runnable(){public void run(){try(InputStream input=started.getInputStream()){byte[] discard=new byte[4096];while(input.read(discard)!=-1){/* Never persist/forward connector logs or credentials. */}}catch(IOException ignored){}}},"fleet-poc-log-drain").start();
+            drain(started,quick);
             status("Connector ξεκίνησε • δεν έχει επιβεβαιωθεί η δημόσια σύνδεση");
         }catch(Exception error){stopConnector();nextStart=SystemClock.elapsedRealtime()+30000;status("Η δοκιμή χρειάζεται έλεγχο ρύθμισης, binary ή δικτύου");}
     }
-    @Override public synchronized void onDestroy(){if(supervisor!=null)supervisor.shutdownNow();stopConnector();if(origin!=null)origin.close();if(wake!=null&&wake.isHeld())wake.release();status("Η δοκιμή σταμάτησε • κανένα δεδομένο Fleet δεν άλλαξε");super.onDestroy();}
+    @Override public synchronized void onDestroy(){active=false;if(supervisor!=null)supervisor.shutdownNow();stopConnector();if(origin!=null)origin.close();if(wake!=null&&wake.isHeld())wake.release();status("Η δοκιμή σταμάτησε • κανένα δεδομένο Fleet δεν άλλαξε");super.onDestroy();}
     @Override public IBinder onBind(Intent intent){return null;}
 }

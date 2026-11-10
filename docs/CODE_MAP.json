@@ -633,7 +633,7 @@
     },
     {
       "id": "android-tunnel-poc",
-      "title": "Issue 87 isolated Android Named Tunnel feasibility (no production authority)",
+      "title": "Issue 87 isolated Android Tunnel feasibility (Quick/Named tests, no production authority)",
       "paths": [
         "tunnel-poc-android/**",
         "scripts/build-tunnel-poc-connector.py",
