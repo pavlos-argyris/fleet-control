@@ -1,3 +1,8 @@
+## ΠΡΟΣΘΕΤΗ ΜΕΙΩΣΗ ΠΑΡΟΥΣΙΑΣ — PR #86,10/11/2026
+
+- Στο review βρέθηκε ακόμη ένας περιοδικός cloud writer: authenticate κάθε60s ενημερώνει session/user/device last_seen_at και σχετικά triggers. Στο CLOUD_PRIMARY το touch γίνεται πλέον ανά300s, με πλήρη τρέχουσα DB επαλήθευση σε κάθε αίτημα, χωρίς auth cache/καθυστέρηση revocation ή αλλαγή Native/D1. Έως80% λιγότερες περιοδικές ενημερώσεις συνεχούς χρήσης· δεν είναι μετρημένη παραγωγική κατανομή quota.
+- Προστέθηκε πραγματικό Workerd auth regression στο test-cloud-business-runtime:30προβολές με ηλικία61s χωρίς writes, persisted touch μετά301s, μη επανάληψη touch και άμεσο401σε απενεργοποίηση ακόμη εντός5λέπτου. Όλη η τελευταία αναθεώρηση απαιτεί exact-head PR/main CI και τον ίδιο κανονικό publication fallback. Δεν θα προστεθούν άλλες αλλαγές πεδίου πριν την ολοκλήρωση αυτής της έκδοσης.
+
 ## ΣΥΝΕΧΕΙΑ PR #86 — GitHub builds,10/11/2026
 
 - Ο πλήρης τοπικός check-all ολοκληρώθηκε PASS στο e01d6d7cd436e88f4377ad9a2f0f2567845118e1· targeted native/runtime/backup/return/authority επίσης PASS. Το PR #86 κρατά τον πλήρη κώδικα. Προστέθηκε μετά η μικρή προστασία sizing για escaped JSON/control characters και minimum int64 rowid, parent21febd3ce10b504689b821d6a6a815115a7b04d1· η τελική ακριβής αναθεώρηση χρειάζεται πλήρες CI, δεν αποδίδονται σε αυτήν οι προηγούμενοι τοπικοί έλεγχοι.
