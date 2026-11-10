@@ -1,3 +1,9 @@
+## ΣΥΝΕΧΕΙΑ PR #86 — GitHub builds,10/11/2026
+
+- Ο πλήρης τοπικός check-all ολοκληρώθηκε PASS στο e01d6d7cd436e88f4377ad9a2f0f2567845118e1· targeted native/runtime/backup/return/authority επίσης PASS. Το PR #86 κρατά τον πλήρη κώδικα. Προστέθηκε μετά η μικρή προστασία sizing για escaped JSON/control characters και minimum int64 rowid, parent21febd3ce10b504689b821d6a6a815115a7b04d1· η τελική ακριβής αναθεώρηση χρειάζεται πλήρες CI, δεν αποδίδονται σε αυτήν οι προηγούμενοι τοπικοί έλεγχοι.
+- Το interactive execution environment έγινε unavailable πριν την ολοκλήρωση της τελευταίας μικρής τοπικής δοκιμής. Η αποθήκευση/έλεγχοι συνεχίζονται μέσω GitHub· δεν χάθηκε δημοσιευμένος κώδικας ή παραγωγικά δεδομένα. Ενημερώθηκε ο υπάρχων artifact-only prepare-current-publication fallback ειδικά για Fleet5.62.1: μετά το merge περιμένει πραγματικό exact-main Check saved source και καλεί τον κανονικό scripts/request-publish.mjs. Δεν κάνει ο ίδιος commit/deploy και δεν παρακάμπτει κανένα gate.
+- Επόμενο: exact-head PR checks → merge όταν όλα πράσινα → exact-main πλήρες CI → έλεγχος prepared request artifact/log/blob → ξεχωριστό request-only commit με parent ακριβώς το ελεγμένο main → κανονική δημοσίευση/αρχικές υπογραφές/activation και read-only live probe. Η παραγωγική κατάσταση/όριο και η φυσική ολοκλήρωση επιστροφής παραμένουν μη επιβεβαιωμένα. Αν αποτύχει το live health λόγω quota/συσκευής, αναφέρεται χωριστά από τη διανομή και δεν παρακάμπτεται ο έλεγχος.
+
 ## CHECKPOINT ΥΛΟΠΟΙΗΣΗΣ — μείωση εγγραφών,10/11/2026
 
 - Κλάδος `codex/reduce-cloud-write-amplification`, claim `cbba1e119d419d807ee03acfec0af74b74a36cb3`, αρχικό main353ab83. Ετοιμάστηκε Fleet5.62.1 / Client106 / Server2.11.1(76) / Worker5.19.1, με διατήρηση immutable assets5.62.0/5.61.0 και αρχικών υπογραφών στη μελλοντική κανονική δημοσίευση.
