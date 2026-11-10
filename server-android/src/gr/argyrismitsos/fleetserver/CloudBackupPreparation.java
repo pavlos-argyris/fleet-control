@@ -12,7 +12,16 @@ public final class CloudBackupPreparation {
         File[] leftovers=context.getCacheDir().listFiles();if(leftovers!=null)for(File f:leftovers)if(f.getName().matches("cloud-backup-[a-f0-9-]{36}"))remove(f,context.getCacheDir());
         final File work=new File(context.getCacheDir(),"cloud-backup-"+UUID.randomUUID()),files=new File(work,"files"),docs=new File(files,"service-documents"),cache=new File(work,"cache");if(!docs.mkdirs()||!cache.mkdirs())throw new IOException("Δεν δημιουργήθηκε ο ιδιωτικός χώρος backup Cloudflare.");SQLiteDatabase db=null;
         try{
-            progress.stage("Συνεπές πλήρες σημείο Cloudflare",0,0);final JSONObject point=FleetHttp.sendJson(base+"start","POST",new JSONObject(),headers);if(!identity.getString("realm").equals(point.getString("realm"))||!identity.getString("generation").equals(point.getString("generation")))throw new IOException("Άλλαξε η πηγή του backup Cloudflare.");
+            progress.stage("Προετοιμασία συνεπούς αντιγράφου Cloudflare",0,0);JSONObject preparing=FleetHttp.sendJson(base+"start","POST",new JSONObject().put("protocol",2),headers);long deadline=System.currentTimeMillis()+15*60*1000;
+            String job=preparing.optString("job");
+            while(preparing.optBoolean("pending",false)){
+                if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Το backup Cloudflare διακόπηκε. Η πρόοδος διατηρείται.");
+                if(System.currentTimeMillis()>deadline)throw new IOException("Το backup Cloudflare χρειάζεται συνέχεια. Η πρόοδος και το προηγούμενο αντίγραφο διατηρούνται.");
+                if(job.isEmpty()||!job.equals(preparing.optString("job")))throw new IOException("Άλλαξε η εργασία backup Cloudflare.");
+                progress.stage("Προετοιμασία cloud backup · "+preparing.optLong("rowsCaptured")+" εγγραφές",preparing.optLong("tablesDone"),preparing.optLong("tablesTotal"));
+                preparing=FleetHttp.sendJson(base+"continue","POST",new JSONObject().put("job",job).put("protocol",2),headers);
+            }
+            final JSONObject point=preparing;if(!identity.getString("realm").equals(point.getString("realm"))||!identity.getString("generation").equals(point.getString("generation")))throw new IOException("Άλλαξε η πηγή του backup Cloudflare.");
             File database=File.createTempFile("cloud-point-",".sqlite",work);db=SQLiteDatabase.openDatabase(database.getAbsolutePath(),null,SQLiteDatabase.OPEN_READWRITE);
             CloudBackupDatabase.copy(db,point,new CloudBackupDatabase.Reader(){public JSONArray rows(String table,String after)throws Exception{String url=base+"rows?point="+point.getString("id")+"&table="+encoded(table)+(after==null?"":"&after="+encoded(after));return FleetHttp.getJson(url,headers).getJSONArray("rows");}},new CloudBackupDatabase.Progress(){public void stage(String table,long done,long total)throws Exception{progress.stage("Backup Cloudflare · "+table,done,total);}});
             BusinessObjects objects=new BusinessObjects(db,docs,new File(cache,"objects"));String after="";long included=0;

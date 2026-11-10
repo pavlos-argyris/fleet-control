@@ -14,6 +14,12 @@ try{
  const call=async(...args)=>{const r=await raw(...args);return{status:r.status,data:await r.json()};};
  const ok=(r,status=200)=>{assert.equal(r.status,status,JSON.stringify(r.data));return r.data;};
  ok(await call('/api/status'));ok(await call('/api/auth/bootstrap',{username:'primary.owner',password:'Primary-Fixture-2026!',fullName:'Συνθετικός ιδιοκτήτης'}));
+ // Repair distribution must retain its actual auth while a business DO fails.
+ const quotaEnv={DB:db,SERVER_KEY:serverKey,FLEET_EVENTS:{idFromName(){throw Error('Exceeded allowed rows written in Durable Objects free tier.');}}};
+ const independent=await worker.fetch(new Request('https://fixture/api/server-update',{headers:{'X-Fleet-Server-Key':serverKey}}),quotaEnv,{waitUntil(){}});
+ assert.notEqual(independent.status,500,'Server update metadata does not enter the exhausted authority coordinator');
+ const unauthorizedRepair=await worker.fetch(new Request('https://fixture/api/server-update'),quotaEnv,{waitUntil(){}});assert.equal(unauthorizedRepair.status,401,'repair distribution retains Server authorization');
+ await assert.rejects(routePrimary(new Request('https://fixture/api/sync'),quotaEnv),/Exceeded allowed rows/,'business reads still require the real authority');
  // A business table omitted by an old static inventory must not remain writable
  // or disappear from the final frozen export. Use multi-byte large-cell data.
  const largePayload='Κ'.repeat(90000);
