@@ -37,7 +37,7 @@ test "$FLEET_ANDROID_BOOTED" = true
 adb shell input keyevent 82
 timeout 60 adb install -r .build/independent-delivery/Fleet_Independent_Server_v1.0.0-test2.apk
 timeout 30 adb install -r .build/independent-android-test/sqlite-tests.apk
-timeout 360 adb shell am instrument -w gr.argyrismitsos.fleetserver.sqlitetest/gr.argyrismitsos.fleetserver.AndroidSqliteChecks | tee .build/independent-android-test/instrumentation.txt
+timeout 360 adb shell am instrument -w -r gr.argyrismitsos.fleetserver.sqlitetest/gr.argyrismitsos.fleetserver.AndroidSqliteChecks | tee .build/independent-android-test/instrumentation.txt
 rg -q '^INSTRUMENTATION_RESULT: stream=PASS actual Android bundled SQLite' .build/independent-android-test/instrumentation.txt
 rg -q '^INSTRUMENTATION_CODE: -1' .build/independent-android-test/instrumentation.txt
 echo 'PASS actual API30 Android SQLite/JNI + full SAF FCB3 cold import and owner login.'
