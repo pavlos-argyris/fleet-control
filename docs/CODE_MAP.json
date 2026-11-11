@@ -630,6 +630,31 @@
         "docs/CLOUD_PRIMARY_RETURN_GR.md",
         "docs/CLOUD_WRITE_REDUCTION_GR.md"
       ]
+    },
+    {
+      "id": "android-tunnel-poc",
+      "title": "Issue 87 isolated Android Tunnel feasibility (Quick/Named tests, no production authority)",
+      "paths": [
+        "tunnel-poc-android/**",
+        "scripts/build-tunnel-poc-connector.py",
+        "scripts/build-tunnel-poc.sh",
+        "scripts/check-tunnel-poc-apk.py",
+        "scripts/probe-tunnel-poc.mjs",
+        ".github/workflows/tunnel-poc.yml"
+      ],
+      "tests": [
+        "scripts/test-tunnel-poc.mjs",
+        "scripts/test-tunnel-poc-dns.py"
+      ],
+      "related": [
+        "d1-migration",
+        "direct-access",
+        "release-ci"
+      ],
+      "docs": [
+        "docs/ANDROID_TUNNEL_POC_GR.md",
+        "docs/ISSUE_87_ANDROID_TUNNEL_AUDIT_GR.md"
+      ]
     }
   ]
 }

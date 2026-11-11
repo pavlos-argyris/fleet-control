@@ -33,6 +33,7 @@ node scripts/test-server-primary-ui.mjs
 node scripts/test-server-recovery-ui.mjs
 node scripts/test-server-backup-recovery-ui.mjs
 node scripts/test-android-manifest-audit.mjs
+node scripts/test-tunnel-poc.mjs
 node scripts/test-apk-audit-core.mjs
 node scripts/test-fetch-release-reference.mjs
 node scripts/test-probe-primary-policy.mjs
