@@ -1,3 +1,10 @@
+## ΑΝΑΛΗΨΗ #90 — ανεξάρτητο Android test, 11/11/2026
+
+- Ρητή εντολή ιδιοκτήτη: πλήρης υλοποίηση #90, δεύτερο κινητό, παραγωγικό Cloudflare απολύτως ανέπαφο, καμία τελική μετάβαση πριν φυσική δοκιμή/έγκριση.
+- Branch `codex/issue-90-independent-android`, βάση `ea38d7d557b2927794d5fa50ad482f171882fb57`. Διαβάστηκαν issue/AGENTS/τρέχον handoff/CODE_MAP και ανοικτά PR/Actions. #88 είναι μόνο απομονωμένο Tunnel PoC, όχι έτοιμος local business origin· δεν συγχωνεύεται. #89 draft `37ae1b6` έχει source-processing overlaps, δεν αλλάζει το branch του.
+- Πεδίο: απομονωμένο application ID/SQLite/credentials/build channel, πραγματικό portable FCB3 restore από επιλεγμένο backup, υπάρχον NativeBusinessEngine/auth/APIs/files με ανεξάρτητη authority, ασφαλές HTTPS/DDNS, test Web/Client και readiness/activation gate. Κοινά σημεία: server-runtime/entry.js, FleetHttp/local transport, native backup helpers, Ordexa jobs, public Client transport/build και checks. Η παραγωγική διαδρομή/OTA/Cloudflare resources δεν ενεργοποιούνται από το test APK.
+- Προαπαιτούμενα φυσικής παραλαβής που ΔΕΝ υπάρχουν ακόμη: συγκεκριμένο backup/κλειδί, δεύτερη συσκευή, επιλεγμένο DDNS, trusted certificate/inbound Nova/4G proof. Δεν δηλώνεται επιτυχής restore, remote σύνδεση ή ολοκλήρωση issue από συνθετικό CI.
+
 ## ΠΡΟΣΘΕΤΗ ΜΕΙΩΣΗ ΠΑΡΟΥΣΙΑΣ — PR #86,10/11/2026
 
 - Στο review βρέθηκε ακόμη ένας περιοδικός cloud writer: authenticate κάθε60s ενημερώνει session/user/device last_seen_at και σχετικά triggers. Στο CLOUD_PRIMARY το touch γίνεται πλέον ανά300s, με πλήρη τρέχουσα DB επαλήθευση σε κάθε αίτημα, χωρίς auth cache/καθυστέρηση revocation ή αλλαγή Native/D1. Έως80% λιγότερες περιοδικές ενημερώσεις συνεχούς χρήσης· δεν είναι μετρημένη παραγωγική κατανομή quota.
