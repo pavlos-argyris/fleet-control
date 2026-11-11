@@ -1,3 +1,9 @@
+## #90 — ΔΙΟΡΘΩΣΗ ΦΥΣΙΚΟΥ JSON SQLITE BLOCKER, 11/11/2026
+
+- Ο ιδιοκτήτης εγκατέστησε το Independent Server test1 και έστειλε πραγματική φωτογραφία αποτυχίας εισαγωγής: `unknown function: json_extract() ... while compiling: PRAGMA integrity_check`. Δεν πρόκειται για επιβεβαιωμένο λάθος password ή κατεστραμμένο backup. Η SQLite της συγκεκριμένης συσκευής δεν διαθέτει τη JSON δυνατότητα που απαιτεί το schema/οι indexes/τα APIs.
+- Ανάληψη στο ίδιο απομονωμένο branch / draft #91, βάση4258f86 και mainea38d7d. Ελέγχθηκαν το πραγματικό source/AGENTS/τρέχον main/PR. Σχέδιο: pinned επίσημη SQLite Android βιβλιοθήκη μόνο στο staged Independent Server, κοινός έλεγχος engine πριν αγγίξει εισαγωγή/ζωντανή βάση, πραγματικές SQLite JSON/index/integrity/WAL/restore δοκιμές και νέα υπογεγραμμένη test2 έκδοση με αυξημένο code. Δεν θα αφαιρεθούν financial indexes/δεδομένα ή integrity checks ως παράκαμψη.
+- Παραγωγικό Cloudflare/παλιό Server/παλιές εφαρμογές/αρχικά backup παραμένουν ανέπαφα. Ο φορητός κωδικός δεν έχει δοθεί στον agent και δεν άλλαξε. Native Android execution/ιδιοκτήτης backup εξακολουθούν να χρειάζονται πραγματική επαλήθευση μετά τη διόρθωση. Καμία κύρια ενεργοποίηση/merge/deploy· #90 παραμένει ανοικτό.
+
 ## #90 — ΕΤΟΙΜΗ ΧΩΡΙΣΤΗ ΥΠΟΓΕΓΡΑΜΜΕΝΗ ΔΟΚΙΜΗ, 11/11/2026
 
 - **Παραδόθηκε δοκιμαστικό prerelease, όχι παραγωγική μετάβαση:** [independent-android-test1-83e5740adcf1](https://github.com/pavlos-argyris/fleet-control/releases/tag/independent-android-test1-83e5740adcf1), δημοσίευση15:20:12Z. Source `83e5740adcf1a28cb1cadf29cb9ece1069cfde65`, tree `fe92e51795490945bdee7446ffe04236bd95d525`. Αμφότερα APK version1.0.0-test1/code1, με διαφορετικά application IDs. Οι υπάρχουσες εφαρμογές δεν αντικαθίστανται.
