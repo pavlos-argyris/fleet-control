@@ -90,7 +90,7 @@ build_apk() {
     cp -R "$source_dir/assets/." "$work_dir/assets/"
     if [[ "${FLEET_ISOLATED_BUILD:-}" == "1" ]]; then
       mkdir -p "$work_dir/assets/independent-www/download"
-      cp "$DIST/Fleet_Control_Client_v1.0.0-test2.apk" "$work_dir/assets/independent-www/download/client.apk"
+      cp "$DIST/Fleet_Control_Client_v1.0.0-test3.apk" "$work_dir/assets/independent-www/download/client.apk"
     fi
     cp -R "$work_dir/invoice-deps/assets/." "$work_dir/assets/"
     mkdir -p "$work_dir/assets/business-runtime"

@@ -4,6 +4,22 @@ import java.io.*;import java.net.*;import javax.net.ssl.*;
 /** DuckDNS IPv4 autodetection must actually use IPv4 even on dual-stack Nova Wi-Fi. */
 public final class IndependentDns {
  private IndependentDns(){}
+ static boolean visible(String host,String expected)throws Exception{
+  IndependentPolicy.hostname(host);if(!expected.matches("[A-Za-z0-9_-]{43}"))throw new IOException("Invalid DNS validation value");
+  String address="https://dns.google/resolve?name="+URLEncoder.encode("_acme-challenge."+host,"UTF-8")+"&type=TXT";
+  HttpsURLConnection connection=(HttpsURLConnection)new URL(address).openConnection();connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(5000);connection.setReadTimeout(5000);connection.setRequestProperty("Accept","application/dns-json");
+  try{
+   int status=connection.getResponseCode();if(status!=200)throw new IndependentCertificate.Failure("txt_wait","DNS_UNAVAILABLE",status,0);
+   ByteArrayOutputStream bytes=new ByteArrayOutputStream();try(InputStream input=connection.getInputStream()){byte[] block=new byte[4096];int n;while((n=input.read(block))!=-1){if(bytes.size()+n>65536)throw new IOException("Oversized DNS answer");bytes.write(block,0,n);}}
+   return visibleAnswer(new String(bytes.toByteArray(),"UTF-8"),host,expected);
+  }finally{connection.disconnect();}
+ }
+ static boolean visibleAnswer(String body,String host,String expected)throws Exception{
+  IndependentPolicy.hostname(host);org.json.JSONObject result=new org.json.JSONObject(body);int status=result.getInt("Status");if(status!=0||result.optBoolean("TC"))throw new IndependentCertificate.Failure("txt_wait",status==2?"DNS_SERVFAIL":"DNS_UNAVAILABLE",0,0);
+  org.json.JSONArray answers=result.optJSONArray("Answer");if(answers==null)return false;
+  for(int i=0;i<answers.length();i++){org.json.JSONObject answer=answers.getJSONObject(i);if(answer.optInt("type")==16&&answer.optString("name").replaceFirst("\\.$","").equalsIgnoreCase("_acme-challenge."+host)){String text=answer.optString("data");if(text.equals("\""+expected+"\""))return true;}}
+  return false;
+ }
  static String get(String address)throws Exception{
   URI uri=new URI(address);if(!"https".equals(uri.getScheme())||!"www.duckdns.org".equals(uri.getHost())||!"/update".equals(uri.getPath())||uri.getPort()!=-1||uri.getUserInfo()!=null||uri.getFragment()!=null)throw new IOException("Invalid DDNS destination");
   InetAddress chosen=null;for(InetAddress ip:InetAddress.getAllByName(uri.getHost()))if(ip instanceof Inet4Address&&IndependentPolicy.publicPeer(ip)){chosen=ip;break;}if(chosen==null)throw new IOException("Δεν βρέθηκε δημόσια IPv4 του παρόχου DNS.");

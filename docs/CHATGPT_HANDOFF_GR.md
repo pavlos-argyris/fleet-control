@@ -1,3 +1,9 @@
+## #90 — ΥΛΟΠΟΙΗΜΕΝΗ TEST3 / ΤΟΠΙΚΟΙ ΕΛΕΓΧΟΙ, 11/11/2026
+
+- Κώδικας test3/code3 στο απομονωμένο branch: IndependentCertificate με fixed ασφαλή diagnostics/ACME error allowlist και Retry-After, ACME protocol ports με TXT propagation (30s warmup, 180s όριο, δύο θετικές παρατηρήσεις 10s χωριστά), ready-before-CSR, live Activity status listener και persistent retry deadline που δεν μηδενίζεται στο start. Ίδια application IDs/αρχικά Keystore aliases/DB· παραγωγικές εκδόσεις αμετάβλητες.
+- Τοπικά PASS: πλήρες synthetic signed ACME/JWS lifecycle και 11 failure paths/CAA/DNS/SERVFAIL/stale TXT/rate/auth/order pending/privacy/HTTP-date retry, πραγματικό trusted TLS/SAN/key/CSRF/30 clients/OpenSSL CSR, shared native business/roles/concurrency, πλήρες FCB3 isolated native restore, fast source gate και build απομονωμένων APK με disposable τοπικό κλειδί. Αυτό το κλειδί δεν παραδίδεται. Η actual API30 instrumentation επεκτάθηκε με το ίδιο portable ACME suite και πραγματικό Activity/preference refresh· η εκτέλεσή της και το πλήρες exact-source CI εκκρεμούν ακόμη.
+- Επόμενο: push πραγματικών αλλαγών, απαιτούμενο full saved-source CI + independent Android verification, αρχικά υπογεγραμμένο χωριστό test3 prerelease/complete source και ανεξάρτητη επαλήθευση. Καμία live CA/DNS μεταβολή, κανένα Cloudflare probe/deploy/merge/OTA/production backup mutation. Το δημόσιο CAA discrepancy δεν δηλώνεται διορθωμένο. Φυσική CA/κινητό/4G παραμένουν owner acceptance, #90 OPEN/#91 draft.
+
 ## #90 — ΑΝΑΛΗΨΗ TEST3 / ΑΚΡΙΒΗΣ ΔΙΑΓΝΩΣΗ ΚΑΙ DNS-01 ΑΝΑΜΟΝΗ, 11/11/2026
 
 - Ο ιδιοκτήτης ρωτά «Οπότε τι κάνουμε τώρα;» μετά τον επιβεβαιωμένο δημόσιο CAA resolver discrepancy και το γενικό σφάλμα πιστοποιητικού στη συσκευή. Ξεκινά πραγματική περιορισμένη διόρθωση στο ίδιο απομονωμένο branch/draft#91, από f8e0afc και main ea38d7d, χωρίς παραγωγική μετάβαση.

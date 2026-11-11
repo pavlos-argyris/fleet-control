@@ -30,6 +30,7 @@ public final class AndroidSqliteChecks extends Instrumentation {
     }
     private void runChecks()throws Exception {
         waitForIdleSync();final Context target=getTargetContext();IndependentConfig.require(target);IndependentSqlite.initialize(target);IndependentSqlite.requireReady();
+        AcmeProtocolChecks.run(IndependentAcme.generate(),"synthetic-CA-protocol-only",false);
         check(!target.getDatabasePath(NativeColdRestore.DATABASE_NAME).exists(),"Emulator target must start empty");
         // API30's stock SQLite has the same missing JSON capability as the photo.
         boolean stockJson=false;try(android.database.sqlite.SQLiteDatabase stock=android.database.sqlite.SQLiteDatabase.create(null)){try(Cursor c=stock.rawQuery("SELECT json_extract('{\"n\":1}','$.n')",null)){stockJson=c.moveToFirst();}catch(android.database.sqlite.SQLiteException expected){}}
@@ -81,5 +82,12 @@ public final class AndroidSqliteChecks extends Instrumentation {
         try{JSONObject req=new JSONObject().put("url",runtime.realm()+"/api/auth/user-login").put("method","POST").put("headers",new JSONObject().put("Content-Type","application/json").put("X-Fleet-Operation",UUID.randomUUID().toString())).put("body",owner.toString());JSONObject login=runtime.external(req);check(login.getInt("status")==200,"Original owner credentials work after actual Android restore");String token=new JSONObject(login.getString("body")).getString("token");check(runtime.localProbe(token).getInt("status")==200,"Actual owner readiness savepoint succeeds after restore");}finally{runtime.close();}
         String installed=NativeDatabaseSnapshot.digest(target.getDatabasePath(NativeColdRestore.DATABASE_NAME));try{IndependentRestore.importBackup(target,manifest,PASSWORD);throw new AssertionError("Second import overwrote DB");}catch(IOException expected){}check(installed.equals(NativeDatabaseSnapshot.digest(target.getDatabasePath(NativeColdRestore.DATABASE_NAME))),"Existing independent installation preserved");
         for(Map.Entry<File,String> item:originals.entrySet())check(item.getValue().equals(NativeDatabaseSnapshot.digest(item.getKey())),"Original encrypted parts remain byte-exact");
+        // Real Activity lifecycle/preferences notification, with no hostname or live CA.
+        check(IndependentConfig.read(target).optString("hostname").isEmpty(),"UI fixture cannot start live CA");
+        final Activity activity=startActivitySync(new Intent(target,IndependentActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));waitForIdleSync();
+        try{String diagnostic="Synthetic certificate progress CERT_ORDER_CAA";target.getSharedPreferences("independent_ui",Context.MODE_PRIVATE).edit().putString("certificate",diagnostic).commit();waitForIdleSync();
+            java.lang.reflect.Field field=IndependentActivity.class.getDeclaredField("status");field.setAccessible(true);final String[] displayed={""};runOnMainSync(()->displayed[0]=((android.widget.TextView)readField(field,activity)).getText().toString());check(displayed[0].contains(diagnostic),"Actual owner Activity refreshes certificate progress without manual action");
+        }finally{runOnMainSync(()->activity.finish());waitForIdleSync();}
     }
+    private static Object readField(java.lang.reflect.Field field,Object value){try{return field.get(value);}catch(Exception error){throw new AssertionError(error);}}
 }

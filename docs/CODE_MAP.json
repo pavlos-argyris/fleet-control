@@ -633,7 +633,7 @@
     },
     {
       "id": "independent-android",
-      "title": "Issue 90: ανεξάρτητη δοκιμαστική Android εγκατάσταση / HTTPS / restore",
+      "title": "Issue 90: ανεξάρτητη δοκιμαστική Android εγκατάσταση / HTTPS / DNS-01 / restore",
       "paths": [
         "independent-android/**",
         "independent-client/**",

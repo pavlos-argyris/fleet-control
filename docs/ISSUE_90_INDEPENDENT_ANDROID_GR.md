@@ -2,7 +2,7 @@
 
 ## Όριο παραγωγής και κατάσταση
 
-Branch `codex/issue-90-independent-android`, βάση `ea38d7d557b2927794d5fa50ad482f171882fb57`. Νέα application IDs `gr.argyrismitsos.fleetserver.independent` και `gr.argyrismitsos.fleetindependentclient`, έκδοση `1.0.0-test2` / code 2. Η δοκιμή δεν αντικαθιστά Server/Client παραγωγής. Δεν δημιουργείται κανονικό publish request και δεν ενεργοποιείται OTA, Worker, Tunnel, DO, D1, R2, DNS ή billing Cloudflare. Τα PR #88/#89 παραμένουν ανεξάρτητα. Δεν υποστηρίζεται implicit fallback στο παλιό cloud.
+Branch `codex/issue-90-independent-android`, βάση `ea38d7d557b2927794d5fa50ad482f171882fb57`. Νέα application IDs `gr.argyrismitsos.fleetserver.independent` και `gr.argyrismitsos.fleetindependentclient`, έκδοση `1.0.0-test3` / code 3. Η δοκιμή δεν αντικαθιστά Server/Client παραγωγής. Δεν δημιουργείται κανονικό publish request και δεν ενεργοποιείται OTA, Worker, Tunnel, DO, D1, R2, DNS ή billing Cloudflare. Τα PR #88/#89 παραμένουν ανεξάρτητα. Δεν υποστηρίζεται implicit fallback στο παλιό cloud.
 
 **Εκκρεμεί φυσική παραλαβή.** Ο agent δεν έχει το συγκεκριμένο backup/κωδικό του ιδιοκτήτη, δεύτερο κινητό, router, καταχωρισμένο DDNS ή πραγματικό πιστοποιητικό για αυτό. Καμία συνθετική IP, test CA, τοπικό PASS ή CI δεν αποτελεί απόδειξη 4G/Nova, φυσικού restore ή επιτυχούς έκδοσης/ανανέωσης ACME σε Android. Το issue παραμένει ανοιχτό μέχρι τη φυσική παραλαβή.
 
@@ -66,3 +66,16 @@ Branch `codex/issue-90-independent-android`, βάση `ea38d7d557b2927794d5fa50a
 Η βιβλιοθήκη Android ταξινομεί κάθε `ROL` ως πλήρες rollback. Για `ROLLBACK TO` χρησιμοποιείται SQL comment πριν από την εντολή μόνο στο staged adapter/στα literal savepoints, ώστε η native SQLite να διατηρεί το outer transaction. Το πλήρες `ROLLBACK` δεν αλλάζει. Η πραγματική Android δοκιμή ελέγχει και τα δύο και αποτυχημένη nested batch. Ο έλεγχος API30 εγκαθιστά το ίδιο disposable-signed Server APK, ξεχωριστό test-only instrumentation/provider, τρέχει πλήρες συνθετικό κρυπτογραφημένο backup με ιδιωτικό αρχείο, πραγματικά ContentResolver streams/queries, Android Keystore, directory fsync/cold installation και username/password login. Ο provider δοκιμής δεν περιέχεται στα παραδοτέα APK. Το CI πρέπει να περάσει στο συγκεκριμένο source πριν από την αρχική υπογραφή/χωριστό prerelease.
 
 Στο δεύτερο κινητό εγκατάστησε το νέο **Independent Server test2 πάνω από το test1**, χωρίς απεγκατάσταση. Άνοιξέ το και έλεγξε την ένδειξη `SQLite 3.54.1 · JSON / ακεραιότητα / αναίρεση OK`. Επανάλαβε την εισαγωγή επιλέγοντας τον φάκελο των τριών αντίστοιχων μερών `.fcbackup`, `.fcdb`, `.fcdocs`, με τον κωδικό αυτού του backup. Η παραγωγή παραμένει Cloudflare. Η φυσική επαλήθευση του δικού σου backup/κινητού και η εξωτερική πρόσβαση παραμένουν εκκρεμείς μέχρι να τις επιβεβαιώσεις.
+
+
+## Πιστοποιητικό test3 — διάγνωση και αναμονή DNS
+
+Η test3/code3 εγκαθίσταται πάνω από την Independent test2 με την ίδια αρχική υπογραφή, χωρίς απεγκατάσταση και χωρίς επανεισαγωγή ήδη εισαγμένου backup. Διατηρεί δεδομένα, hostname, προστατευμένα account/TLS keys, aliases και username/password. Παραμένει δοκιμή στο δεύτερο κινητό.
+
+- Η οθόνη ενημερώνεται καθώς η υπηρεσία περνά από λογαριασμό/αίτημα, εγγραφή TXT, δημόσιο DNS, έλεγχο κυριότητας, ready, υπογραφή και έλεγχο αλυσίδας. Η επιτυχία ενημέρωσης A/IPv4 δεν σημαίνει επιτυχία πιστοποιητικού.
+- Το DNS-01 περιμένει μέχρι 3 λεπτά με αρχική αναμονή 30 δευτερολέπτων και απαιτεί δύο θετικές παρατηρήσεις, με 10 δευτερόλεπτα μεταξύ ελέγχων, για το ακριβές `_acme-challenge` TXT στο Google Public DNS μέσω έμπιστου HTTPS. Δεν είναι εγγύηση ότι όλοι οι resolver της CA έχουν την ίδια απάντηση. CAA παραμένει έλεγχος της CA· δεν παρακάμπτεται.
+- Δεν στέλνεται CSR πριν το order γίνει ready. Προηγούμενο έγκυρο πιστοποιητικό διατηρείται αν αποτύχει ανανέωση. Η τρέχουσα προσπάθεια καθαρίζει μόνο το δικό της TXT.
+- Οι αποτυχίες δείχνουν σταθερό κωδικό `CERT_…`, στάδιο, HTTP status όπου παρέχεται και επόμενη ώρα. Διακρίνονται CAA, DNS της CA, δημόσιο SERVFAIL, μη δημοσιευμένο TXT, rate limit, timeout, TLS/ώρα και άκυρη αλυσίδα. Δεν εμφανίζονται ωμές απαντήσεις παρόχου, URLs, tokens, passwords ή ιδιωτικά κλειδιά.
+- Η ώρα επανάληψης αποθηκεύεται και δεν μηδενίζεται από το άνοιγμα της εφαρμογής/επαναλαμβανόμενη έναρξη. Εκθετική αναμονή 10 λεπτών έως 6 ωρών, με μεγαλύτερο Retry-After του παρόχου να υπερισχύει. Δεν γίνεται live έκδοση CA ή DNS mutation από agent/CI.
+
+Μετά την ενημέρωση άνοιξε τον Independent Server στο σταθερό Wi-Fi, κράτησέ τον στη φόρτιση και περίμενε την εμφανιζόμενη προσπάθεια. Μη χρησιμοποιήσεις ξανά «Εισαγωγή backup» αν η βάση έχει ήδη εισαχθεί. Αν εμφανιστεί αποτυχία, δώσε μόνο τη γραμμή `CERT_…` και το στάδιο/ώρα, χωρίς token/κωδικούς. Ο agent δεν έχει επαληθεύσει ακόμη την πραγματική CA στη συσκευή και το γνωστό δημόσιο CAA resolver discrepancy δεν θεωρείται λυμένο. Αν η CA επιστρέψει CAA/DNS σφάλμα, ακολουθεί έλεγχος του παρόχου DNS βάσει αυτού του συγκεκριμένου αποτελέσματος. Κανένας HTTP ή certificate-trust workaround.
