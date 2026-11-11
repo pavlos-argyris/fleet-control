@@ -13,9 +13,10 @@ for FLEET_CI_DOMAIN in archive.ubuntu.com security.ubuntu.com; do
 import sys,json,ipaddress,urllib.request
 host=sys.argv[1]
 assert host in ('archive.ubuntu.com','security.ubuntu.com')
-with urllib.request.urlopen('https://dns.google/resolve?name='+host+'&type=A&cd=false&edns_client_subnet=0.0.0.0/0',timeout=20) as response:
+with urllib.request.urlopen('https://dns.google/resolve?name='+host+'&type=A',timeout=20) as response:
     value=json.loads(response.read(65536))
-assert value.get('Status')==0 and not value.get('TC') and not value.get('CD')
+if value.get('Status')!=0 or value.get('TC') or value.get('CD'):
+    raise RuntimeError('CI DNS not verified for '+host+': '+json.dumps({k:value.get(k) for k in ('Status','TC','CD','Comment')}))
 assert any(q.get('name','').rstrip('.')==host and q.get('type')==1 for q in value.get('Question',[]))
 addresses={str(ipaddress.IPv4Address(row['data'])) for row in value.get('Answer',[]) if row.get('type')==1}
 assert addresses and all(ipaddress.ip_address(address).is_global for address in addresses)
