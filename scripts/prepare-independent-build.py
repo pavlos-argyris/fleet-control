@@ -27,6 +27,21 @@ for old,new in [('},sql,null,null);','},IndependentSqlite.statement(sql),null,nu
     if value.count(old)!=1:raise SystemExit('Independent SQLite SQL adapter staging drift: '+old)
     value=value.replace(old,new)
 sql.write_text(value)
+# These official bindings record the helper WAL preference but do not apply
+# it on first open. Configure every independent helper connection explicitly.
+store=destination/'server-android/src/gr/argyrismitsos/fleetserver/FleetDataStore.java'
+value=store.read_text()
+marker='    @Override\\n    public void onCreate(SQLiteDatabase db) {'
+if value.count(marker)!=1:raise SystemExit('Independent SQLite helper staging drift')
+configure='''    @Override public void onConfigure(SQLiteDatabase db) {
+        if(db.isReadOnly())return;
+        try{IndependentDatabase.configure(db);}
+        catch(Exception error){SQLiteException failure=new SQLiteException("Independent SQLite configuration failed");failure.initCause(error);throw failure;}
+    }
+
+'''
+value=value.replace(marker,configure+marker).replace('import org.sqlite.database.sqlite.SQLiteDatabase;', 'import org.sqlite.database.sqlite.SQLiteDatabase;\\nimport org.sqlite.database.sqlite.SQLiteException;')
+store.write_text(value)
 attrs=destination/'android-build-support/fgs-extension/res/values/attrs.xml'
 attrs.write_text(attrs.read_text().replace('<flag name="dataSync" value="0x00000001" />','<flag name="dataSync" value="0x00000001" /><flag name="specialUse" value="0x40000000" />'))
 # Dedicated Client: remote Android-hosted WebView, distinct package and no production OTA.
