@@ -9,8 +9,8 @@ mkdir -p .build/independent-android-test
 python3 scripts/build-independent-android-test.py
 test -e /dev/kvm
 sudo chmod a+rw /dev/kvm
-sdkmanager 'system-images;android-30;google_apis;x86_64' > .build/independent-android-test/sdk.log 2>&1
-echo no | avdmanager create avd --force --name fleet-sqlite --package 'system-images;android-30;google_apis;x86_64' > .build/independent-android-test/avd.log 2>&1
+timeout 300 sdkmanager 'system-images;android-30;default;x86_64' 2>&1 | tee .build/independent-android-test/sdk.log
+echo no | timeout 60 avdmanager create avd --force --name fleet-sqlite --package 'system-images;android-30;default;x86_64' 2>&1 | tee .build/independent-android-test/avd.log
 emulator -avd fleet-sqlite -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -cores 2 -memory 2048 > .build/independent-android-test/emulator.log 2>&1 &
 FLEET_EMULATOR_PID=$!
 cleanup(){ adb logcat -d -v brief > .build/independent-android-test/logcat.txt 2>&1 || true; kill "$FLEET_EMULATOR_PID" 2>/dev/null || true; }

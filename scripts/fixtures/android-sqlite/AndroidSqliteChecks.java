@@ -17,12 +17,12 @@ public final class AndroidSqliteChecks extends Instrumentation {
     private static final String AUTHORITY="gr.argyrismitsos.fleetserver.sqlitetest.backup";
     private static final String PASSWORD="Synthetic-portable-backup-2026!";
     private static final String REALM="https://fixture.duckdns.org",GENERATION="11111111-1111-4111-8111-111111111111";
-    private static final String SERVER_KEY="synthetic-independent-server-key-2026",PEPPER="synthetic-independent-pepper-2026";
+    private static final String FIXTURE_KEY="synthetic-independent-server-key-2026",PEPPER="synthetic-independent-pepper-2026";
     private void check(boolean value,String message){if(!value)throw new AssertionError(message);}
     @Override public void onCreate(Bundle arguments){super.onCreate(arguments);start();}
     @Override public void onStart(){Bundle result=new Bundle();try{runChecks();result.putString("stream","PASS actual Android bundled SQLite, JSON indexes, savepoints, WAL, FCB3 SAF import, Keystore/fsync, owner login and source preservation\n");finish(Activity.RESULT_OK,result);}catch(Throwable failure){android.util.Log.e("FleetSqliteTest","Synthetic Android regression failed",failure);result.putString("stream","FAIL "+failure.toString()+"\n");finish(Activity.RESULT_CANCELED,result);}}
     private JSONObject request(NativeBusinessEngine engine,String path,String method,JSONObject body,String token,boolean internal)throws Exception{
-        JSONObject headers=new JSONObject().put("Content-Type","application/json").put("X-Fleet-Operation",UUID.randomUUID().toString());if(token!=null)headers.put("Authorization","Bearer "+token);if(internal)headers.put("X-Fleet-Server-Key",SERVER_KEY);
+        JSONObject headers=new JSONObject().put("Content-Type","application/json").put("X-Fleet-Operation",UUID.randomUUID().toString());if(token!=null)headers.put("Authorization","Bearer "+token);if(internal)headers.put("X-Fleet-Server-Key",FIXTURE_KEY);
         JSONObject req=new JSONObject().put("url",REALM+path).put("method",method).put("headers",headers);if(body!=null)req.put("body",body.toString());return engine.request(req,internal,60000);
     }
     private void upload(Context context,File source,String name)throws Exception{
@@ -55,7 +55,7 @@ public final class AndroidSqliteChecks extends Instrumentation {
             }finally{db.endTransaction();}
             check(IndependentSqlite.text(db,"SELECT count(*) FROM json_regression").equals("1"),"Outer rollback still works");
             db.execSQL("BEGIN");db.execSQL("INSERT INTO json_regression VALUES('{\"n\":21}')");db.execSQL("ROLLBACK");check(!db.inTransaction()&&IndependentSqlite.text(db,"SELECT count(*) FROM json_regression").equals("1"),"Explicit full ROLLBACK retains Android transaction semantics");
-            JSONObject config=new JSONObject().put("standalone",true).put("realm",REALM).put("generation",GENERATION).put("serverKey",SERVER_KEY).put("authPepper",PEPPER).put("eventSigningKey","synthetic-events-key-2026");
+            JSONObject config=new JSONObject().put("standalone",true).put("realm",REALM).put("generation",GENERATION).put("serverKey",FIXTURE_KEY).put("authPepper",PEPPER).put("eventSigningKey","synthetic-events-key-2026");
             try(NativeBusinessEngine engine=new NativeBusinessEngine(db,new File(source.getFilesDir(),"service-documents"),new File(source.getCacheDir(),"temporary"),config,IndependentRuntime.asset(target,"business-runtime/runtime.js"),new JSONObject(IndependentRuntime.asset(target,"business-runtime/manifest.json")).getString("bundleSha256"),new NativeBusinessEngine.Authority(){public void beforeRequest(JSONObject r,boolean internal){}public void beforeCommit(JSONObject r,boolean internal){}},(command,value,objects)->{if(command.equals("health.snapshot"))return new JSONObject();if(command.equals("store.context"))return new JSONObject().put("configured",false);throw new IOException("Unexpected outbound capability: "+command);})){
                 check(request(engine,"/api/status","GET",null,null,false).getInt("status")==200,"Actual Rhino engine creates full schema on Android");
                 JSONObject bootstrap=request(engine,"/api/auth/bootstrap","POST",owner,null,true);check(bootstrap.getInt("status")<300,"Synthetic owner bootstrap: "+bootstrap);
