@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build input isolation: never modify production manifests/assets/release configuration."""
-import json, pathlib, shutil, re, sys
+import json, pathlib, shutil, re, sys, subprocess
 root=pathlib.Path(__file__).resolve().parents[1]
 destination=root/'.build/independent-source'
 if destination.exists(): shutil.rmtree(destination)
@@ -20,7 +20,8 @@ shutil.copy2(root/'independent-client/AndroidManifest.xml',destination/'client-a
 shutil.rmtree(destination/'client-android/assets')
 (destination/'client-android/assets').mkdir()
 www=destination/'server-android/assets/independent-www'
-shutil.copytree(root/'cloudflare-worker/public',www,ignore=shutil.ignore_patterns('assets'))
+subprocess.run([sys.executable,str(destination/'scripts/prepare-pdf-viewer.py')],check=True,stdout=subprocess.PIPE)
+shutil.copytree(destination/'cloudflare-worker/public',www,ignore=shutil.ignore_patterns('assets'))
 # Copy only immutable asset versions actually referenced by HTML; do not ship historical releases.
 versions=set()
 for html in www.glob('*.html'): versions.update(re.findall(r'assets/(v[^/"\s]+)/',html.read_text()))
@@ -32,6 +33,8 @@ shutil.copy2(root/'independent-web/owner.js',www/'independent-owner.js')
 # Avoid /index.html embedding itself. The fleet module remains the current business UI.
 for html in www.rglob('*.html'):
     value=html.read_text().replace('</head>','<script src="/independent-owner.js" defer></script></head>')
+    value=value.replace('./index.html?embedded=1','./fleet.html?embedded=1')
+    value=re.sub(r'<a\b[^>]*href="\./direct\.html"[^>]*>.*?</a>', '', value)
     html.write_text(value)
 for file in www.rglob('portal.js'): file.write_text(file.read_text().replace('./index.html?embedded=1','./fleet.html?embedded=1'))
 (www/'service-worker.js').write_text("self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',event=>event.waitUntil(self.registration.unregister()));\n")

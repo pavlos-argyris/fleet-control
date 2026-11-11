@@ -1,3 +1,10 @@
+## CHECKPOINT ΠΡΑΓΜΑΤΙΚΗΣ WEB ΣΥΣΚΕΥΑΣΙΑΣ #90 — 11/11/2026
+
+- Στο source8cd045c επαναλήφθηκαν οι έλεγχοι στο ίδιο SHA: και τα δύο CI σταμάτησαν δύο φορές πριν από tests, σε Temporary failure resolving azure.archive.ubuntu.com. Προστέθηκε CI-only εγκατάσταση από επίσημα Ubuntu mirrors με κανονικό APT signature verification/retries, χωρίς άρση gates.
+- Τελικός έλεγχος πραγματικών staged αρχείων εντόπισε ότι το HTML data-src του fleet iframe κρατούσε index.html ενώ ο νέος HTTPS root το αντιστοιχίζει σε Portal. Διορθώνεται το ίδιο το HTML σε fleet.html, αφαιρείται παλιό direct/pairing link, και ο Server περιέχει/σερβίρει το ακριβές signed isolated Client APK από /download/client.apk. Τα παραγόμενα PDF.js assets προετοιμάζονται από το pinned ZIP στο staged tree, χωρίς εξάρτηση από προϋπάρχον generated cache. Επιτρέπονται τα αναγκαία τοπικά mjs/pfb και WASM compile, χωρίς JavaScript unsafe-eval.
+- Προστέθηκε πραγματικό Chromium test του staged Portal/login/fleet iframe και PDF.js module/worker/font rendering με το ίδιο HTTPS CSP. Το compiled APK check συγκρίνει ολόκληρο pinned PDF viewer και τον embedded signed Client byte-exact. Τοπικά build/network και νέο exact-source CI εκτελούνται· δεν αναφέρεται ακόμη τελική επιτυχία/υπογεγραμμένη διανομή.
+- Η παραγωγή παραμένει απολύτως ανέπαφη. #90 OPEN / #91 draft, κανένα main merge/deploy/OTA/Cloudflare change/cutover. Φυσικό restore ιδιοκτήτη/δεύτερο Android/DuckDNS live CA/Nova443/4G/reboot/charging παραμένουν εκκρεμή. Επόμενο: πραγματικά test αποτελέσματα → ακριβές πλήρες CI → χωριστή signed test διανομή με source/hashes → φυσική παραλαβή ιδιοκτήτη.
+
 ## ΝΕΟ ΕΛΕΓΜΕΝΟ CHECKPOINT #90 — 11/11/2026
 
 - PR #91 / `codex/issue-90-independent-android`, τελευταίο αποθηκευμένο source `b727e9949bf7117f053279a2af5dccba2a6c5e42`. Και τα δύο απομονωμένα APK κατασκευάστηκαν τοπικά με disposable key· compiled IDs/TLS-only manifests/native resources PASS. Δεν παραδίδεται disposable-signed APK ως τελική ενημέρωση.

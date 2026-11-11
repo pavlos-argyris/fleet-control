@@ -85,6 +85,10 @@ build_apk() {
     (cd "$PROJECT_ROOT" && node scripts/build-business-runtime.mjs)
     mkdir -p "$work_dir/assets"
     cp -R "$source_dir/assets/." "$work_dir/assets/"
+    if [[ "${FLEET_ISOLATED_BUILD:-}" == "1" ]]; then
+      mkdir -p "$work_dir/assets/independent-www/download"
+      cp "$DIST/Fleet_Control_Client_v1.0.0-test1.apk" "$work_dir/assets/independent-www/download/client.apk"
+    fi
     cp -R "$work_dir/invoice-deps/assets/." "$work_dir/assets/"
     mkdir -p "$work_dir/assets/business-runtime"
     cp "$PROJECT_ROOT/.build/business-runtime/runtime.js" "$PROJECT_ROOT/.build/business-runtime/manifest.json" "$work_dir/assets/business-runtime/"

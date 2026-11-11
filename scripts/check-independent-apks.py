@@ -21,6 +21,13 @@ for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),
                 assert name in names,name
             assert b'primary/descriptor' not in apk.read('assets/independent-www/primary-transport.js')
             assert b'fleet-control.pavlosargyris.workers.dev' not in apk.read('assets/independent-www/fleet-config.js')
+            portal=apk.read('assets/independent-www/portal.html')
+            assert b'./fleet.html?embedded=1' in portal and b'./index.html?embedded=1' not in portal
+            assert b'href="./direct.html"' not in portal
+            assert apk.read('assets/independent-www/download/client.apk')==(folder/'Fleet_Independent_Client_v1.0.0-test1.apk').read_bytes(),'Android-hosted download must be the exact signed isolated Client'
+            with zipfile.ZipFile(root/'vendor/pdf-viewer-6.4.299.zip') as viewer:
+                for name in viewer.namelist():
+                    if not name.endswith('/'):assert apk.read('assets/independent-www/vendor/pdfjs/'+name)==viewer.read(name),'Pinned PDF viewer input missing/different: '+name
     cert=subprocess.check_output(['java','-jar',str(root/'.android-toolchain/usr/share/java/apksigner-31.0.2.jar'),'verify','--print-certs',str(file)],text=True)
     import re
     fingerprint=re.search(r'certificate SHA-256 digest: ([a-f0-9]+)',cert).group(1)

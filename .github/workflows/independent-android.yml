@@ -24,7 +24,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - run: bash scripts/ci-ubuntu-packages.sh ripgrep
       - run: npm ci
         working-directory: cloudflare-worker
       - run: bash scripts/unpack-toolchain.sh
@@ -75,7 +75,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - run: bash scripts/ci-ubuntu-packages.sh ripgrep
       - run: npm ci
         working-directory: cloudflare-worker
       - run: bash scripts/unpack-toolchain.sh
