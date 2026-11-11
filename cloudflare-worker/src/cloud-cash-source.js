@@ -20,6 +20,11 @@ export async function cloudCashSource(request,env,storage){
   writeCoverage({...b.coverage,runId:current?.runId||'',cloudSourceRunId:b.coverage.runId||'',needsSourceRefresh:true});return{done:true};
  }
  if(current?.cloudJobId===b.jobId&&complete(current))return{done:true,replayed:true};
+ if(b.action==='freshness'){
+  if(!complete(b.coverage)||typeof b.coverage.runId!=='string')throw new NativeError(400,'Χρειάζεται πλήρης συνεπής λήψη ημέρας.');
+  if(current?.runId==='cloud-source-v1'&&complete(current)&&current.sourceDigest===b.coverage.sourceDigest){await publish(b.coverage,current.runId);return{done:true,unchanged:true};}
+  return{done:false,needsManifest:true};
+ }
  if(b.action==='prepare'){
   if(!complete(b.coverage)||typeof b.coverage.runId!=='string'||!Array.isArray(b.orders)||b.orders.length>20000)throw new NativeError(400,'Χρειάζεται πλήρες ελεγμένο στιγμιότυπο ημέρας.');
   const orders=[...b.orders].sort((a,c)=>a.id<c.id?-1:a.id>c.id?1:0),ids=new Set();let digest='';

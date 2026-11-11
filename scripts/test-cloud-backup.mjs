@@ -12,7 +12,7 @@ import {cloudBusinessDatabase} from ${JSON.stringify(path.resolve('cloudflare-wo
 export class Probe{
  constructor(ctx,env){this.ctx=ctx;this.env=env;}
  async fetch(request){return this.ctx.blockConcurrencyWhile(async()=>{
-  const real=this.ctx.storage;let writes=0,puts=0,deletes=0;const sql={exec:(q,...a)=>{const cursor=real.sql.exec(q,...a),values=Array.from(cursor);writes+=cursor.rowsWritten;return{columnNames:cursor.columnNames,[Symbol.iterator]:()=>values[Symbol.iterator](),raw:()=>values.map(r=>cursor.columnNames.map(c=>r[c]))[Symbol.iterator]()};}};
+  const real=this.ctx.storage;let writes=0,reads=0,puts=0,deletes=0;const sql={exec:(q,...a)=>{const cursor=real.sql.exec(q,...a),values=Array.from(cursor);writes+=cursor.rowsWritten;reads+=cursor.rowsRead;return{columnNames:cursor.columnNames,[Symbol.iterator]:()=>values[Symbol.iterator](),raw:()=>values.map(r=>cursor.columnNames.map(c=>r[c]))[Symbol.iterator]()};}};
   const storage={sql,get:real.get.bind(real),put:async(...a)=>{puts++;return real.put(...a);},delete:async(...a)=>{deletes++;return real.delete(...a);},transactionSync:real.transactionSync.bind(real)};
   const u=new URL(request.url);let response;
   try{response=await real.transaction(async()=>{
@@ -46,14 +46,14 @@ export class Probe{
    }
    const bucket=this.env.PRIVATE,owner=this,privateBucket={head:bucket.head.bind(bucket),get:bucket.get.bind(bucket),put:async(...a)=>{if(owner.failStore){owner.failStore=false;throw Error('synthetic R2 failure');}return bucket.put(...a);}};request.localInternal=request.headers.get('X-Test-Internal')==='1';return await routeCloudBackup(request,{SERVICE_DOCS_RAW:privateBucket},{realm:'https://fixture',generation:'synthetic'},storage);
   });}catch(e){response=Response.json({error:e.message},{status:e.status||500});}
-  const h=new Headers(response.headers);h.set('X-Test-SQL-Writes',String(writes));h.set('X-Test-KV-Puts',String(puts));h.set('X-Test-KV-Deletes',String(deletes));return new Response(response.body,{status:response.status,headers:h});
+  const h=new Headers(response.headers);h.set('X-Test-SQL-Writes',String(writes));h.set('X-Test-SQL-Reads',String(reads));h.set('X-Test-KV-Puts',String(puts));h.set('X-Test-KV-Deletes',String(deletes));return new Response(response.body,{status:response.status,headers:h});
  });}
 }
 export default{fetch(r,e){return e.PROBE.get(e.PROBE.idFromName('test')).fetch(r);}};
 `);
  await build({entryPoints:[entry],outfile:path.join(temp,'worker.mjs'),bundle:true,format:'esm',platform:'browser'});
  mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:fs.readFileSync(path.join(temp,'worker.mjs'),'utf8'),compatibilityDate:'2026-10-01',r2Buckets:['PRIVATE'],durableObjects:{PROBE:{className:'Probe',useSQLite:true}}}));
- let totalSql=0,totalKv=0;const call=async(url,body,internal=true)=>{const r=await mf.dispatchFetch('https://fixture'+url,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-Test-Internal':internal?'1':'0'},body:body===undefined?undefined:JSON.stringify(body)});const writes=Number(r.headers.get('X-Test-SQL-Writes'));totalSql+=writes;totalKv+=Number(r.headers.get('X-Test-KV-Puts'))+Number(r.headers.get('X-Test-KV-Deletes'));return{status:r.status,data:await r.json(),writes};};
+ let totalSql=0,totalKv=0;const call=async(url,body,internal=true)=>{const r=await mf.dispatchFetch('https://fixture'+url,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-Test-Internal':internal?'1':'0'},body:body===undefined?undefined:JSON.stringify(body)});const writes=Number(r.headers.get('X-Test-SQL-Writes'));totalSql+=writes;totalKv+=Number(r.headers.get('X-Test-KV-Puts'))+Number(r.headers.get('X-Test-KV-Deletes'));return{status:r.status,data:await r.json(),writes,reads:Number(r.headers.get('X-Test-SQL-Reads'))};};
  const ok=r=>{assert(r.status>=200&&r.status<300,JSON.stringify(r));return r.data;};
  ok(await call('/setup',{}));const query=async sql=>ok(await call('/query',{sql})).rows;
  const plans=await query("EXPLAIN QUERY PLAN SELECT data FROM store_billing_local WHERE scope='scope' AND kind='cash_snapshot_order' AND json_extract(data,'$.sourceOrderId') IN ('1','2')");assert(plans.some(r=>r.detail.includes('cloud_cash_order_identity_v2')));
@@ -66,25 +66,27 @@ export default{fetch(r,e){return e.PROBE.get(e.PROBE.idFromName('test')).fetch(r
  const legacy=ok(await call('/legacy',{}));assert.equal(ok(await call('/api/server/cloud-backup/rows?point='+legacy.id+'&table=typed_fixture')).rows[0].values[1][1],'9223372036854775807');
  assert.equal((await call('/api/server/cloud-backup/start',{protocol:2},false)).status,403);
  ok(await call('/fail-backup-write',{}));assert.equal((await call('/api/server/cloud-backup/start',{protocol:2})).status,500);assert.equal(ok(await call('/api/server/cloud-backup/rows?point='+legacy.id+'&table=typed_fixture')).rows.length,1,'failed R2 capture preserves previous point');
- let state=ok(await call('/api/server/cloud-backup/start',{protocol:2})),job=state.job;const before=totalSql;let continuations=0;
- const next=async()=>{const r=await call('/api/server/cloud-backup/continue',{job,protocol:2});assert.equal(r.writes,0,'R2 backup does not write canonical or clone SQL rows');continuations++;return ok(r);};
+ let state=ok(await call('/api/server/cloud-backup/start',{protocol:2})),job=state.job;const before=totalSql;let continuations=0,backupWrites=0,backupReads=0,maxReads=0;
+ const next=async()=>{const r=await call('/api/server/cloud-backup/continue',{job,protocol:2});assert(r.writes<100,'backup writes only bounded dirty-block/lease metadata');backupWrites+=r.writes;backupReads+=r.reads;maxReads=Math.max(maxReads,r.reads);continuations++;return ok(r);};
  state=await next();assert(state.pending);assert.equal(ok(await call('/api/server/cloud-backup/start',{protocol:2})).job,job,'restart resumes the same durable job');
+ await query("UPDATE _cloud_backup_tracking SET expires=0 WHERE id=1");state=await next();assert(state.pending,"expired tracking restarts capture without trusting an untracked gap");assert.equal(ok(await call("/pointers")).current.id,legacy.id,"restart preserves the previous verified point");
  // Change an already captured early page, append data, and change the private
  // file mapping between capture requests. Validation must reject a mixed point.
- await query("UPDATE store_billing_local SET data='{\"changed\":true}' WHERE id='o:1'");await query("DELETE FROM store_billing_local WHERE id='o:2'");
+ await query("UPDATE store_billing_local SET data='{\"changed\":true}' WHERE id='o:1'");await query("DELETE FROM store_billing_local WHERE id='o:2'");await query("INSERT INTO store_billing_local(rowid,id,kind,scope,store_id,day,data,dirty) VALUES(-7,'late-gap','order','scope','shop','2026-11-10','{}',0)");await query("UPDATE store_billing_local SET rowid=-6 WHERE id='o:3'");
  const bucket=await mf.getR2Bucket('PRIVATE');await bucket.put('replacement/doc','new bytes');await query("UPDATE _cloud_objects SET object_key='replacement/doc',size=9 WHERE key='doc'");
- let afterMutations=totalSql,changedObject=false;
+ let changedObject=false,hotRevision=0;
  while(state.pending&&continuations<30){
-  if(!changedObject&&state.objectsCaptured>0){await query("UPDATE _cloud_objects SET object_key='replacement/doc',size=9 WHERE key='a000'");afterMutations=totalSql;changedObject=true;}
+  if(!changedObject&&state.objectsCaptured>0){await query("UPDATE _cloud_objects SET object_key='replacement/doc',size=9 WHERE key='a000'");changedObject=true;}
+  hotRevision++;await query("UPDATE store_billing_local SET data=json_object('changed',json('true'),'hotRevision',"+hotRevision+") WHERE id='o:1'");
   state=await next();
  }
- assert(changedObject,'private map changed after its first pages were captured');assert(!state.pending,'consistent point completes after recapturing dirty data');assert(totalSql>=before);assert.equal(totalSql,afterMutations,'only explicit test mutations produced SQL writes during capture');
+ assert(changedObject,'private map changed after its first pages were captured');assert(!state.pending,'consistent point completes after recapturing dirty data');assert(totalSql>=before);assert(backupWrites<100,'dirty tracking stays small with a hot row');assert(maxReads<10000,'one continuation never rereads all history');assert(backupReads<30000,'hot metadata does not restart full-table capture');
  const controls=ok(await call('/api/server/cloud-backup/rows?point='+state.id+'&table=control_fixture')).rows;assert.equal(controls[0].rowid,'-9223372036854775808');assert.equal(controls[0].values[0][1],String.fromCharCode(0,34,92).repeat(200000));assert.equal(ok(await call('/api/server/cloud-backup/rows?point='+state.id+'&table=control_fixture&after=-9223372036854775808')).rows[0].rowid,'0');
  assert.equal(state.storage,'r2-v2');assert.equal(state.sequences.find(s=>s.name==='sequence_fixture').seq,'9000');assert.equal(ok(await call('/api/server/cloud-backup/continue',{job})).id,state.id,'lost completion ACK is idempotent');
- assert.equal((await query("SELECT name FROM sqlite_master WHERE name LIKE '_cloud_backup_%'")).length,1,'only retained legacy clone exists');
- const dataUrl='/api/server/cloud-backup/rows?point='+state.id+'&table=store_billing_local';let after=null,count=0,found=false;
- for(;;){const page=ok(await call(dataUrl+(after===null?'':'&after='+after))).rows;if(!page.length)break;for(const row of page){if(row.values[0][1]==='o:1'){assert.equal(row.values[5][1],'{"changed":true}');found=true;}assert.notEqual(row.values[0][1],'o:2');count++;after=row.rowid;}}
- assert(found);assert.equal(count,1200);
+ assert.equal((await query("SELECT name FROM sqlite_master WHERE name LIKE '_cloud_backup_%' AND type='table' AND name NOT IN ('_cloud_backup_tracking','_cloud_backup_dirty')")).length,1,'only retained legacy clone exists');assert.equal((await query("SELECT name FROM sqlite_master WHERE type='trigger' AND name GLOB '_cloud_backup_watch_*'")).length,0,'completed backups leave no watch/read overhead on business writes');
+ const dataUrl='/api/server/cloud-backup/rows?point='+state.id+'&table=store_billing_local';let after=null,count=0,found=false,late=false,moved=false;
+ for(;;){const page=ok(await call(dataUrl+(after===null?'':'&after='+after))).rows;if(!page.length)break;for(const row of page){if(row.values[0][1]==='o:1'){assert.deepEqual(JSON.parse(row.values[5][1]),{changed:true,hotRevision});found=true;}if(row.values[0][1]==='late-gap'){late=true;assert.equal(row.rowid,'-7');}if(row.values[0][1]==='o:3'){moved=true;assert.equal(row.rowid,'-6');}assert.notEqual(row.values[0][1],'o:2');count++;after=row.rowid;}}
+ assert(found&&late&&moved);assert.equal(count,1201);
  const typed=ok(await call('/api/server/cloud-backup/rows?point='+state.id+'&table=typed_fixture')).rows[0];assert.deepEqual(typed.values.slice(1),[['integer','9223372036854775807'],['real','1.0'],['blob',''],['null',null]]);
  assert.equal(ok(await call('/api/server/cloud-backup/rows?point='+state.id+'&table=wide_fixture')).rows[0].values.length,99);
  const objectList=[];let afterObject='';for(;;){const page=ok(await call('/api/server/cloud-backup/objects?point='+state.id+'&after='+encodeURIComponent(afterObject))).objects;if(!page.length)break;objectList.push(...page);afterObject=page.at(-1).key;}assert.equal(objectList.length,303);assert.deepEqual(objectList.slice(-3).map(o=>o.key),['doc','\ue000','🛵']);assert(!objectList.some(o=>'object_key' in o));
@@ -92,5 +94,5 @@ export default{fetch(r,e){return e.PROBE.get(e.PROBE.idFromName('test')).fetch(r
  await query("UPDATE _cloud_objects SET object_key='original/doc' WHERE key='doc'");const file=await mf.dispatchFetch('https://fixture/api/server/cloud-backup/file?point='+state.id+'&key=doc',{headers:{'X-Test-Internal':'1'}});assert.equal(await file.text(),'new bytes','files use the same captured immutable mapping');assert.equal(await (await bucket.get('original/doc')).text(),'original doc');
  const pointer=ok(await call('/pointers')),manifest=await (await bucket.get(pointer.current.ref.key)).json(),ref=manifest.tables.find(t=>t.name==='typed_fixture').pages[0];await bucket.put(ref.key,'corrupt');assert.equal((await call('/api/server/cloud-backup/rows?point='+state.id+'&table=typed_fixture')).status,409,'corrupted R2 content fails closed');
  assert.equal((await call(dataUrl+'&after=9223372036854775808')).status,400);
- console.log('PASS real SQLite-DO/R2 backup: zero SQL writes, resumable bounded capture, concurrent update/delete/file-map recapture, full final consistency validation, immutable typed/int64/REAL/empty-BLOB/NULL/99-column pages, sequence high watermark, lost ACK, original bytes retained, legacy point reads, corruption/auth rejection; cash lookup uses partial index and30 unchanged health reads write zero rows.');
+ console.log('PASS real SQLite-DO/R2 backup: bounded dirty-block writes and reads, resumable capture under continuous hot-row updates, concurrent delete/file-map recapture, transactionally tracked consistency, immutable typed/int64/REAL/empty-BLOB/NULL/99-column pages, sequence high watermark, lost ACK, original bytes retained, legacy point reads, corruption/auth rejection; cash lookup uses partial index and30 unchanged health reads write zero rows.');
 }finally{if(mf)await mf.dispose();fs.rmSync(temp,{recursive:true,force:true});}

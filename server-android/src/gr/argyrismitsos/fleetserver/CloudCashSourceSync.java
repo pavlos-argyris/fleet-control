@@ -17,6 +17,10 @@ public final class CloudCashSourceSync {
   boolean complete=coverage.optBoolean("identityVerified")&&coverage.optBoolean("ordersCoverageComplete")&&!coverage.optBoolean("needsSourceRefresh")&&coverage.optString("sourceDigest").matches("[a-f0-9]{64}");
   if(!complete){send(realm,message(context,job,"partial").put("coverage",coverage));ack(db,job);return true;}
   if(!job.has("missing")){
+   // The source digest is computed by the shared local reader. An unchanged
+   // day needs one small proof, not an upload/read of every order identity.
+   try{JSONObject fresh=send(realm,message(context,job,"freshness").put("coverage",coverage));if(fresh.optBoolean("done")){ack(db,job);return true;}}
+   catch(FleetHttp.HttpStatusException oldWorker){if(oldWorker.statusCode!=400)throw oldWorker;}
    JSONArray rows=query(db,"SELECT json_extract(data,'$.sourceOrderId') id,json_extract(data,'$.fingerprint') fingerprint FROM store_billing_local WHERE scope=? AND day=? AND kind='cash_snapshot_order' AND json_extract(data,'$.runId')=? ORDER BY json_extract(data,'$.sourceOrderId')",scope,day,run);
    JSONObject response=send(realm,message(context,job,"prepare").put("coverage",coverage).put("orders",rows));if(response.optBoolean("done")){ack(db,job);return true;}job.put("missing",response.getJSONArray("missing")).put("cursor",0);
   }else{

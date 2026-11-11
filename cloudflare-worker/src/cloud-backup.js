@@ -1,16 +1,13 @@
 import {sqlName,storedRow,rowDigest} from './cloud-transfer.js';
 import {NativeError} from '../../server-runtime/common.js';
-import {directHash} from './direct-relay.js';
-import {typedBackupPage,backupSchema,backupSequences,objectPage,jsonHash,putBackupJson,getBackupJson,compareObjectKeys} from './cloud-backup-pages.js';
+import {getBackupJson,compareObjectKeys} from './cloud-backup-pages.js';
+import {trackedBackup,advanceTrackedBackup} from './cloud-backup-tracking.js';
 
 const CURRENT='cloud-business.backup',PENDING='cloud-business.backup.pending';
 const rows=(sql,q,...args)=>Array.from(sql.exec(q,...args));
 const copyId=(id,name)=>'_cloud_backup_'+id.replaceAll('-','')+'_'+name;
 const copyName=(id,name)=>sqlName(copyId(id,name));
-const metadata=t=>({name:t.name,sql:t.sql,columns:t.columns});
-const emptyTable=t=>({...metadata(t),rows:0,pages:[],after:null,complete:false});
 const status=job=>({pending:true,job:job.id,tablesDone:job.tables.filter(t=>t.complete).length,tablesTotal:job.tables.length,rowsCaptured:job.tables.reduce((n,t)=>n+t.rows,0),objectsCaptured:job.objects.count});
-async function saveJob(storage,bucket,job){const ref=await putBackupJson(bucket,job.prefix+'/jobs',job);await storage.put(PENDING,{id:job.id,ref});}
 async function currentPoint(storage,bucket,id){
  const pointer=await storage.get(CURRENT);if(!pointer||id&&pointer.id!==id)throw new NativeError(409,'Το σημείο αντιγράφου άλλαξε. Ξεκίνα νέο backup.');
  if(pointer.schema!==2)return{point:pointer,legacy:true};
@@ -19,48 +16,8 @@ async function currentPoint(storage,bucket,id){
 async function begin(storage,bucket,configuration){
  const pointer=await storage.get(PENDING);
  if(pointer){const job=await getBackupJson(bucket,pointer.ref);if(job.realm===configuration.realm&&job.generation===configuration.generation)return job;throw new NativeError(409,'Άλλαξε η πηγή του εκκρεμούς backup.');}
- const job={id:crypto.randomUUID(),realm:configuration.realm,generation:configuration.generation,prefix:'cloud-backup-v2/'+await directHash(configuration.realm+'\0'+configuration.generation),tables:backupSchema(storage.sql).map(emptyTable),objects:{pages:[],count:0,after:'',complete:false}};
- await saveJob(storage,bucket,job);return job;
+ return trackedBackup(storage,bucket,configuration);
 }
-async function capture(storage,bucket,job){
- const started=Date.now();let pages=0;
- for(const table of job.tables){
-  while(!table.complete&&pages<8&&Date.now()-started<5000){
-   const value=await typedBackupPage(storage.sql,table,table.after);
-   if(!value.rows.length){table.complete=true;break;}
-   const ref=await putBackupJson(bucket,job.prefix+'/pages',value);table.pages.push({...ref,first:value.rows[0].rowid,last:value.rows.at(-1).rowid});table.rows+=value.rows.length;table.after=value.rows.at(-1).rowid;pages++;
-  }
-  if(!table.complete)break;
- }
- if(job.tables.every(t=>t.complete))while(!job.objects.complete&&pages<8&&Date.now()-started<5000){
-  const value=objectPage(storage.sql,job.objects.after);if(!value.objects.length){job.objects.complete=true;break;}
-  const ref=await putBackupJson(bucket,job.prefix+'/pages',value);job.objects.pages.push({...ref,first:value.objects[0].key,last:value.objects.at(-1).key});job.objects.count+=value.objects.length;job.objects.after=value.objects.at(-1).key;pages++;
- }
- await saveJob(storage,bucket,job);return job.tables.every(t=>t.complete)&&job.objects.complete;
-}
-async function validateAndPublish(storage,bucket,job){
- // The caller serializes the complete operation against all business writers.
- // Re-read EVERY page in one event fence, without network I/O in the scan.
- // Chunked capture alone is not proof of a consistent point in time.
- const started=Date.now(),deadline=()=>{if(Date.now()-started>15000)throw new NativeError(409,'Ο έλεγχος συνέπειας χρειάζεται επανάληψη. Το προηγούμενο backup διατηρείται.');};
- const schema=backupSchema(storage.sql);
- if(JSON.stringify(schema)!==JSON.stringify(job.tables.map(metadata))){job.tables=schema.map(emptyTable);job.objects={pages:[],count:0,after:'',complete:false};await saveJob(storage,bucket,job);return null;}
- let changed=false;
- for(let i=0;i<job.tables.length;i++){
-  const table=job.tables[i];let after=null,n=0,count=0,valid=true;
-  for(;;){deadline();const page=await typedBackupPage(storage.sql,table,after);if(!page.rows.length)break;const ref=table.pages[n++];if(!ref||await jsonHash(page)!==ref.sha256)valid=false;count+=page.rows.length;after=page.rows.at(-1).rowid;}
-  if(!valid||n!==table.pages.length||count!==table.rows){job.tables[i]=emptyTable(table);changed=true;}
- }
- let after='',n=0,count=0,valid=true;
- for(;;){deadline();const page=objectPage(storage.sql,after);if(!page.objects.length)break;const ref=job.objects.pages[n++];if(!ref||await jsonHash(page)!==ref.sha256)valid=false;count+=page.objects.length;after=page.objects.at(-1).key;}
- if(!valid||n!==job.objects.pages.length||count!==job.objects.count){job.objects={pages:[],count:0,after:'',complete:false};changed=true;}
- if(changed){await saveJob(storage,bucket,job);return null;}
- deadline();
- const point={schema:1,storage:'r2-v2',id:job.id,realm:job.realm,generation:job.generation,capturedAt:new Date().toISOString(),tables:job.tables.map(t=>({...metadata(t),rows:t.rows})),objectCount:job.objects.count,sequences:backupSequences(storage.sql)};
- const ref=await putBackupJson(bucket,job.prefix+'/points',{point,tables:job.tables,objects:job.objects});
- await storage.put(CURRENT,{schema:2,id:point.id,ref});await storage.delete(PENDING);return point;
-}
-async function advance(storage,bucket,job){if(await capture(storage,bucket,job))return await validateAndPublish(storage,bucket,job);return null;}
 function afterRow(u){const after=u.searchParams.get('after');if(after!==null&&(!/^-?\d{1,19}$/.test(after)||BigInt(after)<-9223372036854775808n||BigInt(after)>9223372036854775807n))throw new NativeError(400,'Μη έγκυρη θέση backup.');return after;}
 async function legacyRead(action,u,storage,env,point){
  // Existing verified SQL points remain readable. No new clone is created and
@@ -76,7 +33,7 @@ async function legacyRead(action,u,storage,env,point){
 async function fileResponse(env,record){const object=record&&await env.SERVICE_DOCS_RAW.get(record.object_key);if(!object)throw new NativeError(404,'Δεν βρέθηκε το ιδιωτικό αρχείο του backup.');return new Response(object.body,{headers:{'Content-Type':'application/octet-stream','Cache-Control':'no-store'}});}
 
 /** Immutable private R2 pages, not full SQL clones. Only bounded job pointers
- * are written to Durable Objects. Failed/incomplete captures never replace the
+ * and temporary dirty-block markers are written to Durable Objects. Failed/incomplete captures never replace the
  * previous consistent point. Caller MUST hold the CloudBusiness event fence. */
 export async function routeCloudBackup(request,env,configuration,storage){
  const u=new URL(request.url);if(!u.pathname.startsWith('/api/server/cloud-backup/'))return null;
@@ -97,7 +54,7 @@ export async function routeCloudBackup(request,env,configuration,storage){
   // Old installed Servers can finish small points with their existing call.
   // A large point resumes on the next attempt; it never falls back to stale
   // phone data or recreates a quota-expensive SQL clone before an OTA update.
-  const point=await advance(storage,bucket,job);if(point)return Response.json(point);
+  const point=await advanceTrackedBackup(storage,bucket,configuration,job);if(point)return Response.json(point);
   if(body.protocol===2||action==='continue')return Response.json(status(job),{status:202});
   return Response.json({error:'Το backup προετοιμάζεται σταδιακά. Δοκίμασε ξανά ή εγκατάστησε τη νεότερη έκδοση Server για αυτόματη συνέχεια.',code:'cloud_backup_pending',...status(job)},{status:409});
  }
