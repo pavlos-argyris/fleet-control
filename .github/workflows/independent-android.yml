@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [codex/issue-90-independent-android]
+    paths-ignore: ['docs/**', 'AGENTS.md']
 concurrency:
   group: independent-android-${{ github.ref }}
   cancel-in-progress: true
