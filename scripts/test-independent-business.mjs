@@ -38,6 +38,8 @@ public class IndependentBusinessTest {
    JSONObject owner=new JSONObject().put("username","owner.test").put("password","Strong-Fixture-Password-2026!").put("fullName","Owner test");
    check(call("/api/auth/bootstrap","POST",owner,null,true,null,false).getInt("status")<300,"bootstrap fixture only through local capability");
    String token=body(call("/api/auth/user-login","POST",owner,null)).getString("token");
+   check(call("/api/independent/maintenance","POST",new JSONObject(),null,true,null,false).getInt("status")==200,"shared scheduled workforce maintenance runs only locally");
+   check(call("/api/independent/maintenance","POST",new JSONObject(),token).getInt("status")==404,"external owner cannot run the internal scheduler");
    JSONObject created=body(call("/api/admin/employees","POST",new JSONObject().put("username","employee.test").put("password","Employee-Fixture-2026!").put("fullName","Employee test").put("role","employee"),token));String employee=created.getJSONObject("employee").getString("id");
    String rider=body(call("/api/auth/user-login","POST",new JSONObject().put("username","employee.test").put("password","Employee-Fixture-2026!"),null)).getString("token");
    check(call("/api/independent/probe","POST",new JSONObject(),rider).getInt("status")==403,"employee cannot acquire owner readiness");

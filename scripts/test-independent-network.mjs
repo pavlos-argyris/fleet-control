@@ -49,7 +49,7 @@ public class IndependentNetworkTest {
  }
 }`);
 const jar=path.resolve('vendor/json-java/json-20240303.jar');
-const sources=['Context','IndependentConfig','SealedLocalState','IndependentNetworkTest'].map(n=>file(n+'.java')).concat(['IndependentPolicy','IndependentHttps','IndependentAcme','IndependentTls'].map(n=>path.resolve('independent-android/src/gr/argyrismitsos/fleetserver',n+'.java')));
+const sources=['Context','IndependentConfig','SealedLocalState','IndependentNetworkTest'].map(n=>file(n+'.java')).concat(['IndependentPolicy','IndependentHttps','IndependentAcme','IndependentTls','IndependentDns'].map(n=>path.resolve('independent-android/src/gr/argyrismitsos/fleetserver',n+'.java')));
 execFileSync('java',['-jar',path.resolve('.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',jar,'-d',dir,...sources],{stdio:'inherit'});
 execFileSync('java',['-Djavax.net.ssl.trustStore='+file('trust.p12'),'-Djavax.net.ssl.trustStorePassword='+password,'-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetserver.IndependentNetworkTest',dir],{stdio:'inherit',timeout:90000});
 const inspected=run('openssl',['req','-inform','DER','-in',file('generated.csr'),'-noout','-verify','-text']).toString();if(!inspected.includes('DNS:fixture.duckdns.org'))throw Error('CSR lacks exact SAN');console.log('PASS OpenSSL independently verifies generated PKCS#10 signature and DNS subjectAltName.');

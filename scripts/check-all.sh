@@ -19,6 +19,12 @@ node --check server-runtime/cash-auto.js
 node --check server-runtime/cash-contract.js
 node --check scripts/test-ordexa-cash-source-native.mjs
 node --check server-runtime/cash-source.js
+node --check server-runtime/standalone.js
+node --check independent-web/transport.js
+node --check independent-web/live.js
+node --check independent-web/owner.js
+node --check scripts/test-independent-business.mjs
+node --check scripts/test-independent-network.mjs
 node --check scripts/test-ordexa-order-evidence-native.mjs
 node --check scripts/test-ordexa-diagnostic-native.mjs
 node scripts/test-backup-recovery-evidence.mjs

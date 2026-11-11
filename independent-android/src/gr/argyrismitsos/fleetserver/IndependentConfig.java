@@ -12,6 +12,6 @@ public final class IndependentConfig {
     static String realm(JSONObject value){return value.optString("hostname").isEmpty()?"https://fleet-independent.invalid":"https://"+value.optString("hostname");}
     static JSONObject fresh(JSONObject backup)throws Exception{
         JSONObject recovery=backup.getJSONObject("nativeRecovery");
-        return new JSONObject().put("instanceId",UUID.randomUUID().toString()).put("generation",UUID.randomUUID().toString()).put("mode","test").put("sourceScopeRealm",recovery.getString("realm")).put("authPepper",recovery.getString("authPepper")).put("serverKey",random()).put("eventSigningKey",random()).put("recoveryToken",random()).put("ownerId",recovery.getString("ownerId")).put("backupSha256",backup.getJSONObject("nativeDatabase").getString("sha256")).put("backupCreatedAt",backup.optString("createdAt")).put("restoredAt",System.currentTimeMillis()).put("testOrdexa",false);
+        return new JSONObject().put("instanceId",UUID.randomUUID().toString()).put("generation",UUID.randomUUID().toString()).put("mode","test").put("sourceScopeRealm",backup.getJSONObject("settings").optString("sourceScopeRealm",recovery.getString("realm"))).put("authPepper",recovery.getString("authPepper")).put("serverKey",random()).put("eventSigningKey",random()).put("recoveryToken",random()).put("ownerId",recovery.getString("ownerId")).put("backupSha256",backup.getJSONObject("nativeDatabase").getString("sha256")).put("backupCreatedAt",backup.optString("createdAt")).put("restoredAt",System.currentTimeMillis()).put("testOrdexa",false);
     }
 }

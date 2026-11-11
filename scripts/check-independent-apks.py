@@ -21,6 +21,10 @@ for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),
                 assert name in names,name
             assert b'primary/descriptor' not in apk.read('assets/independent-www/primary-transport.js')
             assert b'fleet-control.pavlosargyris.workers.dev' not in apk.read('assets/independent-www/fleet-config.js')
-    checks.append({'component':component,'applicationId':package,'bytes':file.stat().st_size,'sha256':hashlib.sha256(file.read_bytes()).hexdigest()})
+    cert=subprocess.check_output(['java','-jar',str(root/'.android-toolchain/usr/share/java/apksigner-31.0.2.jar'),'verify','--print-certs',str(file)],text=True)
+    import re
+    fingerprint=re.search(r'certificate SHA-256 digest: ([a-f0-9]+)',cert).group(1)
+    if os.environ.get('FLEET_REQUIRE_ORIGINAL_SIGNATURE')=='1':assert fingerprint==(root/'signing-certificate.sha256').read_text().strip(),'Wrong original signing certificate'
+    checks.append({'certificateSha256':fingerprint,'component':component,'applicationId':package,'bytes':file.stat().st_size,'sha256':hashlib.sha256(file.read_bytes()).hexdigest()})
 (folder/'APK_VERIFICATION.json').write_text(json.dumps({'schema':1,'isolated':True,'productionActivation':False,'artifacts':checks},indent=2)+'\n')
 print('PASS compiled isolated application IDs, TLS-only manifests, exclusive Server components and APK business/Web resources')

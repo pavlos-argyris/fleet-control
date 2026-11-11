@@ -140,6 +140,8 @@ jobs:
       - run: node scripts/test-primary-lease-native.mjs
       - run: node scripts/test-business-runtime-resources.mjs
       - run: node scripts/test-business-runtime-native.mjs
+      - run: node scripts/test-independent-business.mjs
+      - run: node scripts/test-independent-network.mjs
       - name: Prepare independent financial export validators
         run: |
           python3 -m venv .build/financial-python

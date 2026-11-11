@@ -641,13 +641,18 @@
         "server-runtime/standalone.js",
         "scripts/prepare-independent-build.py",
         "scripts/build-independent-android.sh",
-        "scripts/check-independent-apks.py"
+        "scripts/check-independent-apks.py",
+        "scripts/wait-independent-source-check.mjs",
+        "scripts/package-independent-delivery.py",
+        ".github/workflows/independent-android.yml"
       ],
       "tests": [
         "scripts/test-independent-business.mjs",
         "scripts/test-independent-network.mjs",
         "scripts/test-business-runtime-native.mjs",
-        "scripts/test-cash-pilot-native.mjs"
+        "scripts/test-cash-pilot-native.mjs",
+        "scripts/test-independent-web.mjs",
+        "scripts/test-independent-browser.mjs"
       ],
       "related": [
         "server-foundation",

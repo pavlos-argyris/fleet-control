@@ -3,7 +3,7 @@ import android.app.*;import android.content.*;import android.os.*;import android
 
 /** User-started always-on origin. No SyncService, OTA, cloud coordinator or cloud jobs. */
 public final class IndependentService extends Service {
-    private ScheduledExecutorService jobs,maintenance,invoices;private IndependentInvoices invoiceWorker;private IndependentRuntime runtime;private IndependentHttps https;private PowerManager.WakeLock awake;private long dnsAt,certificateAt;private int dnsFailures,certFailures;
+    private ScheduledExecutorService jobs,maintenance,invoices;private IndependentInvoices invoiceWorker;private IndependentRuntime runtime;private IndependentHttps https;private PowerManager.WakeLock awake;private volatile long dnsAt,certificateAt;private int dnsFailures,certFailures;
     @Override public void onCreate(){super.onCreate();foreground();jobs=Executors.newSingleThreadScheduledExecutor();maintenance=Executors.newSingleThreadScheduledExecutor();invoices=Executors.newSingleThreadScheduledExecutor();invoices.scheduleWithFixedDelay(new Runnable(){public void run(){try{if(blocked())return;IndependentRuntime backend=IndependentRuntime.get(IndependentService.this);if(invoiceWorker==null)invoiceWorker=new IndependentInvoices(IndependentService.this,backend);invoiceWorker.tick();}catch(Exception error){message("invoice","Η τοπική ουρά χρειάζεται επανάληψη.");}}},5,5,TimeUnit.SECONDS);
         jobs.scheduleWithFixedDelay(new Runnable(){public void run(){try{if(blocked())return;if(runtime==null)runtime=IndependentRuntime.get(IndependentService.this);if(awake==null){awake=((PowerManager)getSystemService(POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"FleetIndependent:origin");awake.setReferenceCounted(false);}if(!awake.isHeld())awake.acquire(600000);runtime.jobs();}catch(Exception error){message("runtime","Η τοπική υπηρεσία χρειάζεται έλεγχο. Τα δεδομένα διατηρούνται.");}}},0,1,TimeUnit.SECONDS);
         maintenance.scheduleWithFixedDelay(new Runnable(){public void run(){maintain();}},0,30,TimeUnit.SECONDS);
@@ -34,7 +34,7 @@ public final class IndependentService extends Service {
         Intent open=new Intent(this,IndependentActivity.class);PendingIntent pending=PendingIntent.getActivity(this,90,open,PendingIntent.FLAG_UPDATE_CURRENT|0x04000000);
         builder.setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("Fleet — ανεξάρτητος Server").setContentText("Δοκιμαστική βάση · HTTPS και συγχρονισμοί στη συσκευή").setOngoing(true).setContentIntent(pending);startForeground(90,builder.build());
     }
-    @Override public int onStartCommand(Intent intent,int flags,int id){return START_STICKY;}
+    @Override public int onStartCommand(Intent intent,int flags,int id){dnsAt=certificateAt=0;return START_STICKY;}
     @Override public IBinder onBind(Intent intent){return null;}
     @Override public void onDestroy(){if(jobs!=null)jobs.shutdownNow();if(maintenance!=null)maintenance.shutdownNow();if(invoices!=null)invoices.shutdownNow();if(invoiceWorker!=null)invoiceWorker.close();try{if(https!=null)https.close();}catch(Exception ignored){}if(awake!=null&&awake.isHeld())awake.release();super.onDestroy();}
     static void start(Context c){Intent intent=new Intent(c,IndependentService.class);if(Build.VERSION.SDK_INT>=26)try{Context.class.getMethod("startForegroundService",Intent.class).invoke(c,intent);}catch(Exception error){throw new IllegalStateException("Foreground service did not start");}else c.startService(intent);}

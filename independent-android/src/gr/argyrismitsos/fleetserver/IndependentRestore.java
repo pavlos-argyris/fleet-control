@@ -9,7 +9,7 @@ public final class IndependentRestore {
     static NativeColdRestore core(final Context c){
         IndependentConfig.require(c);
         return new NativeColdRestore(c.getFilesDir(),c.getDatabasePath(NativeColdRestore.DATABASE_NAME).getParentFile(),new File(c.getFilesDir(),"service-documents"),new NativeColdRestore.Ports(){
-            public void verifyPending(JSONObject marker)throws Exception{JSONObject pending=SealedLocalState.read(c,PENDING,ALIAS);if(!pending.optString("id").equals(marker.getString("id"))||!BusinessRuntime.sha256(pending.toString().getBytes("UTF-8")).equals(marker.getString("pendingHash")))throw new IOException("Δεν συμφωνεί η απομονωμένη προετοιμασία backup.");}
+            public void verifyPending(JSONObject marker)throws Exception{JSONObject pending=SealedLocalState.read(c,PENDING,ALIAS);if(!pending.optString("id").equals(marker.getString("id"))||!NativeColdRuntime.pendingHash(pending).equals(marker.getString("pendingHash")))throw new IOException("Δεν συμφωνεί η απομονωμένη προετοιμασία backup.");}
             public void verifySource(File database,JSONObject manifest)throws Exception{NativeDatabaseSnapshot.verifyReadOnly(database,manifest);}
             public void installSecrets(JSONObject marker)throws Exception{IndependentConfig.save(c,SealedLocalState.read(c,PENDING,ALIAS).getJSONObject("configuration"));}
             public void rollbackSecrets(JSONObject marker)throws Exception{SealedLocalState.remove(c,IndependentConfig.NAME);}
@@ -44,7 +44,7 @@ public final class IndependentRestore {
             for(int i=0;i<objects.length();i++){JSONObject object=objects.getJSONObject(i);File file=new File(staged,object.getString("local_name"));if(!BusinessObjects.validLocalName(file.getName())||!file.isFile()||file.length()!=object.getLong("size")||!NativeDatabaseSnapshot.digest(file).equals(object.getString("sha256")))throw new IOException("STOP: λείπει ή αλλοιώθηκε ιδιωτικό αρχείο μετά την ανάκτηση.");}
             JSONObject config=IndependentConfig.fresh(root).put("restoreProof",proof).put("sourceTables",prepared.manifest.getJSONArray("tables"));
             JSONObject pending=new JSONObject().put("id",id).put("configuration",config);SealedLocalState.write(c,PENDING,ALIAS,pending);sync(staged);sync(newDb);sync(directory);
-            core(c).arm(id,prepared.manifest,BusinessRuntime.sha256(pending.toString().getBytes("UTF-8")));core(c).apply();
+            core(c).arm(id,prepared.manifest,NativeColdRuntime.pendingHash(pending));core(c).apply();
             c.getSharedPreferences(BackupManager.PREFS,Context.MODE_PRIVATE).edit().putString("worker_url",IndependentConfig.realm(config)).putString("independent_source_realm",config.getString("sourceScopeRealm")).commit();
             return proof.put("imported",true).put("instanceId",config.getString("instanceId")).put("mode","test");
         }

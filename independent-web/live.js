@@ -4,7 +4,7 @@
   function close(){events?.close();events=null;connected=false;}
   function connect(){if(stopped||document.hidden||config.isActive&&!config.isActive()){close();return;}if(events)return;
    events=new EventSource('/api/independent/events');
-   events.addEventListener('ready',()=>{connected=true;root.FleetSharedReads?.invalidate(['fleet','invoices','workforce','stores','cash','status']);});
+   events.addEventListener('ready',()=>{connected=true;const scopes=['fleet','invoices','workforce','stores','cash','status'];root.FleetSharedReads?.invalidate(scopes);config.onChange?.(scopes);});
    events.addEventListener('changed',event=>{let message;try{message=JSON.parse(event.data);}catch{return;}root.FleetSharedReads?.invalidate(message.scopes);config.onChange?.(message.scopes);});
    events.onerror=()=>{connected=false;};
   }
