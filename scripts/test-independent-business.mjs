@@ -6,6 +6,8 @@ try{
  execFileSync('python3',['scripts/prepare-business-dependencies.py'],{stdio:'inherit'});execFileSync('node',['scripts/build-business-runtime.mjs'],{stdio:'inherit'});
  const files=[...businessSqliteFixture(dir),...backupBase64Fixture(dir)];
  const write=(name,text)=>{const file=path.join(dir,name);fs.writeFileSync(file,text);files.push(file);};
+ const sqliteFile=path.join(dir,'SQLiteDatabase.java');fs.writeFileSync(sqliteFile,fs.readFileSync(sqliteFile,'utf8').replace('public SQLiteDatabase(String path)','public SQLiteStatement compileStatement(String sql){return new SQLiteStatement(this,sql);}public SQLiteDatabase(String path)'));
+ write('SQLiteStatement.java','package android.database.sqlite;import org.json.*;public class SQLiteStatement implements AutoCloseable{private final SQLiteDatabase db;private final String sql;SQLiteStatement(SQLiteDatabase db,String sql){this.db=db;this.sql=sql;}public long simpleQueryForLong(){return db.query(sql,new JSONArray()).getJSONArray("rows").getJSONArray(0).getLong(0);}public void close(){}}');
  write('NativeDatabaseSnapshot.java','package gr.argyrismitsos.fleetserver;public class NativeDatabaseSnapshot{public static final Object OBJECT_LIFECYCLE_LOCK=new Object();}');
  write('IndependentConfig.java','package gr.argyrismitsos.fleetserver;public class IndependentConfig{static String random(){byte[] bytes=new byte[32];new java.security.SecureRandom().nextBytes(bytes);return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);}}');
  write('IndependentBusinessTest.java',String.raw`package gr.argyrismitsos.fleetserver;
@@ -22,7 +24,8 @@ public class IndependentBusinessTest {
  static String mode()throws Exception{return sql.call("sql.query",new JSONObject().put("sql","SELECT mode FROM independent_instance WHERE id=1")).getJSONArray("results").getJSONObject(0).getString("mode");}
  public static void main(String[] args)throws Exception{
   db=new SQLiteDatabase(args[0]);sql=new BusinessSqlite(db);String code=new String(Files.readAllBytes(Paths.get(args[1])),"UTF-8");JSONObject manifest=new JSONObject(new String(Files.readAllBytes(Paths.get(args[2])),"UTF-8"));
-  db.execSQL("CREATE TABLE independent_readiness(id INTEGER PRIMARY KEY,proof TEXT,actor_id TEXT,session_hash TEXT,peer_hash TEXT,created_at INTEGER)");db.execSQL("CREATE TABLE independent_instance(id INTEGER PRIMARY KEY,instance_id TEXT,mode TEXT,activated_at INTEGER,activated_by TEXT)");db.execSQL("INSERT INTO independent_instance VALUES(1,'fixture-instance','test',NULL,NULL)");
+  IndependentDatabase.configure(db);db.execSQL("INSERT INTO independent_instance VALUES(1,'fixture-instance','test',NULL,NULL)");
+  check(sql.call("sql.query",new JSONObject().put("sql","PRAGMA synchronous")).getJSONArray("results").getJSONObject(0).getInt("synchronous")==2,"independent writer uses FULL SQLite durability");
   JSONObject configuration=new JSONObject().put("standalone",true).put("realm",realm).put("generation","00000000-0000-4000-8000-000000000001").put("serverKey","fixture-independent-server-key-123456").put("authPepper","fixture-independent-pepper").put("eventSigningKey","fixture-independent-events-123456789");
   engine=new NativeBusinessEngine(db,new File(args[3],"documents"),new File(args[3],"temporary"),configuration,code,manifest.getString("bundleSha256"),new NativeBusinessEngine.Authority(){public void beforeRequest(JSONObject r,boolean internal){}public void beforeCommit(JSONObject r,boolean internal){}},new NativeBusinessEngine.Ports(){public JSONObject call(String command,JSONObject value,BusinessObjects objects)throws Exception{
    if(command.equals("store.context"))return new JSONObject().put("configured",false);
@@ -68,7 +71,7 @@ public class IndependentBusinessTest {
  }
 }`);
  const native=['NativeBusinessEngine','BusinessRuntime','BusinessPrimitives','BusinessSqlite','BusinessObjects','BusinessActor'];
- files.push(...native.map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java')),...['IndependentPolicy','IndependentReadiness'].map(n=>path.join(root,'independent-android/src/gr/argyrismitsos/fleetserver',n+'.java')));
+ files.push(...native.map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java')),...['IndependentPolicy','IndependentReadiness','IndependentDatabase'].map(n=>path.join(root,'independent-android/src/gr/argyrismitsos/fleetserver',n+'.java')));
  const jars=path.resolve('vendor/json-java/json-20240303.jar')+path.delimiter+path.resolve('.build/runtime-deps/rhino-1.9.1.jar');
  execFileSync('java',['-jar',path.resolve('.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',jars,'-d',dir,...files],{stdio:'inherit'});
  execFileSync('java',['-Xmx384m','-Dfixture.rpc='+path.join(dir,'sqlite_rpc.py'),'-cp',dir+path.delimiter+jars,'gr.argyrismitsos.fleetserver.IndependentBusinessTest',path.join(dir,'business.sqlite'),path.resolve('.build/business-runtime/runtime.js'),path.resolve('.build/business-runtime/manifest.json'),dir],{stdio:'inherit',timeout:180000});

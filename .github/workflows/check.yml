@@ -139,7 +139,7 @@ jobs:
       - run: node scripts/test-primary-cipher-native.mjs
       - run: node scripts/test-primary-lease-native.mjs
       - run: node scripts/test-business-runtime-resources.mjs
-      - run: node scripts/test-business-runtime-native.mjs
+      - run: node scripts/test-business-runtime-native.mjs --independent-restore
       - run: node scripts/test-independent-business.mjs
       - run: node scripts/test-independent-network.mjs
       - name: Prepare independent financial export validators
