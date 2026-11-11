@@ -8,6 +8,8 @@ flock -n "$FLEET_INDEPENDENT_LOCK_FD" || { echo "Another isolated build is alrea
 python3 scripts/prepare-independent-build.py
 export FLEET_ISOLATED_BUILD=1
 export FLEET_ANDROID_TOOLCHAIN_ROOT="$FLEET_TASK_ROOT/.android-toolchain"
+export FLEET_KEYSTORE="${FLEET_KEYSTORE:-$FLEET_TASK_ROOT/private/signing/fleet-control-release.p12}"
+export FLEET_PRIVATE_KEYS="${FLEET_PRIVATE_KEYS:-$FLEET_TASK_ROOT/private/PRIVATE_SETUP_KEYS.txt}"
 # No production server secret is embedded in either independent APK.
 FLEET_SERVER_KEY=$(git rev-parse 'HEAD^{tree}')
 export FLEET_SERVER_KEY
