@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase;import android.database.sqlite.SQL
 public final class IndependentDatabase {
  private IndependentDatabase(){}
  static void configure(SQLiteDatabase db)throws Exception{
+  if(!db.enableWriteAheadLogging()||!db.isWriteAheadLoggingEnabled())throw new IOException("Δεν ενεργοποιήθηκε η ασφαλής λειτουργία SQLite WAL.");
   try(SQLiteStatement timeout=db.compileStatement("PRAGMA busy_timeout=5000")){if(timeout.simpleQueryForLong()!=5000)throw new IOException("Δεν εφαρμόστηκε ο χρόνος αναμονής SQLite.");}
   db.execSQL("PRAGMA synchronous=FULL");
   db.execSQL("CREATE TABLE IF NOT EXISTS independent_instance(id INTEGER PRIMARY KEY CHECK(id=1),instance_id TEXT NOT NULL,mode TEXT NOT NULL,activated_at INTEGER,activated_by TEXT)");

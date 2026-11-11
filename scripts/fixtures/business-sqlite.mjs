@@ -39,6 +39,7 @@ for line in sys.stdin:
  // accepts it, so model the actual Android execSQL contract explicitly.
  private void execute(String sql,JSONArray args){if(sql.matches("(?s)(?:\\s|;|--[^\\r\\n]*(?:\\r?\\n|$)|/\\*(?:[^*]|\\*(?!/))*(?:\\*/|$))*")){throw new SQLiteException("empty SQL statement (code 21 SQLITE_MISUSE)");}JSONObject result=query(sql,args);if(result.getJSONArray("columns").length()>0)throw new SQLiteException("Queries can be performed using SQLiteDatabase query or rawQuery methods only.");}
  public void execSQL(String sql){execute(sql,new JSONArray());}public void execSQL(String sql,Object[] args){execute(sql,new JSONArray(args));}
+ public boolean enableWriteAheadLogging(){return query("PRAGMA journal_mode=WAL",new org.json.JSONArray()).getJSONArray("rows").getJSONArray(0).getString(0).equals("wal");}public boolean isWriteAheadLoggingEnabled(){return query("PRAGMA journal_mode",new org.json.JSONArray()).getJSONArray("rows").getJSONArray(0).getString(0).equals("wal");}
  public boolean inTransaction(){return transaction;}public void beginTransaction(){execSQL("BEGIN IMMEDIATE");transaction=true;success=false;}public void setTransactionSuccessful(){success=true;}public void endTransaction(){try{execSQL(success?"COMMIT":"ROLLBACK");}finally{transaction=false;success=false;}}
  public void close()throws Exception{output.close();input.close();child.waitFor();}
 }`);

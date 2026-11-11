@@ -41,7 +41,7 @@ public final class AndroidSqliteChecks extends Instrumentation {
         final JSONObject owner=new JSONObject().put("username","android.owner").put("password","Synthetic-Owner-2026!").put("fullName","Synthetic Android owner");
         JSONObject parts;
         try(FleetDataStore store=new FleetDataStore(source,databaseName)){
-            SQLiteDatabase db=store.getWritableDatabase();check(db.isWriteAheadLoggingEnabled(),"Bundled writable DB uses WAL");IndependentDatabase.configure(db);NativeDatabaseSnapshot.requireCapabilities(db);
+            SQLiteDatabase db=store.getWritableDatabase();IndependentDatabase.configure(db);check(db.isWriteAheadLoggingEnabled()&&IndependentSqlite.text(db,"PRAGMA journal_mode").equals("wal"),"Bundled writable DB uses actual WAL");NativeDatabaseSnapshot.requireCapabilities(db);
             db.execSQL("CREATE TABLE json_regression(payload TEXT)");db.execSQL("CREATE INDEX json_regression_index ON json_regression(json_extract(payload,'$.n'))");db.execSQL("INSERT INTO json_regression VALUES('{\"n\":17}')");
             check(IndependentSqlite.text(db,"PRAGMA integrity_check").equals("ok"),"Exact photographed PRAGMA accepts JSON expression index");
             BusinessSqlite sql=new BusinessSqlite(db);
