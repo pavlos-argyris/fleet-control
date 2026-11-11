@@ -20,7 +20,7 @@ public final class AndroidSqliteChecks extends Instrumentation {
     private static final String FIXTURE_KEY="synthetic-independent-server-key-2026",PEPPER="synthetic-independent-pepper-2026";
     private void check(boolean value,String message){if(!value)throw new AssertionError(message);}
     @Override public void onCreate(Bundle arguments){super.onCreate(arguments);start();}
-    @Override public void onStart(){Bundle result=new Bundle();try{runChecks();result.putString("stream","PASS actual Android bundled SQLite, JSON indexes, savepoints, WAL, FCB3 SAF import, Keystore/fsync, owner login and source preservation\n");finish(Activity.RESULT_OK,result);}catch(Throwable failure){android.util.Log.e("FleetSqliteTest","Synthetic Android regression failed",failure);result.putString("stream","FAIL "+failure.toString()+"\n");finish(Activity.RESULT_CANCELED,result);}}
+    @Override public void onStart(){Bundle result=new Bundle();try{runChecks();result.putString("stream","PASS actual Android bundled SQLite, JSON indexes, savepoints, WAL, FCB3 SAF import, Keystore/fsync, owner login and source preservation\n");finish(Activity.RESULT_OK,result);}catch(Throwable failure){android.util.Log.e("FleetSqliteTest","Synthetic Android regression failed",failure);StringWriter trace=new StringWriter();failure.printStackTrace(new PrintWriter(trace));result.putString("stream","FAIL "+trace.toString()+"\n");finish(Activity.RESULT_CANCELED,result);}}
     private JSONObject request(NativeBusinessEngine engine,String path,String method,JSONObject body,String token,boolean internal)throws Exception{
         JSONObject headers=new JSONObject().put("Content-Type","application/json").put("X-Fleet-Operation",UUID.randomUUID().toString());if(token!=null)headers.put("Authorization","Bearer "+token);if(internal)headers.put("X-Fleet-Server-Key",FIXTURE_KEY);
         JSONObject req=new JSONObject().put("url",REALM+path).put("method",method).put("headers",headers);if(body!=null)req.put("body",body.toString());return engine.request(req,internal,60000);
@@ -29,7 +29,7 @@ public final class AndroidSqliteChecks extends Instrumentation {
         boolean first=true;try(InputStream input=new FileInputStream(source)){byte[] bytes=new byte[32768];int n;while((n=input.read(bytes))!=-1){Bundle bundle=new Bundle();bundle.putByteArray("data",Arrays.copyOf(bytes,n));bundle.putBoolean("first",first);context.getContentResolver().call(Uri.parse("content://"+AUTHORITY),"append",name,bundle);first=false;}}
     }
     private void runChecks()throws Exception {
-        final Context target=getTargetContext();IndependentConfig.require(target);IndependentSqlite.requireReady();
+        waitForIdleSync();final Context target=getTargetContext();IndependentConfig.require(target);IndependentSqlite.initialize(target);IndependentSqlite.requireReady();
         check(!target.getDatabasePath(NativeColdRestore.DATABASE_NAME).exists(),"Emulator target must start empty");
         // API30's stock SQLite has the same missing JSON capability as the photo.
         boolean stockJson=false;try(android.database.sqlite.SQLiteDatabase stock=android.database.sqlite.SQLiteDatabase.create(null)){try(Cursor c=stock.rawQuery("SELECT json_extract('{\"n\":1}','$.n')",null)){stockJson=c.moveToFirst();}catch(android.database.sqlite.SQLiteException expected){}}
