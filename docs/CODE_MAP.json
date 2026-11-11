@@ -630,6 +630,33 @@
         "docs/CLOUD_PRIMARY_RETURN_GR.md",
         "docs/CLOUD_WRITE_REDUCTION_GR.md"
       ]
+    },
+    {
+      "id": "independent-android",
+      "title": "Issue 90: ανεξάρτητη δοκιμαστική Android εγκατάσταση / HTTPS / restore",
+      "paths": [
+        "independent-android/**",
+        "independent-client/**",
+        "independent-web/**",
+        "server-runtime/standalone.js",
+        "scripts/prepare-independent-build.py",
+        "scripts/build-independent-android.sh",
+        "scripts/check-independent-apks.py"
+      ],
+      "tests": [
+        "scripts/test-independent-business.mjs",
+        "scripts/test-independent-network.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-cash-pilot-native.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "backups",
+        "worker-core"
+      ],
+      "docs": [
+        "docs/ISSUE_90_INDEPENDENT_ANDROID_GR.md"
+      ]
     }
   ]
 }

@@ -58,7 +58,7 @@ public final class NativeBusinessEngine implements Closeable, BusinessRuntime.Ho
                 if(accepted.length()>0)db.execSQL("INSERT INTO native_event_outbox(id,generation,scopes,created_at) VALUES(?,?,?,?)",new Object[]{UUID.randomUUID().toString(),generation,accepted.toString(),new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX",Locale.US).format(new Date())});
                 value=new JSONObject();
             }
-            if(value==null&&Arrays.asList("store.context","health.snapshot","reports.export","http.read").contains(command))value=ports.call(command,data,objects);
+            if(value==null&&Arrays.asList("store.context","health.snapshot","reports.export","http.read","independent.status","independent.probe","independent.activate").contains(command))value=ports.call(command,data,objects);
         }
         if(value==null)throw new IOException("Unsupported native capability");return value.toString();
     }

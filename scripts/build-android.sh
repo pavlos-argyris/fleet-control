@@ -14,9 +14,11 @@ KEYSTORE="${FLEET_KEYSTORE:-$PROJECT_ROOT/private/signing/fleet-control-release.
 PRIVATE_KEYS="${FLEET_PRIVATE_KEYS:-$PROJECT_ROOT/private/PRIVATE_SETUP_KEYS.txt}"
 DIST="$PROJECT_ROOT/dist"
 BUILD_TARGET="${1:-all}"
-python3 "$PROJECT_ROOT/scripts/prepare-pdf-viewer.py"
-python3 "$PROJECT_ROOT/scripts/prepare-static-assets.py"
-(cd "$PROJECT_ROOT" && node scripts/prepare-direct-permissions.mjs --check)
+if [[ "${FLEET_ISOLATED_BUILD:-}" != "1" ]]; then
+  python3 "$PROJECT_ROOT/scripts/prepare-pdf-viewer.py"
+  python3 "$PROJECT_ROOT/scripts/prepare-static-assets.py"
+  (cd "$PROJECT_ROOT" && node scripts/prepare-direct-permissions.mjs --check)
+fi
 
 if [[ "$BUILD_TARGET" != "all" && "$BUILD_TARGET" != "client" && "$BUILD_TARGET" != "server" ]]; then
   echo "Χρήση: $0 [all|client|server]" >&2
@@ -96,6 +98,9 @@ build_apk() {
     framework_args+=( -I "$framework_extension" )
   fi
   framework_args+=( -I "$ANDROID_JAR" )
+  if [[ "${FLEET_ISOLATED_BUILD:-}" == "1" && "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
+    framework_args+=( --custom-package gr.argyrismitsos.fleetserver )
+  fi
 
   LD_LIBRARY_PATH="$FC_ANDROID_LIBS" "$AAPT_BIN" package -f -m \
     -J "$work_dir/gen" \
@@ -129,6 +134,18 @@ for f in (p/'invoice-deps/jars').glob('*.jar'):
 PY
     mkdir -p "$work_dir/dex"
     java -cp "$work_dir/invoice-deps/r8.jar" com.android.tools.r8.D8 --release --min-api 26 --lib "$ANDROID_JAR" --output "$work_dir/dex" "$work_dir/program.jar" "${invoice_jars[@]}"
+    cp "$work_dir/dex/"*.dex "$work_dir/"
+  elif [[ "${FLEET_ISOLATED_BUILD:-}" == "1" ]]; then
+    python3 "$PROJECT_ROOT/scripts/prepare-invoice-dependencies.py" "$work_dir/d8-deps"
+    python3 - "$work_dir" <<'PY'
+import sys,zipfile
+from pathlib import Path
+p=Path(sys.argv[1])
+with zipfile.ZipFile(p/'program.jar','w') as z:
+ for f in sorted((p/'classes').rglob('*.class')):z.writestr(str(f.relative_to(p/'classes')),f.read_bytes())
+PY
+    mkdir -p "$work_dir/dex"
+    java -cp "$work_dir/d8-deps/r8.jar" com.android.tools.r8.D8 --release --min-api 26 --lib "$ANDROID_JAR" --output "$work_dir/dex" "$work_dir/program.jar"
     cp "$work_dir/dex/"*.dex "$work_dir/"
   else
     java -jar "$DX_JAR" --dex --output="$work_dir/classes.dex" "$work_dir/classes"
@@ -166,7 +183,7 @@ PY
 
 if [[ "$BUILD_TARGET" == "all" || "$BUILD_TARGET" == "client" ]]; then
   CLIENT_CONFIG="$PROJECT_ROOT/client-android/assets/www/fleet-config.js"
-  if ! rg -q 'apiBase:[[:space:]]*"https://fleet-control\.pavlosargyris\.workers\.dev"' "$CLIENT_CONFIG"; then
+  if [[ "${FLEET_ISOLATED_BUILD:-}" != "1" ]] && ! rg -q 'apiBase:[[:space:]]*"https://fleet-control\.pavlosargyris\.workers\.dev"' "$CLIENT_CONFIG"; then
     echo "Το Android client δεν έχει έγκυρο απομακρυσμένο apiBase: $CLIENT_CONFIG" >&2
     exit 1
   fi

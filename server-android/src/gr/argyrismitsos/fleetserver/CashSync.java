@@ -8,6 +8,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Shared reader requests + bounded LOCAL financial work. Never performs provider/Worker HTTP. */
 public final class CashSync {
+    public interface Authority { boolean ready(); JSONObject apply()throws Exception; }
+    // Only the separate independent Application installs this process-local port.
+    private static volatile Authority localAuthority;
+    public static void installAuthority(Authority authority){localAuthority=authority;}
     static final long PILOT_MS=120000;
     private static final String META="meta:cash-sync";
     private static final AtomicBoolean running=new AtomicBoolean();
@@ -29,7 +33,8 @@ public final class CashSync {
         long now=System.currentTimeMillis();if(now<next||!running.compareAndSet(false,true))return;
         boolean tracked=false;
         try{
-            if(NativePrimaryService.cloudMode(context)||!NativePrimaryService.jobsAllowed(context)){next=now+5000;return;}
+            Authority local=localAuthority;
+            if(local!=null?!local.ready():NativePrimaryService.cloudMode(context)||!NativePrimaryService.jobsAllowed(context)){next=now+5000;return;}
             // begin shares the OTA pause lock: an update either waits for this
             // durable step, or prevents it from starting before its checkpoint.
             if(!ServerWorkTracker.begin(context,"cash-auto","Αυτόματο Ταμείο","Ενημέρωση επαληθευμένων παραδόσεων")){next=now+1000;return;}
@@ -38,7 +43,7 @@ public final class CashSync {
             StoreBillingStore store=new StoreBillingStore(fleet);String scope=source.getString("scope"),generation=source.getString("generation");JSONObject old=store.get(META),meta=old==null?new JSONObject():new JSONObject(old.toString());boolean changed=!scope.equals(meta.optString("scope"))||!generation.equals(meta.optString("generation"));
             JSONObject result=null;
             // First local call initializes the current business schema. Later idle ticks avoid JS work.
-            if(!initializedScope.equals(scope+":"+generation)||pending(store,scope)){result=NativePrimaryService.applyCashBatch(context);initializedScope=scope+":"+generation;}
+            if(!initializedScope.equals(scope+":"+generation)||pending(store,scope)){result=local==null?NativePrimaryService.applyCashBatch(context):local.apply();initializedScope=scope+":"+generation;}
             String today=StoreBillingEngine.businessDay(now),previous=StoreBillingEngine.addDay(today,-1);boolean enabled=wanted(store,scope,today,previous);
             if(changed){meta=new JSONObject().put("nextDue",0);if(enabled)StoreBillingSync.wake(fleet);}
             meta.put("scope",scope).put("generation",generation).put("automaticPollingEnabled",enabled).put("intervalMs",PILOT_MS);

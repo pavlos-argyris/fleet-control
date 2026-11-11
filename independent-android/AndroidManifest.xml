@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="gr.argyrismitsos.fleetserver.independent" android:versionCode="1" android:versionName="1.0.0-test1">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <application android:name="gr.argyrismitsos.fleetserver.IndependentApplication" android:allowBackup="false" android:icon="@drawable/ic_launcher" android:label="Fleet Independent Server — Δοκιμή" android:theme="@style/AppTheme" android:usesCleartextTraffic="false">
+    <activity android:name="gr.argyrismitsos.fleetserver.IndependentActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+    <service android:name="gr.argyrismitsos.fleetserver.IndependentService" android:exported="false" android:foregroundServiceType="specialUse"><property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User controlled always-on HTTPS server for a private courier fleet, local SQLite and read-only provider synchronization."/></service>
+    <receiver android:name="gr.argyrismitsos.fleetserver.IndependentBootReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/></intent-filter></receiver>
+  </application>
+</manifest>

@@ -77,7 +77,7 @@ public final class OrdexaSync {
     }
     static JSONObject storesContext(Context c)throws Exception{
         SharedPreferences p=prefs(c),main=c.getSharedPreferences(BackupManager.PREFS,Context.MODE_PRIVATE);String city=p.getString("city",""),worker=workerBase(main);
-        String scope=OrdexaClient.digest(new JSONObject().put("account",p.getString("account","").trim().toLowerCase(Locale.ROOT)).put("city",city).put("worker",worker));
+        String scope=OrdexaClient.digest(new JSONObject().put("account",p.getString("account","").trim().toLowerCase(Locale.ROOT)).put("city",city).put("worker",main.getString("independent_source_realm",worker)));
         return new JSONObject().put("scope",scope).put("cityId",city).put("worker",worker).put("generation",p.getString("generation","legacy")).put("generationAt",p.getLong("generation_at",1)).put("configured",p.contains("session")&&city.length()>0).put("enabled",p.getBoolean("enabled",false)&&p.contains("session")&&city.length()>0);
     }
     static JSONObject storesRead(Context c,JSONObject expected,boolean setup,String from,String to,int page,String shop)throws Exception{

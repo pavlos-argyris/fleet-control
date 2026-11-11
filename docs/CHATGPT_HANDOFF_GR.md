@@ -1,3 +1,10 @@
+## CHECKPOINT ΚΩΔΙΚΑ #90 — 11/11/2026, δοκιμή αποκλειστικά
+
+- Πραγματική υλοποίηση σε `codex/issue-90-independent-android`: νέα ξεχωριστά APK IDs/manifest/code1, isolated full FCB3 import με existing cold journal/isolated probe, shared local backend/auth/roles, δική του transactional readiness/activation authority, embedded TLS/DuckDNS/ACME DNS-01, Android-hosted Web και SSE μετά commit, προαιρετικό read-only Ordexa/local invoice lane. Αναλυτικό inventory/οδηγός/περιορισμοί: `docs/ISSUE_90_INDEPENDENT_ANDROID_GR.md`.
+- PASS πραγματικός shared native business/FCB3/isolated/cold/migration regression, CashSync regression και νέο standalone Java/Rhino/SQLite: 30+ sessions, 8 concurrent clients, write/rollback, locality/TLS/session/staleness/owner gates, atomic activation+receipt failure/replay, 0 outbound capability calls. Οι public peers/TLS readiness είναι συνθετικά fixture inputs, ΟΧΙ φυσικό 4G proof.
+- Πρώτο compiled isolated Client APK κατασκευάστηκε με disposable test key. Διορθώνεται SDK23 fsync flag/σταδιακή κατασκευή Server και εκτελούνται πραγματικές TLS/protocol/browser/full exact-source checks. Δεν υπάρχει ακόμη τελική υπογεγραμμένη διανομή ή φυσική εγκατάσταση. Καμία αλλαγή/κλήση παραγωγικού Cloudflare, κανένα merge/production request/OTA/cutover και καμία μεταβολή #88/#89.
+- Επόμενο: ολοκλήρωση στοχευμένων network/restore/browser/APK ελέγχων, full exact-source CI, χωριστό signed test delivery/full source. Backup ιδιοκτήτη, DDNS/token/CA issuance, Nova443/4G και φυσικό δεύτερο κινητό παραμένουν πραγματικά εκκρεμή. Ενεργοποίηση μόνο owner action μετά παραλαβή.
+
 ## ΑΝΑΛΗΨΗ #90 — ανεξάρτητο Android test, 11/11/2026
 
 - Ρητή εντολή ιδιοκτήτη: πλήρης υλοποίηση #90, δεύτερο κινητό, παραγωγικό Cloudflare απολύτως ανέπαφο, καμία τελική μετάβαση πριν φυσική δοκιμή/έγκριση.
