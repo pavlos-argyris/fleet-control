@@ -18,7 +18,7 @@ import {RECEIPT_SCHEMA,beginOperation,finishOperation} from '../../server-runtim
 export class CloudBusiness {
   constructor(ctx,env,ports){this.ctx=ctx;this.env=env;this.ports=ports;this.DB=cloudBusinessDatabase(ctx.storage);this.ready=null;this.transfer=new CloudTransfer(ctx,env);}
   async scheduleCash(env){if(!env.BUSINESS_CONTEXT?.configured)return;const pending=await env.DB.prepare("SELECT 1 found FROM store_billing_local WHERE scope=? AND kind='cash_apply_request' LIMIT 1").bind(env.BUSINESS_CONTEXT.scope).first();if(!pending)return;const next=Date.now()+1000,alarm=await this.ctx.storage.getAlarm();if(alarm===null||alarm>next)await this.ctx.storage.setAlarm(next);}
-  async alarm(){const cfg=await this.ctx.storage.get('cloud-business.configuration');if(!cfg?.active)return;const response=await this.fetch(new Request('https://cloud-business.internal/_cloud-maintain',{headers:{'X-Fleet-Server-Key':this.env.SERVER_KEY}}));if(!response.ok)throw Error('Cloud maintenance needs retry');}
+  async alarm(){const cfg=await this.ctx.storage.get('cloud-business.configuration');if(!cfg?.active)return;const response=await this.fetch(new Request('https://cloud-business.internal/_cloud-cash-maintain',{headers:{'X-Fleet-Server-Key':this.env.SERVER_KEY}}));if(!response.ok)throw Error('Cloud maintenance needs retry');}
   async fetch(request){
     return this.ctx.blockConcurrencyWhile(async()=>{
      try{
@@ -36,6 +36,7 @@ export class CloudBusiness {
         SERVICE_DOCS_RAW:this.env.SERVICE_DOCS,
         SERVICE_DOCS:cloudDocumentBucket(this.env.SERVICE_DOCS,this.DB,configuration.generation),
         BUSINESS_CONTEXT:configuration.context||{},
+        BUSINESS_HEALTH:configuration.health||{},
         BUSINESS_PORT:async(command,value)=>{
           return (this.ports||cloudHost)(command,value,{request,configuration,DB:this.DB,env:this.env});
         },
@@ -46,7 +47,7 @@ export class CloudBusiness {
       let initialized=false,actorId='',fingerprint='';
       const response=await cloudBusinessTransaction(this.ctx.storage,async()=>{
         if(!this.ready){await this.DB.exec(RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA);ensureCloudStoreIndexes(this.ctx.storage.sql);initialized=true;}
-        if(path==='/_cloud-maintain'){if(!request.localInternal)return Response.json({error:'Forbidden'},{status:403});const pending=[];await worker.scheduled(null,environment,{waitUntil:p=>pending.push(p)});await Promise.all(pending);const automatic=configuration.context?.configured?await applyAutomaticCashBatch(environment):{idle:true};if(automatic.changed)changes.push('cash');await this.scheduleCash(environment);return Response.json({ok:true,automatic});}
+        if(path==='/_cloud-maintain'||path==='/_cloud-cash-maintain'){if(!request.localInternal)return Response.json({error:'Forbidden'},{status:403});if(path==='/_cloud-maintain'){const pending=[];await worker.scheduled(null,environment,{waitUntil:p=>pending.push(p)});await Promise.all(pending);}const automatic=configuration.context?.configured?await applyAutomaticCashBatch(environment):{idle:true};if(automatic.changed)changes.push('cash');await this.scheduleCash(environment);return Response.json({ok:true,automatic});}
         const backup=await routeCloudBackup(request,environment,configuration,this.ctx.storage);if(backup)return backup;
         const source=await routeCloudSource(request,environment,configuration,this.ctx.storage);if(source){if(source.changed)changes.push('cash','stores');await this.scheduleCash(environment);return source.response;}
         if(request.headers.has('Authorization'))try{const actor=await authenticateExternal(request,environment);actorId=actor.user_id;fingerprint=await principalSecurity(environment,actor);}catch{}

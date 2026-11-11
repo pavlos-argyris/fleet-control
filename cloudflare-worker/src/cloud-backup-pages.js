@@ -4,7 +4,7 @@ import {NativeError} from '../../server-runtime/common.js';
 
 const rows=(sql,q,...args)=>Array.from(sql.exec(q,...args));
 const encoded=new TextEncoder(),PAGE_BYTES=512*1024;
-export const backupRows=(sql,table,after=null)=>{
+export const backupRows=(sql,table,after=null,through=null)=>{
  // Estimate first, so a group of large cells cannot materialize64 huge rows.
  // Then read column groups below the SQLite-DO100-result-column limit.
  // JSON quoting can expand control characters sixfold. Measure encoded text;
@@ -13,7 +13,8 @@ export const backupRows=(sql,table,after=null)=>{
  // Balance additions: a left-deep99-column sum exceeds DO expression depth100.
  while(terms.length>1)terms=Array.from({length:Math.ceil(terms.length/2)},(_,i)=>terms[i*2+1]?`(${terms[i*2]}+${terms[i*2+1]})`:terms[i*2]);
  const sizes=terms[0];
- const ids=rows(sql,`SELECT CAST(_rowid_ AS TEXT) source_row,${sizes} bytes FROM ${sqlName(table.name)} ${after===null?'':'WHERE _rowid_>CAST(? AS INTEGER)'} ORDER BY _rowid_ LIMIT 64`,...(after===null?[]:[after]));
+ const where=[...(after===null?[]:['_rowid_>CAST(? AS INTEGER)']),...(through===null?[]:['_rowid_<=CAST(? AS INTEGER)'])];
+ const ids=rows(sql,`SELECT CAST(_rowid_ AS TEXT) source_row,${sizes} bytes FROM ${sqlName(table.name)} ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY _rowid_ LIMIT 64`,...(after===null?[]:[after]),...(through===null?[]:[through]));
  let bytes=0;const selected=[];
  for(const id of ids){const estimate=Number(id.bytes)+table.columns.length*48+100;if(selected.length&&bytes+estimate>PAGE_BYTES)break;if(estimate>12*1024*1024)throw new NativeError(413,'Μία εγγραφή είναι πολύ μεγάλη για ασφαλές cloud backup.');selected.push({rowid:id.source_row,values:[]});bytes+=estimate;}
  if(!selected.length)return [];
@@ -25,8 +26,8 @@ export const backupRows=(sql,table,after=null)=>{
  }
  return selected;
 };
-export async function typedBackupPage(sql,table,after=null){
- const result=backupRows(sql,table,after);for(const row of result)row.hash=await rowDigest(table.name,row.rowid,row.values);return {rows:result};
+export async function typedBackupPage(sql,table,after=null,through=null){
+ const result=backupRows(sql,table,after,through);for(const row of result)row.hash=await rowDigest(table.name,row.rowid,row.values);return {rows:result};
 }
 export function backupSchema(sql){
  return rows(sql,"SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").filter(t=>transferable(t.name)||['fleet_mirror_state','fleet_mirror_changes'].includes(t.name)).map(t=>{

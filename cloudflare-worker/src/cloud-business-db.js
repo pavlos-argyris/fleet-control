@@ -5,7 +5,7 @@ export function cloudBusinessDatabase(storage){
   const execute=(query,params=[])=>{
     const cursor=storage.sql.exec(query,...params);
     const results=Array.from(cursor);
-    const change=Array.from(storage.sql.exec('SELECT changes() changes,last_insert_rowid() last_row_id'))[0];
+    const change=/^\s*(SELECT|EXPLAIN)\b/i.test(query)?{changes:0,last_row_id:0}:Array.from(storage.sql.exec('SELECT changes() changes,last_insert_rowid() last_row_id'))[0];
     return {success:true,results,meta:{changes:change.changes,last_row_id:change.last_row_id,rows_read:cursor.rowsRead||0,rows_written:cursor.rowsWritten||0}};
   };
   const prepare=(query,params=[])=>({

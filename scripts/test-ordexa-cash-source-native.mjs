@@ -42,6 +42,11 @@ public class CashSourceTest {
    stage(cash,"reassigned:p1",1);stage(cash,"reassigned:p2",1);cash.promote(scope,"reassigned:p2",day,day+"T12:00:00Z",true);store.cleanupTemporary(scope);
    before=store.rows(scope,"cash_source_event").length();name="Different alias";stage(cash,"rename:p1",1);stage(cash,"rename:p2",1);cash.promote(scope,"rename:p2",day,day+"T12:00:00Z",true);
    check(store.rows(scope,"cash_source_event").length()==before,"nickname change cannot create another financial identity event");check(store.rows(scope,"cash_rider_alias").length()>=2,"nicknames are preserved separately from ID mapping");store.cleanupTemporary(scope);
+   CloudCashCatalog.refresh(store,scope,"g1");JSONObject directory=store.get(StoreBillingStore.key("cash-catalog",scope,"riders"));
+   check(directory.getJSONArray("riders").getJSONObject(1).getString("nickname").equals("Different alias"),"prepared directory uses the current nickname, preserving previous aliases");
+   String directoryRevision=directory.getString("revision");stage(cash,"same-names:p1",1);stage(cash,"same-names:p2",1);cash.promote(scope,"same-names:p2",day,day+"T12:00:00Z",true);CloudCashCatalog.refresh(store,scope,"g1");
+   check(store.get(StoreBillingStore.key("cash-catalog",scope,"riders")).getString("revision").equals(directoryRevision),"new source run with unchanged riders keeps directory content revision");
+   check(store.rows(scope,"cash_snapshot_order").length()==1&&store.dirty(scope).length()==0,"preparing directory retains raw source on the Server and adds no financial/order outbox");
    JSONObject normalized=OrdexaCashOrderProtocol.page(page(0,1,1,1),StoreBillingProtocol.page(page(0,1,1,1),1,null,new HashSet<String>(Arrays.asList("7")))).getJSONArray("rows").getJSONObject(0);
    check(!normalized.has("income")&&!normalized.has("charge")&&!normalized.has("riderCost")&&!normalized.has("zeroCharge"),"Ordexa money/zeroCharge cannot become cash or cancellation policy");
    JSONObject bad=page(0,1,1,1);bad.getJSONArray("rows").getJSONObject(0).put("riderId","guessed-string-id");JSONObject base=StoreBillingProtocol.page(bad,1,null,new HashSet<String>(Arrays.asList("7")));check(!OrdexaCashOrderProtocol.page(bad,base).getBoolean("identityVerified"),"unobserved rider schema fails closed without breaking the existing store adapter");
@@ -62,6 +67,6 @@ public class CashSourceTest {
  }
 }`);
  const provider='server-android/src/gr/argyrismitsos/fleetserver/';
- execFileSync('java',['-jar',path.resolve('.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',jar,'-d',dir,...['OrdexaClient','StoreBillingEngine','StoreBillingProtocol','StoreBillingStore','OrdexaCashOrderProtocol','OrdexaCashSourceStore'].map(n=>provider+n+'.java'),...stubs,path.join(dir,'CashSourceTest.java')],{stdio:'inherit'});
+ execFileSync('java',['-jar',path.resolve('.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',jar,'-d',dir,...['OrdexaClient','StoreBillingEngine','StoreBillingProtocol','StoreBillingStore','OrdexaCashOrderProtocol','OrdexaCashSourceStore','CloudCashCatalog'].map(n=>provider+n+'.java'),...stubs,path.join(dir,'CashSourceTest.java')],{stdio:'inherit'});
  execFileSync('java',['-Dfixture.rpc='+path.join(dir,'sqlite_rpc.py'),'-Dfixture.db='+path.join(dir,'cash.sqlite'),'-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetserver.CashSourceTest'],{stdio:'inherit',timeout:180000});
 }finally{fs.rmSync(dir,{recursive:true,force:true});}

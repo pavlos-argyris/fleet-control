@@ -1,3 +1,10 @@
+## CHECKPOINT — Server-first Cloudflare,11/11/2026
+
+- Στον ίδιο κλάδο `codex/server-first-cloud-budget` ολοκληρώθηκε η πρώτη υλοποίηση: dirty rowid-block backup με transactional SQLite tracking/λήξη15λεπτών και immutable R2 pages αντί πλήρους τελικού rescan, διατήρηση legacy points· νέος έτοιμος κατάλογος διανομέων στον Android Server, περιεχόμενο UI revision ανεξάρτητο από freshness· το τοπικό source journal δεν αντιγράφει πλέον raw `order`/`observation` (τα ίδια τα δεδομένα και παλιές cloud copies διατηρούνται).
+- Μικρό freshness proof Ταμείου χωρίς απογραφή αμετάβλητων IDs, skip GROUP BY όταν πλήρης source digest/config/manual κατάσταση συμφωνούν, ξεχωριστό cash alarm από scheduled workforce, idle transport60s και εκθετικό backoff έως15min, pilot freshness από το health heartbeat αντί timestamp-only source SQL writes. Καμία παραγωγική μετάβαση/restore/delete.
+- PASS τοπικά: test-cloud-backup (hot row, insert σε παλιό rowid block, αλλαγή rowid, expiry restart, ιδιωτικά αρχεία, rollback/lost ACK, int64/99στήλες), test-cloud-return (νέα ροή directory/freshness χωρίς raw-order SELECT, πλήρης επιστροφή, cash201 και D1/R2 preservation), test-cash-auto-sqlite, test-cloud-business-db, test-native-management-ui, test-ordexa-cash-source-native με πραγματικό Java directory, ολόκληρο test-business-runtime-native/FCB3/isolated restore.
+- Επόμενο: μεταφορά του diffing μεταβαλλόμενης ημέρας στον Server και εφαρμογή μόνο changed identities όπου επαληθεύεται ίδιο config/previous completed ledger· υποψήφια έκδοση/immutable assets, πλήρες check-all και exact-source PR/main CI. Δεν έχει ακόμη ετοιμαστεί έκδοση ή δημοσίευση αυτού του κλάδου.
+
 ## ΝΕΑ ΑΝΑΘΕΣΗ — Server-first μείωση Cloudflare,11/11/2026
 
 - Ρητή εντολή ιδιοκτήτη σε αυτή τη συνομιλία: «ας κάνουμε ό,τι μπορούμε ώστε να μειώσουμε στο ελάχιστο την κατανάλωση πόρων του cloudflare… ας μεταφέρουμε όσα μπορούμε στο server… ξεκίνα». Υλοποίηση/έλεγχοι και η προβλεπόμενη κανονική δημοσίευση εξουσιοδοτούνται· όχι παραγωγικό delete/restore, Ordexa business writes, νέα έξοδα ή αλλαγή αρχικών κλειδιών.

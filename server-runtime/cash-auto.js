@@ -38,16 +38,17 @@ async function configuration(env,scope,date){
 }
 function selectRule(cfg,store,pin){if(pin)return pin;const candidates=cfg.byStore.get(store)||[];return candidates.length===1?candidates[0]:null;}
 async function sourceCoverage(env,scope,date){const row=await env.DB.prepare("SELECT data FROM store_billing_local WHERE scope=? AND kind='cash_source_coverage' AND day=?").bind(scope,date).first();return row?decode(row.data):null;}
+async function configurationProof(source,date,coverage,cfg){return hash({contract:CONTRACT.revision,scope:source.scope,day:date,source:coverage.sourceDigest,rules:cfg.rules.map(r=>r.id),links:cfg.links.map(r=>r.id),exclusions:cfg.exclusions.map(r=>r.id)});}
 function complete(source){return source?.revision===CONTRACT.revision&&source.identityVerified===true&&source.ordersCoverageComplete===true&&!source.needsSourceRefresh&&source.timeSemanticsVerified===true&&source.cancellationSemanticsVerified===true&&/^[a-f0-9]{64}$/.test(source.sourceDigest||'')&&Number.isFinite(Date.parse(source.lastCompleteAt));}
 export async function cashAutomaticPreview(env,date){
   const source=requireSource(env);return publicPlan(await plan(env,source,day(date)));
 }
 function publicPlan(p){return{day:p.day,scope:p.scope,state:p.state,proof:p.proof||null,issues:p.issues,manualEvents:p.manual||[],forecast:p.forecast||[],sourceCompleteAt:p.coverage?.lastCompleteAt||null};}
-async function plan(env,source,date){
-  const coverage=await sourceCoverage(env,source.scope,date),base={scope:source.scope,day:date,coverage,state:'partial',issues:[]};
+async function plan(env,source,date,prepared={}){
+  const coverage=prepared.coverage||await sourceCoverage(env,source.scope,date),base={scope:source.scope,day:date,coverage,state:'partial',issues:[]};
   if(!complete(coverage))return{...base,issues:[{code:'source-incomplete',message:'Χρειάζεται νέα πλήρης συνεπής λήψη παραγγελιών.'}]};
-  const cfg=await configuration(env,source.scope,date);if(!cfg.byStore.size&&!await env.DB.prepare('SELECT 1 found FROM native_cash_auto_orders WHERE scope=? AND business_day=? LIMIT 1').bind(source.scope,date).first())return{...base,cfg,state:'not-configured',issues:[{code:'no-participating-stores',message:'Επίλεξε καταστήματα και κανόνες απόδοσης.'}]};
-  const inputProof=await hash({contract:CONTRACT.revision,scope:source.scope,day:date,source:coverage.sourceDigest,rules:cfg.rules.map(r=>r.id),links:cfg.links.map(r=>r.id),exclusions:cfg.exclusions.map(r=>r.id)});
+  const cfg=prepared.cfg||await configuration(env,source.scope,date);if(!cfg.byStore.size&&!await env.DB.prepare('SELECT 1 found FROM native_cash_auto_orders WHERE scope=? AND business_day=? LIMIT 1').bind(source.scope,date).first())return{...base,cfg,state:'not-configured',issues:[{code:'no-participating-stores',message:'Επίλεξε καταστήματα και κανόνες απόδοσης.'}]};
+  const inputProof=prepared.inputProof||await configurationProof(source,date,coverage,cfg);
   const groups=list(await env.DB.prepare("SELECT n.store_id storeId,json_extract(n.data,'$.sourceRiderId') riderId,CASE WHEN json_extract(s.data,'$.pinnedDay')=n.day AND json_extract(s.data,'$.pinnedRule.store_id')=n.store_id AND (json_extract(s.data,'$.pinFinal')=1 OR json_extract(s.data,'$.pinProof')=?) THEN json_extract(s.data,'$.pinnedRule') ELSE NULL END pinnedRule,COUNT(*) quantity FROM store_billing_local n LEFT JOIN native_cash_auto_orders s ON s.scope=n.scope AND s.order_id=json_extract(n.data,'$.sourceOrderId') WHERE n.scope=? AND n.kind='cash_snapshot_order' AND n.day=? AND json_extract(n.data,'$.runId')=? AND json_extract(n.data,'$.sourceOrderId') NOT IN(SELECT value FROM json_each(?)) GROUP BY n.store_id,riderId,pinnedRule").bind(inputProof,source.scope,date,coverage.runId,JSON.stringify([...cfg.excluded])).all());
   const issues=[],forecast=[],participating=new Set(cfg.byStore.keys());
   for(const group of groups){
@@ -94,9 +95,23 @@ async function askSourceRefresh(env,source,date){
 }
 export async function applyAutomaticCashBatch(env){
   const source=requireSource(env),request=await env.DB.prepare("SELECT id,day,data FROM store_billing_local WHERE scope=? AND kind='cash_apply_request' ORDER BY day DESC LIMIT 1").bind(source.scope).first();
-  if(!request)return{changed:false,idle:true};const p=await plan(env,source,request.day);
+  if(!request)return{changed:false,idle:true};
+  const before=await env.DB.prepare('SELECT * FROM native_cash_auto_days WHERE scope=? AND day=?').bind(source.scope,request.day).first(),prepared={};
+  if(before?.state==='ready'){
+    prepared.coverage=await sourceCoverage(env,source.scope,request.day);
+    if(complete(prepared.coverage)&&prepared.coverage.sourceDigest===before.source_digest){
+      prepared.cfg=await configuration(env,source.scope,request.day);prepared.inputProof=await configurationProof(source,request.day,prepared.coverage,prepared.cfg);
+      // A complete source digest was computed on the Server. Recheck current
+      // configuration and manual reconciliation before skipping order scans.
+      // Any active manual assessment conservatively falls back to the full plan.
+      const proof=await hash({inputProof:prepared.inputProof,manual:[]});
+      if(proof===before.proof&&!await env.DB.prepare("SELECT 1 found FROM native_cash_events e WHERE e.business_day=? AND e.kind='assessment' AND (e.source_key IS NULL OR e.source_key NOT LIKE 'ordexa:%') AND NOT EXISTS(SELECT 1 FROM native_cash_events r WHERE r.reverses_id=e.id) LIMIT 1").bind(request.day).first()){
+        const changed=await saveDay(env,{scope:source.scope,day:request.day,coverage:prepared.coverage,proof},'ready','');await acknowledge(env,request);return{changed,state:'ready',day:request.day,unchanged:true};
+      }
+    }
+  }
+  const p=await plan(env,source,request.day,prepared);
   if(p.state!=='ready'){const changed=await saveDay(env,p,p.state,'',p.issues);await acknowledge(env,request);return{changed,state:p.state,day:p.day};}
-  const before=await env.DB.prepare('SELECT * FROM native_cash_auto_days WHERE scope=? AND day=?').bind(source.scope,p.day).first();
   if(before?.state==='ready'&&before.proof===p.proof){const changed=await saveDay(env,p,'ready','');await acknowledge(env,request);return{changed,state:'ready',day:p.day};}
   const cursor=before?.proof===p.proof&&before.state==='applying'?before.cursor:'',ids=list(await env.DB.prepare("SELECT order_id FROM(SELECT json_extract(data,'$.sourceOrderId') order_id FROM store_billing_local WHERE scope=? AND kind='cash_snapshot_order' AND day=? AND json_extract(data,'$.runId')=? AND (store_id IN(SELECT value FROM json_each(?)) OR EXISTS(SELECT 1 FROM native_cash_auto_orders s WHERE s.scope=store_billing_local.scope AND s.order_id=json_extract(store_billing_local.data,'$.sourceOrderId'))) UNION SELECT order_id FROM native_cash_auto_orders WHERE scope=? AND business_day=?) WHERE order_id>? ORDER BY order_id LIMIT 200").bind(source.scope,p.day,p.coverage.runId,JSON.stringify([...p.cfg.byStore.keys()]),source.scope,p.day,cursor).all()).map(row=>row.order_id);
   const rows=await latestSourceRows(env,source.scope,ids),grouped=new Map();for(const row of rows){const data=decode(row.data),id=data.sourceOrderId;if(!grouped.has(id))grouped.set(id,[]);grouped.get(id).push({...row,value:data});}
