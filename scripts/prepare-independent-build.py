@@ -31,7 +31,7 @@ sql.write_text(value)
 # it on first open. Configure every independent helper connection explicitly.
 store=destination/'server-android/src/gr/argyrismitsos/fleetserver/FleetDataStore.java'
 value=store.read_text()
-marker='    @Override\\n    public void onCreate(SQLiteDatabase db) {'
+marker='    @Override\n    public void onCreate(SQLiteDatabase db) {'
 if value.count(marker)!=1:raise SystemExit('Independent SQLite helper staging drift')
 configure='''    @Override public void onConfigure(SQLiteDatabase db) {
         if(db.isReadOnly())return;
@@ -40,7 +40,7 @@ configure='''    @Override public void onConfigure(SQLiteDatabase db) {
     }
 
 '''
-value=value.replace(marker,configure+marker).replace('import org.sqlite.database.sqlite.SQLiteDatabase;', 'import org.sqlite.database.sqlite.SQLiteDatabase;\\nimport org.sqlite.database.sqlite.SQLiteException;')
+value=value.replace(marker,configure+marker).replace('import org.sqlite.database.sqlite.SQLiteDatabase;', 'import org.sqlite.database.sqlite.SQLiteDatabase;\nimport org.sqlite.database.sqlite.SQLiteException;')
 store.write_text(value)
 attrs=destination/'android-build-support/fgs-extension/res/values/attrs.xml'
 attrs.write_text(attrs.read_text().replace('<flag name="dataSync" value="0x00000001" />','<flag name="dataSync" value="0x00000001" /><flag name="specialUse" value="0x40000000" />'))
