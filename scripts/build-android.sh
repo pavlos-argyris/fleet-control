@@ -81,13 +81,16 @@ build_apk() {
   local invoice_jars=()
   if [[ "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
     python3 "$PROJECT_ROOT/scripts/prepare-invoice-dependencies.py" "$work_dir/invoice-deps"
+    if [[ "${FLEET_ISOLATED_BUILD:-}" == "1" ]]; then
+      python3 "$PROJECT_ROOT/scripts/prepare-independent-sqlite.py" "$work_dir/invoice-deps"
+    fi
     python3 "$PROJECT_ROOT/scripts/prepare-business-dependencies.py" "$work_dir/invoice-deps/jars" --resources "$work_dir/java-resources"
     (cd "$PROJECT_ROOT" && node scripts/build-business-runtime.mjs)
     mkdir -p "$work_dir/assets"
     cp -R "$source_dir/assets/." "$work_dir/assets/"
     if [[ "${FLEET_ISOLATED_BUILD:-}" == "1" ]]; then
       mkdir -p "$work_dir/assets/independent-www/download"
-      cp "$DIST/Fleet_Control_Client_v1.0.0-test1.apk" "$work_dir/assets/independent-www/download/client.apk"
+      cp "$DIST/Fleet_Control_Client_v1.0.0-test2.apk" "$work_dir/assets/independent-www/download/client.apk"
     fi
     cp -R "$work_dir/invoice-deps/assets/." "$work_dir/assets/"
     mkdir -p "$work_dir/assets/business-runtime"
@@ -136,6 +139,10 @@ for f in (p/'invoice-deps/jars').glob('*.jar'):
  with zipfile.ZipFile(f,'w') as dst:
   for n,b in sorted(data.items()):dst.writestr(n,b)
 PY
+    if [[ "${FLEET_ISOLATED_BUILD:-}" == "1" ]]; then
+      mkdir -p "$PROJECT_ROOT/.build"
+      cp "$work_dir/program.jar" "$PROJECT_ROOT/.build/independent-server-classes.jar"
+    fi
     mkdir -p "$work_dir/dex"
     java -cp "$work_dir/invoice-deps/r8.jar" com.android.tools.r8.D8 --release --min-api 26 --lib "$ANDROID_JAR" --output "$work_dir/dex" "$work_dir/program.jar" "${invoice_jars[@]}"
     cp "$work_dir/dex/"*.dex "$work_dir/"

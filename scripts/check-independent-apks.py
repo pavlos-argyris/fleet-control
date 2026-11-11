@@ -6,9 +6,9 @@ libs=[root/'.android-toolchain'/p for p in ('usr/lib/x86_64-linux-gnu/android','
 env={**os.environ,'LD_LIBRARY_PATH':':'.join(map(str,libs))}
 folder=pathlib.Path(sys.argv[1]);checks=[]
 for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),('Client','gr.argyrismitsos.fleetindependentclient')]:
-    file=folder/f'Fleet_Independent_{component}_v1.0.0-test1.apk'
+    file=folder/f'Fleet_Independent_{component}_v1.0.0-test2.apk'
     info=subprocess.check_output([str(aapt),'dump','badging',str(file)],env=env,text=True)
-    assert f"package: name='{package}'" in info and "versionCode='1'" in info, info[:300]
+    assert f"package: name='{package}'" in info and "versionCode='2'" in info and "versionName='1.0.0-test2'" in info, info[:300]
     tree=subprocess.check_output([str(aapt),'dump','xmltree',str(file),'AndroidManifest.xml'],env=env,text=True)
     assert 'usesCleartextTraffic' in tree and 'allowBackup' in tree
     if component=='Server':
@@ -24,7 +24,20 @@ for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),
             portal=apk.read('assets/independent-www/portal.html')
             assert b'./fleet.html?embedded=1' in portal and b'./index.html?embedded=1' not in portal
             assert b'href="./direct.html"' not in portal
-            assert apk.read('assets/independent-www/download/client.apk')==(folder/'Fleet_Independent_Client_v1.0.0-test1.apk').read_bytes(),'Android-hosted download must be the exact signed isolated Client'
+            lock=json.loads((root/'android-build-support/independent-sqlite.lock.json').read_text())
+            data=(root/'.build/independent-sqlite'/lock['file']).read_bytes()
+            assert len(data)==lock['sizeBytes'] and hashlib.sha256(data).hexdigest()==lock['sha256'] and hashlib.sha3_256(data).hexdigest()==lock['sha3_256']
+            import io
+            with zipfile.ZipFile(io.BytesIO(data)) as aar:
+                for abi in lock['abis']:
+                    name='lib/'+abi+'/libsqliteX.so'
+                    assert apk.read(name)==aar.read('jni/'+abi+'/libsqliteX.so'),'Wrong/missing bundled SQLite ABI: '+abi
+            dex=b''.join(apk.read(name) for name in names if name.endswith('.dex'))
+            for descriptor in [b'Lorg/sqlite/database/sqlite/SQLiteDatabase;',b'Lgr/argyrismitsos/fleetserver/IndependentSqlite;']:
+                assert descriptor in dex,'Bundled provider/preflight missing from dex'
+            assert b'Lgr/argyrismitsos/fleetserver/AndroidSqliteChecks;' not in dex,'Disposable instrumentation must never ship'
+            assert 'assets/independent-sqlite-notices/NOTICE.txt' in names
+            assert apk.read('assets/independent-www/download/client.apk')==(folder/'Fleet_Independent_Client_v1.0.0-test2.apk').read_bytes(),'Android-hosted download must be the exact signed isolated Client'
             with zipfile.ZipFile(root/'vendor/pdf-viewer-6.4.299.zip') as viewer:
                 for name in viewer.namelist():
                     if not name.endswith('/'):assert apk.read('assets/independent-www/vendor/pdfjs/'+name)==viewer.read(name),'Pinned PDF viewer input missing/different: '+name
@@ -34,4 +47,4 @@ for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),
     if os.environ.get('FLEET_REQUIRE_ORIGINAL_SIGNATURE')=='1':assert fingerprint==(root/'signing-certificate.sha256').read_text().strip(),'Wrong original signing certificate'
     checks.append({'certificateSha256':fingerprint,'component':component,'applicationId':package,'bytes':file.stat().st_size,'sha256':hashlib.sha256(file.read_bytes()).hexdigest()})
 (folder/'APK_VERIFICATION.json').write_text(json.dumps({'schema':1,'isolated':True,'productionActivation':False,'artifacts':checks},indent=2)+'\n')
-print('PASS compiled isolated application IDs, TLS-only manifests, exclusive Server components and APK business/Web resources')
+print('PASS compiled isolated IDs/code2, TLS-only manifests, pinned SQLite four ABI bytes/preflight, no test hooks and APK business/Web resources')

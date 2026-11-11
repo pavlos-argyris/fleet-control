@@ -644,7 +644,12 @@
         "scripts/check-independent-apks.py",
         "scripts/wait-independent-source-check.mjs",
         "scripts/package-independent-delivery.py",
-        ".github/workflows/independent-android.yml"
+        ".github/workflows/independent-android.yml",
+        "android-build-support/independent-sqlite.lock.json",
+        "third-party/independent-sqlite/**",
+        "scripts/prepare-independent-sqlite.py",
+        "scripts/build-independent-android-test.py",
+        "scripts/fixtures/android-sqlite/**"
       ],
       "tests": [
         "scripts/test-independent-business.mjs",
@@ -652,7 +657,8 @@
         "scripts/test-business-runtime-native.mjs",
         "scripts/test-cash-pilot-native.mjs",
         "scripts/test-independent-web.mjs",
-        "scripts/test-independent-browser.mjs"
+        "scripts/test-independent-browser.mjs",
+        "scripts/test-independent-android.sh"
       ],
       "related": [
         "server-foundation",

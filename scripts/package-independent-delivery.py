@@ -8,7 +8,10 @@ for file in sorted(folder.iterdir()):
 (folder/'delivery-manifest.json').write_text(json.dumps({'schema':1,'issue':90,'sourceCommit':sha,'sourceTree':tree,'profile':'independent-test','productionActivation':False,'physicalAndroidAcceptance':'pending','externalNovaAcceptance':'pending','artifacts':files},indent=2)+'\n')
 (folder/'RELEASE_NOTES.md').write_text(f'''Δοκιμαστική ανεξάρτητη εγκατάσταση για δεύτερο κινητό — Issue #90.
 
-- Ξεχωριστά Server/Client APK, έκδοση 1.0.0-test1, application IDs ανεξάρτητα από την παραγωγή.
+- Ξεχωριστά Server/Client APK, έκδοση 1.0.0-test2, application IDs ανεξάρτητα από την παραγωγή.
+- Διόρθωση εισαγωγής «unknown function: json_extract»: επίσημη ενσωματωμένη SQLite 3.54.1 / JSON για import, runtime και backup, με αρχικό compatibility probe.
+- Πραγματική δοκιμή Android API30 με το ίδιο σφάλμα της stock SQLite: JSON indexes/integrity, WAL/savepoints, τρία encrypted FCB3 μέρη, SAF import, Keystore/fsync και owner login.
+- Εγκατάσταση πάνω από το Independent test1 χωρίς απεγκατάσταση, με αυξημένο code2 και ίδια αρχική υπογραφή.
 - Τοπικό πλήρες FCB3 restore, username/password, shared business APIs και οικονομικό audit.
 - HTTPS/DuckDNS/ACME, Android-hosted Web και owner-only readiness/activation gates.
 - Αρχική υπογραφή APK επαληθευμένη μέσα στο CI· πλήρες source όλων των τμημάτων και SHA-256.

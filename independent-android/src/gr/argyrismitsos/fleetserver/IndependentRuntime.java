@@ -4,7 +4,7 @@ import android.content.*;import android.database.sqlite.SQLiteDatabase;import or
 /** One serialized local writer. No lease/coordinator/transport from the production service. */
 public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCloseable {
     private static IndependentRuntime instance;
-    static synchronized IndependentRuntime get(Context c)throws Exception{IndependentConfig.require(c);if(instance==null)instance=new IndependentRuntime(c.getApplicationContext());return instance;}
+    static synchronized IndependentRuntime get(Context c)throws Exception{IndependentConfig.require(c);IndependentSqlite.requireReady();if(instance==null)instance=new IndependentRuntime(c.getApplicationContext());return instance;}
     private final Context context;private FleetDataStore store;private SQLiteDatabase db;private NativeBusinessEngine engine;private final JSONObject config;
     private final ThreadPoolExecutor executor=new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<Runnable>(32));
     private final RandomAccessFile lockFile;private java.nio.channels.FileLock processLock;

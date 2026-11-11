@@ -11,6 +11,22 @@ shutil.copy2(root/'release-config.json',destination/'release-config.json')
 (destination/'cloudflare-worker/node_modules').symlink_to(root/'cloudflare-worker/node_modules',target_is_directory=True)
 shutil.copytree(root/'independent-android/src',destination/'server-android/src',dirs_exist_ok=True)
 shutil.copy2(root/'independent-android/AndroidManifest.xml',destination/'server-android/AndroidManifest.xml')
+# The production source stays on Android's provider. Every staged Server SQL
+# open/helper/cursor/exception uses the same bundled engine, including restore.
+for java in (destination/'server-android/src').rglob('*.java'):
+    value=java.read_text().replace('android.database.sqlite.', 'org.sqlite.database.sqlite.')
+    value=value.replace('import android.database.SQLException;', 'import org.sqlite.database.SQLException;')
+    value=value.replace('import android.database.DatabaseErrorHandler;', 'import org.sqlite.database.DatabaseErrorHandler;')
+    value=value.replace('"ROLLBACK TO ', '"/* fleet savepoint */ ROLLBACK TO ')
+    java.write_text(value)
+sql=destination/'server-android/src/gr/argyrismitsos/fleetserver/BusinessSqlite.java'
+value=sql.read_text()
+for old,new in [('},sql,null,null);','},IndependentSqlite.statement(sql),null,null);'),
+                ('db.execSQL(sql,args);','db.execSQL(IndependentSqlite.statement(sql),args);'),
+                ('db.execSQL(line);','db.execSQL(IndependentSqlite.statement(line));')]:
+    if value.count(old)!=1:raise SystemExit('Independent SQLite SQL adapter staging drift: '+old)
+    value=value.replace(old,new)
+sql.write_text(value)
 attrs=destination/'android-build-support/fgs-extension/res/values/attrs.xml'
 attrs.write_text(attrs.read_text().replace('<flag name="dataSync" value="0x00000001" />','<flag name="dataSync" value="0x00000001" /><flag name="specialUse" value="0x40000000" />'))
 # Dedicated Client: remote Android-hosted WebView, distinct package and no production OTA.
