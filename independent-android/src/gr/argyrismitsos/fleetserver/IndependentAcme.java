@@ -100,7 +100,7 @@ public final class IndependentAcme {
     }
     /** Pure protocol port: only production Http/Txt ports may perform network I/O. */
     static JSONObject obtain(Http http,KeyPair account,KeyPair certificate,String host,String token,Waiter waiter,Txt lookup,Progress progress)throws Exception{
-        IndependentAcme client=new IndependentAcme(http,account);boolean txtSet=false;
+        IndependentAcme client=new IndependentAcme(http,account);boolean txtSet=false,authorizationConfirmed=false;
         try{
             IndependentPolicy.hostname(host);client.stage("directory",progress);
             Result directoryResponse=http.request(DIRECTORY,"GET",null);if(directoryResponse.status!=200)throw IndependentCertificate.problem(client.phase,directoryResponse.body,directoryResponse.status,directoryResponse.retryAt);client.directory=client.object(directoryResponse);
@@ -126,7 +126,7 @@ public final class IndependentAcme {
                 }
                 if(stable<2)throw last!=null?last:new IndependentCertificate.Failure(client.phase,"DNS_PENDING",0,0);
                 client.stage("authorization",progress);client.signed(caUrl(challenge.getString("url")),"{}",false);
-                auth=client.poll(authUrl,"valid",new HashSet<String>(Arrays.asList("pending","processing")),waiter,progress);
+                auth=client.poll(authUrl,"valid",new HashSet<String>(Arrays.asList("pending","processing")),waiter,progress);authorizationConfirmed=true;
             }
             // Authorization and order transitions are separate ACME resources.
             // The server must report ready before a CSR may be finalized.
@@ -136,7 +136,7 @@ public final class IndependentAcme {
             client.stage("download",progress);String chain=client.signed(caUrl(order.getString("certificate")),"",false).body;
             return new JSONObject().put("key",encoded(certificate.getPrivate())).put("chain",chain).put("issuedAt",waiter.now());
         }catch(Exception error){throw IndependentCertificate.classify(client.phase,error);}
-        finally{if(txtSet)try{http.request(duckUrl(host,token,"",true),"GET",null);}catch(Exception ignored){/* Next attempt rewrites only this scoped TXT. */}}
+        finally{if(txtSet&&authorizationConfirmed)try{http.request(duckUrl(host,token,"",true),"GET",null);}catch(Exception ignored){/* A later owner-controlled attempt can clean up the scoped TXT. */}}
     }
     // Recovery creates a separate identity; old sealed state and key remain intact.
     static final String NAME_V2=NAME+".v2",ALIAS_V2=ALIAS+".v2";
