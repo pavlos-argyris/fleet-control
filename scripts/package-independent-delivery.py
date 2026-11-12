@@ -8,7 +8,7 @@ for file in sorted(folder.iterdir()):
 (folder/'delivery-manifest.json').write_text(json.dumps({'schema':1,'issue':90,'sourceCommit':sha,'sourceTree':tree,'profile':'independent-test','productionActivation':False,'physicalAndroidAcceptance':'pending','externalNovaAcceptance':'pending','artifacts':files},indent=2)+'\n')
 (folder/'RELEASE_NOTES.md').write_text(f'''Δοκιμαστική ανεξάρτητη εγκατάσταση για δεύτερο κινητό — Issue #90.
 
-- Ξεχωριστά Server/Client APK, έκδοση 1.0.0-test3, application IDs ανεξάρτητα από την παραγωγή.
+- Ξεχωριστά Server/Client APK, έκδοση 1.0.0-test4, application IDs ανεξάρτητα από την παραγωγή.
 - Ακριβές στάδιο και ασφαλής κωδικός σφάλματος πιστοποιητικού, χωρίς token/κλειδιά/ωμό κείμενο παρόχου, με άμεση ενημέρωση οθόνης.
 - Ασφαλής διάγνωση επίμονου Keystore/ACME storage failure, και ιδιοκτησιακή επιβεβαίωση για μη καταστροφική v2 identity (χωρίς αλλαγή SQLite/backup/παλιού account).\n- Πραγματική αναμονή δημοσίευσης DNS-01 TXT και δύο χωριστές θετικές αποκρίσεις πριν ζητηθεί έλεγχος από την CA.
 - Έλεγχος ready πριν αποστολή CSR, σεβασμός Retry-After και αποθηκευμένη ώρα επόμενης προσπάθειας.
