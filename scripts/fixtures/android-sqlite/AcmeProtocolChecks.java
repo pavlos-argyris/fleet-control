@@ -97,12 +97,16 @@ public final class AcmeProtocolChecks {
         Ca success=new Ca(account,chain,"success");JSONObject identity=success.run(certificate);
         check(identity.getString("key").equals(IndependentAcme.encoded(certificate.getPrivate()))&&identity.getString("chain").equals(chain),"complete protocol retains exact returned identity");
         check(success.writes==1&&success.clears==1&&success.challenge==1&&success.finalize==1&&success.phases.contains("txt_wait")&&success.phases.contains("ready")&&success.phases.contains("download"),"full DNS/order/certificate lifecycle");
+        // Android instrumentation uses a synthetic ACME response without PEM certificates.
+        // Real PEM chain/hostname/trust regressions run in the JVM network fixture.
         if(trust)IndependentTls.chain(identity,HOST,true);
+        if(chain.contains("-----BEGIN CERTIFICATE-----")){
         try{IndependentTls.chain(identity,"other.duckdns.org",false);throw new AssertionError("Wrong TLS hostname accepted");}
         catch(IndependentCertificate.Failure expected){check(expected.reason.equals("CHAIN_HOSTNAME"),"distinct safe hostname diagnostic: "+expected.reason);}
         JSONObject truncated=new JSONObject(identity.toString()).put("chain",chain.substring(0,chain.indexOf("-----END CERTIFICATE-----")+25));
         try{IndependentTls.chain(truncated,HOST,false);throw new AssertionError("Incomplete TLS chain accepted");}
         catch(IndependentCertificate.Failure expected){check(expected.reason.equals("CHAIN_INCOMPLETE"),"distinct safe incomplete-chain diagnostic: "+expected.reason);}
+        }
         check(IndependentCertificate.describe(new IndependentCertificate.Failure("chain","CHAIN_UNTRUSTED",0,0),0).contains("CERT_CHAIN_CHAIN_UNTRUSTED"),"safe trust diagnostic remains actionable");
         Ca reused=new Ca(account,chain,"already-valid");reused.run(certificate);check(reused.writes==0&&reused.clears==0&&reused.challenge==0&&reused.finalize==1,"valid CA authorization avoids DNS writes");
         failure(account,certificate,chain,"caa","order","CAA");failure(account,certificate,chain,"subproblem","order","CA_DNS");failure(account,certificate,chain,"rate","order","CA_RATE_LIMIT");
