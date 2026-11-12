@@ -6,9 +6,9 @@ libs=[root/'.android-toolchain'/p for p in ('usr/lib/x86_64-linux-gnu/android','
 env={**os.environ,'LD_LIBRARY_PATH':':'.join(map(str,libs))}
 folder=pathlib.Path(sys.argv[1]);checks=[]
 for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),('Client','gr.argyrismitsos.fleetindependentclient')]:
-    file=folder/f'Fleet_Independent_{component}_v1.0.0-test3.apk'
+    file=folder/f'Fleet_Independent_{component}_v1.0.0-test4.apk'
     info=subprocess.check_output([str(aapt),'dump','badging',str(file)],env=env,text=True)
-    assert f"package: name='{package}'" in info and "versionCode='3'" in info and "versionName='1.0.0-test3'" in info, info[:300]
+    assert f"package: name='{package}'" in info and "versionCode='4'" in info and "versionName='1.0.0-test3'" in info, info[:300]
     tree=subprocess.check_output([str(aapt),'dump','xmltree',str(file),'AndroidManifest.xml'],env=env,text=True)
     assert 'usesCleartextTraffic' in tree and 'allowBackup' in tree
     if component=='Server':
@@ -37,7 +37,7 @@ for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),
                 assert descriptor in dex,'Bundled provider/preflight missing from dex'
             assert b'Lgr/argyrismitsos/fleetserver/AndroidSqliteChecks;' not in dex,'Disposable instrumentation must never ship'
             assert 'assets/independent-sqlite-notices/NOTICE.txt' in names
-            assert apk.read('assets/independent-www/download/client.apk')==(folder/'Fleet_Independent_Client_v1.0.0-test3.apk').read_bytes(),'Android-hosted download must be the exact signed isolated Client'
+            assert apk.read('assets/independent-www/download/client.apk')==(folder/'Fleet_Independent_Client_v1.0.0-test4.apk').read_bytes(),'Android-hosted download must be the exact signed isolated Client'
             with zipfile.ZipFile(root/'vendor/pdf-viewer-6.4.299.zip') as viewer:
                 for name in viewer.namelist():
                     if not name.endswith('/'):assert apk.read('assets/independent-www/vendor/pdfjs/'+name)==viewer.read(name),'Pinned PDF viewer input missing/different: '+name
@@ -47,4 +47,4 @@ for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),
     if os.environ.get('FLEET_REQUIRE_ORIGINAL_SIGNATURE')=='1':assert fingerprint==(root/'signing-certificate.sha256').read_text().strip(),'Wrong original signing certificate'
     checks.append({'certificateSha256':fingerprint,'component':component,'applicationId':package,'bytes':file.stat().st_size,'sha256':hashlib.sha256(file.read_bytes()).hexdigest()})
 (folder/'APK_VERIFICATION.json').write_text(json.dumps({'schema':1,'isolated':True,'productionActivation':False,'artifacts':checks},indent=2)+'\n')
-print('PASS compiled isolated IDs/code3, TLS-only manifests, pinned SQLite four ABI bytes/preflight, no test hooks and APK business/Web resources')
+print('PASS compiled isolated IDs/code4, TLS-only manifests, pinned SQLite four ABI bytes/preflight, no test hooks and APK business/Web resources')
