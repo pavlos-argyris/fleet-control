@@ -108,14 +108,73 @@ public final class IndependentAcme {
         }catch(Exception error){throw IndependentCertificate.classify(client.phase,error);}
         finally{if(txtSet)try{http.request(duckUrl(host,token,"",true),"GET",null);}catch(Exception ignored){/* Next attempt rewrites only this scoped TXT. */}}
     }
+    // Recovery creates a separate identity; old sealed state and key remain intact.
+    static final String NAME_V2=NAME+".v2",ALIAS_V2=ALIAS+".v2";
+    private static String stateName(JSONObject config){return config.optInt("acmeAccountVersion",1)==2?NAME_V2:NAME;}
+    private static String stateAlias(JSONObject config){return config.optInt("acmeAccountVersion",1)==2?ALIAS_V2:ALIAS;}
+    static KeyPair accountKey(Context c,JSONObject config)throws Exception{
+        String name=stateName(config),alias=stateAlias(config);
+        try{
+            // Do not silently create a new AES key for existing ciphertext.
+            String encrypted=c.getSharedPreferences("fleet_sealed_runtime_v1",Context.MODE_PRIVATE).getString(name,"");
+            if(!encrypted.isEmpty()){
+                KeyStore keys=KeyStore.getInstance("AndroidKeyStore");keys.load(null);
+                if(!keys.containsAlias(alias))throw new IndependentCertificate.Failure("storage","ACCOUNT_ALIAS_MISSING",0,0);
+            }
+        }catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_KEYSTORE",error);}
+        JSONObject saved;
+        try{saved=SealedLocalState.read(c,name,alias);}catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_READ",error);}
+        if(saved.has("accountKey")){
+            try{return decode(saved.getString("accountKey"));}catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_DECODE",error);}
+        }
+        KeyPair created;
+        try{created=generate();}catch(Exception error){throw IndependentCertificate.storage("RSA_GENERATE",error);}
+        try{saved.put("accountKey",encoded(created.getPrivate()));SealedLocalState.write(c,name,alias,saved);}
+        catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_WRITE",error);}
+        try{
+            JSONObject persisted=SealedLocalState.read(c,name,alias);
+            KeyPair verified=decode(persisted.getString("accountKey"));
+            if(!java.util.Arrays.equals(created.getPublic().getEncoded(),verified.getPublic().getEncoded()))
+                throw new java.security.GeneralSecurityException("Account key round-trip mismatch");
+            return verified;
+        }catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_VERIFY",error);}
+    }
+    /** Owner UI and explicit confirmation only: prepare v2 before selecting it. */
+    static synchronized void prepareFreshAccount(Context c)throws Exception{
+        JSONObject config;
+        try{config=IndependentConfig.read(c);}catch(Exception error){throw IndependentCertificate.storage("CONFIG_READ",error);}
+        if(!config.has("backupSha256")||!config.optBoolean("acmeTermsAccepted"))
+            throw new IOException("Χρειάζεται εισαγμένο backup και αποδεκτοί όροι πιστοποιητικού.");
+        if(config.optInt("acmeAccountVersion",1)!=1)
+            throw new IOException("Έγινε ήδη η ασφαλής αλλαγή λογαριασμού. Δεν επιτρέπεται επαναλαμβανόμενη αντικατάσταση.");
+        android.content.SharedPreferences ui=c.getSharedPreferences("independent_ui",Context.MODE_PRIVATE);
+        String failure=ui.getString("certificateFailureCode","");
+        if(failure.isEmpty())failure=ui.getString("certificate","");
+        if(!failure.contains("CERT_STORAGE_ACCOUNT")&&!failure.contains("CERT_STORAGE_RSA")&&!failure.contains("CERT_STORAGE_STORAGE"))
+            throw new IOException("Δεν υπάρχει καταγεγραμμένο σφάλμα κλειδιού ACME. Δεν πραγματοποιήθηκε αλλαγή.");
+        JSONObject proposed=new JSONObject(config.toString()).put("acmeAccountVersion",2);
+        accountKey(c,proposed); // seal + verify without touching v1
+        try{IndependentConfig.save(c,proposed);}catch(Exception error){throw IndependentCertificate.storage("CONFIG_WRITE",error);}
+        if(!ui.edit().putBoolean("certificateRetryRequested",true)
+              .putString("certificate","Νέος απομονωμένος λογαριασμός πιστοποιητικού προετοιμάστηκε. Θα ακολουθήσει ασφαλής επανάληψη.")
+              .remove("certificateFailureCode").commit())
+            throw new IOException("Η ρύθμιση αποθηκεύτηκε, αλλά η επανάληψη χρειάζεται επανεκκίνηση της υπηρεσίας.");
+    }
     static void issue(final Context c)throws Exception{issue(c,phase->{});}
-    static void issue(final Context c,Progress progress)throws Exception{
+    static synchronized void issue(final Context c,Progress progress)throws Exception{
         String phase="storage";
         try{
-            progress.stage(phase);JSONObject config=IndependentConfig.read(c);if(!config.optBoolean("acmeTermsAccepted"))throw new IndependentCertificate.Failure(phase,"CA_UNAUTHORIZED",0,0);
-            String host=IndependentPolicy.hostname(config.getString("hostname")),token=config.getString("ddnsToken");JSONObject saved=SealedLocalState.read(c,NAME,ALIAS);KeyPair account=saved.has("accountKey")?decode(saved.getString("accountKey")):generate();
-            if(!saved.has("accountKey")){saved.put("accountKey",encoded(account.getPrivate()));SealedLocalState.write(c,NAME,ALIAS,saved);}
-            JSONObject identity=obtain(network(),account,generate(),host,token,new Waiter(){public long now(){return System.currentTimeMillis();}public void pause(long ms)throws Exception{Thread.sleep(ms);}},(name,value)->IndependentDns.visible(name,value),progress);
+            progress.stage(phase);
+            JSONObject config;
+            try{config=IndependentConfig.read(c);}catch(Exception error){throw IndependentCertificate.storage("CONFIG_READ",error);}
+            if(!config.optBoolean("acmeTermsAccepted"))throw new IndependentCertificate.Failure(phase,"CA_UNAUTHORIZED",0,0);
+            String host,token;
+            try{host=IndependentPolicy.hostname(config.getString("hostname"));token=config.getString("ddnsToken");}
+            catch(Exception error){throw IndependentCertificate.storage("CONFIG_INVALID",error);}
+            KeyPair account=accountKey(c,config);
+            KeyPair certificate;
+            try{certificate=generate();}catch(Exception error){throw IndependentCertificate.storage("RSA_GENERATE",error);}
+            JSONObject identity=obtain(network(),account,certificate,host,token,new Waiter(){public long now(){return System.currentTimeMillis();}public void pause(long ms)throws Exception{Thread.sleep(ms);}},(name,value)->IndependentDns.visible(name,value),progress);
             phase="chain";progress.stage(phase);IndependentTls.save(c,identity,host);
         }catch(Exception error){throw IndependentCertificate.classify(phase,error);}
     }
