@@ -131,13 +131,17 @@ public final class IndependentAcme {
         try{created=generate();}catch(Exception error){throw IndependentCertificate.storage("RSA_GENERATE",error);}
         try{saved.put("accountKey",encoded(created.getPrivate()));SealedLocalState.write(c,name,alias,saved);}
         catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_WRITE",error);}
-        try{
-            JSONObject persisted=SealedLocalState.read(c,name,alias);
-            KeyPair verified=decode(persisted.getString("accountKey"));
-            if(!java.util.Arrays.equals(created.getPublic().getEncoded(),verified.getPublic().getEncoded()))
-                throw new java.security.GeneralSecurityException("Account key round-trip mismatch");
-            return verified;
-        }catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_VERIFY",error);}
+        // Split real-device failures: a verified sealed write must survive a
+        // fresh read/decrypt, RSA reconstruction and exact public-key match.
+        JSONObject persisted;
+        try{persisted=SealedLocalState.read(c,name,alias);}
+        catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_VERIFY_READ",error);}
+        KeyPair verified;
+        try{verified=decode(persisted.getString("accountKey"));}
+        catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_VERIFY_DECODE",error);}
+        if(!java.util.Arrays.equals(created.getPublic().getEncoded(),verified.getPublic().getEncoded()))
+            throw new IndependentCertificate.Failure("storage","ACCOUNT_VERIFY_MISMATCH",0,0);
+        return verified;
     }
     /** Owner UI and explicit confirmation only: prepare v2 before selecting it. */
     static synchronized void prepareFreshAccount(Context c)throws Exception{
