@@ -8,6 +8,13 @@ destination.mkdir(parents=True)
 for name in ('server-android','client-android','common-android','scripts','cloudflare-worker','server-runtime','android-build-support','third-party','vendor'):
     shutil.copytree(root/name,destination/name,ignore=shutil.ignore_patterns('node_modules','.wrangler','__pycache__'))
 shutil.copy2(root/'release-config.json',destination/'release-config.json')
+# Only the staged isolated build script embeds the bundled test Client APK.
+# Keep the shared/production build script in the repository unchanged.
+isolated_builder=destination/'scripts/build-android.sh'
+builder_source=isolated_builder.read_text()
+old_client='Fleet_Control_Client_v1.0.0-test3.apk'
+if builder_source.count(old_client)!=1: raise SystemExit('Isolated Client bundling version drift')
+isolated_builder.write_text(builder_source.replace(old_client,'Fleet_Control_Client_v1.0.0-test4.apk'))
 (destination/'cloudflare-worker/node_modules').symlink_to(root/'cloudflare-worker/node_modules',target_is_directory=True)
 shutil.copytree(root/'independent-android/src',destination/'server-android/src',dirs_exist_ok=True)
 shutil.copy2(root/'independent-android/AndroidManifest.xml',destination/'server-android/AndroidManifest.xml')
