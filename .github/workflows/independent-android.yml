@@ -1,4 +1,4 @@
-# Trigger isolated Test 5 delivery verification after Issue #93 regression fix (2026-11-12).
+# Trigger isolated Android delivery after successful source checks #175 and #483 (2026-11-12).
 name: Independent Android test delivery
 on:
   workflow_dispatch:
