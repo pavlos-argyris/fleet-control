@@ -16,6 +16,6 @@ FLEET_SERVER_KEY=$(git rev-parse 'HEAD^{tree}')
 export FLEET_SERVER_KEY
 bash .build/independent-source/scripts/build-android.sh all
 mkdir -p .build/independent-delivery
-cp .build/independent-source/dist/Fleet_Control_Server_v1.0.0-test4.apk .build/independent-delivery/Fleet_Independent_Server_v1.0.0-test4.apk
-cp .build/independent-source/dist/Fleet_Control_Client_v1.0.0-test4.apk .build/independent-delivery/Fleet_Independent_Client_v1.0.0-test4.apk
+cp .build/independent-source/dist/Fleet_Control_Server_v1.0.0-test5.apk .build/independent-delivery/Fleet_Independent_Server_v1.0.0-test5.apk
+cp .build/independent-source/dist/Fleet_Control_Client_v1.0.0-test5.apk .build/independent-delivery/Fleet_Independent_Client_v1.0.0-test5.apk
 python3 scripts/check-independent-apks.py .build/independent-delivery
