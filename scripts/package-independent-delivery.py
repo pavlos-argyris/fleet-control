@@ -8,13 +8,13 @@ for file in sorted(folder.iterdir()):
 (folder/'delivery-manifest.json').write_text(json.dumps({'schema':1,'issue':90,'sourceCommit':sha,'sourceTree':tree,'profile':'independent-test','productionActivation':False,'physicalAndroidAcceptance':'pending','externalNovaAcceptance':'pending','artifacts':files},indent=2)+'\n')
 (folder/'RELEASE_NOTES.md').write_text(f'''Δοκιμαστική ανεξάρτητη εγκατάσταση για δεύτερο κινητό — Issue #90.
 
-- Ξεχωριστά Server/Client APK, έκδοση 1.0.0-test4, application IDs ανεξάρτητα από την παραγωγή.
+- Ξεχωριστά Server/Client APK, έκδοση 1.0.0-test5, application IDs ανεξάρτητα από την παραγωγή.
 - Ακριβές στάδιο και ασφαλής κωδικός σφάλματος πιστοποιητικού, χωρίς token/κλειδιά/ωμό κείμενο παρόχου, με άμεση ενημέρωση οθόνης.
 - Ασφαλής διάγνωση επίμονου Keystore/ACME storage failure, και ιδιοκτησιακή επιβεβαίωση για μη καταστροφική v2 identity (χωρίς αλλαγή SQLite/backup/παλιού account).\n- Πραγματική αναμονή δημοσίευσης DNS-01 TXT και δύο χωριστές θετικές αποκρίσεις πριν ζητηθεί έλεγχος από την CA.
 - Έλεγχος ready πριν αποστολή CSR, σεβασμός Retry-After και αποθηκευμένη ώρα επόμενης προσπάθειας.
 - Πλήρεις συνθετικοί έλεγχοι ACME/JWS/CAA/DNS/αναμονής/ιδιωτικότητας σε JVM και πραγματικό Android API30. Δεν εκτελείται live έκδοση πιστοποιητικού από το CI.
 - Διατηρείται η επίσημη ενσωματωμένη SQLite 3.54.1 / JSON και ο πραγματικός Android έλεγχος πλήρους encrypted FCB3/SAF import, Keystore/fsync και owner login.
-- Εγκατάσταση πάνω από Independent test3 χωρίς απεγκατάσταση ή νέα εισαγωγή backup, με αυξημένο code4 και ίδια αρχική υπογραφή.
+- Εγκατάσταση πάνω από Independent test4 χωρίς απεγκατάσταση ή νέα εισαγωγή backup, με αυξημένο code5 και ίδια αρχική υπογραφή.
 - Τοπικό πλήρες FCB3 restore, username/password, shared business APIs και οικονομικό audit.
 - HTTPS/DuckDNS/ACME, Android-hosted Web και owner-only readiness/activation gates.
 - Αρχική υπογραφή APK επαληθευμένη μέσα στο CI· πλήρες source όλων των τμημάτων και SHA-256.
