@@ -14,7 +14,37 @@ public final class IndependentAcme {
     private static String b64(byte[] bytes){return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);}
     static KeyPair generate()throws Exception{KeyPairGenerator generator=KeyPairGenerator.getInstance("RSA");generator.initialize(2048);return generator.generateKeyPair();}
     static String encoded(PrivateKey key){return java.util.Base64.getEncoder().encodeToString(key.getEncoded());}
-    static KeyPair decode(String privateKey)throws Exception{RSAPrivateCrtKey key=(RSAPrivateCrtKey)KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(java.util.Base64.getDecoder().decode(privateKey)));return new KeyPair(KeyFactory.getInstance("RSA").generatePublic(new RSAPublicKeySpec(key.getModulus(),key.getPublicExponent())),key);}
+    static KeyPair decode(String privateKey)throws Exception{return decode(privateKey,"");}
+    /** Android providers may return RSAPrivateKey without exposing the CRT
+     * interface. Trust neither an inferred exponent nor an optional stored
+     * public key until a fresh RSA sign/verify challenge succeeds. */
+    static KeyPair decode(String privateKey,String publicKey)throws Exception{
+        KeyFactory factory=KeyFactory.getInstance("RSA");
+        PrivateKey privateValue=factory.generatePrivate(new PKCS8EncodedKeySpec(java.util.Base64.getDecoder().decode(privateKey)));
+        if(!(privateValue instanceof RSAPrivateKey))throw new InvalidKeyException("RSA private key required");
+        RSAPrivateKey rsa=(RSAPrivateKey)privateValue;
+        PublicKey publicValue;
+        if(publicKey!=null&&!publicKey.isEmpty())
+            publicValue=factory.generatePublic(new X509EncodedKeySpec(java.util.Base64.getDecoder().decode(publicKey)));
+        else {
+            // Legacy v1 keys were generated with standard RSA 2048/65537.
+            // Use the CRT exponent when available; verify cryptographically
+            // below before accepting the legacy-derived public key.
+            BigInteger exponent=privateValue instanceof RSAPrivateCrtKey?
+                ((RSAPrivateCrtKey)privateValue).getPublicExponent():BigInteger.valueOf(65537);
+            publicValue=factory.generatePublic(new RSAPublicKeySpec(rsa.getModulus(),exponent));
+        }
+        if(!(publicValue instanceof RSAPublicKey)||
+           !rsa.getModulus().equals(((RSAPublicKey)publicValue).getModulus()))
+            throw new InvalidKeyException("RSA modulus mismatch");
+        byte[] challenge=new byte[32];new SecureRandom().nextBytes(challenge);
+        Signature signer=Signature.getInstance("SHA256withRSA");
+        signer.initSign(privateValue);signer.update(challenge);byte[] signed=signer.sign();
+        Signature verifier=Signature.getInstance("SHA256withRSA");
+        verifier.initVerify(publicValue);verifier.update(challenge);
+        if(!verifier.verify(signed))throw new InvalidKeyException("RSA keypair verification failed");
+        return new KeyPair(publicValue,privateValue);
+    }
     static byte[] unsigned(BigInteger value){byte[] b=value.toByteArray();return b.length>1&&b[0]==0?Arrays.copyOfRange(b,1,b.length):b;}
     JSONObject jwk()throws Exception{RSAPublicKey key=(RSAPublicKey)account.getPublic();return new JSONObject().put("e",b64(unsigned(key.getPublicExponent()))).put("kty","RSA").put("n",b64(unsigned(key.getModulus())));}
     String thumbprint()throws Exception{JSONObject key=jwk();String canonical="{\"e\":\""+key.getString("e")+"\",\"kty\":\"RSA\",\"n\":\""+key.getString("n")+"\"}";return b64(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes("UTF-8")));}
@@ -125,11 +155,15 @@ public final class IndependentAcme {
         JSONObject saved;
         try{saved=SealedLocalState.read(c,name,alias);}catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_READ",error);}
         if(saved.has("accountKey")){
-            try{return decode(saved.getString("accountKey"));}catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_DECODE",error);}
+            try{return decode(saved.getString("accountKey"),saved.optString("accountPublicKey",""));}catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_DECODE",error);}
         }
         KeyPair created;
         try{created=generate();}catch(Exception error){throw IndependentCertificate.storage("RSA_GENERATE",error);}
-        try{saved.put("accountKey",encoded(created.getPrivate()));SealedLocalState.write(c,name,alias,saved);}
+        try{
+            saved.put("accountKey",encoded(created.getPrivate()));
+            saved.put("accountPublicKey",java.util.Base64.getEncoder().encodeToString(created.getPublic().getEncoded()));
+            SealedLocalState.write(c,name,alias,saved);
+        }
         catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_WRITE",error);}
         // Split real-device failures: a verified sealed write must survive a
         // fresh read/decrypt, RSA reconstruction and exact public-key match.
@@ -137,7 +171,7 @@ public final class IndependentAcme {
         try{persisted=SealedLocalState.read(c,name,alias);}
         catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_VERIFY_READ",error);}
         KeyPair verified;
-        try{verified=decode(persisted.getString("accountKey"));}
+        try{verified=decode(persisted.getString("accountKey"),persisted.optString("accountPublicKey",""));}
         catch(Exception error){throw IndependentCertificate.storage("ACCOUNT_VERIFY_DECODE",error);}
         if(!java.util.Arrays.equals(created.getPublic().getEncoded(),verified.getPublic().getEncoded()))
             throw new IndependentCertificate.Failure("storage","ACCOUNT_VERIFY_MISMATCH",0,0);
