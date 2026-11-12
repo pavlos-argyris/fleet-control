@@ -1,4 +1,4 @@
-# Test 6 isolated delivery: signed update over Test 5; never activate production.
+# Test 6 isolated delivery: explicit rebuild request after diagnostic commit 076b97c; never activate production.
 name: Independent Android test delivery
 on:
   workflow_dispatch:
