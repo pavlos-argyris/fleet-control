@@ -21,6 +21,7 @@ public final class SyntheticBackupProvider extends DocumentsProvider {
         try(FileOutputStream out=new FileOutputStream(file(arg),!input.getBoolean("first"))){out.write(input.getByteArray("data"));out.getFD().sync();return Bundle.EMPTY;}catch(IOException error){throw new IllegalStateException(error);}
     }
     public Cursor queryRoots(String[] projection){return new MatrixCursor(projection==null?new String[]{DocumentsContract.Root.COLUMN_ROOT_ID}:projection);}
+    public boolean isChildDocument(String parent,String id){try{return parent.equals("root")&&file(id).isFile();}catch(IllegalArgumentException invalid){return false;}}
     public Cursor queryChildDocuments(String parent,String[] projection,String sort){return rows(null,projection,true);}
     public Cursor queryDocument(String id,String[] projection){return rows(id,projection,false);}
     private Cursor rows(String id,String[] projection,boolean children){

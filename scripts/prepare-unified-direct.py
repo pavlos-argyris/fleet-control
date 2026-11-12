@@ -86,6 +86,8 @@ for name,p in sources.items():
     if name=='IndependentActivity.java':
         value=change(value,'IndependentConfig.require(this);build();','IndependentConfig.require(this);try{DirectHost.startup(this);}catch(Exception error){getSharedPreferences("independent_ui",MODE_PRIVATE).edit().putString("blocked","Η ασφαλής προετοιμασία Direct χρειάζεται έλεγχο.").commit();}build();')
         value=value.replace('Fleet Independent Server','Fleet — Προετοιμασία Direct')
+        value=change(value,'IndependentConfig.save(this,IndependentConfig.read(this).put("testOrdexa",false));','OrdexaSync.configure(this,new JSONObject().put("cityId",OrdexaSync.status(this).getString("cityId")).put("enabled",false));IndependentConfig.save(this,IndependentConfig.read(this).put("testOrdexa",false));')
+        value=value.replace('Παύση δοκιμαστικού Ordexa','Παύση Ordexa στο Direct').replace('Ενεργοποιήθηκε ο δοκιμαστικός reader.','Ενεργοποιήθηκε ο reader Direct.').replace('δοκιμαστικό συγχρονισμό','συγχρονισμό Direct').replace('Ο δοκιμαστικός συγχρονισμός σταμάτησε.','Ο συγχρονισμός Direct σταμάτησε.')
         value=value.replace('getSharedPreferences("independent_ui",MODE_PRIVATE).getString("mode","test").equals("primary")?"Κύριο":"Δοκιμαστικό"','BackendMode.direct(this)?"Direct":"Προετοιμασία Direct"')
         value=change(value,'hostname=field("Το δικό σου όνομα .duckdns.org",false);','hostname=field("fleet-control.duckdns.org",false);hostname.setText("fleet-control.duckdns.org");hostname.setEnabled(false);')
         # The only production switch is in the existing Server settings.
@@ -93,6 +95,7 @@ for name,p in sources.items():
     if name=='IndependentRuntime.java':
         value=change(value,'    JSONObject localLogin(', '    void barrier()throws Exception{serialized(()->null);}\n    JSONObject localLogin(')
         value=change(value,'if(!IndependentConfig.read(context).optBoolean("testOrdexa"))return;','if(!BackendMode.direct(context))return;')
+        value=change(value,'.put("testOrdexa",saved.optBoolean("testOrdexa"))','.put("testOrdexa",OrdexaSync.status(context).optBoolean("enabled"))')
         value=change(value,'if(state.optString("phase").equals("needs_recovery"))','if(state.optString("phase").equals("needs_recovery")||state.optString("phase").equals("recovering")&&NativeColdRuntime.core(c).state().optString("phase").equals("installed"))')
         value=change(value,'    JSONObject localLogin(','''    JSONObject dashboard()throws Exception{return serialized(()->store.getStats());}
     JSONObject switchReadiness()throws Exception{return serialized(()->{
