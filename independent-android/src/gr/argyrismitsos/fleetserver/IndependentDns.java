@@ -17,7 +17,7 @@ public final class IndependentDns {
  static boolean visibleAnswer(String body,String host,String expected)throws Exception{
   IndependentPolicy.hostname(host);org.json.JSONObject result=new org.json.JSONObject(body);int status=result.getInt("Status");if(status!=0||result.optBoolean("TC"))throw new IndependentCertificate.Failure("txt_wait",status==2?"DNS_SERVFAIL":"DNS_UNAVAILABLE",0,0);
   org.json.JSONArray answers=result.optJSONArray("Answer");if(answers==null)return false;
-  for(int i=0;i<answers.length();i++){org.json.JSONObject answer=answers.getJSONObject(i);if(answer.optInt("type")==16&&answer.optString("name").replaceFirst("\\.$","").equalsIgnoreCase("_acme-challenge."+host)){String text=answer.optString("data");if(text.equals("\""+expected+"\""))return true;}}
+  for(int i=0;i<answers.length();i++){org.json.JSONObject answer=answers.getJSONObject(i);if(answer.optInt("type")==16&&answer.optString("name").replaceFirst("\\.$","").equalsIgnoreCase("_acme-challenge."+host)){String text=answer.optString("data");if(text.equals("\""+expected+"\"")||text.equals(expected))return true;}}
   return false;
  }
  static String get(String address)throws Exception{
