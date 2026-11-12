@@ -79,7 +79,7 @@ public final class AcmeProtocolChecks {
     private static void failure(KeyPair account,KeyPair certificate,String chain,String mode,String phase,String reason)throws Exception {
         Ca ca=new Ca(account,chain,mode);try{ca.run(certificate);throw new AssertionError("Expected "+mode+" failure");}catch(IndependentCertificate.Failure error){check(error.phase.equals(phase)&&error.reason.equals(reason),"correct safe stage/reason for "+mode);safe(error);if(mode.equals("rate"))check(IndependentCertificate.nextRetry(ca.clock.now(),1,error)>=error.retryAt&&error.retryAt==ca.clock.now()+86400000L,"honor CA retry beyond local cap");}
         check(ca.finalize==0,"failed validation never submits CSR");
-        if(ca.writes>0&&!mode.equals("dns-rejected"))check(ca.clears==1,"attempt scoped TXT cleanup on success/failure");
+        if(ca.writes>0)check(ca.clears==(mode.equals("order-pending")?1:0),"retain TXT until CA authorization succeeds; cleanup only after confirmed authorization");
         if(mode.equals("stale")||mode.equals("servfail")||mode.equals("dns-offline")||mode.equals("dns-rejected"))check(ca.challenge==0,"no premature challenge after unconfirmed DNS");
     }
     public static void run(KeyPair certificate,String chain,boolean trust)throws Exception {
