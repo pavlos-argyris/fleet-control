@@ -8,7 +8,7 @@ folder=pathlib.Path(sys.argv[1]);checks=[]
 for component,package in [('Server','gr.argyrismitsos.fleetserver.independent'),('Client','gr.argyrismitsos.fleetindependentclient')]:
     file=folder/f'Fleet_Independent_{component}_v1.0.0-test4.apk'
     info=subprocess.check_output([str(aapt),'dump','badging',str(file)],env=env,text=True)
-    assert f"package: name='{package}'" in info and "versionCode='4'" in info and "versionName='1.0.0-test3'" in info, info[:300]
+    assert f"package: name='{package}'" in info and "versionCode='4'" in info and "versionName='1.0.0-test4'" in info, info[:300]
     tree=subprocess.check_output([str(aapt),'dump','xmltree',str(file),'AndroidManifest.xml'],env=env,text=True)
     assert 'usesCleartextTraffic' in tree and 'allowBackup' in tree
     if component=='Server':
