@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Downloads independently; installation runs only after the sync cycle finishes. */
 public final class OtaManager {
     private static final AtomicBoolean checking = new AtomicBoolean(false);
-    private static final long LIMIT = 50L * 1024L * 1024L;
+    private static final long LIMIT = 192L * 1024L * 1024L;
     private OtaManager() {}
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences(BackupManager.PREFS, Context.MODE_PRIVATE); }
     private static File file(Context c) { return new File(c.getCacheDir(), "fleet-server-update.apk"); }
@@ -29,6 +29,10 @@ public final class OtaManager {
         stage(c, "checking", "Έλεγχος νέας έκδοσης…");
         new Thread(new Runnable() { public void run() {
             try {
+                if(BackendMode.direct(c)){
+                    JSONObject released=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("server");
+                    stage(c,released.optInt("versionCode")>currentCode(c)?"manual_direct":"current",released.optInt("versionCode")>currentCode(c)?"Νέα υπογεγραμμένη έκδοση στο GitHub. Εξήγαγε πρώτα πλήρες Direct backup από την Προετοιμασία Direct και εγκατάστησε από τις εκδόσεις GitHub.":"Ο Direct Server έχει την τελευταία διαθέσιμη έκδοση.");return;
+                }
                 String base = p.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
                 HttpURLConnection connection = open(new URL(base + "/api/server-update"));
                 JSONObject info;

@@ -1,0 +1,12 @@
+SQLite 3.54.1 — official SQLite Android bindings
+https://www.sqlite.org/2026/sqlite-android-3540100.aar
+https://sqlite.org/android/doc/trunk/www/usage.wiki
+
+The SQLite core is in the public domain: https://sqlite.org/copyright.html
+The Android Java bindings contain Android Open Source Project code,
+Copyright (C) The Android Open Source Project, licensed under the Apache
+License, Version 2.0. The accompanying LICENSE-APACHE-2.0.txt is provided.
+
+The pinned archive size, SHA-256 and upstream-published SHA3-256 are in
+android-build-support/independent-sqlite.lock.json. This dependency is
+packaged only into Fleet Independent Server, never the production APK.

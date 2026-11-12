@@ -17,7 +17,7 @@ public final class BootReceiver extends BroadcastReceiver {
         if(NativeColdRuntime.blocked(context))return;
         SharedPreferences preferences = context.getSharedPreferences(BackupManager.PREFS, Context.MODE_PRIVATE);
         if (!preferences.getBoolean("automatic_start", true)) return;
-        Intent service = new Intent(context, SyncService.class);
+        Intent service = BackendMode.direct(context)?new Intent().setClassName(context,"gr.argyrismitsos.fleetdirect.IndependentService"):new Intent(context, SyncService.class);
         try {
             if (Build.VERSION.SDK_INT >= 26) {
                 Method method = Context.class.getMethod("startForegroundService", Intent.class);

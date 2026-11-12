@@ -49,7 +49,7 @@ export function certificateDigests(output) {
 }
 export function assertCandidate(record, config, expectedCert, production, sourceManifest) {
   const m = record.manifest;
-  assert.ok(Number.isSafeInteger(record.bytes) && record.bytes > 0 && record.bytes <= 50 * 1024 * 1024, 'Candidate must fit the installed OTA 50 MiB limit');
+  assert.ok(Number.isSafeInteger(record.bytes) && record.bytes > 0 && record.bytes <= 192 * 1024 * 1024, 'Candidate must fit the new OTA 192 MiB limit');
   assert.equal(m.packageName, config.packageName, 'Candidate package');
   assert.equal(m.versionName, config.version, 'Candidate version name');
   assert.equal(m.versionCode, config.versionCode, 'Candidate version code');

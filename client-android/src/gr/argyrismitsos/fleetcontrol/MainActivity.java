@@ -76,7 +76,7 @@ public class MainActivity extends Activity {
     private static final String UPDATE_FILE_NAME = FleetUpdateProvider.UPDATE_FILE_NAME;
     private static final long UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000L;
     private static final long UPDATE_PROMPT_INTERVAL_MS = 12 * 60 * 60 * 1000L;
-    private static final long MAX_UPDATE_BYTES = 50L * 1024L * 1024L;
+    private static final long MAX_UPDATE_BYTES = 192L * 1024L * 1024L;
     private WebView webView;
     private String transientAuthToken = "";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -120,7 +120,7 @@ public class MainActivity extends Activity {
         createNotificationChannel();
         requestNotificationPermissionIfNeeded();
         transientAuthToken = getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE)
-                .getString(AUTH_TOKEN_KEY, "");
+                .getString(BackendSelection.tokenKey(MainActivity.this), "");
         AlertJobService.schedule(getApplicationContext());
 
         webView = new WebView(this);
@@ -191,7 +191,7 @@ public class MainActivity extends Activity {
             }
         });
         setContentView(webView);
-        webView.loadUrl("file:///android_asset/www/portal.html");
+        webView.loadUrl(BackendSelection.direct(this)?BackendSelection.DIRECT+"/":"file:///android_asset/www/portal.html");
         scheduleUpdateCheck(2500L);
     }
 
@@ -207,8 +207,15 @@ public class MainActivity extends Activity {
     private WebViewClient localWebViewClient() {
         return new WebViewClient() {
             @Override
+            public void onReceivedError(WebView view,android.webkit.WebResourceRequest request,android.webkit.WebResourceError error){
+                if(!request.isForMainFrame()||!BackendSelection.direct(MainActivity.this))return;
+                new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Direct Server εκτός σύνδεσης").setMessage("Η επιλογή Direct διατηρείται. Η αποθήκευση δεν επιβεβαιώθηκε.")
+                    .setPositiveButton("Ανάκτηση Cloudflare",new android.content.DialogInterface.OnClickListener(){public void onClick(android.content.DialogInterface dialog,int which){try{org.json.JSONObject selected=new org.json.JSONObject(BackendSelection.read(MainActivity.this)).put("activeMode","cloudflare").put("selectedMode","cloudflare").put("localRecovery",true);BackendSelection.save(MainActivity.this,selected.toString());transientAuthToken=getSharedPreferences(SESSION_PREFERENCES,MODE_PRIVATE).getString(BackendSelection.tokenKey(MainActivity.this),"");webView.loadUrl("file:///android_asset/www/portal.html");}catch(Exception invalid){Toast.makeText(MainActivity.this,"Η επιλογή δεν αποθηκεύτηκε.",Toast.LENGTH_LONG).show();}}})
+                    .setNegativeButton("Επανάληψη",new android.content.DialogInterface.OnClickListener(){public void onClick(android.content.DialogInterface dialog,int which){view.reload();}}).setNeutralButton("Παραμονή",null).show();
+            }
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (isLocalAppUrl(url)) return false;
+                if (isLocalAppUrl(url)||url!=null&&(url.equals(BackendSelection.DIRECT)||url.startsWith(BackendSelection.DIRECT+"/"))) return false;
                 openExternalUrl(url);
                 return true;
             }
@@ -408,7 +415,7 @@ public class MainActivity extends Activity {
                         && AlertJobService.notificationsAllowed(getApplicationContext());
                 return new org.json.JSONObject()
                         .put("enabled", enabled)
-                        .put("remembered", preferences.getString(AUTH_TOKEN_KEY, "").length() > 0)
+                        .put("remembered", preferences.getString(BackendSelection.tokenKey(MainActivity.this), "").length() > 0)
                         .toString();
             } catch (Exception error) { return "{\"enabled\":false}"; }
         }
@@ -438,6 +445,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String getBackendSelection(){return BackendSelection.read(MainActivity.this);}
+        @JavascriptInterface public void setBackendSelection(String value){try{boolean before=BackendSelection.direct(MainActivity.this);BackendSelection.save(MainActivity.this,value);if(before!=BackendSelection.direct(MainActivity.this)){transientAuthToken=getSharedPreferences(SESSION_PREFERENCES,MODE_PRIVATE).getString(BackendSelection.tokenKey(MainActivity.this),"");AlertJobService.cancel(MainActivity.this);}}catch(Exception invalid){throw new SecurityException("Η επιλογή λειτουργίας δεν αποθηκεύτηκε.");}}
+        @JavascriptInterface
+        public void openBackend(final String mode){if(!mode.matches("direct|cloudflare"))return;runOnUiThread(new Runnable(){public void run(){if(webView!=null)webView.loadUrl(mode.equals("direct")?BackendSelection.DIRECT+"/":"file:///android_asset/www/portal.html");}});}
+        @JavascriptInterface
         public String getAuthToken() {
             return transientAuthToken == null ? "" : transientAuthToken;
         }
@@ -446,8 +458,8 @@ public class MainActivity extends Activity {
         public void saveAuthToken(String token, boolean remember) {
             transientAuthToken = token == null ? "" : token;
             SharedPreferences.Editor editor = getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE).edit();
-            if (remember && !transientAuthToken.isEmpty()) editor.putString(AUTH_TOKEN_KEY, transientAuthToken);
-            else editor.remove(AUTH_TOKEN_KEY);
+            if (remember && !transientAuthToken.isEmpty()) editor.putString(BackendSelection.tokenKey(MainActivity.this), transientAuthToken);
+            else editor.remove(BackendSelection.tokenKey(MainActivity.this));
             editor.apply();
             if (remember && !transientAuthToken.isEmpty()) AlertJobService.schedule(getApplicationContext());
         }
@@ -455,7 +467,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void clearAuthToken() {
             transientAuthToken = "";
-            getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE).edit().remove(AUTH_TOKEN_KEY).apply();
+            getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE).edit().remove(BackendSelection.tokenKey(MainActivity.this)).apply();
             AlertJobService.cancel(getApplicationContext());
         }
 
@@ -469,7 +481,7 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    if (webView != null) webView.loadUrl("file:///android_asset/www/index.html?from=portal&embedded=1");
+                    if (webView != null) webView.loadUrl(BackendSelection.direct(MainActivity.this)?BackendSelection.DIRECT+"/fleet.html?embedded=1":"file:///android_asset/www/index.html?from=portal&embedded=1");
                 }
             });
         }
@@ -699,7 +711,11 @@ public class MainActivity extends Activity {
     private UpdateInfo fetchUpdateInfo() throws Exception {
         HttpURLConnection connection = null;
         try {
-            URL endpoint = new URL(UPDATE_CHECK_URL);
+            if(BackendSelection.direct(this)){
+                org.json.JSONObject body=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");
+                return new UpdateInfo(body.getString("version"),body.getLong("sizeBytes"),body.getString("sha256"),body.optString("notes"),body.getInt("versionCode"),body.getString("downloadUrl"));
+            }
+            URL endpoint = new URL(BackendSelection.apiBase(this)+"/api/client-update");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση ενημέρωσης.");
             connection = (HttpURLConnection) endpoint.openConnection();
             connection.setConnectTimeout(10000);
@@ -815,10 +831,10 @@ public class MainActivity extends Activity {
         if (apk.exists() && !apk.delete()) throw new IllegalStateException("Δεν καθαρίστηκε η προηγούμενη ενημέρωση.");
         try {
             URL endpoint = new URL(update.downloadUrl);
-            URL trusted = new URL(UPDATE_DOWNLOAD_URL);
-            if (!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort() || !trusted.getPath().equals(endpoint.getPath())) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
+            URL trusted = new URL(BackendSelection.apiBase(this)+"/download/client.apk");
+            if (!(BackendSelection.direct(this)&&gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl))&&(!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort() || !trusted.getPath().equals(endpoint.getPath()))) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση APK.");
-            connection = (HttpURLConnection) endpoint.openConnection();
+            connection = BackendSelection.direct(this)?gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint):(HttpURLConnection) endpoint.openConnection();
             connection.setConnectTimeout(15000);
             connection.setReadTimeout(30000);
             connection.setInstanceFollowRedirects(false);
@@ -906,7 +922,7 @@ public class MainActivity extends Activity {
             org.json.JSONArray rows=new org.json.JSONObject(manifest).getJSONArray("files");final java.util.List<InvoiceZipWriter.Item> files=new java.util.ArrayList<InvoiceZipWriter.Item>();for(int i=0;i<rows.length();i++){org.json.JSONObject row=rows.getJSONObject(i);files.add(new InvoiceZipWriter.Item(row.getString("key"),row.getString("name")));}count=files.size();
             OutputStream output=getContentResolver().openOutputStream(target);if(output==null)throw new Exception("Output unavailable");
             try{InvoiceZipWriter.write(files,output,new InvoiceZipWriter.Source(){public InputStream open(String key)throws Exception{
-                final HttpURLConnection connection=(HttpURLConnection)new URL("https://fleet-control.pavlosargyris.workers.dev/api/service-documents/"+Uri.encode(key,"/")).openConnection();connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(20000);connection.setReadTimeout(45000);connection.setRequestProperty("Authorization","Bearer "+token);
+                final HttpURLConnection connection=(HttpURLConnection)new URL(BackendSelection.apiBase(MainActivity.this)+"/api/service-documents/"+Uri.encode(key,"/")).openConnection();connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(20000);connection.setReadTimeout(45000);connection.setRequestProperty("Authorization","Bearer "+token);connection.setRequestProperty("X-Fleet-Backend-Revision",String.valueOf(BackendSelection.revision(MainActivity.this)));
                 try{if(connection.getResponseCode()!=200||connection.getContentLength()>InvoiceZipWriter.MAX_FILE)throw new Exception("PDF unavailable");return new java.io.FilterInputStream(connection.getInputStream()){@Override public void close()throws java.io.IOException{try{super.close();}finally{connection.disconnect();}}};}catch(Exception error){connection.disconnect();throw error;}
             }},new InvoiceZipWriter.Control(){public boolean cancelled(){return invoiceZipCancelled.get();}public void progress(int done,int total,long bytes){emitInvoiceZip("progress",done,total);}});}finally{output.close();}
             success=true;emitInvoiceZip("complete",count,count);

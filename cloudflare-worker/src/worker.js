@@ -3857,7 +3857,7 @@ async function serveWeb(request, env) {
       const headers = new Headers(baseHeaders({
         "Content-Type": object.httpMetadata?.contentType || contentTypeFor(path),
         "Cache-Control": ["index.html", "portal.html", "service-worker.js"].includes(path) ? "no-cache" : "public, max-age=3600",
-        "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+        "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://fleet-control.duckdns.org wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
       }));
       return new Response(object.body, { headers });
     }
@@ -3869,7 +3869,7 @@ async function serveWeb(request, env) {
   const headers = new Headers(response.headers);
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "same-origin");
-  headers.set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
+  headers.set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://fleet-control.duckdns.org wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 

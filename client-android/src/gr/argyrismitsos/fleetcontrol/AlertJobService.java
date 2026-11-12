@@ -39,7 +39,7 @@ public final class AlertJobService extends JobService {
 
     public static void schedule(Context context) {
         SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (!preferences.getBoolean(ENABLED_KEY, false) || preferences.getString(AUTH_TOKEN_KEY, "").length() == 0) return;
+        if (!preferences.getBoolean(ENABLED_KEY, false) || preferences.getString(BackendSelection.tokenKey(context), "").length() == 0) return;
         try {
             JobScheduler scheduler = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
             if (scheduler == null) return;
@@ -127,14 +127,18 @@ public final class AlertJobService extends JobService {
     private void poll() throws Exception {
         SharedPreferences preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
         if (!preferences.getBoolean(ENABLED_KEY, false)) return;
-        String token = preferences.getString(AUTH_TOKEN_KEY, "");
+        boolean directMode=BackendSelection.direct(this);long backendRevision=BackendSelection.revision(this);
+        String token = preferences.getString(directMode?"auth_token_direct":"auth_token", "");
         if (token.length() == 0) return;
-        HttpURLConnection connection = (HttpURLConnection) new URL(API_BASE + "/api/admin/alerts").openConnection();
+        HttpURLConnection connection = (HttpURLConnection) new URL((directMode?BackendSelection.DIRECT:API_BASE) + "/api/admin/alerts").openConnection();
         connection.setConnectTimeout(12000);
         connection.setReadTimeout(12000);
         connection.setRequestMethod("GET");
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestProperty("X-Fleet-Backend-Revision",String.valueOf(backendRevision));
         connection.setRequestProperty("Authorization", "Bearer " + token);
         connection.setRequestProperty("Accept", "application/json");
+        if(directMode!=BackendSelection.direct(this)||backendRevision!=BackendSelection.revision(this)){connection.disconnect();return;}
         int status = connection.getResponseCode();
         InputStream stream = status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream();
         StringBuilder body = new StringBuilder();

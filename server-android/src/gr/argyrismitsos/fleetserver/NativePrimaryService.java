@@ -24,7 +24,7 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
             return checked(service.call(request,identity,service.epoch,true));
         }});
     }
-    public static boolean jobsAllowed(Context context){try{NativePrimaryService service=get(context);String phase=NativePrimaryState.read(service.store.getReadableDatabase()).optString("phase","cloud");return (phase.equals("cloud")||phase.equals("cloud_remote"))||phase.equals("active")&&service.available();}catch(Exception error){return false;}}
+    public static boolean jobsAllowed(Context context){if(BackendMode.direct(context))return false;try{NativePrimaryService service=get(context);String phase=NativePrimaryState.read(service.store.getReadableDatabase()).optString("phase","cloud");return (phase.equals("cloud")||phase.equals("cloud_remote"))||phase.equals("active")&&service.available();}catch(Exception error){return false;}}
     public static boolean cloudMode(Context context){try{return NativePrimaryState.read(get(context).store.getReadableDatabase()).optString("phase","cloud").matches("cloud|cloud_remote");}catch(Exception error){return false;}}
     private final Context context;
     private final FleetDataStore store;
@@ -89,7 +89,7 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
         return null;
     }
     private JSONObject call(JSONObject request,JSONObject identity,String capturedEpoch,boolean internal)throws Exception{
-        engine(identity);guard.begin(capturedEpoch,false);return engine.request(request,internal,internal?30000:20000);
+        try(BackendMode.Guard modeGuard=BackendMode.guard(context)){if(BackendMode.direct(context))throw new IOException("Επιλεγμένος Direct Server. Η cloud ενέργεια δεν εφαρμόστηκε.");engine(identity);guard.begin(capturedEpoch,false);return engine.request(request,internal,internal?30000:20000);}
     }
     public JSONObject cloudSourceContext()throws Exception{return execute(new Callable<JSONObject>(){public JSONObject call()throws Exception{return port("store.context",new JSONObject(),null);}});}
     public void freezeForCloudReturn(final String transferId)throws Exception{
@@ -102,7 +102,7 @@ public final class NativePrimaryService implements FleetHttp.LocalTransport {
     public boolean available(){return started&&lease.valid(epoch,generation);}
     public JSONObject status()throws Exception{JSONObject state=NativePrimaryState.read(store.getReadableDatabase());return new JSONObject().put("phase",state.optString("phase","cloud")).put("generation",state.optString("generation")).put("connected",available()).put("leaseRemainingMs",lease.remaining(epoch,generation)).put("error",prefs().getString("native_primary_error",""));}
     private synchronized void tick(){
-        if(!started)return;
+        if(!started||BackendMode.direct(context))return;
         try{
             JSONObject state=NativePrimaryState.read(store.getReadableDatabase());if(!state.optString("phase").equals("active")){disconnect(socket,epoch);return;}
             final JSONObject identity=NativeIdentity.read(context);if(!state.optString("generation").equals(identity.optString("generation"))||!state.optString("realm").equals(identity.optString("realm")))throw new IOException("Η ταυτότητα κύριου Server χρειάζεται έλεγχο.");

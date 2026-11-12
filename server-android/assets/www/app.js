@@ -379,6 +379,7 @@
 
   window.FleetServer = {
     onNativeEvent: function (event, payload) {
+      window.dispatchEvent(new CustomEvent("fleet-server-event",{detail:{event:event,payload:payload}}));
       payload = payload || {};
       if (event === "connection") {
         el.settingsMessage.textContent = payload.ok ? (payload.serverOnline ? "Η σύνδεση λειτουργεί και ο server φαίνεται online." : "Η Cloudflare πύλη λειτουργεί. Η υπηρεσία θα συνδεθεί σε λίγο.") : payload.message;

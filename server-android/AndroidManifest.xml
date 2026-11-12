@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="gr.argyrismitsos.fleetserver"
-    android:versionCode="76"
-    android:versionName="2.11.1">
+    android:versionCode="77"
+    android:versionName="2.12.0">
 
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -44,6 +45,11 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <activity android:name="gr.argyrismitsos.fleetdirect.IndependentActivity" android:process=":direct" android:exported="false" />
+        <provider android:name="gr.argyrismitsos.fleetdirect.DirectControlProvider" android:authorities="gr.argyrismitsos.fleetserver.direct-control" android:process=":direct" android:exported="false" />
+        <service android:name="gr.argyrismitsos.fleetdirect.IndependentService" android:process=":direct" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Owner controlled private HTTPS fleet server with independent SQLite and read-only source synchronization." />
+        </service>
         <activity
             android:name=".NativeRestartActivity"
             android:process=":restore"

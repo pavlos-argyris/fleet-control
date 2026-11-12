@@ -54,7 +54,7 @@ public final class OtaInstaller {
         return result;
     }
     public static void validate(Context context, File apk, int versionCode, String version, long size, String checksum) throws Exception {
-        if (!apk.isFile() || size < 1 || size > 50L * 1024L * 1024L || apk.length() != size || checksum == null || !checksum.matches("[a-fA-F0-9]{64}") || !sha256(apk).equalsIgnoreCase(checksum)) throw new IllegalStateException("Το APK δεν πέρασε τον έλεγχο SHA-256/μεγέθους.");
+        if (!apk.isFile() || size < 1 || size > 192L * 1024L * 1024L || apk.length() != size || checksum == null || !checksum.matches("[a-fA-F0-9]{64}") || !sha256(apk).equalsIgnoreCase(checksum)) throw new IllegalStateException("Το APK δεν πέρασε τον έλεγχο SHA-256/μεγέθους.");
         PackageManager pm = context.getPackageManager();
         PackageInfo archive = pm.getPackageArchiveInfo(apk.getAbsolutePath(), PackageManager.GET_SIGNATURES);
         PackageInfo installed = pm.getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNATURES);

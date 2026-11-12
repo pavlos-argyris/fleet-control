@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "version": "3.54.1",
+  "file": "sqlite-android-3540100.aar",
+  "url": "https://www.sqlite.org/2026/sqlite-android-3540100.aar",
+  "sizeBytes": 3688530,
+  "sha256": "45982177674e6fde0f5ec5c9387335a1a5c3e351ee986cbb8a42fc6d721660de",
+  "sha3_256": "3afb0568a107d753b640e4d65cdb1d9a2247e9833c25e72ca7d1086b78365de1",
+  "abis": ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"],
+  "upstream": "https://sqlite.org/android/doc/trunk/www/usage.wiki"
+}

@@ -27,7 +27,8 @@ const record = {label:'candidate', bytes:1024, manifest, signing:{certificates:[
 const config = {packageName:'test.fleet', version:'5.61.0',versionCode:99};
 const source = '<uses-permission android:name="android.permission.INTERNET"/><uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34"/>';
 assertCandidate(record, config, cert, true, source);
-assert.throws(() => assertCandidate({...record,bytes:50*1024*1024+1}, config, cert, false, source), /OTA/);
+assert.throws(() => assertCandidate({...record,bytes:192*1024*1024+1}, config, cert, false, source), /OTA/);
+assertCandidate({...record,bytes:100*1024*1024},config,cert,false,source);
 const changed = mutate => { const r = structuredClone(record); mutate(r); return r; };
 assert.throws(() => assertCandidate(record, config, 'b'.repeat(64), true, source), /Original/);
 assert.throws(() => assertCandidate(changed(r => r.manifest.components[1].exported = true), config, cert, false, source), /exported/);

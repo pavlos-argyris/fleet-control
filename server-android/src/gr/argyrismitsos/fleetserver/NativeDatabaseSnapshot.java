@@ -12,7 +12,7 @@ public final class NativeDatabaseSnapshot {
     public static final Object OBJECT_LIFECYCLE_LOCK=new Object();
     public static final String STATE_SCHEMA=NativePrimarySchema.STATE;
     private static final String PINS="CREATE TABLE IF NOT EXISTS native_backup_pins(capture_id TEXT NOT NULL,local_name TEXT NOT NULL,PRIMARY KEY(capture_id,local_name));";
-    private static final Set<String> EPHEMERAL=new HashSet<String>(Arrays.asList("auth_sessions","fleet_sessions","auth_login_attempts","fleet_pin_attempts","native_file_transfers","native_object_gc","native_backup_pins","native_event_outbox"));
+    private static final Set<String> EPHEMERAL=new HashSet<String>(Arrays.asList("auth_sessions","fleet_sessions","auth_login_attempts","fleet_pin_attempts","native_file_transfers","native_object_gc","native_backup_pins","native_event_outbox","independent_readiness"));
     public interface CaptureTask{Capture capture()throws Exception;}
     public interface Coordinator{Capture capture(CaptureTask task)throws Exception;}
     private static volatile Coordinator coordinator;

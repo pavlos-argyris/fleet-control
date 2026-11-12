@@ -5,6 +5,7 @@ import {DB} from './database.js';
 import {RECEIPT_SCHEMA,beginOperation,finishOperation} from './receipts.js';
 import {FEATURE_SCHEMA,routeFeatures} from './features.js';
 import {bindFileSecurity} from './security.js';
+import {routeStandalone} from './standalone.js';
 const native=globalThis.FleetHost;
 const bucket={
   async put(key,value,metadata={}){return native('objects.put',{key,ref:value?.__file?value.ref:null,hex:value?.__file?null:hex(await new Response(value).arrayBuffer()),metadata});},
@@ -18,7 +19,7 @@ const bucket={
 let environment,realm;
 globalThis.__fleetInit=function(configuration){
   const config=JSON.parse(configuration);realm=new URL(config.realm).origin;
-  environment={LOCAL_PRIMARY:true,DB,SERVICE_DOCS:bucket,RELEASES:bucket,SERVER_KEY:config.serverKey,PIN_PEPPER:config.authPepper,EVENT_SIGNING_KEY:config.eventSigningKey,ASSETS:{fetch:()=>new Response('Not available',{status:404})}};
+  environment={LOCAL_PRIMARY:true,STANDALONE:config.standalone===true,DB,SERVICE_DOCS:bucket,RELEASES:bucket,SERVER_KEY:config.serverKey,PIN_PEPPER:config.authPepper,EVENT_SIGNING_KEY:config.eventSigningKey,ASSETS:{fetch:()=>new Response('Not available',{status:404})}};
   if(config.eventSigningKey)environment.FLEET_EVENTS={idFromName:()=>0,get:()=>({async fetch(request){native('events.queue',{body:await request.text()});return Response.json({ok:true});}})};
   native('sql.exec',{sql:RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA});
 };
@@ -40,7 +41,7 @@ globalThis.__fleetRequest=function(serialized){
     request.localInternal=value.internal===true;
     const operation=value.internal?{}:await beginOperation(request,environment,form);if(operation.response)return operation.response;
     const dispatch=request=>worker.fetch(request,environment,{waitUntil(){}});
-    const response=await routeFeatures(request,environment,dispatch)||await dispatch(request);
+    const response=await routeStandalone(request,environment,value)||await routeFeatures(request,environment,dispatch)||await dispatch(request);
     await finishOperation(operation,response,environment);return response;
   })().then(async response=>{
     const output={status:response.status,headers:Object.fromEntries(response.headers)};

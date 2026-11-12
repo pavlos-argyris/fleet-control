@@ -24,7 +24,7 @@ for(const kind of ['client','server']){
  const info={kind,version:value.version,versionCode:value.versionCode,sourceCommit:value.sourceCommit,sha256:value.sha256,sizeBytes:value.sizeBytes};report[kind]=info;save();console.log(JSON.stringify(info));
  const url=new URL(value.downloadUrl);if(url.origin!==base.origin||url.pathname!=='/download/'+kind+'.apk')throw new Error('Unexpected download origin');
  const response=await fetch(url,{headers:{'X-Fleet-Server-Key':key,'User-Agent':'Fleet-Control-Server/2.2.13'},redirect:'error',signal:AbortSignal.timeout(90000)});if(!response.ok){report.downloads.push({kind,status:response.status});save();continue;}
- const hash=crypto.createHash('sha256');let size=0;for await(const bytes of response.body){hash.update(bytes);size+=bytes.length;if(size>50*1024*1024)throw new Error('Download limit');}const digest=hash.digest('hex'),verified=digest===value.sha256&&size===value.sizeBytes;
+ const hash=crypto.createHash('sha256');let size=0;for await(const bytes of response.body){hash.update(bytes);size+=bytes.length;if(size>192*1024*1024)throw new Error('Download limit');}const digest=hash.digest('hex'),verified=digest===value.sha256&&size===value.sizeBytes;
  report.downloads.push({kind,status:response.status,size,sha256:digest,verified});save();console.log(JSON.stringify(report.downloads.at(-1)));if(!verified)throw new Error('Downloaded APK does not match metadata');
 }
 let primaryHealthy=false;
