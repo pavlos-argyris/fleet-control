@@ -33,7 +33,7 @@ public final class IndependentCertificate {
     private static String allowed(String value,String[] allowed,String fallback){for(String item:allowed)if(item.equals(value))return item;return fallback;}
     private static String code(String phase,String reason,int status){
         phase=allowed(phase,new String[]{"storage","directory","account","order","txt_set","txt_wait","authorization","ready","finalize","download","chain","address"},"https");
-        reason=allowed(reason,new String[]{"CAA","CA_DNS","CA_UNAUTHORIZED","CA_RATE_LIMIT","CA_NONCE","CA_ORDER_NOT_READY","CA_REJECTED","CA_RESPONSE","CA_PENDING","DNS_SERVFAIL","DNS_UNAVAILABLE","DNS_PENDING","DNS_REJECTED","TIMEOUT","TLS","CLOCK","STORAGE","CONFIG_READ","CONFIG_WRITE","CONFIG_INVALID","ACCOUNT_ALIAS_MISSING","ACCOUNT_KEYSTORE","ACCOUNT_DECRYPT","ACCOUNT_READ","ACCOUNT_DECODE","ACCOUNT_WRITE","ACCOUNT_VERIFY","RSA_GENERATE","CHAIN","NETWORK","UNKNOWN"},"UNKNOWN");
+        reason=allowed(reason,new String[]{"CAA","CA_DNS","CA_UNAUTHORIZED","CA_RATE_LIMIT","CA_NONCE","CA_ORDER_NOT_READY","CA_REJECTED","CA_RESPONSE","CA_PENDING","DNS_SERVFAIL","DNS_UNAVAILABLE","DNS_PENDING","DNS_REJECTED","TIMEOUT","TLS","CLOCK","STORAGE","CONFIG_READ","CONFIG_WRITE","CONFIG_INVALID","ACCOUNT_ALIAS_MISSING","ACCOUNT_KEYSTORE","ACCOUNT_DECRYPT","ACCOUNT_READ","ACCOUNT_DECODE","ACCOUNT_WRITE","ACCOUNT_VERIFY","ACCOUNT_VERIFY_READ","ACCOUNT_VERIFY_DECODE","ACCOUNT_VERIFY_MISMATCH","RSA_GENERATE","CHAIN","NETWORK","UNKNOWN"},"UNKNOWN");
         return "CERT_"+phase.toUpperCase(Locale.US)+"_"+reason+(status>=100&&status<=599?"_HTTP"+status:"");
     }
     static Failure classify(String phase,Exception error){
