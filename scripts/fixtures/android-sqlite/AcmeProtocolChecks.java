@@ -99,6 +99,11 @@ public final class AcmeProtocolChecks {
         long now=1800000000000L;check(IndependentCertificate.retryAfter("120",now)==now+120000&&IndependentCertificate.retryAfter("not-a-date",now)==0,"Retry-After integer and malformed");
         java.text.SimpleDateFormat dates=new java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz",Locale.US);dates.setTimeZone(TimeZone.getTimeZone("GMT"));check(IndependentCertificate.retryAfter(dates.format(new Date(now+86400000L)),now)==now+86400000L,"Retry-After HTTP-date");
         check(IndependentCertificate.nextRetry(now,1,new IOException())==now+600000&&IndependentCertificate.nextRetry(now,7,new IOException())==now+21600000L,"bounded exponential retry");
+        IndependentCertificate.Failure storage=IndependentCertificate.storage("ACCOUNT_READ",new javax.crypto.AEADBadTagException(SECRET+TOKEN));
+        check(storage.getMessage().equals("CERT_STORAGE_ACCOUNT_DECRYPT"),"Safe ACME ciphertext failure classification");
+        check(!IndependentCertificate.describe(storage,0).contains(SECRET),"ACME diagnostic never shows decrypt exception details");
+        check(IndependentCertificate.storage("ACCOUNT_KEYSTORE",new java.security.KeyStoreException(SECRET)).getMessage().equals("CERT_STORAGE_ACCOUNT_KEYSTORE"),"Keystore failure separate from network");
+        check(IndependentCertificate.storage("ACCOUNT_DECODE",new java.security.spec.InvalidKeySpecException(SECRET)).getMessage().equals("CERT_STORAGE_ACCOUNT_DECODE"),"RSA decode failure separate from Keystore");
         safe(new IOException(SECRET+TOKEN));check(IndependentCertificate.classify("directory",new javax.net.ssl.SSLHandshakeException(SECRET)).reason.equals("TLS"),"TLS failures categorized safely");
         check(IndependentCertificate.classify("chain",new java.security.cert.CertificateNotYetValidException(SECRET)).reason.equals("CLOCK"),"clock failures separated from untrusted chain");
         System.out.println("PASS synthetic full signed ACME/DNS-01 lifecycle, TXT propagation, ready-before-finalize, CAA/DNS/rate/timeout failures, scoped cleanup, privacy and Retry-After; no live CA/DNS changes.");
