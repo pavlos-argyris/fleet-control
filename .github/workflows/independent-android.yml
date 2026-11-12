@@ -44,7 +44,7 @@ jobs:
           mkdir -p .build/independent-signing
           keytool -genkeypair -keystore .build/independent-signing/test.p12 -storetype PKCS12 -alias test -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=Fleet Independent CI' -storepass:env FLEET_STORE_PASSWORD -keypass:env FLEET_KEY_PASSWORD
           FLEET_KEYSTORE="$PWD/.build/independent-signing/test.p12" bash scripts/build-independent-android.sh
-      - run: node scripts/test-business-runtime-resources.mjs --apk .build/independent-delivery/Fleet_Independent_Server_v1.0.0-test3.apk
+      - run: node scripts/test-business-runtime-resources.mjs --apk .build/independent-delivery/Fleet_Independent_Server_v1.0.0-test4.apk
       - name: Actual API30 APK JSON and full backup import regression
         timeout-minutes: 20
         env:
@@ -105,7 +105,7 @@ jobs:
           FLEET_KEY_ALIAS: ${{ secrets.FLEET_KEY_ALIAS }}
           FLEET_REQUIRE_ORIGINAL_SIGNATURE: '1'
         run: bash scripts/build-independent-android.sh
-      - run: node scripts/test-business-runtime-resources.mjs --apk .build/independent-delivery/Fleet_Independent_Server_v1.0.0-test3.apk
+      - run: node scripts/test-business-runtime-resources.mjs --apk .build/independent-delivery/Fleet_Independent_Server_v1.0.0-test4.apk
       - name: Prepare complete source and hashes
         run: |
           git archive --format=zip --output=.build/independent-delivery/Fleet_Control_Complete_Source.zip HEAD
@@ -115,7 +115,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          FLEET_TEST_TAG="independent-android-test3-${GITHUB_SHA:0:12}"
+          FLEET_TEST_TAG="independent-android-test4-${GITHUB_SHA:0:12}"
           gh release create "$FLEET_TEST_TAG" --prerelease --latest=false --target "$GITHUB_SHA" --title 'Fleet Independent — δοκιμή δεύτερου κινητού' --notes-file .build/independent-delivery/RELEASE_NOTES.md .build/independent-delivery/*.apk .build/independent-delivery/*.zip .build/independent-delivery/*.json .build/independent-delivery/SHA256SUMS.txt .build/independent-delivery/OWNER_TEST_GUIDE_GR.md
       - name: Keep complete isolated delivery
         uses: actions/upload-artifact@v4
