@@ -9,6 +9,7 @@ import android.provider.DocumentsContract;
 import org.json.*;
 import org.sqlite.database.sqlite.SQLiteDatabase;
 import java.io.*;
+import java.security.KeyPair;
 import java.nio.file.Files;
 import java.util.*;
 
@@ -80,6 +81,28 @@ public final class AndroidSqliteChecks extends Instrumentation {
         try(FleetDataStore restored=new FleetDataStore(target)){SQLiteDatabase db=restored.getWritableDatabase();check(IndependentSqlite.text(db,"PRAGMA integrity_check").equals("ok")&&IndependentSqlite.text(db,"SELECT json_extract(payload,'$.n') FROM json_regression").equals("17"),"Imported JSON indexes/data remain intact");}
         IndependentRuntime runtime=IndependentRuntime.get(target);
         try{JSONObject req=new JSONObject().put("url",runtime.realm()+"/api/auth/user-login").put("method","POST").put("headers",new JSONObject().put("Content-Type","application/json").put("X-Fleet-Operation",UUID.randomUUID().toString())).put("body",owner.toString());JSONObject login=runtime.external(req);check(login.getInt("status")==200,"Original owner credentials work after actual Android restore");String token=new JSONObject(login.getString("body")).getString("token");check(runtime.localProbe(token).getInt("status")==200,"Actual owner readiness savepoint succeeds after restore");}finally{runtime.close();}
+        // Real API30 Android Keystore: previous ACME encrypted state survives
+        // an explicit account-version switch without any live CA/DuckDNS I/O.
+        JSONObject preservedConfig=IndependentConfig.read(target);
+        KeyPair oldAccount=IndependentAcme.accountKey(target,preservedConfig);
+        KeyPair reused=IndependentAcme.accountKey(target,preservedConfig);
+        check(Arrays.equals(oldAccount.getPublic().getEncoded(),reused.getPublic().getEncoded()),"Legacy ACME key persists on Android");
+        String originalAccountCipher=target.getSharedPreferences("fleet_sealed_runtime_v1",Context.MODE_PRIVATE).getString(IndependentAcme.NAME,"");
+        JSONObject prepared=new JSONObject(preservedConfig.toString()).put("acmeTermsAccepted",true).put("hostname","fixture.duckdns.org");
+        IndependentConfig.save(target,prepared);
+        android.content.SharedPreferences ui=target.getSharedPreferences("independent_ui",Context.MODE_PRIVATE);
+        ui.edit().putString("certificate","Synthetic persistent [CERT_STORAGE_STORAGE]").commit();
+        IndependentAcme.prepareFreshAccount(target);
+        JSONObject activated=IndependentConfig.read(target);
+        check(activated.getInt("acmeAccountVersion")==2
+            &&activated.getString("backupSha256").equals(preservedConfig.getString("backupSha256")),"Opt-in ACME v2 preserves imported backup/config");
+        KeyPair rotated=IndependentAcme.accountKey(target,activated);
+        check(!Arrays.equals(oldAccount.getPublic().getEncoded(),rotated.getPublic().getEncoded()),"ACME v2 identity uses a distinct key");
+        check(originalAccountCipher.equals(target.getSharedPreferences("fleet_sealed_runtime_v1",Context.MODE_PRIVATE).getString(IndependentAcme.NAME,"")),"Old encrypted ACME identity preserved byte-for-byte");
+        check(Arrays.equals(rotated.getPublic().getEncoded(),IndependentAcme.accountKey(target,activated).getPublic().getEncoded()),"New account survives Android Keystore reopen");
+        try{IndependentAcme.prepareFreshAccount(target);throw new AssertionError("Repeated account change allowed");}catch(IOException expected){}
+        IndependentConfig.save(target,preservedConfig);
+        ui.edit().remove("certificate").remove("certificateRetryRequested").commit();
         String installed=NativeDatabaseSnapshot.digest(target.getDatabasePath(NativeColdRestore.DATABASE_NAME));try{IndependentRestore.importBackup(target,manifest,PASSWORD);throw new AssertionError("Second import overwrote DB");}catch(IOException expected){}check(installed.equals(NativeDatabaseSnapshot.digest(target.getDatabasePath(NativeColdRestore.DATABASE_NAME))),"Existing independent installation preserved");
         for(Map.Entry<File,String> item:originals.entrySet())check(item.getValue().equals(NativeDatabaseSnapshot.digest(item.getKey())),"Original encrypted parts remain byte-exact");
         // Real Activity lifecycle/preferences notification, with no hostname or live CA.
