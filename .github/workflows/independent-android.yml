@@ -1,4 +1,4 @@
-# Test 6 isolated delivery: explicit rebuild request after diagnostic commit 076b97c; never activate production.
+# Test 6 independent Android delivery rerun requested after TLS hostname validation fix 6896e781; production untouched.
 name: Independent Android test delivery
 on:
   workflow_dispatch:
