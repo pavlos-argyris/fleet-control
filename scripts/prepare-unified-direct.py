@@ -12,7 +12,7 @@ out=Path(sys.argv[1]);assets=Path(sys.argv[2])
 old='gr.argyrismitsos.fleetserver';new='gr.argyrismitsos.fleetdirect'
 destination=out/Path(new.replace('.','/'));destination.mkdir(parents=True,exist_ok=True)
 sources={p.name:p for p in (root/'server-android/src'/Path(old.replace('.','/'))).glob('*.java')
-         if p.stem not in ('MainActivity','FleetApplication','BootReceiver','BackendMode')}
+         if p.stem not in ('FleetApplication','BootReceiver','BackendMode')}
 sources.update({p.name:p for p in (root/'independent-android/src'/Path(old.replace('.','/'))).glob('*.java')})
 
 def change(value,old,new):
@@ -20,14 +20,53 @@ def change(value,old,new):
     return value.replace(old,new)
 
 for name,p in sources.items():
-    value=p.read_text().replace(old,new)
+    value=p.read_text().replace('"'+old+'.','"__FLEET_ROOT__.').replace(old,new).replace('"__FLEET_ROOT__.','"'+old+'.')
     value=value.replace('android.database.sqlite.','org.sqlite.database.sqlite.')
     value=value.replace('import android.database.SQLException;','import org.sqlite.database.SQLException;')
     value=value.replace('import android.database.DatabaseErrorHandler;','import org.sqlite.database.DatabaseErrorHandler;')
     value=value.replace('"ROLLBACK TO ','"/* fleet savepoint */ ROLLBACK TO ')
-    value=re.sub(r'\bMainActivity\b',old+'.MainActivity',value)
+    if name!='MainActivity.java':value=re.sub(r'(?<![.\w])MainActivity\b',old+'.MainActivity',value)
     imports=('\nimport '+old+'.R;' if re.search(r'\bR\.',value) else '')+('\nimport '+old+'.BackendMode;' if 'BackendMode.' in value or name in ('IndependentRuntime.java','IndependentService.java','IndependentActivity.java') else '')
     value=value.replace('package '+new+';','package '+new+';'+imports)
+    if name=='MainActivity.java':
+        value=change(value,'public final class MainActivity extends Activity {','''public final class MainActivity extends Activity {
+    @Override protected void attachBaseContext(Context base){super.attachBaseContext(new ScopedContext(base));}
+''')
+        value=change(value,'        preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);','''        if(!BackendMode.direct(this)){startActivity(new Intent().setClassName(this,"gr.argyrismitsos.fleetserver.MainActivity"));finish();return;}
+        preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
+        DirectHost.initialize(this);
+''')
+        value=value.replace('NativePrimaryService.install(getApplicationContext());','DirectHost.initialize(getApplicationContext());')
+        value=change(value,'result.put("primary",NativePrimaryService.get(this).status());','result.put("primary",DirectHost.primary(this));')
+        value=change(value,'if(BackendMode.direct(this))stopService(new Intent().setClassName(this,"gr.argyrismitsos.fleetdirect.IndependentService"));','stopService(new Intent(this,IndependentService.class));')
+        value=value.replace('stopService(new Intent(this, SyncService.class));','')
+        value=change(value,'String lane="action:"+event;','''critical=!event.startsWith("primaryRecovery")&&critical||event.startsWith("ordexa")||event.equals("pin");
+                String lane="action:"+event;''')
+        value=change(value,'                JSONObject input = new JSONObject(json);','                if(DirectHost.paused(MainActivity.this))throw new IllegalStateException("Ολοκλήρωσε την ενημέρωση ή ανάκτηση πριν αλλάξεις ρυθμίσεις.");\n                JSONObject input = new JSONObject(json);')
+        value=change(value,'JSONObject primary=NativePrimaryState.read(store.getReadableDatabase());if(!primary.optString("phase","cloud").equals("cloud")&&!workerUrl.equals(primary.optString("realm")))throw new IllegalStateException("Η διεύθυνση της κύριας βάσης αλλάζει μόνο μέσα από ελεγχόμενη μεταφορά ή ανάκτηση.");','if(!BackendMode.DIRECT.equals(workerUrl))throw new IllegalStateException("Η διεύθυνση Direct είναι https://fleet-control.duckdns.org. Ο διακόπτης επιλέγει ξεχωριστά το Cloudflare.");')
+        value=value.replace('NativeRestartActivity.class','DirectRestartActivity.class')
+        value=value.replace('new Intent(MainActivity.this,SyncService.class).setAction(action)','new Intent(MainActivity.this,IndependentService.class).setAction(action)')
+        # Legacy cloud transfer remains available in its own original mode only.
+        for name_ in ('NativeMigrationController','CloudReturnController'):
+            value=value.replace('return '+name_+'.migrate(', 'DirectHost.cloudOnly();return '+name_+'.migrate(')
+        value=value.replace('return NativeMigrationController.abort(', 'DirectHost.cloudOnly();return NativeMigrationController.abort(')
+        value=value.replace('return DirectServer.state(getApplicationContext(),store).toString();','return DirectHost.access(thisContext()).toString();')
+        value=value.replace('DirectServer.configure(getApplicationContext(),store,enabled);','DirectHost.cloudOnly();DirectServer.configure(getApplicationContext(),store,enabled);')
+        value=value.replace('return NativeRecoveryController.preview(', 'return NativeRecoveryController.preview(')
+        # Full FCB3 recovery uses the common verified preview/restart UI.
+        begin=value.index('        public void chooseBackupFile(String adminPin) {')
+        end=value.index('        @JavascriptInterface public void cancelBackupRestore()',begin)
+        value=value[:begin]+'''        public void chooseBackupFile(String adminPin) {
+            try{emit("useFullRecovery",new JSONObject().put("ok",true));}catch(Exception ignored){}
+        }
+
+'''+value[end:]
+        value=change(value,'    private Bundle directControl(', '    private Context thisContext(){return MainActivity.this;}\n    private Bundle directControl(')
+    if name=='ServerConfig.java':value=value.replace('https://fleet-control.pavlosargyris.workers.dev','https://fleet-control.duckdns.org')
+    if name=='OtaManager.java':value=change(value,'private static final boolean DIRECT_SCOPE=false;','private static final boolean DIRECT_SCOPE=true;')
+    if name=='NativeBackupPreparation.java':
+        begin=value.index('        boolean cloud=');end=value.index('\n    }',begin)
+        value=value[:begin]+'''        return DirectHost.prepareBackup(context,store,directory,id,envelope,progress);'''+value[end:]
     if name=='FleetDataStore.java':
         value=value.replace('import org.sqlite.database.sqlite.SQLiteDatabase;','import org.sqlite.database.sqlite.SQLiteDatabase;\nimport org.sqlite.database.sqlite.SQLiteException;')
         value=change(value,'    @Override\n    public void onCreate(SQLiteDatabase db) {','''    @Override public void onConfigure(SQLiteDatabase db) {
@@ -45,13 +84,16 @@ for name,p in sources.items():
         declaration='public final class '+p.stem+' extends '+('Activity' if 'Activity' in name else 'Service')+' {'
         value=change(value,declaration,declaration+'\n    @Override protected void attachBaseContext(Context base){super.attachBaseContext(new ScopedContext(base));}\n')
     if name=='IndependentActivity.java':
-        value=change(value,'IndependentConfig.require(this);build();','IndependentConfig.require(this);try{IndependentSqlite.initialize(this);IndependentRestore.startup(this);}catch(Exception error){getSharedPreferences("independent_ui",MODE_PRIVATE).edit().putString("blocked","Η ασφαλής προετοιμασία Direct χρειάζεται έλεγχο.").commit();}build();')
+        value=change(value,'IndependentConfig.require(this);build();','IndependentConfig.require(this);try{DirectHost.startup(this);}catch(Exception error){getSharedPreferences("independent_ui",MODE_PRIVATE).edit().putString("blocked","Η ασφαλής προετοιμασία Direct χρειάζεται έλεγχο.").commit();}build();')
         value=value.replace('Fleet Independent Server','Fleet — Προετοιμασία Direct')
         value=value.replace('getSharedPreferences("independent_ui",MODE_PRIVATE).getString("mode","test").equals("primary")?"Κύριο":"Δοκιμαστικό"','BackendMode.direct(this)?"Direct":"Προετοιμασία Direct"')
         value=change(value,'hostname=field("Το δικό σου όνομα .duckdns.org",false);','hostname=field("fleet-control.duckdns.org",false);hostname.setText("fleet-control.duckdns.org");hostname.setEnabled(false);')
         # The only production switch is in the existing Server settings.
         value=re.sub(r'        button\("Ενεργοποίηση Android ως κύριου Server".*?(?=\n)', '', value)
     if name=='IndependentRuntime.java':
+        value=change(value,'    JSONObject localLogin(', '    void barrier()throws Exception{serialized(()->null);}\n    JSONObject localLogin(')
+        value=change(value,'if(!IndependentConfig.read(context).optBoolean("testOrdexa"))return;','if(!BackendMode.direct(context))return;')
+        value=change(value,'if(state.optString("phase").equals("needs_recovery"))','if(state.optString("phase").equals("needs_recovery")||state.optString("phase").equals("recovering")&&NativeColdRuntime.core(c).state().optString("phase").equals("installed"))')
         value=change(value,'    JSONObject localLogin(','''    JSONObject dashboard()throws Exception{return serialized(()->store.getStats());}
     JSONObject switchReadiness()throws Exception{return serialized(()->{
         JSONArray rows=query("SELECT created_at,actor_id FROM independent_readiness WHERE id=1");
@@ -63,20 +105,25 @@ for name,p in sources.items():
         try(BackendMode.Guard ignored=BackendMode.guard(context)){
             String path=new URI(request.getString("url")).getPath();
             boolean preflight=path.startsWith("/api/auth/")||path.startsWith("/api/independent/");
-            if(!internal&&!preflight&&!BackendMode.direct(context))return IndependentHttps.error(409,"Επιλεγμένο Cloudflare. Δεν έγινε εγγραφή στη βάση Direct.");
+            if(!preflight&&!BackendMode.direct(context)&&!(internal&&path.equals("/api/status")))return IndependentHttps.error(409,"Επιλεγμένο Cloudflare. Δεν έγινε εγγραφή στη βάση Direct.");
+            if(!preflight&&DirectHost.paused(context)&&!path.equals("/api/status"))return IndependentHttps.error(503,"Ο Server προετοιμάζει ασφαλή ενημέρωση ή ανάκτηση. Επανάλαβε μετά την ολοκλήρωση.");
             String epoch=request.getJSONObject("headers").optString("x-fleet-backend-revision",request.getJSONObject("headers").optString("X-Fleet-Backend-Revision"));
             if(!internal&&!preflight&&!epoch.equals(String.valueOf(BackendMode.read(context).getLong("revision"))))return IndependentHttps.error(409,"Η λειτουργία άλλαξε. Ανανέωσε πριν αποθηκεύσεις.");
             if(path.equals("/api/independent/activate"))return IndependentHttps.error(403,"Χρησιμοποίησε τον διακόπτη στις Ρυθμίσεις Server.");
             result=engine.request(request,internal,30000);
         }''')
-        value=change(value,'void jobs()throws Exception{','void jobs()throws Exception{try(BackendMode.Guard jobGuard=BackendMode.guard(context)){if(!BackendMode.direct(context))return;')
-        value=change(value,'CashSync.tick(context,store);}','CashSync.tick(context,store);}}')
+        value=change(value,'void jobs()throws Exception{','void jobs()throws Exception{if(!BackendMode.direct(context)||DirectHost.paused(context))return;')
     if name=='IndependentService.java':
-        value=change(value,'boolean valid=IndependentTls.valid(this,host);','if(BackendMode.direct(this))OtaManager.check(this,false);boolean valid=IndependentTls.valid(this,host);')
-        value=value.replace('invoiceWorker.tick();','try(BackendMode.Guard invoiceGuard=BackendMode.guard(thisContext())){if(BackendMode.direct(thisContext()))invoiceWorker.tick();}')
+        value=change(value,'@Override public void onCreate(){super.onCreate();live=this;','@Override public void onCreate(){super.onCreate();DirectHost.initialize(this);live=this;')
+        value=change(value,'if(runtime==null)runtime=IndependentRuntime.get(this);','if(runtime==null)runtime=IndependentRuntime.get(this);if(BackendMode.direct(this))DirectHost.maintenance(this,runtime);')
+        value=value.replace('invoiceWorker.tick();','if(BackendMode.direct(thisContext())&&!DirectHost.paused(thisContext()))invoiceWorker.tick();')
         value=value.replace('if(blocked())return;IndependentRuntime backend=','if(blocked()||!BackendMode.direct(thisContext()))return;IndependentRuntime backend=')
         value=change(value,'    private boolean blocked()','    private Context thisContext(){return this;}\n    private boolean blocked()')
+        value=value.replace('new Intent(this,IndependentActivity.class)','new Intent(this,gr.argyrismitsos.fleetserver.MainActivity.class)')
+        value=value.replace('Δοκιμαστική βάση · HTTPS και συγχρονισμοί στη συσκευή','Direct · HTTPS και επεξεργασία στη συσκευή')
+        value=change(value,'IndependentConfig.read(this);','IndependentConfig.read(this);')
         value=change(value,'public JSONObject api(JSONObject request)throws Exception{return backend.external(request);}', 'public JSONObject api(JSONObject request)throws Exception{return backend.external(request);}public JSONObject routing()throws Exception{return BackendMode.read(thisContext());}public JSONObject update()throws Exception{return gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");}')
+        value=change(value,'return getAssets().open("independent-www/"+path);','return UpdateManager.asset(thisContext(),path);')
     if name=='IndependentPolicy.java':
         value=value.replace('"x-fleet-local-ocr"','"x-fleet-local-ocr","x-fleet-backend-revision"')
     (destination/name).write_text(value)

@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Downloads independently; installation runs only after the sync cycle finishes. */
 public final class OtaManager {
     private static final AtomicBoolean checking = new AtomicBoolean(false);
+    private static final boolean DIRECT_SCOPE=false;
     private static final long LIMIT = 192L * 1024L * 1024L;
     private OtaManager() {}
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences(BackupManager.PREFS, Context.MODE_PRIVATE); }
@@ -22,6 +23,7 @@ public final class OtaManager {
     private static void stage(Context c, String stage, String value) { prefs(c).edit().putString("ota_stage", stage).putString("ota_message", value).apply(); }
     private static int currentCode(Context c) throws Exception { return c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionCode; }
     public static void check(final Context c, boolean force) {
+        if(BackendMode.direct(c)!=DIRECT_SCOPE)return;
         final SharedPreferences p = prefs(c);
         if (!OtaPolicy.checkDue(System.currentTimeMillis(), p.getLong("ota_checked_at", 0), force, p.getBoolean("automatic_ota", true))) return;
         if (!checking.compareAndSet(false, true)) return;
@@ -29,13 +31,12 @@ public final class OtaManager {
         stage(c, "checking", "Έλεγχος νέας έκδοσης…");
         new Thread(new Runnable() { public void run() {
             try {
-                if(BackendMode.direct(c)){
-                    JSONObject released=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("server");
-                    stage(c,released.optInt("versionCode")>currentCode(c)?"manual_direct":"current",released.optInt("versionCode")>currentCode(c)?"Νέα υπογεγραμμένη έκδοση στο GitHub. Εξήγαγε πρώτα πλήρες Direct backup από την Προετοιμασία Direct και εγκατάστησε από τις εκδόσεις GitHub.":"Ο Direct Server έχει την τελευταία διαθέσιμη έκδοση.");return;
-                }
                 String base = p.getString("worker_url", ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$", "");
-                HttpURLConnection connection = open(new URL(base + "/api/server-update"));
+                HttpURLConnection connection = null;
                 JSONObject info;
+                if(DIRECT_SCOPE)info=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("server");
+                else {
+                connection = open(new URL(base + "/api/server-update"));
                 try {
                     if (connection.getResponseCode() == 404) { stage(c, "failed", "Ο Worker δεν έχει ακόμη ενεργοποιήσει τις OTA ενημερώσεις."); return; }
                     if (connection.getResponseCode() != 200) throw new IllegalStateException("Δεν ήταν δυνατός ο έλεγχος OTA.");
@@ -44,6 +45,7 @@ public final class OtaManager {
                     finally { in.close(); }
                     info = new JSONObject(out.toString("UTF-8"));
                 } finally { connection.disconnect(); }
+                }
                 if (!info.optBoolean("available") || info.optInt("versionCode") <= currentCode(c)) {
                     p.edit().remove("ota_ready").remove("ota_apply_requested").remove("ota_force_requested").remove("ota_quiescing").apply(); BackupJobs.resumePending(c);file(c).delete();
                     stage(c, "current", "Ο Server έχει την τελευταία διαθέσιμη έκδοση."); return;
@@ -52,10 +54,10 @@ public final class OtaManager {
                 String old = p.getString("ota_ready", "");
                 if (old.length() > 0 && file(c).isFile() && new JSONObject(old).optString("releaseId").equals(info.optString("releaseId"))) { stage(c, "waiting", "Η έκδοση " + info.getString("version") + " είναι έτοιμη. Δες παρακάτω ποια εργασία αναμένεται ή το στάδιο του backup."); return; }
                 URL endpoint = new URL(info.getString("downloadUrl")), origin = new URL(base);
-                if (!"https".equalsIgnoreCase(endpoint.getProtocol()) || !origin.getHost().equalsIgnoreCase(endpoint.getHost()) || origin.getPort() != endpoint.getPort() || !"/download/server.apk".equals(endpoint.getPath())) throw new IllegalStateException("Μη έγκυρη διεύθυνση OTA.");
+                if (DIRECT_SCOPE?!gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(endpoint.toString()):!"https".equalsIgnoreCase(endpoint.getProtocol()) || !origin.getHost().equalsIgnoreCase(endpoint.getHost()) || origin.getPort() != endpoint.getPort() || !"/download/server.apk".equals(endpoint.getPath())) throw new IllegalStateException("Μη έγκυρη διεύθυνση OTA.");
                 stage(c, "downloading", "Γίνεται λήψη Server " + info.getString("version") + "…");
                 p.edit().putLong("ota_total_bytes", info.getLong("sizeBytes")).putLong("ota_downloaded_bytes", 0).putInt("ota_download_percent", 0).apply();
-                File part = new File(c.getCacheDir(), "fleet-server-update.part"); connection = open(endpoint);
+                File part = new File(c.getCacheDir(), "fleet-server-update.part"); connection = DIRECT_SCOPE?gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint):open(endpoint);
                 try {
                     if (connection.getResponseCode() != 200) throw new IllegalStateException("Η λήψη OTA απέτυχε.");
                     InputStream in = connection.getInputStream(); FileOutputStream out = new FileOutputStream(part);
@@ -110,6 +112,7 @@ public final class OtaManager {
     }
     public static boolean installationInProgress(Context c) { return installationPending(c) && "installing".equals(OtaInstaller.preferences(c).getString("status", "")); }
     public static synchronized void maybeApply(Context c, FleetDataStore store) {
+        if(BackendMode.direct(c)!=DIRECT_SCOPE)return;
         SharedPreferences p=prefs(c);boolean requested=p.getBoolean("ota_apply_requested",false),force=forceRequested(c);
         if(p.getBoolean("ota_hold",false)||(!requested&&!p.getBoolean("automatic_ota",true))||installationPending(c))return;
         String raw=p.getString("ota_ready","");if(raw.length()==0||checking.get())return;

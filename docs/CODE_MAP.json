@@ -683,7 +683,8 @@
         "common-android/src/gr/argyrismitsos/fleetupdates/PublicReleaseFeed.java",
         "scripts/build-independent-android-test.py",
         "scripts/test-independent-android.sh",
-        "scripts/check-unified-apks.py"
+        "scripts/check-unified-apks.py",
+        "scripts/fixtures/android-unified/*.java"
       ],
       "tests": [
         "scripts/test-backend-mode.mjs",

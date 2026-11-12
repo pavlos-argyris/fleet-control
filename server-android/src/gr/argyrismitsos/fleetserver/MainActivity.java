@@ -55,11 +55,17 @@ public final class MainActivity extends Activity {
     private void clearRestoreData() { pendingRestoreUri=null;pendingRestoreData=null;pendingRestoreGuard=null;pendingRestoreLocalState="";pendingRestoreBase=""; }
     private void clearRestorePreview() { pendingRestorePin="";clearRestoreData(); }
     private String localRestoreState() throws Exception { return store.getFleet().toString()+"|"+store.getSystemExport().toString(); }
+    private boolean routeBackend(){
+        String target=BackendMode.direct(this)?"gr.argyrismitsos.fleetdirect.MainActivity":"gr.argyrismitsos.fleetserver.MainActivity";
+        if(getClass().getName().equals(target))return false;
+        startActivity(new Intent().setClassName(this,target));finish();return true;
+    }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if(routeBackend())return;
         getWindow().setStatusBarColor(Color.rgb(7, 28, 35));
         getWindow().setNavigationBarColor(Color.rgb(7, 28, 35));
         preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
@@ -90,7 +96,9 @@ public final class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient());
         setContentView(webView);
         webView.loadUrl("file:///android_asset/www/index.html");
-        if (preferences.getBoolean("automatic_start", true)) startServerService();
+        if (preferences.getBoolean("automatic_start", true)) {
+            startServerService();backendWork.execute(()->{try{directControl("startControl","",null);}catch(Exception ignored){}});
+        }
     }
 
     private WebViewClient localWebViewClient() {
@@ -260,13 +268,15 @@ public final class MainActivity extends Activity {
     }
 
     private void runTask(final String event, final String requestId, final Task task) {
-        executor.submit(new Runnable() {
+        final long requestedRevision;try{requestedRevision=BackendMode.read(this).getLong("revision");}catch(Exception error){emitError(event,"Δεν φορτώθηκε η επιλογή λειτουργίας.");return;}
+        final Runnable work=new Runnable() {
             @Override
             public void run() {
                 boolean critical="backup".equals(event)||"backupRestore".equals(event)||"clientUpload".equals(event)||"webUpload".equals(event)||"releaseActivated".equals(event)||"invoiceResume".equals(event)||"authorityStage".equals(event)||"backupProtection".equals(event);
                 String lane="action:"+event;
                 boolean started=false;
                 try {
+                    if(BackendMode.read(MainActivity.this).getLong("revision")!=requestedRevision)throw new IllegalStateException("Η λειτουργία άλλαξε. Άνοιξε ξανά την ενέργεια στον επιλεγμένο Server.");
                     if(critical){
                         if(!ServerWorkTracker.begin(getApplicationContext(),lane,"Ενέργεια Server",event.equals("backup")?"Χειροκίνητο backup":event.equals("backupRestore")?"Επαναφορά δεδομένων":event.equals("authorityStage")?"Προετοιμασία μεταφοράς βάσης":"Αποθήκευση αλλαγών"))throw new IllegalStateException("Προετοιμάζεται ενημέρωση. Πάτησε Αναβολή ενημέρωσης πριν ξεκινήσεις νέα εργασία.");
                         started=true;
@@ -280,7 +290,8 @@ public final class MainActivity extends Activity {
                     else try { emit(event, new JSONObject().put("ok", false).put("requestId", requestId).put("message", error.getMessage()==null?"Η ενέργεια Server απέτυχε.":error.getMessage())); } catch (Exception ignored) {}
                 }finally{if(started)ServerWorkTracker.finish(lane);}
             }
-        });
+        };
+        executor.submit(()->{if(event.matches("primaryMigration.*|primaryRecovery.*|cloudReturn|authorityStage"))work.run();else NativeWorkGate.pipeline(work);});
     }
 
     private static String ordexaRequestId(String value) {
@@ -301,8 +312,10 @@ public final class MainActivity extends Activity {
             }
             final long deadline=System.currentTimeMillis()+45000;NativeWorkGate.exclusive(()->{if(System.currentTimeMillis()>deadline)throw new java.io.IOException("Οι τρέχουσες εργασίες δεν ολοκληρώθηκαν. Η επιλογή διατηρήθηκε· επανάλαβε σε λίγο.");});JSONObject state;
             try{state=BackendMode.select(MainActivity.this,mode,revision,true,"");}finally{NativeWorkGate.release();}
-            if(mode.equals("direct"))stopService(new Intent(MainActivity.this,SyncService.class));else startServerService();
+            if(mode.equals("direct"))stopService(new Intent().setClassName(MainActivity.this,"gr.argyrismitsos.fleetserver.SyncService"));
             emit("backendMode",state.put("ok",true).put("message","Η επιλογή αποθηκεύτηκε. Οι συσκευές ενημερώνονται όταν επικοινωνήσουν με τον Direct Server."));
+            final String target=mode.equals("direct")?"gr.argyrismitsos.fleetdirect.MainActivity":"gr.argyrismitsos.fleetserver.MainActivity";
+            runOnUiThread(()->{if(!MainActivity.this.getClass().getName().equals(target)){startActivity(new Intent().setClassName(MainActivity.this,target));finish();}else startServerService();});
         }catch(Exception e){emitError("backendMode",e.getMessage());}});}
 
         @JavascriptInterface public String getDirectAccessState(){try{return DirectServer.state(getApplicationContext(),store).toString();}catch(Exception e){return "{\"error\":\"Δεν φορτώθηκε η κατάσταση πρόσβασης.\"}";}}
@@ -689,7 +702,7 @@ public final class MainActivity extends Activity {
     }
     private void finishBackNavigation(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
 
-    @Override protected void onResume() { super.onResume();if(NativeColdRuntime.blocked(this))return;OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
+    @Override protected void onResume() { super.onResume();if(routeBackend()||preferences==null||NativeColdRuntime.blocked(this))return;OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
     @Override protected void onPause() { OtaInstaller.pause(this); super.onPause(); }
 
     @Override
@@ -698,6 +711,7 @@ public final class MainActivity extends Activity {
         if (executor != null) executor.shutdownNow();
         if (store != null) store.close();
         if (webView != null) {
+            webView.removeJavascriptInterface("AndroidServer");
             webView.loadUrl("about:blank");
             webView.stopLoading();
             webView.destroy();

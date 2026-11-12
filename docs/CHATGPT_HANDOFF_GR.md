@@ -1,3 +1,12 @@
+## #95 — ρητή έγκριση αποστολής και συνέχεια native ενοποίησης, 12/11/2026
+
+- Ο ιδιοκτήτης απάντησε «Ναι» στην προηγούμενη ρητή ερώτηση για αποστολή του συγκεκριμένου προσχεδίου στο pavlos-argyris/fleet-control και CI. Η παλιά απόρριψη auto-review παρακάτω είναι πλέον ιστορική. Η αποστολή Git επιτράπηκε αλλά δεν υπήρχαν CLI credentials· χρησιμοποιήθηκε η συνδεδεμένη GitHub εφαρμογή με ακριβή έλεγχο Git blob/tree SHA.
+- Draft PR #96: https://github.com/pavlos-argyris/fleet-control/pull/96 , remote branch codex/issue-95-unified-server-mode. Remote commit33227e7c2d9c20cc5849f7c76e8bb588af9c4c73, tree36264da7197fa56180d24cc2be7b4e14a38f8a55 = ακριβώς το προηγούμενο τοπικό521edd2. Καμία ενεργοποίηση Direct/merge/deploy.
+- Fast source43308070891 SUCCESS. Full source43308070953 απέτυχε επειδή νέο JVM test έψαχνε ECJ πριν το toolchain step. Διορθώθηκε επιλογή διαθέσιμου ECJ ή javac. Δεν έχει ακόμη επιβεβαιωθεί νέο πλήρες CI.
+- Η native ενοποίηση συνεχίζεται στο τοπικό codex/issue-95-complete-native: ίδια MainActivity/assets/τέσσερις καρτέλες μεταγλωττίζονται και στο ιδιωτικό :direct με ScopedContext, χωρίς ανάμιξη Cloud ρυθμίσεων/SAF/Ordexa. Προστέθηκαν πλήρες automatic/manual FCB3 μέσω BackupJobs, public-GitHub Direct OTA με αρχική υπογραφή και προηγούμενο backup, scoped installer callbacks, Direct cold recovery με preview/λογαριασμούς/πριν-backup/διατήρηση αρχείων και τοπικός κατάλογος Client/Web εκδόσεων. Αυτές οι αλλαγές είναι ακόμη υπό έλεγχο, δεν δηλώνονται όλες verified.
+- Βρέθηκε μη σταθερή μέτρηση σε synthetic DO test: total_changes() είναι connection-local και μηδενίζεται σε eviction. Αντικαταστάθηκε με persisted trigger counter για τις συγκεκριμένες auth_session ενημερώσεις. Το πραγματικό Workerd test πέρασε με τις ίδιες assertions no-repeat/5minute-touch.
+- Υπάρχει μία επιτυχής πρόσθετη μεταγλώττιση κανονικού Server με scoped UI/recovery. Νεότερες προσθήκες χρειάζονται πλήρες rebuild, instrumentation execution και CI. Αρχικές υπογραφές/πραγματικό κινητό/CA/Nova443→8443/4G παραμένουν χωριστές ανεκπλήρωτες πύλες. Το APK επιτρέπεται >50MB με όλες τις λειτουργίες.
+
 ## ΤΕΛΙΚΟ ΤΟΠΙΚΟ CHECKPOINT #95 — αναμονή έγκρισης αποστολής
 
 - Το λειτουργικό προσχέδιο αποθηκεύτηκε στο τοπικό commit `4d14c6378c12dd6d19385c172e17e6484bbc8b6c` (tree `b7f4e50cdcdd6797b64e61b592a9949d6a244548`). Δεν υπάρχει επιβεβαιωμένο remote push. Το επόμενο μικρό commit αποθηκεύει αυτή την καταγραφή και διορθώνει μόνο την περιγραφή του νέου ορίου στον compiled checker.

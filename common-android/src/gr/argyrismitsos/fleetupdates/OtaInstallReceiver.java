@@ -8,6 +8,8 @@ import android.content.pm.PackageInstaller;
 public final class OtaInstallReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
         if (intent == null || !(context.getPackageName() + ".OTA_RESULT").equals(intent.getAction())) return;
+        context=OtaInstaller.resultContext(context,intent);
+        if(intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID,-1)!=OtaInstaller.preferences(context).getInt("session_id",-2))return;
         int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
         if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
             Intent confirmation = intent.getParcelableExtra(Intent.EXTRA_INTENT);

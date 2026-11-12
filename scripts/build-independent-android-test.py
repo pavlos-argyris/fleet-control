@@ -25,9 +25,12 @@ if unified:
         check(!gr.argyrismitsos.fleetserver.BackendMode.direct(base),"Import and probes never change the initial Cloudflare selection");
         Bundle status=base.getContentResolver().call(Uri.parse("content://gr.argyrismitsos.fleetserver.direct-control"),"status","",null);
         check(status.getBoolean("ok")&&new JSONObject(status.getString("json")).getBoolean("backupVerified"),"Private provider observes the same isolated restored configuration across processes");
+        UnifiedNativeChecks.run(base,target,manifest,owner,PASSWORD);
     }
 '''+text[end:]
         (fixtures/source.name).write_text(text)
+    for source in (root/'scripts/fixtures/android-unified').glob('*.java'):
+        (fixtures/source.name).write_text(source.read_text())
 classes = out / 'classes'
 classes.mkdir(exist_ok=True)
 classpath = os.pathsep.join(map(str, [android, program, sqlite]))

@@ -66,3 +66,7 @@
 ## Ανεξάρτητο Android test #90
 
 `independent-android/`, `independent-client/`, `independent-web/` και `server-runtime/standalone.js`: ξεχωριστά application IDs, πραγματικό FCB3 local restore, standalone authority, HTTPS/DuckDNS/ACME, native Web hosting και owner readiness/activation gates. Τα staged build inputs δημιουργούνται από `prepare-independent-build.py` χωρίς αλλαγή παραγωγικών manifests/assets. Η επίσημη SQLite/JSON κλειδώνεται στο `android-build-support/independent-sqlite.lock.json` και εφαρμόζεται μόνο στο staged Server. Το `scripts/test-independent-android.sh` εκτελεί το πραγματικό APK σε API30 (stock SQLite χωρίς JSON), με full SAF/FCB3 cold import και owner login. Οι φυσικοί έλεγχοι δεύτερης συσκευής/Nova/4G παραμένουν ρητά ξεχωριστή παραλαβή.
+
+## Ενιαίος Server #95
+
+Το `BackendMode` και τα Client/Web modules επιλογής κρατούν μία λογική επιλογή με epoch/fencing και τοπική offline ανάκτηση. Το `prepare-unified-direct.py` παράγει τη δεύτερη native MainActivity από την ίδια πηγή, στο ιδιωτικό :direct process. Τα `unified-android/src/...` συνδέουν ScopedContext, ιδιωτικό control provider, αυτόματο/χειροκίνητο FCB3, Direct cold recovery, τοπικές εκδόσεις Web/Client και scoped OTA callbacks με το κανονικό UI. Το `UnifiedNativeChecks` εκτελείται μόνο στο disposable Android test APK και ελέγχει πραγματικό SAF export/restore και διατήρηση Cloud δεδομένων. Οδηγός: `ISSUE_95_UNIFIED_MODE_GR.md`.

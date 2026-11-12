@@ -7,8 +7,8 @@ import gr.argyrismitsos.fleetserver.BackendMode;
 public final class DirectControlProvider extends ContentProvider {
     private Context scope;
     @Override public boolean onCreate(){scope=new ScopedContext(getContext());return true;}
-    private void initialize()throws Exception{IndependentSqlite.initialize(scope);IndependentRestore.startup(scope);}
-    @Override public synchronized Bundle call(String method,String argument,Bundle extras){
+    private void initialize()throws Exception{DirectHost.startup(scope);}
+    @Override public Bundle call(String method,String argument,Bundle extras){
         if(Binder.getCallingUid()!=android.os.Process.myUid())throw new SecurityException("Private Direct control");
         Bundle result=new Bundle();try{
             if(method.equals("status")||method.equals("dashboard")){
@@ -18,6 +18,11 @@ public final class DirectControlProvider extends ContentProvider {
                 state.put("listenerActive",IndependentService.listenerOnline()).put("listenerPort",8443);
                 if(method.equals("dashboard")&&config.has("backupSha256")){initialize();state.put("stats",IndependentRuntime.get(scope).dashboard()).put("ota",OtaManager.state(scope));}
                 result.putString("json",state.toString());result.putBoolean("ok",true);return result;
+            }
+            if(method.equals("startControl")){
+                JSONObject config=IndependentConfig.read(scope);
+                if(config.has("backupSha256")&&scope.getSharedPreferences(BackupManager.PREFS,0).getBoolean("automatic_start",true))IndependentService.start(scope);
+                result.putBoolean("ok",true);return result;
             }
             initialize();IndependentRuntime runtime=IndependentRuntime.get(scope);
             if(method.equals("login")){
@@ -31,6 +36,7 @@ public final class DirectControlProvider extends ContentProvider {
                 if(auth.getInt("status")!=200||!new JSONObject(auth.getString("body")).getJSONObject("user").optString("role").equals("owner"))throw new Exception("Συνδέσου ξανά ως ιδιοκτήτης.");
                 result.putBoolean("authenticated",true);
                 if("direct".equals(argument)){
+                    if(DirectHost.paused(scope))throw new Exception("Εκκρεμεί ενημέρωση ή ανάκτηση Direct. Ολοκλήρωσέ την πριν την εναλλαγή.");
                     JSONObject config=IndependentConfig.read(scope);if(!BackendMode.DIRECT.equals(runtime.realm())||!IndependentTls.valid(scope,config.optString("hostname")))throw new Exception("Εκκρεμεί έγκυρο HTTPS για fleet-control.duckdns.org.");
                     SharedPreferences ui=scope.getSharedPreferences("independent_ui",Context.MODE_PRIVATE);
                     if(!IndependentService.listenerOnline())throw new Exception("Ο HTTPS listener δεν έχει επιβεβαιωθεί ενεργός στη θύρα 8443.");

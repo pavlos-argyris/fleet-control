@@ -5,6 +5,7 @@ import org.json.JSONObject;
 import java.io.*;
 import java.nio.channels.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.TimeUnit;
 
 /** Local control plane. The file lock fences both processes, including commits in flight. */
 public final class BackendMode {
@@ -25,7 +26,7 @@ public final class BackendMode {
     public static final class Guard implements AutoCloseable {
         private boolean closed;private final boolean write;private RandomAccessFile file;private FileLock lock;
         private Guard(Context c,boolean write)throws Exception{this.write=write;
-            if(write){gate.writeLock().lock();try{file=new RandomAccessFile(BackendMode.file(c,".lock"),"rw");lock=file.getChannel().lock();}catch(Exception e){if(file!=null)file.close();gate.writeLock().unlock();throw e;}}
+            if(write){long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(45);if(!gate.writeLock().tryLock(45,TimeUnit.SECONDS))throw new IOException("Οι εργασίες δεν ολοκληρώθηκαν. Η προηγούμενη επιλογή διατηρήθηκε.");try{file=new RandomAccessFile(BackendMode.file(c,".lock"),"rw");while(lock==null){lock=file.getChannel().tryLock();if(lock!=null)break;if(System.nanoTime()>deadline)throw new IOException("Οι εργασίες του Server συνεχίζονται. Επανάλαβε την επιλογή σε λίγο.");Thread.sleep(25);}}catch(Exception e){if(file!=null)file.close();gate.writeLock().unlock();throw e;}}
             else{gate.readLock().lock();try{synchronized(BackendMode.class){if(readers==0){readerFile=new RandomAccessFile(BackendMode.file(c,".lock"),"rw");try{readerLock=readerFile.getChannel().lock(0,Long.MAX_VALUE,true);}catch(Exception e){readerFile.close();throw e;}}readers++;}}catch(Exception e){gate.readLock().unlock();throw e;}}
         }
         public void close()throws IOException{if(closed)return;closed=true;if(write){try{lock.release();}finally{try{file.close();}finally{gate.writeLock().unlock();}}}else{try{synchronized(BackendMode.class){if(--readers==0){try{readerLock.release();}finally{readerFile.close();readerLock=null;readerFile=null;}}}}finally{gate.readLock().unlock();}}}

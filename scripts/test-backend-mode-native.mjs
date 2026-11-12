@@ -22,5 +22,7 @@ public class BackendModeChecks {
   System.out.println("PASS actual Java/file-lock mode storage: default, preparation, CAS/duplicate, cross-process commit drain, restart, offline manual return, fail-closed corruption. Android directory fsync is exercised separately in instrumentation.");
  }
 }`)];
-const json=path.resolve('vendor/json-java/json-20240303.jar');execFileSync('java',['-jar',path.resolve('.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-cp',json,'-d',dir,...files,'server-android/src/gr/argyrismitsos/fleetserver/BackendMode.java'],{stdio:'inherit'});
+const json=path.resolve('vendor/json-java/json-20240303.jar'),ecj=path.resolve('.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar');
+const compiler=fs.existsSync(ecj)?['java',['-jar',ecj]]:['javac',[]];
+execFileSync(compiler[0],[...compiler[1],'-proc:none','-source','8','-target','8','-nowarn','-cp',json,'-d',dir,...files,'server-android/src/gr/argyrismitsos/fleetserver/BackendMode.java'],{stdio:'inherit'});
 const data=fs.mkdtempSync(path.join(dir,'state-'));execFileSync('java',['-cp',dir+path.delimiter+json,'gr.argyrismitsos.fleetserver.BackendModeChecks',data],{stdio:'inherit'});

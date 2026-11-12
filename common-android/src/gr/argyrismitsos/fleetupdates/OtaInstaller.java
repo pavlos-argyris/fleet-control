@@ -25,6 +25,18 @@ import java.util.Set;
 
 /** Shared self-update installer. Android always remains the final authority. */
 public final class OtaInstaller {
+    public interface UpdateScope{String updateScope();}
+    private static String scope(Context context){Context app=context.getApplicationContext();return app instanceof UpdateScope?((UpdateScope)app).updateScope():"";}
+    static Context resultContext(Context context,Intent intent){
+        if(!"direct".equals(intent.getStringExtra("fleet_update_scope"))||!"gr.argyrismitsos.fleetserver".equals(context.getPackageName()))return context;
+        return new DirectResultContext(context);
+    }
+    private static final class DirectResultContext extends android.content.ContextWrapper implements UpdateScope{
+        DirectResultContext(Context c){super(c);}
+        @Override public Context getApplicationContext(){return this;}
+        @Override public SharedPreferences getSharedPreferences(String name,int mode){return super.getSharedPreferences("fleet_direct_"+name,mode);}
+        public String updateScope(){return "direct";}
+    }
     public static final String PREFS = "fleet_ota_install";
     private static WeakReference<Activity> foreground = new WeakReference<Activity>(null);
     private OtaInstaller() {}
@@ -79,6 +91,8 @@ public final class OtaInstaller {
             try { byte[] buffer = new byte[65536]; int read; while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read); session.fsync(out); }
             finally { in.close(); out.close(); }
             Intent callback = new Intent(context, OtaInstallReceiver.class).setAction(context.getPackageName() + ".OTA_RESULT");
+            callback.putExtra("fleet_update_scope",scope(context));
+            if("direct".equals(scope(context)))callback.setClassName(context,"gr.argyrismitsos.fleetdirect.DirectOtaReceiver");
             int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? 0x02000000 : 0);
             PendingIntent result = PendingIntent.getBroadcast(context, id, callback, flags);
             prefs.edit().putInt("session_id", id).putString("status", "installing").putString("message", "Γίνεται εγκατάσταση της ενημέρωσης…").remove("confirmation").commit();
@@ -114,6 +128,6 @@ public final class OtaInstaller {
             manager.notify(7199, builder.build());
         } catch (Exception ignored) { /* The status remains accessible in the app even without notifications. */ }
         final Activity activity = foreground.get();
-        if (activity != null && !activity.isFinishing() && activity.hasWindowFocus()) activity.runOnUiThread(new Runnable() { public void run() { openConfirmation(activity); } });
+        if (activity != null && scope(activity).equals(scope(context)) && !activity.isFinishing() && activity.hasWindowFocus()) activity.runOnUiThread(new Runnable() { public void run() { openConfirmation(activity); } });
     }
 }

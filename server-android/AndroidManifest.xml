@@ -46,6 +46,8 @@
             android:exported="false" />
 
         <activity android:name="gr.argyrismitsos.fleetdirect.IndependentActivity" android:process=":direct" android:exported="false" />
+        <activity android:name="gr.argyrismitsos.fleetdirect.MainActivity" android:process=":direct" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name="gr.argyrismitsos.fleetdirect.DirectRestartActivity" android:process=":restore" android:exported="false" />
         <provider android:name="gr.argyrismitsos.fleetdirect.DirectControlProvider" android:authorities="gr.argyrismitsos.fleetserver.direct-control" android:process=":direct" android:exported="false" />
         <service android:name="gr.argyrismitsos.fleetdirect.IndependentService" android:process=":direct" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Owner controlled private HTTPS fleet server with independent SQLite and read-only source synchronization." />
@@ -65,5 +67,6 @@
             </intent-filter>
         </receiver>
         <receiver android:name="gr.argyrismitsos.fleetupdates.OtaInstallReceiver" android:exported="false" />
+        <receiver android:name="gr.argyrismitsos.fleetdirect.DirectOtaReceiver" android:process=":direct" android:exported="false" />
     </application>
 </manifest>
