@@ -98,6 +98,12 @@ public final class AcmeProtocolChecks {
         check(identity.getString("key").equals(IndependentAcme.encoded(certificate.getPrivate()))&&identity.getString("chain").equals(chain),"complete protocol retains exact returned identity");
         check(success.writes==1&&success.clears==1&&success.challenge==1&&success.finalize==1&&success.phases.contains("txt_wait")&&success.phases.contains("ready")&&success.phases.contains("download"),"full DNS/order/certificate lifecycle");
         if(trust)IndependentTls.chain(identity,HOST,true);
+        try{IndependentTls.chain(identity,"other.duckdns.org",false);throw new AssertionError("Wrong TLS hostname accepted");}
+        catch(IndependentCertificate.Failure expected){check(expected.reason.equals("CHAIN_HOSTNAME"),"distinct safe hostname diagnostic");}
+        JSONObject truncated=new JSONObject(identity.toString()).put("chain",chain.substring(0,chain.indexOf("-----END CERTIFICATE-----")+25));
+        try{IndependentTls.chain(truncated,HOST,false);throw new AssertionError("Incomplete TLS chain accepted");}
+        catch(IndependentCertificate.Failure expected){check(expected.reason.equals("CHAIN_INCOMPLETE"),"distinct safe incomplete-chain diagnostic");}
+        check(IndependentCertificate.describe(new IndependentCertificate.Failure("chain","CHAIN_UNTRUSTED",0,0),0).contains("CERT_CHAIN_CHAIN_UNTRUSTED"),"safe trust diagnostic remains actionable");
         Ca reused=new Ca(account,chain,"already-valid");reused.run(certificate);check(reused.writes==0&&reused.clears==0&&reused.challenge==0&&reused.finalize==1,"valid CA authorization avoids DNS writes");
         failure(account,certificate,chain,"caa","order","CAA");failure(account,certificate,chain,"subproblem","order","CA_DNS");failure(account,certificate,chain,"rate","order","CA_RATE_LIMIT");
         failure(account,certificate,chain,"stale","txt_wait","DNS_PENDING");failure(account,certificate,chain,"servfail","txt_wait","DNS_SERVFAIL");failure(account,certificate,chain,"dns-offline","txt_wait","DNS_UNAVAILABLE");failure(account,certificate,chain,"dns-rejected","txt_set","DNS_REJECTED");
