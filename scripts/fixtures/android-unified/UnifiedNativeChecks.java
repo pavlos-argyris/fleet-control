@@ -7,12 +7,13 @@ public final class UnifiedNativeChecks{
     private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
     private static String read(InputStream input)throws Exception{try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>2*1024*1024)throw new IOException("Fixture response too large");out.write(b,0,n);}return out.toString("UTF-8");}}
     static void run(Context base,Context target,Uri manifest,JSONObject owner,String password)throws Exception{
+        try{IndependentConfig.read(base);throw new AssertionError("Direct accepted unscoped Cloud context");}catch(SecurityException expected){}
         check(!BackendMode.direct(base),"Normal update defaults Cloudflare before every synthetic activation");
         try(android.database.sqlite.SQLiteDatabase db=base.openOrCreateDatabase("issue95-cloud-sentinel.db",0,null)){db.execSQL("CREATE TABLE keep(value TEXT)");db.execSQL("INSERT INTO keep VALUES('cloud-intact')");}
         SharedPreferences root=base.getSharedPreferences(BackupManager.PREFS,0),prefs=target.getSharedPreferences(BackupManager.PREFS,0);
         root.edit().putString("worker_url","https://cloud-sentinel.invalid").putInt(BackupManager.KEY_HOUR,22).putBoolean("automatic_backup",false).commit();
         prefs.edit().putBoolean("automatic_start",false).putBoolean("automatic_ota",false).commit();
-        BackupProtection.configure(target,password);
+        check(BackupProtection.state(target).getBoolean("enabled"),"Import installs a Keystore-wrapped backup key for unattended backups without storing the password");
         IndependentRuntime runtime=IndependentRuntime.get(target);
         try{
             // Internal backup operations work while Cloudflare is unavailable;
@@ -44,6 +45,9 @@ public final class UnifiedNativeChecks{
             JSONObject login=runtime.localLogin(owner.getString("username"),owner.getString("password"));check(login.getInt("status")==200,"Original owner password still works after recovery; new sessions required");
             try(android.database.sqlite.SQLiteDatabase db=base.openOrCreateDatabase("issue95-cloud-sentinel.db",0,null);android.database.Cursor cursor=db.rawQuery("SELECT value FROM keep",null)){check(cursor.moveToFirst()&&cursor.getString(0).equals("cloud-intact"),"Cold Direct replacement leaves actual Cloud database directory intact");}
             JSONObject catalogue=UpdateManager.listReleases(target);check(catalogue.getJSONArray("releases").length()>=3,"Normal Updates controls show bundled Client/Web/Server in Direct");
+            JSONObject client=UpdateManager.uploadClientApk(target,Uri.fromFile(new File(target.getFilesDir(),"direct-releases/bundled-client.apk")));
+            JSONObject published=UpdateManager.localClientInfo(target);check(published.getBoolean("available")&&published.getString("sha256").equals(client.getString("sha256"))&&published.getString("downloadUrl").equals(BackendMode.DIRECT+"/download/client.apk"),"Uploaded original-signed Client is the public Direct update selection");
+            UpdateManager.activateRelease(target,"bundled-client");check(UpdateManager.localClientInfo(target)==null,"Bundled Client restores the independent public release channel");
             File zip=new File(target.getCacheDir(),"fixture-direct-web.zip");
             try(ZipOutputStream out=new ZipOutputStream(new FileOutputStream(zip))){for(String name:new String[]{"index.html","portal.html","fleet-config.js"}){out.putNextEntry(new ZipEntry(name));out.write((name.endsWith(".html")?"<html><head><script src='/backend-mode.js'></script><script src='/primary-transport.js'></script></head><body>Synthetic Direct</body></html>":"window.FLEET_CONFIG={apiBase:'https://wrong.invalid'};").getBytes("UTF-8"));out.closeEntry();}}
             JSONObject uploaded=UpdateManager.uploadWebPackage(target,Uri.fromFile(zip));check(uploaded.getString("kind").equals("web"),"Web upload uses local immutable Direct catalogue");

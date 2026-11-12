@@ -710,17 +710,15 @@ public class MainActivity extends Activity {
 
     private UpdateInfo fetchUpdateInfo() throws Exception {
         HttpURLConnection connection = null;
+        final boolean direct=BackendSelection.direct(this);
         try {
-            if(BackendSelection.direct(this)){
-                org.json.JSONObject body=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");
-                return new UpdateInfo(body.getString("version"),body.getLong("sizeBytes"),body.getString("sha256"),body.optString("notes"),body.getInt("versionCode"),body.getString("downloadUrl"));
-            }
             URL endpoint = new URL(BackendSelection.apiBase(this)+"/api/client-update");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση ενημέρωσης.");
             connection = (HttpURLConnection) endpoint.openConnection();
             connection.setConnectTimeout(10000);
             connection.setReadTimeout(10000);
             connection.setUseCaches(false);
+            connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept", "application/json");
             if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) throw new IllegalStateException("HTTP " + connection.getResponseCode());
             org.json.JSONObject body = new org.json.JSONObject(readResponse(connection.getInputStream(), 64 * 1024));
@@ -734,6 +732,10 @@ public class MainActivity extends Activity {
                     body.optString("notes", "").trim(),
                     body.optInt("versionCode", 0),
                     body.optString("downloadUrl", UPDATE_DOWNLOAD_URL));
+        } catch(Exception error){
+            if(!direct)throw error;
+            org.json.JSONObject body=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");
+            return new UpdateInfo(body.getString("version"),body.getLong("sizeBytes"),body.getString("sha256"),body.optString("notes"),body.getInt("versionCode"),body.getString("downloadUrl"));
         } finally {
             if (connection != null) connection.disconnect();
         }
@@ -834,7 +836,8 @@ public class MainActivity extends Activity {
             URL trusted = new URL(BackendSelection.apiBase(this)+"/download/client.apk");
             if (!(BackendSelection.direct(this)&&gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl))&&(!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort() || !trusted.getPath().equals(endpoint.getPath()))) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση APK.");
-            connection = BackendSelection.direct(this)?gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint):(HttpURLConnection) endpoint.openConnection();
+            if(endpoint.getUserInfo()!=null||endpoint.getRef()!=null||endpoint.getQuery()!=null)throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
+            connection = gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl)?gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint):(HttpURLConnection) endpoint.openConnection();
             connection.setConnectTimeout(15000);
             connection.setReadTimeout(30000);
             connection.setInstanceFollowRedirects(false);

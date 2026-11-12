@@ -9,6 +9,10 @@ import java.io.FileNotFoundException;
 /** Same APK identity; independent database, files, preferences and process statics. */
 public final class ScopedContext extends ContextWrapper implements gr.argyrismitsos.fleetupdates.OtaInstaller.UpdateScope {
     public String updateScope(){return "direct";}
+    static boolean owns(Context c){try{
+        File root=new File(c.getApplicationInfo().dataDir,"app_fleet_direct");
+        return c.getFilesDir().getCanonicalFile().equals(new File(root,"files").getCanonicalFile())&&c.getDatabasePath("fleet-control-server.db").getParentFile().getCanonicalFile().equals(new File(root,"databases").getCanonicalFile());
+    }catch(Exception invalid){return false;}}
     public ScopedContext(Context base){super(base);getFilesDir();getCacheDir();}
     private File directory(String name){File result=new File(getApplicationInfo().dataDir,"app_fleet_direct/"+name);if(!result.isDirectory()&&!result.mkdirs())throw new IllegalStateException("Direct storage unavailable");return result;}
     @Override public File getFilesDir(){return directory("files");}

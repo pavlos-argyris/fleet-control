@@ -55,6 +55,12 @@ public final class UpdateManager{
         if(kind.isEmpty()||!id.startsWith("bundled-")&&!id.matches("[a-f0-9-]{36}"))throw new IOException("Δεν βρέθηκε η έκδοση Direct.");
         if(id.startsWith("bundled-"))value.remove(kind);else value.put(kind,id);save(c,value);return new JSONObject().put("activated",true).put("id",id);
     }
+    static synchronized JSONObject localClientInfo(Context c)throws Exception{
+        JSONObject value=index(c);String active=value.optString("client");JSONArray rows=value.optJSONArray("releases");
+        if(!active.matches("[a-f0-9-]{36}")||rows==null)return null;
+        for(int i=0;i<rows.length();i++){JSONObject entry=rows.getJSONObject(i);if(active.equals(entry.optString("id"))&&entry.optString("kind").equals("client"))return new JSONObject(entry.toString()).put("available",true).put("releaseId","direct-"+active).put("downloadUrl",gr.argyrismitsos.fleetserver.BackendMode.DIRECT+"/download/client.apk");}
+        throw new IOException("Δεν βρέθηκε η επιλεγμένη έκδοση Client στον Direct Server.");
+    }
     static InputStream asset(Context c,String path)throws Exception{
         if(!safe(path))throw new FileNotFoundException();JSONObject index=index(c);String client=index.optString("client"),web=index.optString("web");
         if(path.equals("download/client.apk")&&client.matches("[a-f0-9-]{36}"))return new FileInputStream(new File(root(c),client+".apk"));

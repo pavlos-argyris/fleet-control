@@ -79,7 +79,11 @@ for name,p in sources.items():
         for a,b in [('},sql,null,null);','},IndependentSqlite.statement(sql),null,null);'),('db.execSQL(sql,args);','db.execSQL(IndependentSqlite.statement(sql),args);'),('db.execSQL(line);','db.execSQL(IndependentSqlite.statement(line));')]:value=change(value,a,b)
     if name=='IndependentConfig.java':
         start='if(!PACKAGE.equals(c.getPackageName()))'
-        value=change(value,start,'if(!"'+old+'".equals(c.getPackageName()))')
+        value=change(value,start,'if(!"'+old+'".equals(c.getPackageName())||!ScopedContext.owns(c))')
+    if name=='IndependentRestore.java':
+        value=change(value,'IndependentConfig.save(c,SealedLocalState.read(c,PENDING,ALIAS).getJSONObject("configuration"));','JSONObject pending=SealedLocalState.read(c,PENDING,ALIAS);IndependentConfig.save(c,pending.getJSONObject("configuration"));if(pending.has("backupProtection"))BackupProtection.restore(c,pending.getJSONObject("backupProtection"));')
+        value=change(value,'SealedLocalState.remove(c,IndependentConfig.NAME);','SealedLocalState.remove(c,IndependentConfig.NAME);JSONObject pending=SealedLocalState.read(c,PENDING,ALIAS);if(pending.has("oldProtection"))BackupProtection.restore(c,pending.getJSONObject("oldProtection"));')
+        value=change(value,'new JSONObject().put("id",id).put("configuration",config);','new JSONObject().put("id",id).put("configuration",config).put("backupProtection",password==null?BackupProtection.snapshot(c):BackupProtection.candidate(password)).put("oldProtection",BackupProtection.snapshot(c));')
     if name in ('IndependentActivity.java','IndependentService.java'):
         declaration='public final class '+p.stem+' extends '+('Activity' if 'Activity' in name else 'Service')+' {'
         value=change(value,declaration,declaration+'\n    @Override protected void attachBaseContext(Context base){super.attachBaseContext(new ScopedContext(base));}\n')
@@ -125,7 +129,7 @@ for name,p in sources.items():
         value=value.replace('new Intent(this,IndependentActivity.class)','new Intent(this,gr.argyrismitsos.fleetserver.MainActivity.class)')
         value=value.replace('Δοκιμαστική βάση · HTTPS και συγχρονισμοί στη συσκευή','Direct · HTTPS και επεξεργασία στη συσκευή')
         value=change(value,'IndependentConfig.read(this);','IndependentConfig.read(this);')
-        value=change(value,'public JSONObject api(JSONObject request)throws Exception{return backend.external(request);}', 'public JSONObject api(JSONObject request)throws Exception{return backend.external(request);}public JSONObject routing()throws Exception{return BackendMode.read(thisContext());}public JSONObject update()throws Exception{return gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");}')
+        value=change(value,'public JSONObject api(JSONObject request)throws Exception{return backend.external(request);}', 'public JSONObject api(JSONObject request)throws Exception{return backend.external(request);}public JSONObject routing()throws Exception{return BackendMode.read(thisContext());}public JSONObject update()throws Exception{JSONObject selected=UpdateManager.localClientInfo(thisContext());return selected!=null?selected:gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");}')
         value=change(value,'return getAssets().open("independent-www/"+path);','return UpdateManager.asset(thisContext(),path);')
     if name=='IndependentPolicy.java':
         value=value.replace('"x-fleet-local-ocr"','"x-fleet-local-ocr","x-fleet-backend-revision"')
