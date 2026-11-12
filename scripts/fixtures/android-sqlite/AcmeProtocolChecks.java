@@ -83,7 +83,18 @@ public final class AcmeProtocolChecks {
         if(mode.equals("stale")||mode.equals("servfail")||mode.equals("dns-offline")||mode.equals("dns-rejected"))check(ca.challenge==0,"no premature challenge after unconfirmed DNS");
     }
     public static void run(KeyPair certificate,String chain,boolean trust)throws Exception {
-        KeyPair account=IndependentAcme.generate();Ca success=new Ca(account,chain,"success");JSONObject identity=success.run(certificate);
+        KeyPair account=IndependentAcme.generate();
+        String accountPrivate=IndependentAcme.encoded(account.getPrivate());
+        String accountPublic=java.util.Base64.getEncoder().encodeToString(account.getPublic().getEncoded());
+        KeyPair decoded=IndependentAcme.decode(accountPrivate,accountPublic);
+        check(java.util.Arrays.equals(account.getPublic().getEncoded(),decoded.getPublic().getEncoded()),"Stored RSA public+private pair survives PKCS8 decoding");
+        KeyPair legacy=IndependentAcme.decode(accountPrivate);
+        check(java.util.Arrays.equals(account.getPublic().getEncoded(),legacy.getPublic().getEncoded()),"Legacy private-only account reconstruction verifies RSA signature");
+        try{
+            String wrong=java.util.Base64.getEncoder().encodeToString(IndependentAcme.generate().getPublic().getEncoded());
+            IndependentAcme.decode(accountPrivate,wrong);throw new AssertionError("Mismatched stored public key was accepted");
+        }catch(java.security.InvalidKeyException expected){}
+        Ca success=new Ca(account,chain,"success");JSONObject identity=success.run(certificate);
         check(identity.getString("key").equals(IndependentAcme.encoded(certificate.getPrivate()))&&identity.getString("chain").equals(chain),"complete protocol retains exact returned identity");
         check(success.writes==1&&success.clears==1&&success.challenge==1&&success.finalize==1&&success.phases.contains("txt_wait")&&success.phases.contains("ready")&&success.phases.contains("download"),"full DNS/order/certificate lifecycle");
         if(trust)IndependentTls.chain(identity,HOST,true);
