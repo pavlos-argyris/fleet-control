@@ -14,7 +14,7 @@ isolated_builder=destination/'scripts/build-android.sh'
 builder_source=isolated_builder.read_text()
 old_client='Fleet_Control_Client_v1.0.0-test3.apk'
 if builder_source.count(old_client)!=1: raise SystemExit('Isolated Client bundling version drift')
-isolated_builder.write_text(builder_source.replace(old_client,'Fleet_Control_Client_v1.0.0-test5.apk'))
+isolated_builder.write_text(builder_source.replace(old_client,'Fleet_Control_Client_v1.0.0-test6.apk'))
 (destination/'cloudflare-worker/node_modules').symlink_to(root/'cloudflare-worker/node_modules',target_is_directory=True)
 shutil.copytree(root/'independent-android/src',destination/'server-android/src',dirs_exist_ok=True)
 shutil.copy2(root/'independent-android/AndroidManifest.xml',destination/'server-android/AndroidManifest.xml')
