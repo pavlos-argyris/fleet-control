@@ -1,4 +1,4 @@
-# Re-trigger isolated verification after the GitHub Actions incident on 2026-11-11.
+# Trigger isolated Test 5 delivery verification after Issue #93 regression fix (2026-11-12).
 name: Independent Android test delivery
 on:
   workflow_dispatch:
