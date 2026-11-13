@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-b1cf1f87-a162-4ded-a86b-81e879be47fe",
-  "sourceCommit": "471c4e9052f419767ef3949917d1d7e6bab42a9c",
-  "releaseVersion": "5.62.1",
-  "requestedAt": "2026-11-10T18:07:57.996Z",
-  "reason": "Νεότερη εντολή ιδιοκτήτη10/11/2026: συνέχισε την επιστροφή στο Cloudflare· θα ενεργοποιήσει προσωρινά Workers Paid. Δημοσίευση της ελεγμένης5.62.1 με αρχικές υπογραφές και πλήρη πηγή, διατήρηση μειώσεων εγγραφών και όλων των δεδομένων. Το Tunnel PR88 παραμένει ανεξάρτητο. Χωρίς παραγωγικό restore/delete ή D1 business fallback."
+  "requestId": "fleet-1132b687-df83-491a-b4cb-7e12eb9d8ba1",
+  "sourceCommit": "62f378c519a9c8186b85cf57a3f8aeba8ea04b4c",
+  "releaseVersion": "5.63.0",
+  "requestedAt": "2026-11-13T03:27:26.104Z",
+  "reason": "Πλήρης υλοποίηση Issue #95 και κανονική αυτόματη ενημέρωση μετά επιτυχείς ελέγχους, με αρχικό Cloudflare και χωρίς ενεργοποίηση Direct από τον agent."
 }
