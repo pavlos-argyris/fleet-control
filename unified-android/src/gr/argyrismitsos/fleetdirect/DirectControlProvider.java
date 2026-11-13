@@ -10,7 +10,7 @@ public final class DirectControlProvider extends ContentProvider {
     private void initialize()throws Exception{DirectHost.startup(scope);}
     @Override public Bundle call(String method,String argument,Bundle extras){
         if(Binder.getCallingUid()!=android.os.Process.myUid())throw new SecurityException("Private Direct control");
-        Bundle result=new Bundle();try{
+        Bundle result=new Bundle();String stage="status";try{
             if(method.equals("status")||method.equals("dashboard")){
                 JSONObject state=BackendMode.read(scope);JSONObject config=IndependentConfig.read(scope);state.put("backupVerified",config.has("backupSha256")).put("hostname",config.optString("hostname"));
                 SharedPreferences ui=scope.getSharedPreferences("independent_ui",Context.MODE_PRIVATE);
@@ -24,7 +24,7 @@ public final class DirectControlProvider extends ContentProvider {
                 if(config.has("backupSha256")&&scope.getSharedPreferences(BackupManager.PREFS,0).getBoolean("automatic_start",true))IndependentService.start(scope);
                 result.putBoolean("ok",true);return result;
             }
-            initialize();IndependentRuntime runtime=IndependentRuntime.get(scope);
+            stage="startup";initialize();stage="runtime";IndependentRuntime runtime=IndependentRuntime.get(scope);stage="command";
             if(method.equals("login")){
                 JSONObject body=RememberedOwner.login(scope,extras.getString("username",""),extras.getString("password",""));
                 result.putString("token",body.getString("token"));
@@ -43,7 +43,7 @@ public final class DirectControlProvider extends ContentProvider {
                 }
             }else throw new IllegalArgumentException("Unknown Direct control command");
             result.putBoolean("ok",true);
-        }catch(Exception error){result.putBoolean("ok",false);result.putString("errorType",error.getClass().getSimpleName());String message=error.getMessage();result.putString("error",message!=null&&message.startsWith("Ε")||message!=null&&message.startsWith("Σ")||message!=null&&message.startsWith("Α")||message!=null&&message.startsWith("Η")||message!=null&&message.startsWith("Ο")?message:"Η τοπική λειτουργία δεν επιβεβαιώθηκε. Τα δεδομένα διατηρούνται.");}
+        }catch(Exception error){result.putBoolean("ok",false);result.putString("errorType",error.getClass().getSimpleName());result.putString("errorStage",stage);if(error.getStackTrace().length>0){StackTraceElement at=error.getStackTrace()[0];result.putString("errorAt",at.getClassName()+"."+at.getMethodName()+":"+at.getLineNumber());}String message=error.getMessage();result.putString("error",message!=null&&message.startsWith("Ε")||message!=null&&message.startsWith("Σ")||message!=null&&message.startsWith("Α")||message!=null&&message.startsWith("Η")||message!=null&&message.startsWith("Ο")?message:"Η τοπική λειτουργία δεν επιβεβαιώθηκε. Τα δεδομένα διατηρούνται.");}
         return result;
     }
     @Override public Cursor query(Uri u,String[] p,String s,String[] a,String o){throw new UnsupportedOperationException();}

@@ -6,8 +6,17 @@ import gr.argyrismitsos.fleetserver.BackendMode;
 public final class UnifiedNativeChecks{
     private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
     private static String read(InputStream input)throws Exception{try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>2*1024*1024)throw new IOException("Fixture response too large");out.write(b,0,n);}return out.toString("UTF-8");}}
+    private static MainActivity fixtureActivity(Context base)throws Exception{
+        // Android Activity construction belongs to its main Looper, even when
+        // no window/WebView is needed for a real compiled bridge invocation.
+        java.util.concurrent.FutureTask<MainActivity> task=new java.util.concurrent.FutureTask<>(()->{
+            MainActivity activity=new MainActivity();java.lang.reflect.Method attach=MainActivity.class.getDeclaredMethod("attachBaseContext",Context.class);attach.setAccessible(true);attach.invoke(activity,base);return activity;
+        });
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(task);
+        return task.get(20,java.util.concurrent.TimeUnit.SECONDS);
+    }
     static void checkFreshDashboard(Context base,Context scope)throws Exception{
-        MainActivity activity=new MainActivity();java.lang.reflect.Method attach=MainActivity.class.getDeclaredMethod("attachBaseContext",Context.class);attach.setAccessible(true);attach.invoke(activity,base);
+        MainActivity activity=fixtureActivity(base);
         java.lang.reflect.Field prefs=MainActivity.class.getDeclaredField("preferences");prefs.setAccessible(true);prefs.set(activity,activity.getSharedPreferences(BackupManager.PREFS,0));
         JSONObject dashboard=new JSONObject(activity.new ServerBridge().getDashboard());
         check(dashboard.optBoolean("settingsLoaded")&&dashboard.optBoolean("directPreparing")&&!dashboard.has("dashboardError"),"Fresh Direct dashboard loads preparation without a database or owner credentials: "+dashboard.optString("dashboardError"));
@@ -130,8 +139,8 @@ public final class UnifiedNativeChecks{
         check(provider!=null&&!provider.exported&&provider.processName.equals(base.getPackageName()+":direct"),"Physical private same-APK control authority resolves to the Direct process");
         try{base.getContentResolver().call(Uri.parse("content://gr.argyrismitsos.fleetdirect.direct-control"),"status","",null);throw new AssertionError("Old renamed authority unexpectedly resolved");}catch(IllegalArgumentException expected){}
         android.os.Bundle remembered=base.getContentResolver().call(Uri.parse("content://"+BackendMode.CONTROL_AUTHORITY),"login","",new android.os.Bundle());
-        check(remembered.getBoolean("ok")&&!remembered.getString("token","").isEmpty(),"Fresh real Direct process reauthenticates remembered owner with Android Keystore; no password is supplied by the caller: "+remembered.getString("errorType","")+" · "+remembered.getString("error",""));
-        MainActivity activity=new MainActivity();java.lang.reflect.Method attach=MainActivity.class.getDeclaredMethod("attachBaseContext",Context.class);attach.setAccessible(true);attach.invoke(activity,base);
+        check(remembered.getBoolean("ok")&&!remembered.getString("token","").isEmpty(),"Fresh real Direct process reauthenticates remembered owner with Android Keystore; no password is supplied by the caller: "+remembered.getString("errorType","")+" · "+remembered.getString("errorStage","")+" · "+remembered.getString("errorAt","")+" · "+remembered.getString("error",""));
+        MainActivity activity=fixtureActivity(base);
         // Exercise the actual compiled/generated JavaScript bridge and Android
         // ContentResolver, with real scoped data. No browser response is mocked.
         try(FleetDataStore uiStore=new FleetDataStore(activity)){
