@@ -53,6 +53,22 @@ public final class UnifiedNativeChecks{
         if(manager!=null&&manager.getRunningAppProcesses()!=null)for(android.app.ActivityManager.RunningAppProcessInfo process:manager.getRunningAppProcesses())if(process.uid==android.os.Process.myUid()&&process.processName.equals(base.getPackageName()+":direct")){android.os.Process.killProcess(process.pid);Thread.sleep(150);}
     }
     static void run(Context base,Context target,Uri manifest,JSONObject owner,String password)throws Exception{
+        // Exercise the actual Android crypto provider, without real cert/private-key data.
+        JSONObject syntheticCert=new JSONObject().put("key","synthetic-tls-key-only")
+            .put("chain","synthetic-tls-chain-only");
+        String code="synthetic-passphrase-for-test-only";
+        byte[] offline=IndependentCertificateTransfer.encrypt(syntheticCert,"fleet-control.duckdns.org",code);
+        check(!new String(offline,"UTF-8").contains("synthetic-tls-key-only"),"TLS export file is encrypted");
+        JSONObject restored=IndependentCertificateTransfer.decrypt(offline,"fleet-control.duckdns.org",code);
+        check(restored.getString("key").equals("synthetic-tls-key-only")&&
+              restored.getString("chain").equals("synthetic-tls-chain-only"),"Android PBKDF2 AES-GCM TLS transfer roundtrips");
+        try{IndependentCertificateTransfer.decrypt(offline,"other.duckdns.org",code);
+            throw new AssertionError("TLS transfer accepted wrong hostname");
+        }catch(IOException expected){}
+        try{IndependentCertificateTransfer.decrypt(offline,"fleet-control.duckdns.org","bad-passphrase-1234");
+            throw new AssertionError("TLS transfer accepted incorrect password");
+        }catch(java.security.GeneralSecurityException expected){}
+        android.util.Log.i("FleetSqliteTest","PASS actual Android HTTPS transfer crypto and wrong-host/wrong-password rejection");
         android.content.SharedPreferences sessions=base.getSharedPreferences("issue95_session_vault",0);String sample="synthetic-client-session-2026-only";
         sessions.edit().putString("cloud",sample).commit();
         check(gr.argyrismitsos.fleetupdates.SessionVault.read(base,sessions,"cloud",gr.argyrismitsos.fleetupdates.SessionVault.CLOUD).equals(sample)&&!sessions.contains("cloud"),"Legacy remembered token migrates atomically to Android Keystore ciphertext");

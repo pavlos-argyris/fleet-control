@@ -31,6 +31,34 @@ public class IndependentNetworkTest {
   JSONObject identity=new JSONObject().put("key",java.util.Base64.getEncoder().encodeToString(privateKey.getEncoded())).put("chain",chain);tls=IndependentTls.context(identity,host,true);AcmeProtocolChecks.run(IndependentAcme.decode(identity.getString("key")),chain,true);
   boolean mismatch=false;try{IndependentTls.chain(identity,"other.duckdns.org",true);}catch(Exception expected){mismatch=true;}check(mismatch,"hostname/SAN mismatch denied");
   JSONObject wrong=new JSONObject(identity.toString()).put("key",IndependentAcme.encoded(IndependentAcme.generate().getPrivate()));mismatch=false;try{IndependentTls.chain(wrong,host,true);}catch(Exception expected){mismatch=true;}check(mismatch,"mismatched TLS key denied");
+  // Transfer must wrap the real TLS identity offline and fail closed on every mutation.
+  String portableCode="fixture-only-very-long-private-passphrase";
+  byte[] portable=IndependentCertificateTransfer.encrypt(identity,host,portableCode);
+  check(portable.length<65536&&!new String(portable,"UTF-8").contains(identity.getString("key"))&&!new String(portable,"UTF-8").contains("BEGIN CERTIFICATE"),
+        "portable HTTPS transfer contains no plaintext private key or certificate");
+  JSONObject recovered=IndependentCertificateTransfer.decrypt(portable,host,portableCode);
+  check(recovered.getString("key").equals(identity.getString("key"))&&recovered.getString("chain").equals(identity.getString("chain")),
+        "certificate and private key decrypt exactly");
+  IndependentTls.chain(recovered,host,true);
+  for(String passphraseCandidate:new String[]{"wrongpassword00000","another-long-secret-passphrase"}){
+      boolean rejected=false;try{IndependentCertificateTransfer.decrypt(portable,host,passphraseCandidate);}
+      catch(Exception expected){rejected=true;}check(rejected,"wrong passphrase cannot decrypt");
+  }
+  boolean rejected=false;
+  try{IndependentCertificateTransfer.decrypt(portable,"other.duckdns.org",portableCode);}
+  catch(Exception expected){rejected=true;}
+  check(rejected,"file cannot be imported for a different DuckDNS hostname");
+  JSONObject tampered=new JSONObject(new String(portable,"UTF-8")).put("iterations",1);
+  rejected=false;try{IndependentCertificateTransfer.decrypt(tampered.toString().getBytes("UTF-8"),host,portableCode);}
+  catch(Exception expected){rejected=true;}check(rejected,"KDF work factor cannot be weakened");
+  tampered=new JSONObject(new String(portable,"UTF-8"));
+  String ciphertext=tampered.getString("ciphertext");
+  byte[] changed=java.util.Base64.getDecoder().decode(ciphertext);changed[changed.length-1]^=1;
+  tampered.put("ciphertext",java.util.Base64.getEncoder().encodeToString(changed));
+  rejected=false;try{IndependentCertificateTransfer.decrypt(tampered.toString().getBytes("UTF-8"),host,portableCode);}
+  catch(Exception expected){rejected=true;}check(rejected,"GCM rejects tampered transfer");
+  rejected=false;try{IndependentCertificateTransfer.decrypt(new byte[65537],host,portableCode);}
+  catch(Exception expected){rejected=true;}check(rejected,"oversized transfer rejected before PBKDF");
   final java.util.concurrent.atomic.AtomicInteger requests=new java.util.concurrent.atomic.AtomicInteger();
   IndependentHttps server=new IndependentHttps(tls,InetAddress.getByName("127.0.0.1"),0,realm,new IndependentHttps.Handler(){public JSONObject routing()throws Exception{return new JSONObject().put("schema",1).put("revision",7).put("activeMode","cloudflare");}public JSONObject api(JSONObject request)throws Exception{requests.incrementAndGet();check(!request.getJSONObject("headers").has("x-fleet-server-key"),"listener strips spoofed native key");check(!request.optBoolean("independentExternal"),"real localhost connection cannot become external");check(request.optString("independentPeer").equals("127.0.0.1"),"actual TCP peer overrides spoofed forwarding headers");return new JSONObject().put("status",200).put("headers",new JSONObject().put("Content-Type","application/json").put("Access-Control-Allow-Origin","*")).put("body","{\"local\":true}");}public InputStream asset(String name)throws Exception{if(name.equals("portal.html"))return new ByteArrayInputStream("<h1>Android-owned Web</h1>".getBytes("UTF-8"));if(name.equals("index.html"))return new ByteArrayInputStream("Fleet module".getBytes("UTF-8"));if(name.equals("download/client.apk")||name.equals("vendor/pdfjs/pdf.mjs")||name.equals("vendor/pdfjs/standard_fonts/FoxitSans.pfb"))return new ByteArrayInputStream("fixture private-free asset".getBytes("UTF-8"));throw new FileNotFoundException();}public long revision(){return 0;}public long await(long revision)throws Exception{Thread.sleep(10);return 0;}});port=server.port();server.start();String discovery=request("GET /fleet-mode.json HTTP/1.1\r\nHost: "+host+"\r\nOrigin: https://fleet-control.pavlosargyris.workers.dev\r\n\r\n");check(discovery.startsWith("HTTP/1.1 200")&&discovery.toLowerCase(Locale.US).contains("access-control-allow-origin: *")&&discovery.contains("\"revision\":7"),"only public mode discovery has credential-free CORS");
   long started=System.nanoTime();try{
@@ -53,11 +81,11 @@ public class IndependentNetworkTest {
   check(!IndependentDns.visibleAnswer(new JSONObject().put("Status",0).put("Answer",new JSONArray().put(new JSONObject().put("name",txtName).put("type",1).put("data",expectedTxt))).toString(),host,expectedTxt),"non-TXT DNS answer must never validate");
   boolean servfail=false;try{IndependentDns.visibleAnswer(new JSONObject().put("Status",2).toString(),host,expectedTxt);}catch(IndependentCertificate.Failure failure){servfail=failure.reason.equals("DNS_SERVFAIL");}check(servfail,"SERVFAIL must surface distinct safe diagnostic");
   boolean denied=false;try{IndependentAcme.caUrl("https://evil.invalid/redirect");}catch(Exception expected){denied=true;}check(denied,"ACME endpoint SSRF/redirect guard");
-  JSONObject result=new JSONObject().put("passed",true).put("realTlsConnections",32).put("parallelClients",30).put("elapsedMs",(System.nanoTime()-started)/1000000).put("physicalAndroidTest",false).put("externalNovaTest",false).put("liveCertificateIssuance",false);Files.write(Paths.get(args[0],"results.json"),result.toString(2).getBytes("UTF-8"));System.out.println("PASS actual trusted TLS/SAN/key validation, TLS-only listener, same-origin/CSRF/Host/smuggling/traversal rejection, true TCP-peer provenance, 30 concurrent TLS clients, RSA DNS CSR and signed ACME badNonce retry. Live DDNS/CA issuance and physical Nova/Android tests remain pending.");
+  JSONObject result=new JSONObject().put("passed",true).put("realTlsConnections",32).put("parallelClients",30).put("elapsedMs",(System.nanoTime()-started)/1000000).put("physicalAndroidTest",false).put("externalNovaTest",false).put("liveCertificateIssuance",false);Files.write(Paths.get(args[0],"results.json"),result.toString(2).getBytes("UTF-8"));System.out.println("PASS actual trusted TLS/SAN/key validation, TLS-only listener, same-origin/CSRF/Host/smuggling/traversal rejection, true TCP-peer provenance, 30 concurrent TLS clients, RSA DNS CSR and signed ACME badNonce retry. Encrypted offline TLS export/import, wrong password, wrong host, KDF downgrade and tamper rejection verified; live DDNS/CA issuance and physical Nova/Android tests remain pending.");
  }
 }`);
 const jar=path.resolve('vendor/json-java/json-20240303.jar');
-const sources=['Context','SharedPreferences','IndependentConfig','SealedLocalState','IndependentNetworkTest'].map(n=>file(n+'.java')).concat([path.resolve('scripts/fixtures/android-sqlite/AcmeProtocolChecks.java')]).concat(['IndependentPolicy','IndependentHttps','IndependentAcme','IndependentTls','IndependentDns','IndependentCertificate'].map(n=>path.resolve('independent-android/src/gr/argyrismitsos/fleetserver',n+'.java')));
+const sources=['Context','SharedPreferences','IndependentConfig','SealedLocalState','IndependentNetworkTest'].map(n=>file(n+'.java')).concat([path.resolve('scripts/fixtures/android-sqlite/AcmeProtocolChecks.java')]).concat(['IndependentPolicy','IndependentHttps','IndependentAcme','IndependentTls','IndependentDns','IndependentCertificate','IndependentCertificateTransfer'].map(n=>path.resolve('independent-android/src/gr/argyrismitsos/fleetserver',n+'.java')));
 execFileSync('java',['-jar',path.resolve('.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',jar,'-d',dir,...sources],{stdio:'inherit'});
 execFileSync('java',['-Djavax.net.ssl.trustStore='+file('trust.p12'),'-Djavax.net.ssl.trustStorePassword='+password,'-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetserver.IndependentNetworkTest',dir],{stdio:'inherit',timeout:90000});
 const inspected=run('openssl',['req','-inform','DER','-in',file('generated.csr'),'-noout','-verify','-text']).toString();if(!inspected.includes('DNS:fixture.duckdns.org'))throw Error('CSR lacks exact SAN');console.log('PASS OpenSSL independently verifies generated PKCS#10 signature and DNS subjectAltName.');
