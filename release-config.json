@@ -1,14 +1,14 @@
 {
-  "releaseVersion": "5.64.1",
-  "notes": "• Διορθώθηκε το άμεσο κλείσιμο του Direct Android Server σε Samsung Note 10+ / Android 12 κατά την εκκίνηση του WebView.\n• Διατηρούνται αυτούσια η SQLite, τα backup, τα στοιχεία ιδιοκτήτη, το HTTPS και η ανεξάρτητη λειτουργία Direct.\n• Προστέθηκε πραγματική δοκιμή Android για δημιουργία WebView και εγγραφή callbacks πριν την εισαγωγή backup.",
+  "releaseVersion": "5.64.2",
+  "notes": "• Προστέθηκε ασφαλής τοπική μεταφορά υπάρχοντος πιστοποιητικού HTTPS από S24 Ultra σε Note 10+ χωρίς νέα έκδοση από Let's Encrypt.\n• Εξαγωγή και εισαγωγή μόνο από τον ιδιοκτήτη, με PBKDF2/AES-256-GCM και αρχείο προστατευμένο με ξεχωριστό κωδικό.\n• Πριν την εγκατάσταση γίνεται έλεγχος DuckDNS, αλυσίδας εμπιστοσύνης, λήξης και ιδιωτικού κλειδιού· διατηρούνται αμετάβλητα τα δεδομένα, τα backup και το αρχικό πιστοποιητικό.",
   "client": {
     "version": "5.64.0",
     "versionCode": 108,
     "packageName": "gr.argyrismitsos.fleetcontrol"
   },
   "server": {
-    "version": "2.13.1",
-    "versionCode": 79,
+    "version": "2.13.2",
+    "versionCode": 80,
     "packageName": "gr.argyrismitsos.fleetserver"
   },
   "web": {
