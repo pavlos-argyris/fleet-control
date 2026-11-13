@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compiled payload checks. Original signing identity is a separate release gate."""
 from pathlib import Path
-import json,zipfile
+import json,zipfile,subprocess,sys
 
 root=Path(__file__).resolve().parents[1]
 config=json.loads((root/'release-config.json').read_text())
@@ -22,4 +22,6 @@ for kind in ('client','server'):
             html=z.read('assets/www/portal.html').decode()
             assert html.index('/backend-mode.js')<html.index('/primary-transport.js')<html.index('/portal.js')
     print('PASS compiled '+kind+' payload and new 192MiB size bound: '+str(apk.stat().st_size)+' bytes')
+subprocess.run([sys.executable,str(root/'scripts/verify-apk-payload.py')],check=True)
+subprocess.run([sys.executable,str(root/'scripts/test-apk-payload.py')],check=True)
 print('APK construction checks do not prove original signature, real restore, router access or physical device acceptance.')
