@@ -1,4 +1,5 @@
 name: Read-only mirror diagnosis
+run-name: Read-only signed release delivery and legacy primary diagnosis
 on:
   workflow_dispatch:
   push:
@@ -34,6 +35,41 @@ jobs:
           if(!checksum||crypto.createHash('sha256').update(raw).digest('hex')!==checksum[1]||!/^[a-f0-9]{40}$/.test(manifest.sourceCommit)||manifest.releaseId!=='v'+version+'-'+manifest.sourceCommit.slice(0,12))throw Error('Saved release manifest is invalid');
           fs.appendFileSync(process.env.GITHUB_ENV,'FLEET_VERIFY_DEPLOYED_SOURCE='+manifest.sourceCommit+'\n');
           console.log(JSON.stringify({readOnly:true,releaseId:manifest.releaseId,sourceCommit:manifest.sourceCommit}));
+          JS
+      - name: Verify immutable signed APK and Web delivery separately
+        env:
+          FLEET_WORKER_URL: ${{ vars.FLEET_WORKER_URL }}
+          FLEET_SERVER_KEY: ${{ secrets.FLEET_SERVER_KEY }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';import crypto from 'node:crypto';
+          import {verifyProbeWebAsset} from './scripts/probe-primary-policy.mjs';
+          const base=new URL(process.env.FLEET_WORKER_URL||'');
+          if(base.href!=='https://fleet-control.pavlosargyris.workers.dev/')throw Error('Unexpected release origin');
+          const manifest=JSON.parse(fs.readFileSync('dist/release-manifest.json','utf8'));
+          if(manifest.sourceCommit!==process.env.FLEET_VERIFY_DEPLOYED_SOURCE)throw Error('Unexpected signed source');
+          const headers={'X-Fleet-Server-Key':process.env.FLEET_SERVER_KEY,'User-Agent':'Fleet-Control-ReadOnly-Release-Verification'};
+          const report={readOnly:true,scope:'signed-release-delivery',primaryVerified:false,sourceCommit:manifest.sourceCommit,downloads:[],web:[]};
+          const save=()=>{fs.mkdirSync('verification/mirror-probe',{recursive:true});fs.writeFileSync('verification/mirror-probe/release-delivery.json',JSON.stringify(report,null,2)+'\n');};
+          save();
+          for(const kind of ['client','server']){
+            const response=await fetch(new URL('/api/'+kind+'-update',base),{headers,redirect:'error',signal:AbortSignal.timeout(30000)});
+            if(!response.ok)throw Error('Release metadata HTTP '+response.status+' for '+kind);
+            const actual=await response.json(),wanted=manifest[kind];
+            const download=new URL(actual.downloadUrl||'',base);
+            if(!actual.available||actual.sourceCommit!==manifest.sourceCommit||['version','versionCode','sizeBytes','sha256'].some(key=>actual[key]!==wanted[key])||download.origin!==base.origin||download.pathname!=='/download/'+kind+'.apk'||download.username||download.password||download.hash||[...download.searchParams.keys()].some(key=>key!=='release')||download.searchParams.has('release')&&download.searchParams.get('release')!==kind+'-'+manifest.releaseId)throw Error('Signed release metadata mismatch: '+kind);
+            const binary=await fetch(download,{headers,redirect:'error',signal:AbortSignal.timeout(90000)});
+            if(!binary.ok||!binary.body)throw Error('APK delivery HTTP '+binary.status+' for '+kind);
+            let size=0;const digest=crypto.createHash('sha256');for await(const chunk of binary.body){size+=chunk.length;if(size>wanted.sizeBytes||size>192*1024*1024)throw Error('APK size limit: '+kind);digest.update(chunk);}
+            const sha256=digest.digest('hex');if(size!==wanted.sizeBytes||sha256!==wanted.sha256)throw Error('APK bytes mismatch: '+kind);
+            report.downloads.push({kind,version:wanted.version,size,sha256,verified:true});save();
+          }
+          for(const path of ['portal.html','assets/v'+manifest.web.version+'/app.js','assets/v'+manifest.web.version+'/fleet-operations.js']){
+            report.web.push(await verifyProbeWebAsset(base,path,manifest.web.files.find(file=>file.path===path)));save();
+          }
+          report.complete=report.downloads.length===2&&report.web.every(file=>file.verified);save();
+          if(!report.complete)throw Error('Signed release delivery is incomplete');
+          console.log(JSON.stringify(report));
           JS
       - name: Read-only deployed APK and mirror diagnosis
         env:
