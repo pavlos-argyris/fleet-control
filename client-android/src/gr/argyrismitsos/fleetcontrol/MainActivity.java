@@ -844,7 +844,7 @@ public class MainActivity extends Activity {
             URL trusted = new URL(BackendSelection.apiBase(this)+"/download/client.apk");
             if (!(BackendSelection.direct(this)&&gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl))&&(!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort() || !trusted.getPath().equals(endpoint.getPath()))) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση APK.");
-            if(endpoint.getUserInfo()!=null||endpoint.getRef()!=null||endpoint.getQuery()!=null)throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
+            if(endpoint.getUserInfo()!=null||endpoint.getRef()!=null)throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
             connection = gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl)?gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint):(HttpURLConnection) endpoint.openConnection();
             connection.setConnectTimeout(15000);
             connection.setReadTimeout(30000);

@@ -79,7 +79,14 @@ export async function routeReleases(request, env, helpers) {
       const length=Number(request.headers.get('content-length')),sha256=request.headers.get('x-fleet-content-sha256')||'',key=`ota/${match[1]}/${match[2]}`;
       if(!Number.isSafeInteger(length)||length<1||length>APK_LIMIT||!SHA.test(sha256)||!request.body)return json({error:'Απαιτούνται έγκυρα μέγεθος και SHA-256 για μεγάλο APK.'},400);
       const old=await env.RELEASES.head(key);
-      if(old)return old.size===length&&old.customMetadata?.sha256===sha256?json({uploaded:true,sha256,sizeBytes:length}):json({error:'Τα αρχεία μιας έκδοσης δεν αντικαθίστανται.'},409);
+      if(old){
+        // Finish the bounded authenticated request before replying. An early
+        // response can reset an HTTP/1 upload while its sender is still writing.
+        const discarded=new FixedLengthStream(length);
+        const drained=await Promise.allSettled([request.body.pipeTo(discarded.writable),discarded.readable.pipeTo(new WritableStream())]);
+        if(drained.some(result=>result.status==='rejected'))return json({error:'Δεν επιβεβαιώθηκε το μέγεθος του αιτήματος.'},400);
+        return old.size===length&&old.customMetadata?.sha256===sha256?json({uploaded:true,sha256,sizeBytes:length}):json({error:'Τα αρχεία μιας έκδοσης δεν αντικαθίστανται.'},409);
+      }
       // A fixed stream bounds actual bytes; R2 verifies SHA-256 while storing.
       // No complete APK or tee backlog is retained in Worker memory.
       const fixed=new FixedLengthStream(length),abort=new AbortController();

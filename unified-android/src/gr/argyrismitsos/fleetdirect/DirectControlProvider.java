@@ -15,7 +15,7 @@ public final class DirectControlProvider extends ContentProvider {
                 JSONObject state=BackendMode.read(scope);JSONObject config=IndependentConfig.read(scope);state.put("backupVerified",config.has("backupSha256")).put("hostname",config.optString("hostname"));
                 SharedPreferences ui=scope.getSharedPreferences("independent_ui",Context.MODE_PRIVATE);
                 for(String key:new String[]{"runtime","network","certificate","listener","listenerError","ipv4"})state.put(key,ui.getString(key,""));
-                state.put("listenerActive",IndependentService.listenerOnline()).put("listenerPort",8443);
+                boolean online=IndependentService.listenerOnline();state.put("listenerActive",online).put("listenerPort",8443).put("listener",online?"HTTPS listener ενεργός · θύρα 8443":"HTTPS listener ανενεργός · θύρα 8443");
                 if(method.equals("dashboard")&&config.has("backupSha256")){initialize();state.put("stats",IndependentRuntime.get(scope).dashboard()).put("ota",OtaManager.state(scope));}
                 result.putString("json",state.toString());result.putBoolean("ok",true);return result;
             }

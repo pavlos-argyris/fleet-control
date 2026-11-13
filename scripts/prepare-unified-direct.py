@@ -5,7 +5,7 @@ Production classes, SQLite provider and cloud preferences are never rewritten.
 The generated source is reproducible from the complete repository archive.
 """
 from pathlib import Path
-import re, shutil, sys
+import re, shutil, sys, json
 
 root=Path(__file__).resolve().parents[1]
 out=Path(sys.argv[1]);assets=Path(sys.argv[2])
@@ -152,5 +152,13 @@ for html in www.rglob('*.html'):
     value=html.read_text().replace('</head>','<script src="/independent-owner.js" defer></script></head>').replace('./index.html?embedded=1','./fleet.html?embedded=1')
     html.write_text(value)
 for file in www.rglob('portal.js'):file.write_text(file.read_text().replace('./index.html?embedded=1','./fleet.html?embedded=1'))
-(www/'service-worker.js').write_text("self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',event=>event.waitUntil(self.registration.unregister()));\n")
+shell={'/','/portal.html','/fleet.html','/fleet-config.js','/backend-mode.js','/backend-mode.css','/independent-owner.js'}
+for html in (www/'index.html',www/'portal.html'):
+    for ref in re.findall(r'(?:src|href)=["\']([^"\']+)',html.read_text()):
+        path=ref.removeprefix('./').split('?',1)[0].split('#',1)[0].lstrip('/')
+        if path and '://' not in path and '..' not in path and (www/path).is_file() and not path.startswith('download/'):
+            shell.add('/'+path)
+version=json.loads((root/'release-config.json').read_text())
+sw=(root/'unified-android/assets/direct-service-worker.js').read_text().replace('__FLEET_VERSION__',version['server']['version']+'-'+version['web']['version']).replace('__FLEET_SHELL__',json.dumps(sorted(shell)))
+(www/'service-worker.js').write_text(sw)
 print('Prepared namespaced Direct backend, separate storage, same APK identity')

@@ -685,6 +685,7 @@
         "scripts/build-independent-android-test.py",
         "scripts/test-independent-android.sh",
         "scripts/check-unified-apks.py",
+        "unified-android/assets/*.js",
         "scripts/fixtures/android-unified/*.java"
       ],
       "tests": [
@@ -693,7 +694,8 @@
         "scripts/test-independent-network.mjs",
         "scripts/test-server-http.mjs",
         "scripts/test-large-release.mjs",
-        "scripts/test-unified-server-browser.mjs"
+        "scripts/test-unified-server-browser.mjs",
+        "scripts/test-direct-offline-browser.mjs"
       ],
       "related": [
         "server-foundation",

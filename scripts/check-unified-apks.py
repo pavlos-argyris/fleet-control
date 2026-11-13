@@ -14,7 +14,7 @@ for kind in ('client','server'):
             for name in ('fleetserver/BackendMode','fleetdirect/IndependentRuntime','fleetdirect/DirectControlProvider','fleetdirect/ScopedContext'):
                 assert ('Lgr/argyrismitsos/'+name+';').encode() in dex,name
             assert z.read('assets/independent-www/download/client.apk')==(root/'dist'/('Fleet_Control_Client_v'+config['client']['version']+'.apk')).read_bytes(), 'Full signed Client is embedded byte for byte'
-            for abi in ('arm64-v8a','armeabi-v7a'):assert 'lib/'+abi+'/libsqliteX.so' in z.namelist()
+            for abi in ('arm64-v8a','armeabi-v7a','x86','x86_64'):assert 'lib/'+abi+'/libsqliteX.so' in z.namelist()
             html=z.read('assets/www/index.html').decode();assert 'id="backendModePanel"' in html
             for tab in ('status','backup','updates','settings'):assert 'data-tab="'+tab+'"' in html
         else:

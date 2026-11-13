@@ -11,6 +11,7 @@ export default{async fetch(request,env){const path=new URL(request.url).pathname
   const saved=await send('large-valid',sha);assert.equal(saved.status,200,await saved.clone().text());assert.deepEqual(await saved.json(),{uploaded:true,sha256:sha,sizeBytes:bytes.length});
   assert.deepEqual(await(await mf.dispatchFetch('https://fixture/inspect/ota/large-valid/server.apk')).json(),{size:bytes.length,sha});
   const conflict=await send('large-valid','0'.repeat(64));assert.equal(conflict.status,409,'existing immutable APK is preserved');
+  const repeated=await send('large-valid',sha);assert.equal(repeated.status,200,'a complete repeated upload returns a stable idempotent acknowledgement');
   const invalid=await send('large-corrupt','0'.repeat(64));assert.equal(invalid.status,400,'R2 checks the actual body digest');
   assert.equal(await(await mf.dispatchFetch('https://fixture/inspect/ota/large-corrupt/server.apk')).json(),null,'failed checksum never publishes an object');
   console.log('PASS actual Workerd/R2 large release: 55MiB stream, exact native R2 SHA-256 verification, immutable conflict and no object after corruption. No Cloudflare account or production data.');

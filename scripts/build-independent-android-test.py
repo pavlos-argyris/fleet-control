@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Compile disposable instrumentation against the actual isolated APK classes."""
-import json, os, pathlib, subprocess, zipfile, sys
+import json, os, pathlib, subprocess, zipfile, sys, hashlib, shutil
 root = pathlib.Path(__file__).resolve().parents[1]
 unified='--unified' in sys.argv
 out = root / ('.build/unified-android-test' if unified else '.build/independent-android-test')
@@ -69,13 +69,13 @@ print('Built disposable emulator-only instrumentation; it is excluded from deliv
 if unified:
     config=json.loads((root/'release-config.json').read_text())
     original=root/'dist'/('Fleet_Control_Server_v'+config['server']['version']+'.apk')
-    abi=out/'server-abi-test-unsigned.apk'
-    with zipfile.ZipFile(original) as src,zipfile.ZipFile(abi,'w') as dst:
-        for item in src.infolist():
-            if not item.filename.startswith('META-INF/') and item.filename not in ('lib/x86/libsqliteX.so','lib/x86_64/libsqliteX.so'):dst.writestr(item,src.read(item.filename))
-        with zipfile.ZipFile(root/'.build/independent-sqlite'/lock['file']) as aar:
-            for architecture in ['x86','x86_64']:dst.writestr('lib/'+architecture+'/libsqliteX.so',aar.read('jni/'+architecture+'/libsqliteX.so'))
-    aligned_abi=out/'server-abi-test-aligned.apk'
-    subprocess.run([str(tool/'usr/lib/android-sdk/build-tools/debian/zipalign'),'-f','4',str(abi),str(aligned_abi)],env=env,check=True)
-    subprocess.run(['java','-jar',str(tool/'usr/share/java/apksigner-31.0.2.jar'),'sign','--ks',os.environ['FLEET_KEYSTORE'],'--ks-key-alias',os.environ['FLEET_KEY_ALIAS'],'--ks-pass','env:FLEET_STORE_PASSWORD','--key-pass','env:FLEET_KEY_PASSWORD','--out',str(out/'server-abi-test.apk'),str(aligned_abi)],check=True)
-    print('Unified emulator variant retains exact normal DEX/resources/ARM payload; only disposable x86 SQLite ABIs/signature are added, never delivered.')
+    with zipfile.ZipFile(original) as src,zipfile.ZipFile(root/'.build/independent-sqlite'/lock['file']) as aar:
+        for architecture in ['arm64-v8a','armeabi-v7a','x86','x86_64']:
+            assert src.read('lib/'+architecture+'/libsqliteX.so')==aar.read('jni/'+architecture+'/libsqliteX.so'), 'Normal APK must contain every pinned SQLite ABI'
+        dex={name:hashlib.sha256(src.read(name)).hexdigest() for name in src.namelist() if name.startswith('classes') and name.endswith('.dex')}
+    digest=hashlib.sha256()
+    with original.open('rb') as stream:
+        for chunk in iter(lambda:stream.read(1048576),b''):digest.update(chunk)
+    shutil.copyfile(original,out/'server-abi-test.apk')
+    (out/'source-apk.json').write_text(json.dumps({'exactNormalApk':True,'file':original.name,'sha256':digest.hexdigest(),'dex':dex,'signing':'disposable fixture; original signing is a separate release gate'},indent=2)+'\n')
+    print('Unified instrumentation uses the byte-exact normal four-ABI APK, without repacking or resigning it.')

@@ -78,6 +78,7 @@ jobs:
       - run: node scripts/test-server-primary-browser.mjs
       - run: node scripts/test-server-reconnect-browser.mjs
       - run: node scripts/test-unified-server-browser.mjs
+      - run: node scripts/test-direct-offline-browser.mjs
       - run: node scripts/test-staff-schedule-browser.mjs
       - run: node scripts/test-schedule-management-browser.mjs
       - run: node scripts/test-client-landscape-browser.mjs
@@ -105,6 +106,7 @@ jobs:
             verification/server-primary/
             verification/server-reconnect/
             .build/unified-server-browser/
+            .build/direct-offline-browser/offline-recovery-390.png
             verification/staff-schedule/
             verification/schedule-management/
             verification/client-landscape/
@@ -199,7 +201,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unified-android-verification
-          path: .build/unified-android-test/
+          path: |
+            .build/unified-android-test/*.log
+            .build/unified-android-test/*.txt
+            .build/unified-android-test/source-apk.json
+            .build/unified-android-test/sqlite-tests.apk
           if-no-files-found: warn
       - run: node scripts/test-business-runtime-resources.mjs --apk
       - run: node scripts/audit-apk-history.mjs
