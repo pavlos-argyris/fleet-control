@@ -1,15 +1,17 @@
 (function (root) {
   'use strict';
   const clone = v => JSON.parse(JSON.stringify(v));
-  async function loadInvoiceDocuments(api){
+  async function loadInvoiceDocuments(api, options={}){
     for(let attempt=0;attempt<2;attempt++){
       const documents=new Map();let cursor='',version=null;
       try{
         for(let page=0;page<2000;page++){
+          if(options.active&&!options.active())throw Object.assign(new Error('Η φόρτωση σταμάτησε επειδή άλλαξε η οθόνη.'),{name:'AbortError'});
           const data=await api('/api/admin/service-documents?paged=1'+(cursor?'&cursor='+encodeURIComponent(cursor):''),{forceRead:true});
           if(!Array.isArray(data.documents))throw new Error('Δεν φορτώθηκε πλήρης λίστα τιμολογίων. Τα προηγούμενα δεδομένα διατηρούνται.');
           if(version!==null&&Number(data.serverVersion)!==version)throw Object.assign(new Error('Τα τιμολόγια άλλαξαν κατά την ανάγνωση.'),{status:409});
           version=Number(data.serverVersion);for(const item of data.documents)documents.set(String(item.id),item);
+          if(options.progress)options.progress(documents.size);
           if(!data.hasMore)return {...data,documents:[...documents.values()].sort((a,b)=>String(b.uploadedAt||b.serviceDate||'').localeCompare(String(a.uploadedAt||a.serviceDate||'')))};
           if(!data.nextCursor||data.nextCursor===cursor)throw new Error('Η λίστα δεν προχώρησε στην επόμενη σελίδα. Δοκίμασε Ανανέωση.');
           cursor=data.nextCursor;

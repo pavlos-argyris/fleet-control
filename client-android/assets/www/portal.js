@@ -530,7 +530,7 @@
       if (view === "fleet") await loadFleetSummary();
       if (view === "invoices") {
         await loadInvoices();
-        await refreshInvoiceReprocessBatch();
+        refreshInvoiceReprocessBatch();
       }
       if (view === "stores") window.FleetStoreFinancialUI.load();
       if (view === "cash") window.FleetCashUI.load({opening:true});
@@ -542,7 +542,7 @@
       if (view === "server") {await loadStatus(true);await window.FleetHealthUI.load();}
       if (view === "settings") await loadSettings();
       state.viewLoadedAt[view] = Date.now();
-    } catch (error) { toast(error.message);if(navigationId===navigationSequence){$("uiViewErrorText").textContent=error.message+". Έλεγξε τη σύνδεση και δοκίμασε ξανά.";$("uiViewError").hidden=false;} }
+    } catch (error) { if(error.name!=='AbortError'){toast(error.message);if(navigationId===navigationSequence){$("uiViewErrorText").textContent=error.message+". Έλεγξε τη σύνδεση και δοκίμασε ξανά.";$("uiViewError").hidden=false;}} }
     finally { if (navigationId === navigationSequence) $("portal").classList.remove("view-loading"); }
   }
 
@@ -3420,9 +3420,23 @@
   }
 
   async function loadInvoices() {
+    if(state.invoiceLoadFlight&&state.invoiceLoadToken===state.token)return state.invoiceLoadFlight;
     const sequence=state.invoiceListSequence=(state.invoiceListSequence||0)+1,token=state.token;
-    const data = await window.FleetServiceModel.loadInvoiceDocuments(api);
-    if(applyInvoiceDocuments(data,sequence,token))renderInvoiceQueue();
+    const task=(async()=>{
+      let progress=$('invoiceLoadProgress');
+      if(!progress){progress=document.createElement('p');progress.id='invoiceLoadProgress';progress.className='empty-copy';progress.setAttribute('role','status');$('invoiceQueueList').before(progress);}
+      progress.hidden=false;progress.textContent='Φορτώνονται τα τιμολόγια…';
+      try{
+        const data = await window.FleetServiceModel.loadInvoiceDocuments(api,{
+          active:()=>token===state.token&&sequence===state.invoiceListSequence&&state.view==='invoices',
+          progress:count=>{if(token===state.token)progress.textContent='Φορτώθηκαν '+count+' τιμολόγια · συνεχίζεται η φόρτωση…';}
+        });
+        if(applyInvoiceDocuments(data,sequence,token))renderInvoiceQueue();
+      }finally{if(token===state.token&&sequence===state.invoiceListSequence)progress.hidden=true;}
+    })();
+    state.invoiceLoadFlight=task;
+    state.invoiceLoadToken=token;
+    try{return await task;}finally{if(state.invoiceLoadFlight===task)state.invoiceLoadFlight=null;}
   }
 
   function hasLiveInvoiceJobs() {

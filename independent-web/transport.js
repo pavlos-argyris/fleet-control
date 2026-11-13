@@ -1,7 +1,7 @@
 (function(root){
  'use strict';
  const network=root.fetch.bind(root),origin=root.location.origin,mutating=method=>!['GET','HEAD','OPTIONS'].includes(method),prefix='fleet-independent-operation:',storage=root.FleetPrimaryStorage;
- let generation='',userId='';
+ let generation='',userId='',authUser=null,authToken='';
  const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');
  function fail(message,status=503){return new Response(JSON.stringify({error:message,code:'independent_unavailable'}),{status,headers:{'Content-Type':'application/json'}});}
  function announce(kind,message){root.dispatchEvent(new CustomEvent('fleet-primary-state',{detail:{kind,message}}));}
@@ -39,12 +39,12 @@
    }
    const response=await network(url.href,{method,headers,body,credentials:'same-origin',cache:'no-store',signal:request.signal,redirect:'error'});
    if(pendingKey){let code='';try{code=(await response.clone().json()).code||'';}catch{}if(response.ok||response.status>=400&&response.status<500&&![408,429].includes(response.status)&&!['operation_conflict','operation_authorization_changed'].includes(code))await storage.remove(pendingKey);}
-   if(['/api/auth/user-login','/api/auth/me'].includes(url.pathname)&&response.ok){const data=await response.clone().json();userId=data.user?.id||'';root.dispatchEvent(new CustomEvent('fleet-independent-auth',{detail:data.user}));}
-   if(response.status===401)root.dispatchEvent(new CustomEvent('fleet-independent-auth',{detail:null}));
+   if(['/api/auth/user-login','/api/auth/me'].includes(url.pathname)&&response.ok){const data=await response.clone().json();authUser=data.user||null;authToken=data.token||(headers.get('Authorization')||'').replace(/^Bearer\s+/i,'');userId=authUser?.id||'';root.dispatchEvent(new CustomEvent('fleet-independent-auth',{detail:authUser}));}
+   if(response.status===401&&(!authToken||headers.get('Authorization')==='Bearer '+authToken)){authUser=null;authToken='';root.dispatchEvent(new CustomEvent('fleet-independent-auth',{detail:null}));}
    announce('online','Android Server online');const verifiedHeaders=new Headers(response.headers);if(generation)verifiedHeaders.set('X-Fleet-Primary-Generation',generation);verifiedHeaders.set('X-Fleet-Verified-At',String(Date.now()));return new Response([204,205,304].includes(response.status)?null:response.body,{status:response.status,statusText:response.statusText,headers:verifiedHeaders});
   }catch{announce('offline','Server εκτός σύνδεσης. Η αποθήκευση δεν επιβεβαιώθηκε.');root.dispatchEvent(new CustomEvent('fleet-primary-pending'));return fail(mutating(method)?'Η αποθήκευση δεν επιβεβαιώθηκε. Το προσχέδιο διατηρείται· έλεγξε πριν επαναλάβεις.':'Server εκτός σύνδεσης. Τα δεδομένα που φαίνονται μπορεί να είναι παλιά.');}
  }
  root.fetch=fetchLocal;
- root.FleetPrimary={fetch:fetchLocal,registerOrigin(){},protects:()=>true,prepare:async()=>true,generation:()=>generation,status:{kind:'independent'},clearReads:async()=>{},clearSession:async()=>{userId='';root.dispatchEvent(new CustomEvent('fleet-independent-auth',{detail:null}));},pending:async()=>storage?(await storage.all()).filter(r=>r.kind==='independent-operation'&&r.userId===userId&&r.origin===origin):[],resolvePending:async(operation,decision)=>{if(!['already_saved','not_found'].includes(decision))throw Error('Διάλεξε αποτέλεσμα ελέγχου.');for(const row of await storage.all())if(row.kind==='independent-operation'&&row.origin===origin&&row.operation===operation&&row.userId===userId)await storage.remove(row.id);root.dispatchEvent(new CustomEvent('fleet-primary-pending'));},frameState(){}};
+ root.FleetPrimary={fetch:fetchLocal,get authUser(){return authUser;},get authToken(){return authToken;},registerOrigin(){},protects:()=>true,prepare:async()=>true,generation:()=>generation,status:{kind:'independent'},clearReads:async()=>{},clearSession:async()=>{userId='';authUser=null;authToken='';root.dispatchEvent(new CustomEvent('fleet-independent-auth',{detail:null}));},pending:async()=>storage?(await storage.all()).filter(r=>r.kind==='independent-operation'&&r.userId===userId&&r.origin===origin):[],resolvePending:async(operation,decision)=>{if(!['already_saved','not_found'].includes(decision))throw Error('Διάλεξε αποτέλεσμα ελέγχου.');for(const row of await storage.all())if(row.kind==='independent-operation'&&row.origin===origin&&row.operation===operation&&row.userId===userId)await storage.remove(row.id);root.dispatchEvent(new CustomEvent('fleet-primary-pending'));},frameState(){}};
  root.addEventListener('fleet-independent-instance',event=>{generation=event.detail?.instanceId||'';});
 })(window);

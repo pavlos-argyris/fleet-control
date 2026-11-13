@@ -22,6 +22,7 @@
   });
   const config = window.FLEET_CONFIG || {};
   let apiBase = String(loadSetting(SERVER_URL_KEY) || config.apiBase || "").replace(/\/$/, "");
+  if (config.independent) apiBase = location.origin;
   window.FleetPrimary?.registerOrigin(apiBase);
   const isAndroidApp = Boolean(window.AndroidFleet);
   const isEmbedded = new URLSearchParams(window.location.search).get("embedded") === "1" || /\/fleet\/?$/.test(window.location.pathname);
@@ -43,6 +44,7 @@
   let toastTimer = null;
   let syncTimer = null;
   let syncRunning = false;
+  let fleetLoaded = false;
   let cloudSnapshotVersion = null;
   let syncQueued = false;
   let pendingEditAction = null;
@@ -594,6 +596,32 @@
     }catch(error){}
     elements.syncStatus.textContent = message;
     elements.syncIndicator.title = message;
+  }
+
+  function fleetLoading(message, failed) {
+    let notice = document.getElementById("fleetLoadNotice");
+    if (!notice) {
+      notice = document.createElement("div");
+      notice.id = "fleetLoadNotice";
+      notice.className = "fleet-load-notice";
+      notice.setAttribute("role", "status");
+      const text = document.createElement("span"), retry = document.createElement("button");
+      retry.type = "button"; retry.className = "secondary-button";
+      retry.textContent = "Νέα προσπάθεια"; retry.onclick = () => syncNow();
+      notice.append(text, retry);
+      const intro=elements.homeView.querySelector(".fleet-page-intro");
+      if(intro)intro.after(notice);else elements.homeView.prepend(notice);
+    }
+    notice.hidden = !message;
+    notice.querySelector("span").textContent = message || "";
+    notice.querySelector("button").hidden = !failed;
+    notice.querySelector("button").onclick = () => syncNow();
+    notice.classList.toggle("has-error", Boolean(failed));
+    if (!fleetLoaded && !bikes.length) {
+      for (const id of ["bikeCount", "healthyCount", "attentionCount", "overdueCount"]) elements[id].textContent = "—";
+      elements.emptyState.classList.add("is-hidden");
+      if(elements.listStatus)elements.listStatus.textContent=failed?"Η λίστα δεν φορτώθηκε":"Φόρτωση…";
+    }
   }
 
   function renderAccessState() {
@@ -1206,6 +1234,7 @@
     }
     syncRunning = true;
     setSyncState("syncing", "Συγχρονισμός…");
+    if (!fleetLoaded) fleetLoading("Φορτώνονται τα μηχανάκια…", false);
     const wantsUpload = Boolean(webToken && pendingFleetChange);
     if(wantsUpload)window.FleetSharedReads?.invalidate(["fleet","invoices"]);
     const canUpload = wantsUpload;
@@ -1257,6 +1286,7 @@
         throw new Error(payload.error || "Αποτυχία συγχρονισμού");
       }
       if (payload.unchanged === true && cloudSnapshotVersion !== null && String(payload.version) === String(cloudSnapshotVersion)) {
+        fleetLoaded = true; fleetLoading("", false);
         setSyncState(pendingFleetChange ? "syncing" : "synced",pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");return;
       }
       if (!Array.isArray(payload.bikes)) throw new Error("Δεν επιστράφηκε έγκυρος στόλος. Τα δεδομένα διατηρούνται.");
@@ -1267,11 +1297,14 @@
       if (archivedIds.size) bikes = bikes.filter(function (bike) { return !archivedIds.has(String(bike.id)); });
       persistBikes();
       persistDirtyBikes();
+      fleetLoaded = true;
       renderHome();
+      fleetLoading("", false);
       if (activeBikeId) renderDetail();
       setSyncState(pendingFleetChange ? "syncing" : "synced", pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");
     } catch (error) {
       setSyncState(navigator.onLine === false ? "offline" : "error", navigator.onLine === false ? "Χωρίς σύνδεση" : "Εκκρεμεί");
+      fleetLoading(error.message || "Δεν φορτώθηκαν τα μηχανάκια. Δοκίμασε ξανά.", true);
     } finally {
       syncRunning = false;
       if (syncQueued) {

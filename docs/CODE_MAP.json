@@ -699,7 +699,8 @@
         "scripts/test-server-http.mjs",
         "scripts/test-large-release.mjs",
         "scripts/test-unified-server-browser.mjs",
-        "scripts/test-direct-offline-browser.mjs"
+        "scripts/test-direct-offline-browser.mjs",
+        "scripts/test-direct-web-speed.mjs"
       ],
       "related": [
         "server-foundation",

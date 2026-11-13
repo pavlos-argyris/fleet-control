@@ -36,7 +36,8 @@ const values=new Map();
 const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
 const bike1={id:'one',currentKm:10,history:[]},bike2={id:'two',currentKm:20,history:[]};
 let seen=[];let editDuringUpload=false;let failPost=false;
-const syncContext={window:{},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,
+const loading=[];
+const syncContext={window:{},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,fleetLoaded:false,fleetLoading:(message,failed)=>loading.push({message,failed}),
  webToken:'fixture-token',apiBase:'https://fixture.invalid',navigator:{onLine:true},activeBikeId:null,localStorage:storage,
  STORAGE_KEY:'bikes',DIRTY_KEY:'dirty',DIRTY_BIKE_KEY:'dirty-ids',setSyncState(){},scheduleSync(){},renderHome(){},renderDetail(){},
  requestHeaders(){return {'Authorization':'Bearer fixture-token','Content-Type':'application/json'};},
@@ -62,6 +63,7 @@ assert.equal(syncContext.pendingFleetChange,true);assert.equal(syncContext.dirty
 seen=[];await vm.runInContext('syncNow()',syncContext);assert.equal(syncContext.pendingFleetChange,false);assert.equal(seen.filter(r=>r.method==='POST').length,1);
 syncContext.bikes[1].currentKm=21;vm.runInContext('saveBikes();',syncContext);seen=[];failPost=true;
 await vm.runInContext('syncNow()',syncContext);assert.equal(seen.length,1);assert.equal(syncContext.dirtyBikeIds.has('two'),true);assert.ok(values.get('dirty-ids').includes('two'));
+assert.equal(loading.at(-1).failed,true,'a failed Fleet request has a visible retry state instead of a silent zero');
 console.log('OK actual Client sync: only changed bikes uploaded, edits during a request remain pending, 503 retains durable dirty IDs.');
 
 // Unchanged replies preserve both loaded rows and pending edits.

@@ -1141,7 +1141,9 @@ async function listAdminServiceDocuments(request, env) {
   catch (error) { return json({ error: error?.message || "Χρειάζεται σύνδεση διαχείρισης." }, Number(error?.status) || 401); }
   if (!actor) return json({ error: "Χρειάζεται σύνδεση διαχείρισης." }, 401);
   const url=new URL(request.url),paged=url.searchParams.get('paged')==='1';
-  const cursor=url.searchParams.get('cursor')||'',limit=4;
+  // The Android runtime has no isolate CPU quota. Keep the small Cloud page,
+  // but avoid one WAN round trip per four service entries on the local Server.
+  const cursor=url.searchParams.get('cursor')||'',limit=env.LOCAL_PRIMARY?32:4;
   if(paged&&cursor&&!/^\d+:\d+$/.test(cursor))return json({error:'Μη έγκυρη σελίδα τιμολογίων.'},400);
   const summary = await snapshotSummary(env);
   const offset=paged&&cursor?Number(cursor.split(':')[1]):0;

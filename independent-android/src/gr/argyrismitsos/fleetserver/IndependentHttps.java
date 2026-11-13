@@ -9,10 +9,39 @@ public final class IndependentHttps implements AutoCloseable {
         long revision();long await(long revision)throws Exception;
         default JSONObject routing()throws Exception{return null;}
         default JSONObject update()throws Exception{return null;}
+        default String assetVersion()throws Exception{return "";}
+        default boolean immutable(String path)throws Exception{return false;}
     }
     private final SSLServerSocket listener;private final Handler handler;private final String realm,host;
     private final ThreadPoolExecutor readers=new ThreadPoolExecutor(0,48,30,TimeUnit.SECONDS,new SynchronousQueue<Runnable>());
     private final Set<Socket> sockets=Collections.synchronizedSet(new HashSet<Socket>());private volatile boolean closed;
+    private final LinkedHashMap<String,StaticAsset> assets=new LinkedHashMap<String,StaticAsset>(16,0.75f,true);
+    private long assetBytes;
+    private static final long ASSET_CACHE_LIMIT=8L*1024*1024;
+    private static final class StaticAsset {
+        final byte[] bytes,gzip;final String hash;final long weight;
+        StaticAsset(byte[] value,boolean text)throws Exception{
+            bytes=value;StringBuilder digest=new StringBuilder();for(byte b:java.security.MessageDigest.getInstance("SHA-256").digest(value))digest.append(String.format(Locale.US,"%02x",b&255));hash=digest.toString();
+            byte[] compressed=null;
+            if(text&&value.length>=512){ByteArrayOutputStream output=new ByteArrayOutputStream();try(java.util.zip.GZIPOutputStream zip=new java.util.zip.GZIPOutputStream(output)){zip.write(value);}byte[] candidate=output.toByteArray();if(candidate.length<value.length*9L/10)compressed=candidate;}
+            gzip=compressed;weight=value.length+(gzip==null?0:gzip.length);
+        }
+    }
+    private StaticAsset asset(String path)throws Exception{
+        String version=handler.assetVersion(),key=version+":"+path;
+        if(!version.isEmpty())synchronized(assets){StaticAsset saved=assets.get(key);if(saved!=null)return saved;}
+        ByteArrayOutputStream data=new ByteArrayOutputStream();try(InputStream input=handler.asset(path)){byte[] buffer=new byte[65536];int n;while((n=input.read(buffer))!=-1){if(data.size()+n>16*1024*1024)throw new IOException("Oversized asset");data.write(buffer,0,n);}}
+        StaticAsset loaded=new StaticAsset(data.toByteArray(),path.matches(".*\\.(html|js|mjs|css|json|webmanifest|svg|map)$"));
+        if(!version.isEmpty()&&loaded.weight<=ASSET_CACHE_LIMIT)synchronized(assets){StaticAsset saved=assets.get(key);if(saved!=null)return saved;while(assetBytes+loaded.weight>ASSET_CACHE_LIMIT&&!assets.isEmpty()){Iterator<StaticAsset> old=assets.values().iterator();assetBytes-=old.next().weight;old.remove();}assets.put(key,loaded);assetBytes+=loaded.weight;}
+        return loaded;
+    }
+    static boolean acceptsGzip(String value){
+        if(value==null)return false;Double gzip=null,wildcard=null;
+        for(String part:value.split(",")){String[] fields=part.trim().toLowerCase(Locale.US).split(";");double quality=1;for(int i=1;i<fields.length;i++){String field=fields[i].trim();if(field.startsWith("q="))try{quality=Double.parseDouble(field.substring(2));if(Double.isNaN(quality)||quality<0||quality>1)quality=0;}catch(NumberFormatException invalid){quality=0;}}
+            if(fields[0].trim().equals("gzip"))gzip=quality;else if(fields[0].trim().equals("*"))wildcard=quality;}
+        return gzip!=null?gzip>0:wildcard!=null&&wildcard>0;
+    }
+    private static boolean matches(String supplied,String etag){if(supplied==null)return false;for(String value:supplied.split(",")){value=value.trim();if(value.startsWith("W/"))value=value.substring(2);if(value.equals("*")||value.equals(etag))return true;}return false;}
     public IndependentHttps(SSLContext tls,InetAddress bind,int port,String realm,Handler handler)throws Exception{
         this.realm=IndependentPolicy.origin(realm);host=new URI(realm).getHost();this.handler=handler;
         listener=(SSLServerSocket)tls.getServerSocketFactory().createServerSocket();listener.setReuseAddress(true);List<String> versions=new ArrayList<String>();for(String protocol:listener.getSupportedProtocols())if(protocol.equals("TLSv1.2")||protocol.equals("TLSv1.3"))versions.add(protocol);listener.setEnabledProtocols(versions.toArray(new String[0]));listener.bind(new InetSocketAddress(bind,port),48);
@@ -49,7 +78,14 @@ public final class IndependentHttps implements AutoCloseable {
             if(!Arrays.asList("GET","HEAD").contains(start[0])){respond(output,error(405,"Μη επιτρεπτή μέθοδος."),false);return;}
             String decoded=URLDecoder.decode(uri.getRawPath(),"UTF-8");if(decoded.contains("..")||decoded.contains("\\")||decoded.contains("\0")||!decoded.matches("/[A-Za-z0-9_./@+-]*"))throw new IOException("Invalid static path");String asset=decoded.equals("/")||decoded.equals("/index.html")?"portal.html":decoded.substring(1);if(asset.equals("fleet.html"))asset="index.html";
             if(!asset.equals("download/client.apk")&&!asset.matches("[A-Za-z0-9_./@+-]+\\.(html|js|mjs|css|json|webmanifest|svg|png|jpg|jpeg|ico|woff|woff2|ttf|map|bcmap|pfb|wasm)")){respond(output,error(404,"Δεν βρέθηκε."),false);return;}
-            try(InputStream staticInput=handler.asset(asset)){if(asset.equals("download/client.apk")){head(output,200,-1,new JSONObject().put("Content-Type",mime(asset)));if(!start[0].equals("HEAD")){byte[] chunk=new byte[65536];int read;while((read=staticInput.read(chunk))!=-1)output.write(chunk,0,read);}output.flush();return;}ByteArrayOutputStream data=new ByteArrayOutputStream();byte[] buffer=new byte[65536];int n;while((n=staticInput.read(buffer))!=-1){if(data.size()+n>16*1024*1024)throw new IOException("Oversized asset");data.write(buffer,0,n);}byte[] bytes=data.toByteArray();head(output,200,bytes.length,new JSONObject().put("Content-Type",mime(asset)));if(!start[0].equals("HEAD"))output.write(bytes);output.flush();}catch(FileNotFoundException missing){respond(output,error(404,"Δεν βρέθηκε."),false);}
+            try{
+                if(asset.equals("download/client.apk")){try(InputStream staticInput=handler.asset(asset)){head(output,200,-1,new JSONObject().put("Content-Type",mime(asset)));if(!start[0].equals("HEAD")){byte[] chunk=new byte[65536];int read;while((read=staticInput.read(chunk))!=-1)output.write(chunk,0,read);}output.flush();}return;}
+                StaticAsset value=asset(asset);boolean compressed=value.gzip!=null&&acceptsGzip(headers.get("accept-encoding"));byte[] bytes=compressed?value.gzip:value.bytes;
+                String etag="\""+value.hash+(compressed?"-gzip":"-identity")+"\"";
+                JSONObject metadata=new JSONObject().put("Content-Type",mime(asset)).put("ETag",etag).put("Vary","Accept-Encoding").put("Cache-Control",handler.immutable(asset)?"public, max-age=31536000, immutable":"public, no-cache");if(compressed)metadata.put("Content-Encoding","gzip");
+                if(matches(headers.get("if-none-match"),etag)){head(output,304,-1,metadata);output.flush();return;}
+                head(output,200,bytes.length,metadata);if(!start[0].equals("HEAD"))output.write(bytes);output.flush();
+            }catch(FileNotFoundException missing){respond(output,error(404,"Δεν βρέθηκε."),false);}
         }catch(Exception rejected){/* Bounded fail-closed connection. Never emit request values or credentials. */}finally{sockets.remove(socket);}
     }
     private void events(OutputStream out,JSONObject request)throws Exception{
@@ -60,10 +96,11 @@ public final class IndependentHttps implements AutoCloseable {
     static JSONObject error(int status,String message)throws Exception{return new JSONObject().put("status",status).put("headers",new JSONObject().put("Content-Type","application/json")).put("body",new JSONObject().put("error",message).toString());}
     private static void head(OutputStream output,int status,long length,JSONObject supplied)throws Exception{head(output,status,length,supplied,false);}
     private static void head(OutputStream output,int status,long length,JSONObject supplied,boolean discovery)throws Exception{
-        StringBuilder headers=new StringBuilder("HTTP/1.1 "+status+" Response\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000\r\nCache-Control: private, no-store\r\nContent-Security-Policy: default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'\r\n");
+        StringBuilder headers=new StringBuilder("HTTP/1.1 "+status+" Response\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000\r\nContent-Security-Policy: default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'\r\n");
+        if(!supplied.has("Cache-Control")&&!supplied.has("cache-control"))headers.append("Cache-Control: private, no-store\r\n");
         if(discovery)headers.append("Access-Control-Allow-Origin: *\r\n");
         if(length>=0)headers.append("Content-Length: ").append(length).append("\r\n");
-        for(String name:new String[]{"content-type","content-disposition","set-cookie","x-fleet-replayed"}){Iterator<String> names=supplied.keys();while(names.hasNext()){String key=names.next();String value=supplied.optString(key);if(key.equalsIgnoreCase(name)&&value.indexOf('\r')<0&&value.indexOf('\n')<0)headers.append(name).append(": ").append(value).append("\r\n");}}
+        for(String name:new String[]{"content-type","content-disposition","set-cookie","x-fleet-replayed","cache-control","etag","vary","content-encoding","server-timing"}){Iterator<String> names=supplied.keys();while(names.hasNext()){String key=names.next();String value=supplied.optString(key);if(key.equalsIgnoreCase(name)&&value.indexOf('\r')<0&&value.indexOf('\n')<0)headers.append(name).append(": ").append(value).append("\r\n");}}
         if(!supplied.has("content-type")&&!supplied.has("Content-Type"))headers.append("Content-Type: application/json\r\n");headers.append("\r\n");output.write(headers.toString().getBytes("ISO-8859-1"));
     }
     private static void respond(OutputStream output,JSONObject response,boolean headOnly)throws Exception{
