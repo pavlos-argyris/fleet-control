@@ -219,6 +219,7 @@ for name,p in sources.items():
         value=change(value,'IndependentConfig.read(this);','IndependentConfig.read(this);')
         value=change(value,'public JSONObject api(JSONObject request)throws Exception{return backend.external(request);}', 'public JSONObject api(JSONObject request)throws Exception{return backend.external(request);}public JSONObject routing()throws Exception{return BackendMode.read(thisContext());}public JSONObject update()throws Exception{JSONObject selected=UpdateManager.localClientInfo(thisContext());return selected!=null?selected:gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");}')
         value=change(value,'return getAssets().open("independent-www/"+path);','return UpdateManager.asset(thisContext(),path);')
+        value=change(value,'public long revision(){return backend.revision();}','public String assetVersion()throws Exception{return UpdateManager.assetVersion(thisContext());}public boolean immutable(String path)throws Exception{return UpdateManager.immutable(thisContext(),path);}public long revision(){return backend.revision();}')
     if name=='IndependentPolicy.java':
         value=value.replace('"x-fleet-local-ocr"','"x-fleet-local-ocr","x-fleet-backend-revision"')
     (destination/name).write_text(value)

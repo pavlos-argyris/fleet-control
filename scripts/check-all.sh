@@ -6,6 +6,7 @@ python3 scripts/check-source-safety.py
 python3 scripts/test-cloud-return-preflight.py
 node scripts/code-map.mjs --check
 node scripts/test-backend-mode.mjs
+node scripts/test-direct-web-speed.mjs
 node scripts/test-backend-mode-native.mjs
 node scripts/test-large-release.mjs
 node scripts/test-d1-source-inventory.mjs

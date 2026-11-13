@@ -66,8 +66,17 @@ public final class UpdateManager{
         if(path.equals("download/client.apk")&&client.matches("[a-f0-9-]{36}"))return new FileInputStream(new File(root(c),client+".apk"));
         String base=path.substring(path.lastIndexOf('/')+1);
         if(Arrays.asList("fleet-config.js","backend-mode.js","primary-transport.js","live-changes.js","client-ota.js","independent-owner.js","service-worker.js").contains(base))return c.getAssets().open("independent-www/"+base);
+        // A previously published immutable URL must keep its packaged bytes,
+        // even when an uploaded Web overlay selects a newer entry document.
+        if(path.matches("assets/v[0-9.]+/.*"))try{return c.getAssets().open("independent-www/"+path);}catch(FileNotFoundException absent){}
         if(web.matches("[a-f0-9-]{36}")){File file=new File(new File(root(c),web),path);if(file.isFile()){
             if(path.endsWith(".html")){String text=text(file).replace("./index.html?embedded=1","./fleet.html?embedded=1");if(!text.contains("independent-owner.js"))text=text.replace("</head>","<script src=\"/independent-owner.js\" defer></script></head>");return new ByteArrayInputStream(text.getBytes("UTF-8"));}return new FileInputStream(file);
         }}return c.getAssets().open("independent-www/"+path);
+    }
+    static String assetVersion(Context c)throws Exception{return ServerConfig.SERVER_VERSION+":"+index(c).optString("web");}
+    static boolean immutable(Context c,String path)throws Exception{
+        if(!index(c).optString("web").isEmpty()||!path.matches("assets/v[0-9.]+/[^/]+\\.(js|css)$"))return false;
+        String name=path.substring(path.lastIndexOf('/')+1);
+        return !Arrays.asList("backend-mode.js","primary-transport.js","live-changes.js","client-ota.js").contains(name);
     }
 }

@@ -17,7 +17,7 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.FL
 try{
   const context=await browser.newContext({viewport:{width:390,height:900},locale:'el-GR'});
   await context.route('**/*',route=>new URL(route.request().url()).origin===base?route.continue():route.abort());
-  const page=await context.newPage();await page.goto(base+'/portal.html');
+  const page=await context.newPage();await page.goto(base+'/portal.html?fleetSetup=1');
   assert(await page.locator('a[href$="direct.html"]').isHidden(),'Direct login has no legacy alternative Server/pairing option');
   await page.evaluate(async()=>{await navigator.serviceWorker.register('/service-worker.js');await navigator.serviceWorker.ready;});
   await page.waitForFunction(()=>!!navigator.serviceWorker.controller);

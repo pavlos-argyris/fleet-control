@@ -3439,3 +3439,8 @@ html.embedded-mode.fleet-detail-view .quick-check-full-panel {
 .service-order-copy .service-order-warning { display: block; padding: 10px 12px; margin-top: 5px; border-radius: 10px; background: #fff4dc; color: #80581e; font-size: 12px; font-weight: 500; line-height: 1.5; }
 html.embedded-mode.fleet-detail-view .service-order-view { min-height: 100svh; }
 @media (max-width: 540px) { .service-order-row { padding: 16px 12px; gap: 10px; } .service-order-rank { width: 32px; height: 32px; } .service-order-view .detail-nav { margin-top: 0; } }
+/* A pending or failed first read is unknown, never an empty fleet. */
+.fleet-load-notice{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;margin:0 0 20px;border:1px solid #cce3df;border-radius:18px;background:#edf7f5;color:#174d47}
+.fleet-load-notice.has-error{border-color:#dfc48c;background:#fff7e8;color:#73582d}
+.fleet-load-notice[hidden],.fleet-load-notice button[hidden]{display:none}
+@media(max-width:480px){.fleet-load-notice{align-items:stretch;flex-direction:column}}
