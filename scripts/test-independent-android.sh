@@ -7,13 +7,11 @@ FLEET_SDK_TOOLS="$FLEET_SDK_ROOT/cmdline-tools/latest/bin"
 export PATH="$FLEET_SDK_ROOT/platform-tools:$FLEET_SDK_ROOT/emulator:$FLEET_SDK_TOOLS:$PATH"
 FLEET_TEST_DIR=.build/independent-android-test
 FLEET_TEST_COMPONENT=gr.argyrismitsos.fleetserver.sqlitetest/gr.argyrismitsos.fleetserver.AndroidSqliteChecks
-FLEET_TEST_SETUP_COMPONENT=gr.argyrismitsos.fleetserver.sqlitetest/gr.argyrismitsos.fleetserver.SyntheticBackupActivity
 FLEET_TEST_SERVER=.build/independent-delivery/Fleet_Independent_Server_v1.0.0-test6.apk
 FLEET_TEST_ARGS=()
 if [[ "${FLEET_UNIFIED_TEST:-}" == "1" ]]; then
   FLEET_TEST_DIR=.build/unified-android-test
   FLEET_TEST_COMPONENT=gr.argyrismitsos.fleetdirect.sqlitetest/gr.argyrismitsos.fleetdirect.AndroidSqliteChecks
-  FLEET_TEST_SETUP_COMPONENT=gr.argyrismitsos.fleetdirect.sqlitetest/gr.argyrismitsos.fleetdirect.SyntheticBackupActivity
   FLEET_TEST_SERVER="$FLEET_TEST_DIR/server-abi-test.apk"
   FLEET_TEST_ARGS=(--unified)
 fi
@@ -49,7 +47,6 @@ test "$FLEET_ANDROID_BOOTED" = true
 adb shell input keyevent 82
 timeout 60 adb install -r "$FLEET_TEST_SERVER"
 timeout 30 adb install -r ${FLEET_TEST_DIR}/sqlite-tests.apk
-timeout 30 adb shell am start -W -n "$FLEET_TEST_SETUP_COMPONENT" | tee ${FLEET_TEST_DIR}/document-owner.log
 timeout 360 adb shell am instrument -w -r "$FLEET_TEST_COMPONENT" | tee ${FLEET_TEST_DIR}/instrumentation.txt
 rg -q '^INSTRUMENTATION_RESULT: stream=PASS actual Android bundled SQLite' ${FLEET_TEST_DIR}/instrumentation.txt
 rg -q '^INSTRUMENTATION_CODE: -1' ${FLEET_TEST_DIR}/instrumentation.txt

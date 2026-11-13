@@ -5,7 +5,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.widget.TextView;
 
-/** Emulator-only document owner, launched before target-package instrumentation. */
+/** Emulator-only document owner, launched after target-package instrumentation starts. */
 public final class SyntheticBackupActivity extends Activity {
     @Override public void onCreate(Bundle state){
         super.onCreate(state);

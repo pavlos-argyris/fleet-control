@@ -97,6 +97,13 @@ for name,p in sources.items():
     if name=='IndependentActivity.java':
         value=change(value,'IndependentConfig.require(this);build();','IndependentConfig.require(this);try{DirectHost.startup(this);}catch(Exception error){getSharedPreferences("independent_ui",MODE_PRIVATE).edit().putString("blocked","Η ασφαλής προετοιμασία Direct χρειάζεται έλεγχο.").commit();}build();')
         value=value.replace('Fleet Independent Server','Fleet — Προετοιμασία Direct')
+        value=value.replace('Νέα ανεξάρτητη εγκατάσταση / Δοκιμή','Προετοιμασία Direct')
+        value=change(value,'Η υπάρχουσα εγκατάσταση παραμένει ανέπαφη. Εισήγαγε το πλήρες τελευταίο backup στη δεύτερη συσκευή.','Τα δεδομένα Cloudflare διατηρούνται χωριστά. Επίλεξε τον φάκελο με το πλήρες backup για την αρχική βάση Direct.')
+        value=value.replace('στη δοκιμαστική εγκατάσταση','στη χωριστή βάση Direct').replace('το backup που θα δοκιμαστεί','το backup για την αρχική βάση Direct')
+        value=value.replace('Άνοιγμα Web δοκιμής','Άνοιγμα Web Direct').replace('Ενεργοποίηση δοκιμαστικού Ordexa read-only','Ενεργοποίηση Ordexa στο Direct (μόνο ανάγνωση)')
+        value=change(value,'Uri.parse("https://"+host)','Uri.parse("https://"+host+(BackendMode.direct(this)?"/":"/?fleetSetup=1"))')
+        value=change(value,'Αρχικά ανενεργό. Ενεργοποίησέ το συνειδητά για τη δοκιμή ώστε να αποφευχθεί δεύτερος παράλληλος reader. Ασφαλής αρχική συχνότητα 5 λεπτών· τα καταστήματα ανά ώρα. Το ~15s απαιτεί πραγματική μέτρηση και άδεια πλατφόρμας.','Αρχικά ανενεργό. Ρύθμισε τον λογαριασμό και την πόλη για τη βάση Direct. Παρουσίες κάθε 5 λεπτά και καταστήματα ανά ώρα, μόνο όσο είναι επιλεγμένο Direct.')
+        value=change(value,'Γίνεται μόνο από τον ιδιοκτήτη στη Web οθόνη μετά από πραγματικό HTTPS έλεγχο με 4G/5G και ρητή επιβεβαίωση. Η εφαρμογή δεν αλλάζει το Cloudflare και δεν μεταφέρει αυτόματα τους παλιούς Clients.','Στο Web κάνε μόνο τον έλεγχο σύνδεσης με 4G/5G. Έπειτα επέστρεψε στις Ρυθμίσεις Server, συνδέσου ως ιδιοκτήτης και άλλαξε τον ενιαίο μοχλό Cloudflare / Direct. Δεν χρειάζεται επιπλέον παράθυρο επιβεβαίωσης και τα δύο σύνολα δεδομένων παραμένουν χωριστά.')
         value=change(value,'IndependentConfig.save(this,IndependentConfig.read(this).put("testOrdexa",false));','OrdexaSync.configure(this,new JSONObject().put("cityId",OrdexaSync.status(this).getString("cityId")).put("enabled",false));IndependentConfig.save(this,IndependentConfig.read(this).put("testOrdexa",false));')
         value=value.replace('Παύση δοκιμαστικού Ordexa','Παύση Ordexa στο Direct').replace('Ενεργοποιήθηκε ο δοκιμαστικός reader.','Ενεργοποιήθηκε ο reader Direct.').replace('δοκιμαστικό συγχρονισμό','συγχρονισμό Direct').replace('Ο δοκιμαστικός συγχρονισμός σταμάτησε.','Ο συγχρονισμός Direct σταμάτησε.')
         value=value.replace('getSharedPreferences("independent_ui",MODE_PRIVATE).getString("mode","test").equals("primary")?"Κύριο":"Δοκιμαστικό"','BackendMode.direct(this)?"Direct":"Προετοιμασία Direct"')
@@ -104,6 +111,7 @@ for name,p in sources.items():
         # The only production switch is in the existing Server settings.
         value=re.sub(r'        button\("Ενεργοποίηση Android ως κύριου Server".*?(?=\n)', '', value)
     if name=='IndependentRuntime.java':
+        value=change(value,'.put("server","independent-1")','.put("server",ServerConfig.SERVER_VERSION)')
         value=change(value,'    JSONObject localLogin(', '    void barrier()throws Exception{serialized(()->null);}\n    JSONObject localLogin(')
         value=change(value,'        URI uri=new URI(address);if(!address.startsWith(','''        final long uploadRevision=input==null?-1:BackendMode.read(context).getLong("revision");
         if(input!=null&&(!BackendMode.direct(context)||DirectHost.paused(context)))throw new IOException("Η λειτουργία άλλαξε. Το αρχείο δεν αποθηκεύτηκε.");

@@ -11,13 +11,14 @@ import java.io.*;
 /** Test APK only: real ContentResolver streams and folder queries, synthetic data. */
 public final class SyntheticBackupProvider extends DocumentsProvider {
     private File directory;
-    public boolean onCreate(){directory=new File(getContext().getFilesDir(),"synthetic-backup");try{
+    public boolean onCreate(){directory=new File(getContext().getFilesDir(),"synthetic-backup");grantTree();return directory.mkdirs()||directory.isDirectory();}
+    private void grantTree(){try{
         String target=getContext().getPackageManager().getInstrumentationInfo(new ComponentName(getContext(),AndroidSqliteChecks.class),0).targetPackage;
         getContext().grantUriPermission(target,DocumentsContract.buildTreeDocumentUri(getContext().getPackageName()+".backup","root"),Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-    }catch(Exception e){throw new IllegalStateException(e);}return directory.mkdirs()||directory.isDirectory();}
+    }catch(Exception e){throw new IllegalStateException(e);}}
     private File file(String name){if(name==null||!name.matches("FleetControl_(backup|database|documents)_[0-9]{8}_[0-9]{6}\\.(fcbackup|fcdb|fcdocs)"))throw new IllegalArgumentException("Fixture path only");return new File(directory,name);}
     @Override public Bundle call(String method,String arg,Bundle input){
-        if(method.equals("prepare")){Bundle result=new Bundle();result.putBoolean("ready",true);return result;}
+        if(method.equals("prepare")){grantTree();Bundle result=new Bundle();result.putBoolean("ready",true);return result;}
         if(!method.equals("append"))return super.call(method,arg,input);
         try(FileOutputStream out=new FileOutputStream(file(arg),!input.getBoolean("first"))){out.write(input.getByteArray("data"));out.getFD().sync();return Bundle.EMPTY;}catch(IOException error){throw new IllegalStateException(error);}
     }

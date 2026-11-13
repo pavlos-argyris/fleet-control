@@ -1,3 +1,11 @@
+## #95 — SAF grant μετά instrumentation και οδηγός πρώτης ενεργοποίησης, 13/11/2026
+
+- CI43348660770 εγκατέστησε byte-exact normal APK και fixture Activity, αλλά το startInstrumentation έκανε force-stop στον target και ανακάλεσε το προσωρινό tree grant πριν τα tests. Αυτό επιβεβαιώθηκε στον AOSP ActivityManagerService (startInstrumentation→forceStopPackageLocked→removeUriPermissionsForPackage). Η fixture Activity πλέον εκκινείται ΜΕΤΑ την έναρξη instrumentation, ο provider επαναχορηγεί το grant σε prepare και γίνεται ρητός bounded έλεγχος READ/WRITE URI permission. Τα παραγωγικά permissions δεν αλλάζουν.
+- Τα source/browser gates του ίδιου run συνέχιζαν επιτυχώς έως Ordexa/Server UI. Νεότερο πλήρες αποτέλεσμα δεν έχει ακόμη επιβεβαιωθεί· δεν βαφτίζεται πράσινο workflow.
+- Οπτικός/ροής έλεγχος εντόπισε παλιές test οδηγίες στο generated Direct setup. Αντικαταστάθηκαν με κανονική προετοιμασία Direct και τον ένα μοχλό Ρυθμίσεων. Το Άνοιγμα Web Direct χρησιμοποιεί ?fleetSetup=1 όσο activeMode είναι Cloudflare, ώστε το discovery να μη στείλει τον ιδιοκτήτη πίσω σε μη διαθέσιμο Cloudflare πριν τον εξωτερικό probe. Diagnostics δείχνουν πραγματική ServerConfig έκδοση.
+- Προστέθηκε ακριβής επτάβημος οδηγός στο docs/ISSUE_95_UNIFIED_MODE_GR.md: αρχικά signed update χωρίς uninstall, πλήρης τριάδα backup/κωδικός, owner, DNS-01/TLS, router443→8443, public-peer probe/10λεπτο, native μοχλός και ανεξάρτητες ρυθμίσεις/backup/επιστροφή. Δεν έγινε καμία φυσική ενεργοποίηση.
+- Τοπικός Server build PASS μετά τις νέες generated ρυθμίσεις· instrumentation construction PASS για τα fixture edits. Το επόμενο exact-source CI απαιτεί πλήρη πραγματική Android διαδρομή. Παραμένει draft PR #96 χωρίς merge/publish.
+
 ## #95 — actual Android SAF bootstrap και UI εικόνες, 13/11/2026
 
 - CI43347796361: normal Server Cloudflare/Direct Chromium PASS, νέο generated offline SW/recovery Chromium PASS, desktop/mobile Fleet viewport regression PASS. Τα υπόλοιπα source gates συνεχίζονταν στο checkpoint.
