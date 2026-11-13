@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-b2e7e55d-4183-4439-bdbe-2b873f9e4ff2",
+  "requestId": "fleet-82e5a913-8137-4458-b077-bba51e5a0b96",
   "sourceCommit": "fd6df8ad612797750e487a7ddc57758fc5ecd07f",
   "releaseVersion": "5.64.3",
-  "requestedAt": "2026-11-13T18:36:37.307Z",
-  "reason": "Owner explicitly requested direct plaintext HTTPS cert export/import without a transfer password or owner login on personal S24 Ultra and Note 10+, retaining PKI validity checks and protected local Android Keystore. Exact-main full GitHub CI 43481984777 success, 12/12 jobs. Publish original-signed Fleet 5.64.3/Server 2.13.3; do not migrate data, change router or remove S24 certificate."
+  "requestedAt": "2026-11-13T18:36:43.750Z",
+  "reason": "Owner requested published signed Server 2.13.3, with one-file plaintext HTTPS certificate import/export requiring no passphrase or additional owner login. Exact-main source CI run 43481984777 succeeded for fd6df8ad612797750e487a7ddc57758fc5ecd07f. Preserve S24 original HTTPS identity and all existing production/backup data."
 }
