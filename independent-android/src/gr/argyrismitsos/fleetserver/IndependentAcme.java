@@ -198,6 +198,18 @@ public final class IndependentAcme {
               .remove("certificateFailureCode").commit())
             throw new IOException("Η ρύθμιση αποθηκεύτηκε, αλλά η επανάληψη χρειάζεται επανεκκίνηση της υπηρεσίας.");
     }
+    /** Serialize imported TLS identity against ACME issuance; never modifies the ACME account. */
+    static synchronized void installExistingCertificate(Context c,JSONObject identity,String host)throws Exception{
+        IndependentTls.chain(identity,host,true); // trust, SAN, expiry and private-key proof
+        if(IndependentTls.valid(c,host)){
+            if(!IndependentTls.read(c).getString("chain").equals(identity.getString("chain")))
+                throw new IOException("Υπάρχει ήδη διαφορετικό έγκυρο πιστοποιητικό. Δεν αντικαταστάθηκε.");
+        }else{
+            IndependentTls.save(c,identity,host);
+        }
+        if(!IndependentTls.valid(c,host))
+            throw new IOException("Το πιστοποιητικό δεν επαληθεύτηκε μετά την ασφαλή αποθήκευση.");
+    }
     static void issue(final Context c)throws Exception{issue(c,phase->{});}
     static synchronized void issue(final Context c,Progress progress)throws Exception{
         String phase="storage";
