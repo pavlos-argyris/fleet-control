@@ -47,6 +47,7 @@ public final class IndependentActivity extends Activity {
     }
     private void login(String u,String p)throws Exception{JSONObject response=IndependentRuntime.get(this).localLogin(u,p);JSONObject body=new JSONObject(response.getString("body"));if(response.getInt("status")!=200)throw new Exception(body.optString("error","Η σύνδεση απέτυχε."));if(!body.getJSONObject("user").getString("role").equals("owner"))throw new Exception("Χρειάζεται λογαριασμός ιδιοκτήτη.");ownerToken=body.getString("token");}
     private void requireOwner()throws Exception{if(ownerToken.isEmpty())throw new Exception("Πρώτα κάνε Έλεγχο σύνδεσης με username/password ιδιοκτήτη.");JSONObject response=IndependentRuntime.get(this).external(new JSONObject().put("url",IndependentRuntime.get(this).realm()+"/api/auth/me").put("method","GET").put("headers",new JSONObject().put("Authorization","Bearer "+ownerToken)));if(response.getInt("status")!=200||!new JSONObject(response.getString("body")).getJSONObject("user").optString("role").equals("owner")){ownerToken="";throw new Exception("Η συνεδρία ιδιοκτήτη έληξε ή ανακλήθηκε. Συνδέσου ξανά.");}}
+    private void folder(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(intent,90);}
     private void certificatePicker(boolean export){
         Intent intent=new Intent(export?Intent.ACTION_CREATE_DOCUMENT:Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE).setType(export?"application/octet-stream":"*/*");
@@ -106,7 +107,6 @@ public final class IndependentActivity extends Activity {
         IndependentService.start(this);
         return "Εισαγωγή επιτυχής: έγκυρη αλυσίδα, ακριβές DuckDNS και ιδιωτικό κλειδί. Η εκκίνηση HTTPS στην 8443 ακολουθεί τοπικά· έλεγξε τον listener και μετά δοκίμασε εξωτερική σύνδεση.";
     }
-    private void folder(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(intent,90);}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(request==91||request==92){
             if(result!=RESULT_OK||data==null||data.getData()==null)return;
