@@ -8,6 +8,14 @@ const require=createRequire(new URL('../cloudflare-worker/package.json',import.m
 const app=fs.readFileSync('cloudflare-worker/public/app.js','utf8'),portal=fs.readFileSync('cloudflare-worker/public/portal.js','utf8');
 const direct='https://fleet-control.duckdns.org';
 {
+  let scheduled=0,opened=0;
+  const context={window:{FLEET_CONFIG:{independent:true},requestIdleCallback:()=>{scheduled++;return 1;}},fleetPreloadTimer:null,$:()=>({}),can:()=>true,state:{user:{role:'owner'}},ensureFleetModule:()=>{opened++;}};
+  vm.createContext(context);
+  vm.runInContext(portal.slice(portal.indexOf('  function scheduleFleetPreload('),portal.indexOf('  let fleetHostScroll'))+'\nglobalThis.preload=scheduleFleetPreload;',context);
+  context.preload();assert.equal(scheduled,0,'Direct does not start hidden private Fleet reads while another screen loads');assert.equal(opened,0);
+  context.window.FLEET_CONFIG.independent=false;context.preload();assert.equal(scheduled,1,'the dormant non-Direct policy retains its behavior');
+}
+{
   const context={window:{FLEET_CONFIG:{independent:true,apiBase:direct}},location:{origin:direct},SERVER_URL_KEY:'server-url',loadSetting:()=> 'https://old-cloud.invalid'};
   vm.createContext(context);
   vm.runInContext(app.slice(app.indexOf('  const config ='),app.indexOf('  const isAndroidApp =')),context);

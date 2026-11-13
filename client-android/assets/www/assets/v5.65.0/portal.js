@@ -3947,6 +3947,10 @@
   }
 
   function scheduleFleetPreload() {
+    // The static shell already warms public assets. Starting the hidden iframe
+    // also reads the full private Fleet history and competes with the open view
+    // on the Android writer, so defer that work until Fleet is actually opened.
+    if (window.FLEET_CONFIG?.independent) return;
     if (fleetPreloadTimer || !$("fleetModuleFrame") || !can("fleet.view")) return;
     const preload = function () {
       fleetPreloadTimer = null;

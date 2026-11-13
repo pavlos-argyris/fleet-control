@@ -700,7 +700,8 @@
         "scripts/test-large-release.mjs",
         "scripts/test-unified-server-browser.mjs",
         "scripts/test-direct-offline-browser.mjs",
-        "scripts/test-direct-web-speed.mjs"
+        "scripts/test-direct-web-speed.mjs",
+        "scripts/test-direct-unified-browser.mjs"
       ],
       "related": [
         "server-foundation",

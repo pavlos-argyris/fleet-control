@@ -67,6 +67,7 @@ jobs:
         working-directory: cloudflare-worker
       - run: node scripts/test-unified-server-browser.mjs
       - run: node scripts/test-direct-offline-browser.mjs
+      - run: node scripts/test-direct-unified-browser.mjs
       - run: node scripts/test-primary-transport-browser.mjs
       - run: node scripts/test-native-management-browser.mjs
       - run: node scripts/test-store-billing-browser.mjs
@@ -107,6 +108,8 @@ jobs:
             verification/server-reconnect/
             .build/unified-server-browser/
             .build/direct-offline-browser/offline-recovery-390.png
+            .build/direct-unified-browser/*.png
+            .build/direct-unified-browser/error-*.json
             verification/staff-schedule/
             verification/schedule-management/
             verification/client-landscape/
