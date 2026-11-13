@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-5abeaa6b-ec9a-4595-a585-5a32ded4fb63",
-  "sourceCommit": "cbaab2e3a6dbcd35e0530fa0e6e20a0896b724d5",
-  "releaseVersion": "5.64.0",
-  "requestedAt": "2026-11-13T12:32:18.448Z",
-  "reason": "Owner authorized Direct-only operation in Server Client Web, the control-provider fix, protected remembered Server credentials and normal original-signed release after successful exact-source CI."
+  "requestId": "fleet-88ff84c7-8b28-4ac5-8b78-a182dc8af7cf",
+  "sourceCommit": "2bc0d4e17335336b29da576d2b58f0f85f9cbdc4",
+  "releaseVersion": "5.64.1",
+  "requestedAt": "2026-11-13T14:34:16.195Z",
+  "reason": "Owner authorized the Note10+ Direct WebView StackOverflowError fix, Fleet 5.64.1 / Server 2.13.1, and normal original-signed publication after successful exact-main source CI run 43442147959. No production data modification or restore."
 }
