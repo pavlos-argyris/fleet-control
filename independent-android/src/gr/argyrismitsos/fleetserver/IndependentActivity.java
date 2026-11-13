@@ -76,7 +76,7 @@ public final class IndependentActivity extends Activity {
         boolean complete=false;
         try{
             try(OutputStream output=getContentResolver().openOutputStream(uri,"w")){
-                if(output==null)throw new IOException("Δεν γράφτηκε το κρυπτογραφημένο αρχείο πιστοποιητικού.");
+                if(output==null)throw new IOException("Δεν γράφτηκε το αρχείο πιστοποιητικού HTTPS.");
                 output.write(certificateFile);output.flush();
             }
             if(!Arrays.equals(certificateFile,readSmall(this,uri)))
