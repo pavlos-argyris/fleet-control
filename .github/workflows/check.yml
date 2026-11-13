@@ -244,6 +244,8 @@ jobs:
           java-version: '17'
       - name: Install Android build requirements
         run: bash scripts/ci-ubuntu-packages.sh ripgrep
+      - run: npm ci
+        working-directory: cloudflare-worker
       - run: bash scripts/unpack-toolchain.sh
       - name: Compile complete normal APKs with disposable signing
         env:

@@ -1,3 +1,11 @@
+## #95 — έλεγχος native file fence και κλειδιών, 13/11/2026
+
+- CI43347016783 επιβεβαίωσε Chromium Server UI Cloudflare/Direct και τις τέσσερις αρχικές καρτέλες στα320/390/1280. Το νέο offline fixture περίμενε raw fetch rejection, ενώ ο κανονικός Direct transport επιστρέφει σκόπιμα503 independent_unavailable για διατήρηση φόρμας. Το assertion ελέγχει πλέον το πραγματικό503, raw discovery failure και μη επανάληψη POST· δεν δέχεται cached/success response.
+- Το ανεξάρτητο Android job δεν έφτασε ακόμη στον emulator: έλειπε npm ci πριν από το business-runtime build. Προστέθηκε το ίδιο κλειδωμένο install με το κύριο job.
+- Code review εντόπισε native file path που καλούσε requestWithFile εκτός dispatch fence. Captured revision πριν την ανάγνωση πηγής και ίδιο cross-process guard μέσα στον writer προστατεύουν import+commit. Νέο actual-APK fixture αλλάζει Cloud→Direct στη μέση stream και ελέγχει απόρριψη πριν δημιουργηθεί private transfer.
+- Τα cloned native SealedLocalState/Ordexa/DirectIdentity χρησιμοποιούν πλέον διαφορετικά Android Keystore aliases από το Cloud scope. Το ACME alias-presence check αντιστοιχεί στο ίδιο Direct prefix. Νέο Android fixture ελέγχει δύο πραγματικά keys και αδυναμία αποκρυπτογράφησης Cloud ciphertext στο Direct. Το Client vault ήδη είχε διαφορετικά keys ανά realm. Δεν αλλάζουν aliases ή δεδομένα της κανονικής Cloud πλευράς.
+- Τοπικά κανονικά compile και instrumentation construction επαναλαμβάνονται· πραγματική Android/API30 εκτέλεση και πλήρες CI ακόμη εκκρεμούν. PR #96 παραμένει draft, χωρίς merge/publish/Direct activation.
+
 ## #95 — έλεγχοι διάταξης και ανεξάρτητο native gate, 13/11/2026
 
 - Συνέχεια στο PR #96 από709ff11/treefeec444. Full CI43345409970 πέρασε όλο το check-all και τα πρώτα Chromium suites, αλλά απέτυχε στο desktop Fleet workspace: η πρόσθετη recovery γραμμή ήταν sibling πάνω από Portal100dvh και κρυβόταν πίσω από sidebar. Το screenshot του CI επιβεβαίωσε το πραγματικό regression. Μετακινείται μέσα στη main-shell μετά login και επιστρέφει έξω πριν login· το detail viewport κρατά χώρο και για ανάκτηση. Οι αρχικές assertions ύψους/scroll παραμένουν, με πρόσθετο έλεγχο sidebar overlap.

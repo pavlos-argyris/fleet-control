@@ -63,6 +63,13 @@ for name,p in sources.items():
 '''+value[end:]
         value=change(value,'    private Bundle directControl(', '    private Context thisContext(){return MainActivity.this;}\n    private Bundle directControl(')
     if name=='ServerConfig.java':value=value.replace('https://fleet-control.pavlosargyris.workers.dev','https://fleet-control.duckdns.org')
+    if name=='SealedLocalState.java':
+        value=change(value,'    private static SecretKey key(String alias)throws Exception{','''    static String scopeAlias(String alias){return "fleet.unified-direct."+alias;}
+    private static SecretKey key(String alias)throws Exception{
+        alias=scopeAlias(alias);''')
+    if name=='IndependentAcme.java':value=change(value,'keys.containsAlias(alias)','keys.containsAlias(SealedLocalState.scopeAlias(alias))')
+    if name=='OrdexaSync.java':value=change(value,'KEY="fleet.ordexa.session.v1"','KEY="fleet.unified-direct.ordexa.session.v1"')
+    if name=='DirectIdentity.java':value=change(value,'ALIAS="fleet.direct.identity.v1"','ALIAS="fleet.unified-direct.identity.v1"')
     if name=='OtaManager.java':value=change(value,'private static final boolean DIRECT_SCOPE=false;','private static final boolean DIRECT_SCOPE=true;')
     if name=='NativeBackupPreparation.java':
         begin=value.index('        boolean cloud=');end=value.index('\n    }',begin)
@@ -98,6 +105,17 @@ for name,p in sources.items():
         value=re.sub(r'        button\("Ενεργοποίηση Android ως κύριου Server".*?(?=\n)', '', value)
     if name=='IndependentRuntime.java':
         value=change(value,'    JSONObject localLogin(', '    void barrier()throws Exception{serialized(()->null);}\n    JSONObject localLogin(')
+        value=change(value,'        URI uri=new URI(address);if(!address.startsWith(','''        final long uploadRevision=input==null?-1:BackendMode.read(context).getLong("revision");
+        if(input!=null&&(!BackendMode.direct(context)||DirectHost.paused(context)))throw new IOException("Η λειτουργία άλλαξε. Το αρχείο δεν αποθηκεύτηκε.");
+        URI uri=new URI(address);if(!address.startsWith(''')
+        value=change(value,'return checked(uploaded==null?dispatch(request,true):engine.requestWithFile(request,uploaded,fileField,"invoice.pdf",contentType));','''if(uploaded==null)return checked(dispatch(request,true));
+            // File imports bypass dispatch(), so hold the same cross-process
+            // mode fence through their import and commit. Do not hold it while
+            // reading a potentially slow source stream on another thread.
+            try(BackendMode.Guard ignored=BackendMode.guard(context)){
+                if(!BackendMode.direct(context)||DirectHost.paused(context)||uploadRevision!=BackendMode.read(context).getLong("revision"))throw new IOException("Η λειτουργία άλλαξε. Το αρχείο δεν αποθηκεύτηκε.");
+                return checked(engine.requestWithFile(request,uploaded,fileField,"invoice.pdf",contentType));
+            }''')
         value=change(value,'if(!IndependentConfig.read(context).optBoolean("testOrdexa"))return;','if(!BackendMode.direct(context))return;')
         value=change(value,'.put("testOrdexa",saved.optBoolean("testOrdexa"))','.put("testOrdexa",OrdexaSync.status(context).optBoolean("enabled"))')
         value=change(value,'if(state.optString("phase").equals("needs_recovery"))','if(state.optString("phase").equals("needs_recovery")||state.optString("phase").equals("recovering")&&NativeColdRuntime.core(c).state().optString("phase").equals("installed"))')

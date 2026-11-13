@@ -17,6 +17,14 @@ public final class UnifiedNativeChecks{
         check(gr.argyrismitsos.fleetupdates.SessionVault.read(base,sessions,"direct",gr.argyrismitsos.fleetupdates.SessionVault.DIRECT).isEmpty(),"Ciphertext copied across realms/names fails closed");
         check(gr.argyrismitsos.fleetupdates.SessionVault.read(base,sessions,"cloud",gr.argyrismitsos.fleetupdates.SessionVault.CLOUD).equals(sample),"Wrong-realm attempt does not clear the other realm");
         check(gr.argyrismitsos.fleetupdates.SessionVault.pageRealm("file:///android_asset/www/portal.html").equals(gr.argyrismitsos.fleetupdates.SessionVault.CLOUD)&&gr.argyrismitsos.fleetupdates.SessionVault.pageRealm("https://fleet-control.duckdns.org/fleet.html").equals(gr.argyrismitsos.fleetupdates.SessionVault.DIRECT)&&gr.argyrismitsos.fleetupdates.SessionVault.pageRealm("https://fleet-control.duckdns.org.attacker.invalid/").isEmpty(),"Page-bound token realm accepts only the two trusted origins/assets");
+        String sealedName="issue95.scope.fixture",sealedAlias="fleet.issue95.scope.fixture";
+        gr.argyrismitsos.fleetserver.SealedLocalState.write(base,sealedName,sealedAlias,new JSONObject().put("value","cloud-secret"));
+        SealedLocalState.write(target,sealedName,sealedAlias,new JSONObject().put("value","direct-secret"));
+        java.security.KeyStore keys=java.security.KeyStore.getInstance("AndroidKeyStore");keys.load(null);
+        check(keys.containsAlias(sealedAlias)&&keys.containsAlias("fleet.unified-direct."+sealedAlias),"Cloud and Direct use different actual Android Keystore wrapping keys");
+        target.getSharedPreferences("fleet_sealed_runtime_v1",0).edit().putString(sealedName,base.getSharedPreferences("fleet_sealed_runtime_v1",0).getString(sealedName,"")).commit();
+        try{SealedLocalState.read(target,sealedName,sealedAlias);throw new AssertionError("Direct decrypted Cloud ciphertext with a shared key");}catch(java.security.GeneralSecurityException expected){}
+        check(gr.argyrismitsos.fleetserver.SealedLocalState.read(base,sealedName,sealedAlias).getString("value").equals("cloud-secret"),"Direct cannot read or invalidate the Cloud secret");
         try{IndependentConfig.read(base);throw new AssertionError("Direct accepted unscoped Cloud context");}catch(SecurityException expected){}
         check(!BackendMode.direct(base),"Normal update defaults Cloudflare before every synthetic activation");
         try(android.database.sqlite.SQLiteDatabase db=base.openOrCreateDatabase("issue95-cloud-sentinel.db",0,null)){db.execSQL("CREATE TABLE keep(value TEXT)");db.execSQL("INSERT INTO keep VALUES('cloud-intact')");}
@@ -29,6 +37,17 @@ public final class UnifiedNativeChecks{
             // Internal backup operations work while Cloudflare is unavailable;
             // the synthetic selected-mode command does not exercise TLS readiness.
             BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");
+            long transfersBefore;
+            try(FleetDataStore store=new FleetDataStore(target)){transfersBefore=new BusinessSqlite(store.getReadableDatabase()).call("sql.query",new JSONObject().put("sql","SELECT count(*) n FROM native_file_transfers")).getJSONArray("results").getJSONObject(0).getLong("n");}
+            InputStream changingSource=new ByteArrayInputStream("synthetic invoice".getBytes("UTF-8")){
+                private boolean changed;
+                @Override public synchronized int read(byte[] bytes,int offset,int length){
+                    if(!changed){changed=true;try{BackendMode.select(base,"cloudflare",BackendMode.read(base).getLong("revision"),true,"");BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");}catch(Exception e){throw new IllegalStateException(e);}}
+                    return super.read(bytes,offset,length);
+                }
+            };
+            try{runtime.request(BackendMode.DIRECT+"/api/fixture-upload","POST",null,null,changingSource,17,"application/pdf",null,null);throw new AssertionError("Upload from an old mode revision reached the file importer");}catch(IOException expected){check(expected.getMessage().contains("Η λειτουργία άλλαξε"),"Stale upload rejected by the mode fence before the business request");}
+            try(FleetDataStore store=new FleetDataStore(target)){check(transfersBefore==new BusinessSqlite(store.getReadableDatabase()).call("sql.query",new JSONObject().put("sql","SELECT count(*) n FROM native_file_transfers")).getJSONArray("results").getJSONObject(0).getLong("n"),"Mode switch while reading an upload creates no private transfer/financial write");}
             try(FleetDataStore store=new FleetDataStore(target)){
                 String manual=BackupManager.createBackup(target,store);
                 check(manual.endsWith(".fcbackup"),"Normal native manual backup exports a full FCB3 packet through real SAF");
