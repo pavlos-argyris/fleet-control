@@ -29,6 +29,12 @@ for name,p in sources.items():
     imports=('\nimport '+old+'.R;' if re.search(r'\bR\.',value) else '')+('\nimport '+old+'.BackendMode;' if 'BackendMode.' in value or name in ('IndependentRuntime.java','IndependentService.java','IndependentActivity.java') else '')
     value=value.replace('package '+new+';','package '+new+';'+imports)
     if name=='MainActivity.java':
+        value=change(value,'    private FleetDataStore store;','    private volatile FleetDataStore store;')
+        value=change(value,'        store = new FleetDataStore(getApplicationContext());','        store = null; // Open lazily after verified import; preparation must not create a database.')
+        value=change(value,'        try { result = store.getStats(); }','''        try {
+            if(store==null&&IndependentConfig.read(this).has("backupSha256"))synchronized(this){if(store==null)store=new FleetDataStore(getApplicationContext());}
+            result=store==null?new JSONObject().put("directPreparing",true):store.getStats();
+        }''')
         value=change(value,'public final class MainActivity extends Activity {','''public final class MainActivity extends Activity {
     @Override protected void attachBaseContext(Context base){super.attachBaseContext(new ScopedContext(base));}
 ''')
@@ -62,6 +68,9 @@ for name,p in sources.items():
 
 '''+value[end:]
         value=change(value,'    private Bundle directControl(', '    private Context thisContext(){return MainActivity.this;}\n    private Bundle directControl(')
+        value=change(value,'                JSONObject result="primaryRecoveryPreview".equals(operation)?NativeRecoveryController.preview(getApplicationContext(),uri,password):"backupRecoveryTest".equals(operation)?BackupManager.testRestoreBackup(getApplicationContext(),uri,password):BackupManager.verifyAndRemember(getApplicationContext(),uri,password);','''                String remembered=RememberedOwner.backupCode(getApplicationContext(),password);String secret=remembered.isEmpty()?null:remembered;
+                JSONObject result="primaryRecoveryPreview".equals(operation)?NativeRecoveryController.preview(getApplicationContext(),uri,secret):"backupRecoveryTest".equals(operation)?BackupManager.testRestoreBackup(getApplicationContext(),uri,secret):BackupManager.verifyAndRemember(getApplicationContext(),uri,secret);
+                if(secret!=null)RememberedOwner.rememberBackupCode(getApplicationContext(),secret);''')
     if name=='ServerConfig.java':value=value.replace('https://fleet-control.pavlosargyris.workers.dev','https://fleet-control.duckdns.org')
     if name=='SealedLocalState.java':
         value=change(value,'    private static SecretKey key(String alias)throws Exception{','''    static String scopeAlias(String alias){return "fleet.unified-direct."+alias;}
@@ -71,6 +80,7 @@ for name,p in sources.items():
     if name=='OrdexaSync.java':value=change(value,'KEY="fleet.ordexa.session.v1"','KEY="fleet.unified-direct.ordexa.session.v1"')
     if name=='DirectIdentity.java':value=change(value,'ALIAS="fleet.direct.identity.v1"','ALIAS="fleet.unified-direct.identity.v1"')
     if name=='OtaManager.java':value=change(value,'private static final boolean DIRECT_SCOPE=false;','private static final boolean DIRECT_SCOPE=true;')
+    if name=='BackupProtection.java':value=change(value,'        return state(context);','        if(ScopedContext.owns(context))RememberedOwner.rememberBackupCode(context,password);\n        return state(context);')
     if name=='NativeBackupPreparation.java':
         begin=value.index('        boolean cloud=');end=value.index('\n    }',begin)
         value=value[:begin]+'''        return DirectHost.prepareBackup(context,store,directory,id,envelope,progress);'''+value[end:]
@@ -95,6 +105,28 @@ for name,p in sources.items():
         declaration='public final class '+p.stem+' extends '+('Activity' if 'Activity' in name else 'Service')+' {'
         value=change(value,declaration,declaration+'\n    @Override protected void attachBaseContext(Context base){super.attachBaseContext(new ScopedContext(base));}\n')
     if name=='IndependentActivity.java':
+        value=change(value,'private TextView status,message;','private TextView status,message,ownerSavedLabel;')
+        value=change(value,'        text("Ιδιοκτήτης",20);username=field("Username ιδιοκτήτη από το backup",false);password=field("Password",true);','''        text("Ιδιοκτήτης",20);ownerSavedLabel=text("",14);username=field("Username ιδιοκτήτη από το backup",false);password=field("Password",true);rememberedOwnerUi();
+        button("Αλλαγή / διαγραφή αποθηκευμένης σύνδεσης",v->task(()->{RememberedOwner.clear(this);ownerToken="";runOnUiThread(this::rememberedOwnerUi);return "Τα αποθηκευμένα στοιχεία ιδιοκτήτη αφαιρέθηκαν. Συμπλήρωσε τα νέα στοιχεία μία φορά.";}));''')
+        begin=value.index('    private void login(');end=value.index('    private void folder(',begin)
+        value=value[:begin]+'''    private void rememberedOwnerUi(){
+        if(username==null||password==null||ownerSavedLabel==null)return;String saved=RememberedOwner.username(this);boolean available=!saved.isEmpty();username.setText(saved);username.setVisibility(available?View.GONE:View.VISIBLE);password.setVisibility(available?View.GONE:View.VISIBLE);if(available)password.setText("");ownerSavedLabel.setText(available?"Αυτόματη σύνδεση ιδιοκτήτη: "+saved+" · τα στοιχεία είναι προστατευμένα σε αυτή τη συσκευή.":"Συμπλήρωσε τα στοιχεία ιδιοκτήτη μία φορά. Θα αποθηκευτούν προστατευμένα στη συσκευή.");
+    }
+    private void login(String u,String p)throws Exception{try{ownerToken=RememberedOwner.login(this,u,p).getString("token");}finally{runOnUiThread(this::rememberedOwnerUi);}}
+    private void requireOwner()throws Exception{try{ownerToken=RememberedOwner.session(this);}finally{runOnUiThread(this::rememberedOwnerUi);}}
+'''+value[end:]
+        value=change(value,'final String code=backupCode.getText().toString();','final String code;try{code=RememberedOwner.backupCode(this,backupCode.getText().toString());}catch(Exception unavailable){message.setText("Η αποθηκευμένη ρύθμιση backup χρειάζεται έλεγχο.");return;}')
+        value=change(value,'IndependentBackup.export(this,tree,code);','IndependentBackup.export(this,tree,code);RememberedOwner.rememberBackupCode(this,code);')
+        value=change(value,'IndependentRestore.importBackup(this,files.get(index),code).optBoolean("imported")?"Το backup ανακτήθηκε αποκλειστικά στη δοκιμαστική εγκατάσταση. Συνδέσου ως ιδιοκτήτης για Έλεγχο σύνδεσης.":"Η εισαγωγή δεν επιβεβαιώθηκε."','RememberedOwner.importBackup(this,files.get(index),code)')
+        value=change(value,'backupCode=field("Κωδικός φορητού backup (μόνο για εισαγωγή/εξαγωγή)",true);','''backupCode=field("Κωδικός φορητού backup · κενό για χρήση αποθηκευμένου",true);
+        button("Διαγραφή αποθηκευμένου κωδικού backup",v->task(()->{RememberedOwner.clearBackupCode(this);return "Ο αποθηκευμένος κωδικός αφαιρέθηκε από τη συσκευή. Τα backup και η προστασία τους διατηρούνται.";}));''')
+        value=change(value,'terms.setText("Έχω καταχωρίσει το όνομα και αποδέχομαι τους τρέχοντες όρους Let\'s Encrypt για το δικό μου πιστοποιητικό.");content.addView(terms);','''terms.setText("Έχω καταχωρίσει το όνομα και αποδέχομαι τους τρέχοντες όρους Let's Encrypt για το δικό μου πιστοποιητικό.");content.addView(terms);
+        try{JSONObject saved=IndependentConfig.read(this);terms.setChecked(saved.optBoolean("acmeTermsAccepted"));if(!saved.optString("ddnsToken").isEmpty())ddnsToken.setHint("Αποθηκευμένο token DuckDNS · συμπλήρωσε μόνο για αλλαγή");}catch(Exception unavailable){}''')
+        value=change(value,'requireOwner();String selected=IndependentPolicy.hostname(host);JSONObject config=IndependentConfig.read(this);','requireOwner();String selected=IndependentPolicy.hostname(host);JSONObject config=IndependentConfig.read(this);String resolvedToken=token.isEmpty()?config.optString("ddnsToken"):token;')
+        value=change(value,'if(!token.matches("[A-Za-z0-9-]{20,128}"))','if(!resolvedToken.matches("[A-Za-z0-9-]{20,128}"))')
+        value=change(value,'.put("ddnsToken",token)','.put("ddnsToken",resolvedToken)')
+        value=change(value,'sync=new CheckBox(this);','try{JSONObject saved=OrdexaSync.status(this);ordexaUser.setText(saved.optString("account"));if(saved.optBoolean("reconnectAvailable"))ordexaPassword.setHint("Αποθηκευμένος κωδικός · συμπλήρωσε μόνο για αλλαγή");}catch(Exception unavailable){}sync=new CheckBox(this);')
+        value=change(value,'JSONObject result=OrdexaSync.login(this,new JSONObject().put("username",u).put("password",p));','JSONObject result=p.isEmpty()&&u.equals(OrdexaSync.status(this).optString("account"))?OrdexaSync.checkConnection(this):OrdexaSync.login(this,new JSONObject().put("username",u).put("password",p));')
         value=change(value,'IndependentConfig.require(this);build();','IndependentConfig.require(this);try{DirectHost.startup(this);}catch(Exception error){getSharedPreferences("independent_ui",MODE_PRIVATE).edit().putString("blocked","Η ασφαλής προετοιμασία Direct χρειάζεται έλεγχο.").commit();}build();')
         value=change(value,'}build();','}OtaManager.resumeAfterRestart(this);build();')
         value=change(value,'        text("Ασφαλές αντίγραφο",20);','''        // These owner tools remain reachable from Cloudflare after a manual
@@ -121,7 +153,7 @@ for name,p in sources.items():
         value=value.replace('Άνοιγμα Web δοκιμής','Άνοιγμα Web Direct').replace('Ενεργοποίηση δοκιμαστικού Ordexa read-only','Ενεργοποίηση Ordexa στο Direct (μόνο ανάγνωση)')
         value=change(value,'Uri.parse("https://"+host)','Uri.parse("https://"+host+(BackendMode.direct(this)?"/":"/?fleetSetup=1"))')
         value=change(value,'Αρχικά ανενεργό. Ενεργοποίησέ το συνειδητά για τη δοκιμή ώστε να αποφευχθεί δεύτερος παράλληλος reader. Ασφαλής αρχική συχνότητα 5 λεπτών· τα καταστήματα ανά ώρα. Το ~15s απαιτεί πραγματική μέτρηση και άδεια πλατφόρμας.','Αρχικά ανενεργό. Ρύθμισε τον λογαριασμό και την πόλη για τη βάση Direct. Παρουσίες κάθε 5 λεπτά και καταστήματα ανά ώρα, μόνο όσο είναι επιλεγμένο Direct.')
-        value=change(value,'Γίνεται μόνο από τον ιδιοκτήτη στη Web οθόνη μετά από πραγματικό HTTPS έλεγχο με 4G/5G και ρητή επιβεβαίωση. Η εφαρμογή δεν αλλάζει το Cloudflare και δεν μεταφέρει αυτόματα τους παλιούς Clients.','Στο Web κάνε μόνο τον έλεγχο σύνδεσης με 4G/5G. Έπειτα επέστρεψε στις Ρυθμίσεις Server, συνδέσου ως ιδιοκτήτης και άλλαξε τον ενιαίο μοχλό Cloudflare / Direct. Δεν χρειάζεται επιπλέον παράθυρο επιβεβαίωσης και τα δύο σύνολα δεδομένων παραμένουν χωριστά.')
+        value=change(value,'Γίνεται μόνο από τον ιδιοκτήτη στη Web οθόνη μετά από πραγματικό HTTPS έλεγχο με 4G/5G και ρητή επιβεβαίωση. Η εφαρμογή δεν αλλάζει το Cloudflare και δεν μεταφέρει αυτόματα τους παλιούς Clients.','Στο Web συνδέσου ως ιδιοκτήτης και κάνε τον έλεγχο σύνδεσης με 4G/5G. Με επιτυχές HTTPS, πλήρες backup και δημόσιο έλεγχο ο Direct Server ολοκληρώνει την προετοιμασία αυτόματα. Δεν χρειάζεται επιλογή λειτουργίας.')
         value=change(value,'IndependentConfig.save(this,IndependentConfig.read(this).put("testOrdexa",false));','OrdexaSync.configure(this,new JSONObject().put("cityId",OrdexaSync.status(this).getString("cityId")).put("enabled",false));IndependentConfig.save(this,IndependentConfig.read(this).put("testOrdexa",false));')
         value=value.replace('Παύση δοκιμαστικού Ordexa','Παύση Ordexa στο Direct').replace('Ενεργοποιήθηκε ο δοκιμαστικός reader.','Ενεργοποιήθηκε ο reader Direct.').replace('δοκιμαστικό συγχρονισμό','συγχρονισμό Direct').replace('Ο δοκιμαστικός συγχρονισμός σταμάτησε.','Ο συγχρονισμός Direct σταμάτησε.')
         value=value.replace('getSharedPreferences("independent_ui",MODE_PRIVATE).getString("mode","test").equals("primary")?"Κύριο":"Δοκιμαστικό"','BackendMode.direct(this)?"Direct":"Προετοιμασία Direct"')
@@ -132,14 +164,14 @@ for name,p in sources.items():
         value=change(value,'.put("server","independent-1")','.put("server",ServerConfig.SERVER_VERSION)')
         value=change(value,'    JSONObject localLogin(', '    void barrier()throws Exception{serialized(()->null);}\n    JSONObject localLogin(')
         value=change(value,'        URI uri=new URI(address);if(!address.startsWith(','''        final long uploadRevision=input==null?-1:BackendMode.read(context).getLong("revision");
-        if(input!=null&&(!BackendMode.direct(context)||DirectHost.paused(context)))throw new IOException("Η λειτουργία άλλαξε. Το αρχείο δεν αποθηκεύτηκε.");
+        if(input!=null&&(!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context)))throw new IOException("Η λειτουργία άλλαξε ή ο Server δεν είναι έτοιμος. Το αρχείο δεν αποθηκεύτηκε.");
         URI uri=new URI(address);if(!address.startsWith(''')
         value=change(value,'return checked(uploaded==null?dispatch(request,true):engine.requestWithFile(request,uploaded,fileField,"invoice.pdf",contentType));','''if(uploaded==null)return checked(dispatch(request,true));
             // File imports bypass dispatch(), so hold the same cross-process
             // mode fence through their import and commit. Do not hold it while
             // reading a potentially slow source stream on another thread.
             try(BackendMode.Guard ignored=BackendMode.guard(context)){
-                if(!BackendMode.direct(context)||DirectHost.paused(context)||uploadRevision!=BackendMode.read(context).getLong("revision"))throw new IOException("Η λειτουργία άλλαξε. Το αρχείο δεν αποθηκεύτηκε.");
+                if(!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context)||uploadRevision!=BackendMode.read(context).getLong("revision"))throw new IOException("Η λειτουργία άλλαξε. Το αρχείο δεν αποθηκεύτηκε.");
                 return checked(engine.requestWithFile(request,uploaded,fileField,"invoice.pdf",contentType));
             }''')
         value=change(value,'if(!IndependentConfig.read(context).optBoolean("testOrdexa"))return;','if(!BackendMode.direct(context))return;')
@@ -157,18 +189,30 @@ for name,p in sources.items():
             String path=new URI(request.getString("url")).getPath();
             boolean preflight=path.startsWith("/api/auth/")||path.startsWith("/api/independent/");
             if(!preflight&&!BackendMode.direct(context)&&!(internal&&path.equals("/api/status")))return IndependentHttps.error(409,"Επιλεγμένο Cloudflare. Δεν έγινε εγγραφή στη βάση Direct.");
+            if(!preflight&&gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY&&!BackendMode.approved(context)&&!(internal&&path.equals("/api/status")))return IndependentHttps.error(503,"Ο Direct Server χρειάζεται πλήρες backup, HTTPS και έλεγχο σύνδεσης από 4G/5G.");
             if(!preflight&&DirectHost.paused(context)&&!path.equals("/api/status"))return IndependentHttps.error(503,"Ο Server προετοιμάζει ασφαλή ενημέρωση ή ανάκτηση. Επανάλαβε μετά την ολοκλήρωση.");
             String epoch=request.getJSONObject("headers").optString("x-fleet-backend-revision",request.getJSONObject("headers").optString("X-Fleet-Backend-Revision"));
             if(!internal&&!preflight&&!epoch.equals(String.valueOf(BackendMode.read(context).getLong("revision"))))return IndependentHttps.error(409,"Η λειτουργία άλλαξε. Ανανέωσε πριν αποθηκεύσεις.");
-            if(path.equals("/api/independent/activate"))return IndependentHttps.error(403,"Χρησιμοποίησε τον διακόπτη στις Ρυθμίσεις Server.");
+            if(path.equals("/api/independent/activate"))return IndependentHttps.error(403,"Ολοκλήρωσε τον εξωτερικό έλεγχο HTTPS για την προεπιλεγμένη σύνδεση μέσω Server.");
             result=engine.request(request,internal,30000);
         }''')
-        value=change(value,'void jobs()throws Exception{','void jobs()throws Exception{if(!BackendMode.direct(context)||DirectHost.paused(context))return;')
+        value=change(value,'JSONObject external(final JSONObject request)throws Exception{return serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}});}', '''JSONObject external(final JSONObject request)throws Exception{
+        JSONObject response=serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}});
+        // The writer and read fence have returned before acquiring the mode
+        // write lock. A public owner probe never upgrades a held read lock.
+        if(gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY&&response.optInt("status")==200&&new URI(request.getString("url")).getPath().equals("/api/independent/probe")){
+            JSONObject body=new JSONObject(response.getString("body"));
+            if(body.optBoolean("externalVerified")){DirectHost.confirmReadiness(context,this);body.put("directReady",BackendMode.approved(context)).put("message","Ο εξωτερικός έλεγχος HTTPS ολοκληρώθηκε. Ο Direct Server είναι έτοιμος.");response.put("body",body.toString());}
+        }
+        return response;
+    }''')
+        value=change(value,'public boolean ready(){return !closed;}','public boolean ready(){return !closed&&BackendMode.approved(context);}')
+        value=change(value,'void jobs()throws Exception{','void jobs()throws Exception{if(!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context))return;')
     if name=='IndependentService.java':
         value=change(value,'@Override public void onCreate(){super.onCreate();live=this;','@Override public void onCreate(){super.onCreate();DirectHost.initialize(this);live=this;')
         value=change(value,'if(runtime==null)runtime=IndependentRuntime.get(this);','if(runtime==null)runtime=IndependentRuntime.get(this);if(BackendMode.direct(this))DirectHost.maintenance(this,runtime);')
-        value=value.replace('invoiceWorker.tick();','if(BackendMode.direct(thisContext())&&!DirectHost.paused(thisContext()))invoiceWorker.tick();')
-        value=value.replace('if(blocked())return;IndependentRuntime backend=','if(blocked()||!BackendMode.direct(thisContext()))return;IndependentRuntime backend=')
+        value=value.replace('invoiceWorker.tick();','if(BackendMode.direct(thisContext())&&BackendMode.approved(thisContext())&&!DirectHost.paused(thisContext()))invoiceWorker.tick();')
+        value=value.replace('if(blocked())return;IndependentRuntime backend=','if(blocked()||!BackendMode.direct(thisContext())||!BackendMode.approved(thisContext()))return;IndependentRuntime backend=')
         value=change(value,'    private boolean blocked()','    private Context thisContext(){return this;}\n    private boolean blocked()')
         value=value.replace('new Intent(this,IndependentActivity.class)','new Intent(this,gr.argyrismitsos.fleetserver.MainActivity.class)')
         value=value.replace('Δοκιμαστική βάση · HTTPS και συγχρονισμοί στη συσκευή','Direct · HTTPS και επεξεργασία στη συσκευή')

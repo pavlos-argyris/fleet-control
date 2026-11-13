@@ -5,7 +5,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{chromium}=require('playwright');
 const root=path.resolve('cloudflare-worker/public'),output=path.resolve('verification/next-service');fs.mkdirSync(output,{recursive:true});
 const user={id:'notes-owner',username:'owner',role:'owner',permissions:['*']},at='2026-10-01T00:00:00.000Z';
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
 try{for(const mode of ['web','client','client','client']){
  let bikes=[{id:'bike-0',name:'ΒΤΟ 756',intervalKm:3000,lastServiceKm:1000,currentKm:1200,createdAt:at,updatedAt:at,history:[]},{id:'bike-1',name:'ΒΤΟ 757',intervalKm:3000,lastServiceKm:1000,currentKm:1200,createdAt:at,updatedAt:at,history:[]}];
  const context=await browser.newContext({viewport:{width:mode==='web'?1100:390,height:844},isMobile:mode==='client',hasTouch:mode==='client',serviceWorkers:'block'}),page=await context.newPage(),errors=[];
@@ -22,7 +22,7 @@ try{for(const mode of ['web','client','client','client']){
   const full=path.resolve(root,'.'+decodeURIComponent(url.pathname));if(!full.startsWith(root+path.sep)||!fs.existsSync(full)||!fs.statSync(full).isFile())return route.fulfill({status:404,body:'Not found'});
   return route.fulfill({status:200,path:full,contentType:({'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'})[path.extname(full)]||'application/octet-stream'});
  });
- await page.goto(mode==='client'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/index.html');
+ await page.goto('https://fixture.invalid/'+(mode==='client'?'portal.html':'index.html'));
  if(mode==='client')await page.locator('#bottomNav [data-go="fleet"]').click();
  const fleet=mode==='client'?page.frameLocator('#fleetModuleFrame'):page;
  await fleet.locator('#bikeList [data-bike-id="bike-0"]').click();await fleet.locator('#nextServiceCard').waitFor();

@@ -685,6 +685,7 @@
         "client-android/src/gr/argyrismitsos/fleetcontrol/BackendSelection.java",
         "common-android/src/gr/argyrismitsos/fleetupdates/PublicReleaseFeed.java",
         "common-android/src/gr/argyrismitsos/fleetupdates/SessionVault.java",
+        "common-android/src/gr/argyrismitsos/fleetupdates/BackendPolicy.java",
         "scripts/build-independent-android-test.py",
         "scripts/test-independent-android.sh",
         "scripts/check-unified-apks.py",

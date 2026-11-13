@@ -19,10 +19,11 @@ if unified:
         text=source.read_text().replace('gr.argyrismitsos.fleetserver','gr.argyrismitsos.fleetdirect')
         if source.name=='AndroidSqliteChecks.java':
             text=text.replace('final Context target=getTargetContext();','final Context base=getTargetContext();final Context target=new ScopedContext(base);check(!base.getDatabasePath(NativeColdRestore.DATABASE_NAME).equals(target.getDatabasePath(NativeColdRestore.DATABASE_NAME)),"Cloud and Direct database paths must differ");base.getSharedPreferences("issue95_sentinel",0).edit().putString("keep","cloud-preserved").commit();')
+            text=text.replace('IndependentSqlite.requireReady();','IndependentSqlite.requireReady();UnifiedNativeChecks.checkFreshDashboard(base,target);',1)
             start=text.index('        // Real Activity lifecycle/preferences notification')
             end=text.index('\n    private static Object readField',start)
             text=text[:start]+'''        check(base.getSharedPreferences("issue95_sentinel",0).getString("keep","").equals("cloud-preserved"),"Direct restore preserves unscoped Cloud preferences");
-        check(!gr.argyrismitsos.fleetserver.BackendMode.direct(base),"Import and probes never change the initial Cloudflare selection");
+        check(gr.argyrismitsos.fleetserver.BackendMode.direct(base)&&!gr.argyrismitsos.fleetserver.BackendMode.approved(base),"Import selects Direct preparation but does not approve business writes");
         Bundle status=base.getContentResolver().call(Uri.parse("content://gr.argyrismitsos.fleetserver.direct-control"),"status","",null);
         check(status.getBoolean("ok")&&new JSONObject(status.getString("json")).getBoolean("backupVerified"),"Private provider observes the same isolated restored configuration across processes");
         UnifiedNativeChecks.run(base,target,manifest,owner,PASSWORD);

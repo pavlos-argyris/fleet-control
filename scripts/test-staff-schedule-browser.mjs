@@ -6,7 +6,7 @@ const {db,env,call}=createSimulation(),boot=await call('/api/auth/bootstrap',{me
 assert.equal(boot.status,200);const token=boot.data.token,user=boot.data.user;
 const datePlus=(date,days)=>new Date(Date.parse(date+'T00:00:00Z')+days*86400000).toISOString().slice(0,10),today=new Date().toISOString().slice(0,10),nextMonday=datePlus(today,((8-new Date(today+'T00:00:00Z').getUTCDay())%7)||7);
 const publicRoot=path.resolve('cloudflare-worker/public'),output=path.resolve('verification/staff-schedule');fs.mkdirSync(output,{recursive:true});
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
 try{for(const mode of ['desktop','mobile','client']){
  // Distinct future fortnights prevent prior modes' drafts from replacing seeded rows.
  const from=datePlus(nextMonday,['desktop','mobile','client'].indexOf(mode)*14),secondWeek=datePlus(from,7),to=datePlus(from,13);
@@ -29,7 +29,8 @@ try{for(const mode of ['desktop','mobile','client']){
  const nav=async id=>{const root=mode==='desktop'?page.locator('#sideNav'):page.locator('#bottomNav'),direct=root.locator('[data-go="'+id+'"]');if(await direct.count())await direct.click();else{await root.locator('[data-ui-more]').click();await page.locator('#uiMoreDialog [data-go="'+id+'"]').click();}await page.locator('[data-view="'+id+'"]:not(.is-hidden)').waitFor();await page.waitForFunction(()=>!document.querySelector('#portal').classList.contains('view-loading'));assert.equal(await page.locator('#uiViewError').isVisible(),false,await page.locator('#uiViewErrorText').textContent());};
  const capture=async name=>{assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),mode+' '+name+' no horizontal overflow');await page.screenshot({path:path.join(output,mode+'-'+name+'.png')});};
  try{
-  await page.goto(mode==='client'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/portal.html');await page.locator('#sideNav [data-go="employees"]').waitFor({state:'attached'});
+  // Direct Client now loads the Server URL; bundled file pages remain dormant.
+  await page.goto('https://fixture.invalid/portal.html');await page.locator('#sideNav [data-go="employees"]').waitFor({state:'attached'});
   await nav('employees');await page.locator('#newEmployeeButton').click();await page.locator('#employeeDialog[open]').waitFor();
   assert.equal(await page.locator('#employeeLoginEnabled').isChecked(),false);assert.equal(await page.locator('#employeeUsername').isVisible(),false);assert.equal(await page.locator('#employeePassword').isVisible(),false);
   const name='Υπάλληλος '+mode;await page.locator('#employeeName').fill(name);await page.locator('#usesOwnVehicle').check();await capture('new-staff');await page.locator('#employeeForm button[type="submit"]').click();await page.waitForFunction(()=>!document.querySelector('#employeeDialog').open);

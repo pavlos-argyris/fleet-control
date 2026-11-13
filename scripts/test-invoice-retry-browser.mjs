@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{chromium}=require('playwright');
 const root=path.resolve('cloudflare-worker/public'),output=path.resolve('verification/invoice-retry');fs.mkdirSync(output,{recursive:true});
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']});
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,args:['--no-sandbox','--allow-file-access-from-files']});
 const user={id:'retry-owner',username:'owner',fullName:'Retry Fixture',role:'owner',permissions:['*']},at=new Date().toISOString();
 try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],['client-tablet',1024,768]]){
  const make=(id,plate,extra={})=>({id,key:'service-documents/b/'+id+'/file.pdf',bikeId:'b',entryId:id,bikeName:plate,name:id+'.pdf',status:'error',error:'Reader failed',canRetry:true,invoiceData:{},warnings:[],...extra});
@@ -31,7 +31,8 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
  const navigate=async view=>{const nav=width>860?page.locator('#sideNav'):page.locator('#bottomNav'),direct=nav.locator('[data-go="'+view+'"]');if(await direct.count())await direct.click();else{await nav.locator('[data-ui-more]').click();await page.locator('#uiMoreDialog [data-go="'+view+'"]').click();}await page.locator('[data-view="'+view+'"]:not(.is-hidden)').waitFor();};
  const shot=async name=>{assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),mode+' horizontal overflow');await page.screenshot({path:path.join(output,mode+'-'+name+'.png')});};
  try{
-  await page.goto(mode==='client-tablet'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/portal.html');await navigate('invoices');
+  // Direct Client now loads the Server URL; bundled file pages remain dormant.
+  await page.goto('https://fixture.invalid/portal.html');await navigate('invoices');
   await page.locator('#uiInvoiceExtraPicker').click();await page.locator('[data-ui-select-value="error"]').click();
   await page.locator('#invoicePlatePicker').click();await page.locator('[data-ui-select-value="BTO756"]').click();
   await page.locator('#retryAllFailedInvoices').waitFor();assert.match(await page.locator('#retryAllFailedInvoices').textContent(),/2/);

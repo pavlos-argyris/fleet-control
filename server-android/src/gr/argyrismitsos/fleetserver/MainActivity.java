@@ -299,7 +299,7 @@ public final class MainActivity extends Activity {
         catch (Exception ignored) { return ""; }
     }
 
-    private Bundle directControl(String method,String arg,Bundle input){return getContentResolver().call(Uri.parse("content://gr.argyrismitsos.fleetserver.direct-control"),method,arg,input);}
+    private Bundle directControl(String method,String arg,Bundle input){return getContentResolver().call(Uri.parse("content://"+BackendMode.CONTROL_AUTHORITY),method,arg,input);}
     public final class ServerBridge {
         @JavascriptInterface public String getBackendMode(){try{return directControl("status","",null).getString("json");}catch(Exception e){return "{\"error\":\"Η κατάσταση λειτουργίας δεν φορτώθηκε.\"}";}}
         @JavascriptInterface public void prepareDirect(){runOnUiThread(()->startActivity(new Intent().setClassName(MainActivity.this,"gr.argyrismitsos.fleetdirect.IndependentActivity")));}

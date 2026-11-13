@@ -1,5 +1,5 @@
 const CACHE_NAME = "fleet-control-v5-63-0";
-const ASSET_BASE="./assets/v5.63.0/";
+const ASSET_BASE="./assets/v5.64.0/";
 const APP_SHELL = ["backend-mode.js","backend-mode.css","shared-requests.js","live-changes.js","fleet-motion.js","fleet-motion.css"].map(f=>ASSET_BASE+f).concat([
   "./ui-system.css", "./service-model.js", "./fleet-operations-model.js", "./fleet-operations.js", "./service-tools.js", "./fleet-navigation.js", "./service-tools.css", "./service-storage.js", "./service-export.js",
   "./store-billing.js", "./store-billing.css", "./ordexa-server-ui.js", "./ordexa-server-ui.css", "./ordexa-pay-core.js", "./ordexa-pay-ui.js", "./ordexa-ui.js", "./ordexa-ui.css", "./local-view-cache.js", "./invoice-import-ui.js", "./invoice-retry.js",

@@ -7,7 +7,7 @@ const {db,env,call}=createSimulation(),boot=await call('/api/auth/bootstrap',{se
 const key=id=>`service-documents/b/${id}/${id}.pdf`,stamp='2026-10-10T10:00:00Z';
 const local=id=>({rawText:invoiceText({count:60,number:'INV'+id,km:id==='2'?'9100':'9000'}),supplier:'ΣΥΝΘΕΤΙΚΟ ΣΥΝΕΡΓΕΙΟ',localReadStatus:'confident',ocrConfidence:100});
 const api=(url,body,server=false)=>call(url,{token,server,method:body?'POST':'GET',body});
-const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
 try {for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],['client-landscape',1024,768]].filter(([mode])=>!process.env.FLEET_INVOICE_BROWSER_MODE||mode===process.env.FLEET_INVOICE_BROWSER_MODE)) {
  const entries=['1','2','3'].map(id=>({id,type:'service',date:'2026-10-10',km:9000,tasks:['Γενικός έλεγχος'],notes:'Χειρόγραφη σημείωση',updatedAt:stamp,
   attachments:[{id,key:key(id),name:'Συνθετικό '+id+'.pdf',contentType:'application/pdf',uploadedAt:stamp,ocr:id==='3'?{...enrichInvoiceExtraction(local(id)),confirmedAt:stamp,confirmationMethod:'manual',reviewedBy:'Owner',reviewStatus:'confirmed'}:{supplier:'ΣΥΝΘΕΤΙΚΟ ΣΥΝΕΡΓΕΙΟ'}}]}));
@@ -34,7 +34,8 @@ try {for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],
  });
  const shot=async name=>{assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),mode+' horizontal overflow');await page.screenshot({path:path.join(output,mode+'-'+name+'.png')});};
  try {
-  await page.goto(mode==='client-landscape'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/portal.html');
+  // Direct Client now loads the Server URL; bundled file pages remain dormant.
+  await page.goto('https://fixture.invalid/portal.html');
   const nav=width>860?page.locator('#sideNav'):page.locator('#bottomNav'),direct=nav.locator('[data-go="invoices"]');if(await direct.count())await direct.click();else{await nav.locator('[data-ui-more]').click();await page.locator('#uiMoreDialog [data-go="invoices"]').click();}
   await page.locator('#invoiceQueueList [data-invoice-review]').first().waitFor();assert.equal(starts,0,'Installation/view alone does not start retrospective work');
   await page.locator('#viewInvoices .ui-toolbar-details summary').click();await page.locator('#reprocessInvoices').click();await page.locator('#invoiceReprocessDialog[open]').waitFor();assert.match(await page.locator('#invoiceReprocessCount').textContent(),/3 τιμολόγια/);await shot('explicit-all-invoices');

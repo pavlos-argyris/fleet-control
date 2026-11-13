@@ -6,6 +6,28 @@ import gr.argyrismitsos.fleetserver.BackendMode;
 public final class UnifiedNativeChecks{
     private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
     private static String read(InputStream input)throws Exception{try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>2*1024*1024)throw new IOException("Fixture response too large");out.write(b,0,n);}return out.toString("UTF-8");}}
+    private static MainActivity fixtureActivity(Context base)throws Exception{
+        // Android Activity construction belongs to its main Looper, even when
+        // no window/WebView is needed for a real compiled bridge invocation.
+        java.util.concurrent.FutureTask<MainActivity> task=new java.util.concurrent.FutureTask<>(()->{
+            MainActivity activity=new MainActivity();java.lang.reflect.Method attach=MainActivity.class.getDeclaredMethod("attachBaseContext",Context.class);attach.setAccessible(true);attach.invoke(activity,base);return activity;
+        });
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(task);
+        return task.get(20,java.util.concurrent.TimeUnit.SECONDS);
+    }
+    static void checkFreshDashboard(Context base,Context scope)throws Exception{
+        MainActivity activity=fixtureActivity(base);
+        java.lang.reflect.Field prefs=MainActivity.class.getDeclaredField("preferences");prefs.setAccessible(true);prefs.set(activity,activity.getSharedPreferences(BackupManager.PREFS,0));
+        JSONObject dashboard=new JSONObject(activity.new ServerBridge().getDashboard());
+        check(dashboard.optBoolean("settingsLoaded")&&dashboard.optBoolean("directPreparing")&&!dashboard.has("dashboardError"),"Fresh Direct dashboard loads preparation without a database or owner credentials: "+dashboard.optString("dashboardError"));
+        check(!scope.getDatabasePath(NativeColdRestore.DATABASE_NAME).exists(),"Opening the fresh Server UI must not create an empty database that blocks first backup import");
+        stopFixtureProvider(base);
+        android.util.Log.i("FleetSqliteTest","PASS fresh real generated dashboard before first import: Direct preparation, real provider and no premature database");
+    }
+    private static void stopFixtureProvider(Context base)throws Exception{
+        android.app.ActivityManager manager=(android.app.ActivityManager)base.getSystemService(Context.ACTIVITY_SERVICE);
+        if(manager!=null&&manager.getRunningAppProcesses()!=null)for(android.app.ActivityManager.RunningAppProcessInfo process:manager.getRunningAppProcesses())if(process.uid==android.os.Process.myUid()&&process.processName.equals(base.getPackageName()+":direct")){android.os.Process.killProcess(process.pid);Thread.sleep(150);}
+    }
     static void run(Context base,Context target,Uri manifest,JSONObject owner,String password)throws Exception{
         android.content.SharedPreferences sessions=base.getSharedPreferences("issue95_session_vault",0);String sample="synthetic-client-session-2026-only";
         sessions.edit().putString("cloud",sample).commit();
@@ -26,7 +48,7 @@ public final class UnifiedNativeChecks{
         try{SealedLocalState.read(target,sealedName,sealedAlias);throw new AssertionError("Direct decrypted Cloud ciphertext with a shared key");}catch(java.security.GeneralSecurityException expected){}
         check(gr.argyrismitsos.fleetserver.SealedLocalState.read(base,sealedName,sealedAlias).getString("value").equals("cloud-secret"),"Direct cannot read or invalidate the Cloud secret");
         try{IndependentConfig.read(base);throw new AssertionError("Direct accepted unscoped Cloud context");}catch(SecurityException expected){}
-        check(!BackendMode.direct(base),"Normal update defaults Cloudflare before every synthetic activation");
+        check(BackendMode.direct(base)&&!BackendMode.approved(base),"Normal update defaults Direct preparation without approving business writes");
         try(android.database.sqlite.SQLiteDatabase db=base.openOrCreateDatabase("issue95-cloud-sentinel.db",0,null)){db.execSQL("CREATE TABLE keep(value TEXT)");db.execSQL("INSERT INTO keep VALUES('cloud-intact')");}
         SharedPreferences root=base.getSharedPreferences(BackupManager.PREFS,0),prefs=target.getSharedPreferences(BackupManager.PREFS,0);
         root.edit().putString("worker_url","https://cloud-sentinel.invalid").putInt(BackupManager.KEY_HOUR,22).putBoolean("automatic_backup",false).commit();
@@ -34,6 +56,8 @@ public final class UnifiedNativeChecks{
         check(BackupProtection.state(target).getBoolean("enabled"),"Import installs a Keystore-wrapped backup key for unattended backups without storing the password");
         IndependentRuntime runtime=IndependentRuntime.get(target);
         try{
+            try{DirectHost.confirmReadiness(target,runtime);throw new AssertionError("Untrusted TLS/local probe approved business writes");}catch(IOException expected){}
+            check(!BackendMode.approved(base),"Direct-only default never bypasses TLS/external owner proof");
             // Internal backup operations work while Cloudflare is unavailable;
             // the synthetic selected-mode command does not exercise TLS readiness.
             BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");
@@ -42,7 +66,7 @@ public final class UnifiedNativeChecks{
             InputStream changingSource=new ByteArrayInputStream("synthetic invoice".getBytes("UTF-8")){
                 private boolean changed;
                 @Override public synchronized int read(byte[] bytes,int offset,int length){
-                    if(!changed){changed=true;try{BackendMode.select(base,"cloudflare",BackendMode.read(base).getLong("revision"),true,"");BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");}catch(Exception e){throw new IllegalStateException(e);}}
+                    if(!changed){changed=true;try{BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");}catch(Exception e){throw new IllegalStateException(e);}}
                     return super.read(bytes,offset,length);
                 }
             };
@@ -65,14 +89,14 @@ public final class UnifiedNativeChecks{
             String previousGeneration=IndependentConfig.read(target).getString("generation");
             JSONObject prepared=NativeRecoveryController.prepare(target,new JSONObject().put("previewId",preview.getString("previewId")).put("ownerId",ownerId).put("accountsReviewed",true).put("backupCodeSaved",true).put("replaceConfirmed",true));
             check(prepared.getBoolean("restartRequired")&&DirectHost.paused(target),"Prepared replacement fences further writes until explicit cold restart");
-            BackendMode.select(base,"cloudflare",BackendMode.read(base).getLong("revision"),true,"");
+            try{BackendMode.select(base,"cloudflare",BackendMode.read(base).getLong("revision"),true,"");throw new AssertionError("Dormant Cloud mode was selectable");}catch(IOException expected){}
             runtime.close();runtime=null;
             NativeColdRuntime.applyIfPending(target);check(!NativeColdRuntime.blocked(target)&&NativeColdRuntime.core(target).state().getString("phase").equals("installed"),"Cold apply installs only scoped Direct directories");
             check(!IndependentConfig.read(target).getString("generation").equals(previousGeneration),"Recovery rotates Direct generation");
             File oldDb=new File(NativeColdRuntime.core(target).directory(preview.getString("previewId")),"old-databases/"+NativeColdRestore.DATABASE_NAME);check(oldDb.isFile(),"Previous Direct database retained after replacement");
             runtime=IndependentRuntime.get(target);
             JSONObject finished=NativeRecoveryController.finish(target);check(finished.getBoolean("newBackupVerified")&&!DirectHost.paused(target),"Recovery completes only after a new portable full backup/proof");
-            check(!BackendMode.direct(base),"Finishing pending Direct recovery after manual Cloud recovery never changes the selected backend");
+            check(BackendMode.direct(base),"Recovery keeps Direct; dormant Cloud selection stays disabled");
             JSONObject login=runtime.localLogin(owner.getString("username"),owner.getString("password"));check(login.getInt("status")==200,"Original owner password still works after recovery; new sessions required");
             try(android.database.sqlite.SQLiteDatabase db=base.openOrCreateDatabase("issue95-cloud-sentinel.db",0,null);android.database.Cursor cursor=db.rawQuery("SELECT value FROM keep",null)){check(cursor.moveToFirst()&&cursor.getString(0).equals("cloud-intact"),"Cold Direct replacement leaves actual Cloud database directory intact");}
             BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");
@@ -87,9 +111,45 @@ public final class UnifiedNativeChecks{
             check(read(UpdateManager.asset(target,"fleet-config.js")).contains("independent:true"),"Uploaded Web cannot replace same-origin independent routing");
             UpdateManager.activateRelease(target,"bundled-web");
             check(root.getString("worker_url","").equals("https://cloud-sentinel.invalid"),"Release management never calls or changes Cloud backend");
+            String savedToken=RememberedOwner.login(target,owner.getString("username"),owner.getString("password")).getString("token");
+            check(RememberedOwner.username(target).equals(owner.getString("username")),"Owner credentials survive protected storage reopen");
+            RememberedOwner.rememberBackupCode(target,password);
+            String wrapped=target.getSharedPreferences("fleet_sealed_runtime_v1",0).getAll().toString();
+            check(!wrapped.contains(owner.getString("password"))&&!wrapped.contains(password)&&!wrapped.contains(owner.getString("username")),"No plaintext owner or portable-backup password in preferences");
+            check(RememberedOwner.backupCode(target,"").equals(password),"Remembered portable code is read from Android Keystore wrapping");
+            try{RememberedOwner.login(target,owner.getString("username"),"synthetic-wrong-password");throw new AssertionError("Wrong owner password accepted");}catch(IOException expected){}
+            check(RememberedOwner.username(target).equals(owner.getString("username")),"A failed login never replaces valid stored credentials");
+            savedToken=RememberedOwner.session(target);
+            try(FleetDataStore authStore=new FleetDataStore(target)){authStore.getWritableDatabase().execSQL("UPDATE auth_sessions SET revoked_at=1 WHERE revoked_at IS NULL");}
+            String renewed=RememberedOwner.session(target);check(!renewed.isEmpty()&&!renewed.equals(savedToken),"Expired/revoked local session refreshes through real owner authentication without asking again");
+            runtime.close();runtime=null;
+            checkGeneratedBridge(base);
+            RememberedOwner.clear(target);RememberedOwner.clearBackupCode(target);
+            check(RememberedOwner.username(target).isEmpty()&&RememberedOwner.backupCode(target,"").isEmpty(),"Administrator can remove remembered credentials without deleting business data");
         }finally{
-            if(runtime!=null)runtime.close();BackendMode.select(base,"cloudflare",BackendMode.read(base).getLong("revision"),true,"");
+            if(runtime!=null)runtime.close();BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");
         }
         android.util.Log.i("FleetSqliteTest","PASS unified native settings separation, real SAF manual/automatic FCB3, cold recovery before/new backups and Cloud sentinel preservation, immutable local Web release/routing");
+    }
+    private static void checkGeneratedBridge(Context base)throws Exception{
+        // Cold replacement in the fixture must model the real Direct restart,
+        // including Android's per-process SharedPreferences cache.
+        stopFixtureProvider(base);
+        android.content.pm.ProviderInfo provider=base.getPackageManager().resolveContentProvider(BackendMode.CONTROL_AUTHORITY,0);
+        check(provider!=null&&!provider.exported&&provider.processName.equals(base.getPackageName()+":direct"),"Physical private same-APK control authority resolves to the Direct process");
+        try{base.getContentResolver().call(Uri.parse("content://gr.argyrismitsos.fleetdirect.direct-control"),"status","",null);throw new AssertionError("Old renamed authority unexpectedly resolved");}catch(IllegalArgumentException expected){}
+        android.os.Bundle remembered=base.getContentResolver().call(Uri.parse("content://"+BackendMode.CONTROL_AUTHORITY),"login","",new android.os.Bundle());
+        check(remembered.getBoolean("ok")&&!remembered.getString("token","").isEmpty(),"Fresh real Direct process reauthenticates remembered owner with Android Keystore; no password is supplied by the caller: "+remembered.getString("errorType","")+" · "+remembered.getString("errorStage","")+" · "+remembered.getString("errorAt","")+" · "+remembered.getString("error",""));
+        MainActivity activity=fixtureActivity(base);
+        // Exercise the actual compiled/generated JavaScript bridge and Android
+        // ContentResolver, with real scoped data. No browser response is mocked.
+        try(FleetDataStore uiStore=new FleetDataStore(activity)){
+            java.lang.reflect.Field store=MainActivity.class.getDeclaredField("store"),prefs=MainActivity.class.getDeclaredField("preferences");store.setAccessible(true);prefs.setAccessible(true);store.set(activity,uiStore);prefs.set(activity,activity.getSharedPreferences(BackupManager.PREFS,0));
+            MainActivity.ServerBridge bridge=activity.new ServerBridge();
+            JSONObject mode=new JSONObject(bridge.getBackendMode());check(!mode.has("error")&&mode.getBoolean("directOnly")&&mode.getString("activeMode").equals("direct"),"Generated ServerBridge resolves the real provider, not the renamed Java package");
+            JSONObject dashboard=new JSONObject(bridge.getDashboard());check(dashboard.optBoolean("settingsLoaded")&&!dashboard.has("dashboardError"),"Actual generated Direct dashboard loads instead of Unknown authority: "+dashboard.optString("dashboardError"));
+            check(dashboard.getString("workerUrl").equals(BackendMode.DIRECT)&&dashboard.getJSONObject("health").getString("androidVersion").equals(android.os.Build.VERSION.RELEASE),"Real bridge returns Direct authority and device health");
+        }
+        android.util.Log.i("FleetSqliteTest","PASS actual compiled generated ServerBridge dashboard, physical authority, real Android ContentResolver/provider and device health");
     }
 }

@@ -11,6 +11,8 @@ for kind in ('client','server'):
     with zipfile.ZipFile(apk) as z:
         dex=b''.join(z.read(n) for n in z.namelist() if n.startswith('classes') and n.endswith('.dex'))
         if kind=='server':
+            assert b'content://gr.argyrismitsos.fleetserver.direct-control' in dex, 'Physical control provider URI is in compiled bridge'
+            assert b'content://gr.argyrismitsos.fleetdirect.direct-control' not in dex, 'Never rename a provider authority with its Java namespace'
             for name in ('fleetserver/BackendMode','fleetdirect/IndependentRuntime','fleetdirect/DirectControlProvider','fleetdirect/ScopedContext'):
                 assert ('Lgr/argyrismitsos/'+name+';').encode() in dex,name
             assert z.read('assets/independent-www/download/client.apk')==(root/'dist'/('Fleet_Control_Client_v'+config['client']['version']+'.apk')).read_bytes(), 'Full signed Client is embedded byte for byte'

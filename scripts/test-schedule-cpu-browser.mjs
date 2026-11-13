@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs';import path fro
 import worker from '../cloudflare-worker/src/worker.js';import {createSimulation} from './fixtures/workforce-simulation.mjs';import {localDate,addCalendarDays} from '../cloudflare-worker/src/workforce-core.js';
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{chromium}=require('playwright');
 const root=path.resolve('cloudflare-worker/public'),output=path.resolve('verification/schedule-cpu/browser');fs.mkdirSync(output,{recursive:true});
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
  const {db,env,call}=createSimulation();const boot=await call('/api/auth/bootstrap',{method:'POST',server:true,body:{fullName:'UI Owner',username:'uiowner',password:'FixturePassword!123'}});assert.equal(boot.status,200);const {token,user}=boot.data;
  const req=(url,method='GET',body)=>call(url,{token,method,body});
  const template=(await req('/api/admin/shift-templates','POST',{segments:[{start:'08:17',end:'16:23'}]})).data.template;
@@ -35,7 +35,8 @@ try{for(const [mode,width,height] of [['desktop',1440,1000],['mobile',390,844],[
  });
  const shot=async name=>{assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),mode+' page overflow');await page.screenshot({path:path.join(output,mode+'-'+name+'.png')});};
  try{
-  await page.goto(mode==='client-tablet'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/portal.html');
+  // Direct Client now loads the Server URL; bundled file pages remain dormant.
+  await page.goto('https://fixture.invalid/portal.html');
   const nav=width>860?page.locator('#sideNav'):page.locator('#bottomNav');const direct=nav.locator('[data-go="schedules"]');if(await direct.count())await direct.click();else{await nav.locator('[data-ui-more]').click();await page.locator('#uiMoreDialog [data-go="schedules"]').click();}
   await page.locator('#scheduleLoadFailure:not(.is-hidden)').waitFor();assert.match(await page.locator('#scheduleLoadMessage').textContent(),/δεν σημαίνει ότι είναι κενό/);assert.ok(await page.locator('#newScheduleButton').isDisabled());await shot('get-503');
   failReads=false;await page.locator('#scheduleLoadRetry').click();await page.locator('#scheduleLoadFailure.is-hidden').waitFor({state:'attached'});await page.locator('#scheduleList .roster-person').first().waitFor();assert.ok(await page.locator('#newScheduleButton').isEnabled());await shot('loaded');
