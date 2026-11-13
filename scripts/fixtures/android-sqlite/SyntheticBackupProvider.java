@@ -17,6 +17,7 @@ public final class SyntheticBackupProvider extends DocumentsProvider {
     }catch(Exception e){throw new IllegalStateException(e);}return directory.mkdirs()||directory.isDirectory();}
     private File file(String name){if(name==null||!name.matches("FleetControl_(backup|database|documents)_[0-9]{8}_[0-9]{6}\\.(fcbackup|fcdb|fcdocs)"))throw new IllegalArgumentException("Fixture path only");return new File(directory,name);}
     @Override public Bundle call(String method,String arg,Bundle input){
+        if(method.equals("prepare")){Bundle result=new Bundle();result.putBoolean("ready",true);return result;}
         if(!method.equals("append"))return super.call(method,arg,input);
         try(FileOutputStream out=new FileOutputStream(file(arg),!input.getBoolean("first"))){out.write(input.getByteArray("data"));out.getFD().sync();return Bundle.EMPTY;}catch(IOException error){throw new IllegalStateException(error);}
     }

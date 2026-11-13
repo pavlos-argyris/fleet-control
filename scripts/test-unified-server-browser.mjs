@@ -14,6 +14,10 @@ try{for(const mode of ['cloudflare','direct'])for(const width of [320,390,1280])
   await page.goto('file://'+path.resolve('server-android/assets/www/index.html'));
   for(const tab of ['status','backup','updates','settings']){await page.locator('[data-tab="'+tab+'"]').click();assert(await page.locator('[data-panel="'+tab+'"]').isVisible(),'original tab preserved: '+tab);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'tab fits '+width);}
   await page.locator('#backendModePanel > summary').click();await page.locator('#backendPrepare').click();assert.equal(await page.evaluate(()=>fixture.prepared),1);
+  for(const id of ['backendUsername','backendPassword']){
+    const bounds=await page.locator('#'+id).evaluate(input=>{const r=input.getBoundingClientRect(),label=input.closest('label'),text=label.querySelector('span').getBoundingClientRect();return {width:r.width,labelWidth:label.getBoundingClientRect().width,top:r.top,textBottom:text.bottom};});
+    assert(bounds.top>=bounds.textBottom&&bounds.width>=bounds.labelWidth-1,'owner field has its own full-width row at '+width+': '+JSON.stringify(bounds));
+  }
   await page.locator('#backendUsername').fill('synthetic.owner');await page.locator('#backendPassword').fill('synthetic-password');await page.locator('#backendOwnerForm button').click();assert.equal(await page.locator('#backendPassword').inputValue(),'');
   await page.locator('#backendModeToggle').setChecked(mode!=='direct');assert.deepEqual(await page.evaluate(()=>fixture.changes),[{mode:mode==='direct'?'cloudflare':'direct',revision:0}]);assert.equal(await page.locator('dialog[open]').count(),0,'switch has no additional confirmation');
   await page.locator('#backendModeToggle').setChecked(mode==='direct');assert.equal(await page.locator('#backendModeToggle').isDisabled(),false,'switch unlocks after the actual result');

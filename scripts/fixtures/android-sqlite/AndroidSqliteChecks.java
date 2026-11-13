@@ -27,7 +27,7 @@ public final class AndroidSqliteChecks extends Instrumentation {
         JSONObject req=new JSONObject().put("url",REALM+path).put("method",method).put("headers",headers);if(body!=null)req.put("body",body.toString());return engine.request(req,internal,60000);
     }
     private void upload(Context context,File source,String name)throws Exception{
-        boolean first=true;try(InputStream input=new FileInputStream(source)){byte[] bytes=new byte[32768];int n;while((n=input.read(bytes))!=-1){Bundle bundle=new Bundle();bundle.putByteArray("data",Arrays.copyOf(bytes,n));bundle.putBoolean("first",first);context.getContentResolver().call(Uri.parse("content://"+AUTHORITY),"append",name,bundle);first=false;}}
+        boolean first=true;try(InputStream input=new FileInputStream(source)){byte[] bytes=new byte[32768];int n;while((n=input.read(bytes))!=-1){Bundle bundle=new Bundle();bundle.putByteArray("data",Arrays.copyOf(bytes,n));bundle.putBoolean("first",first);context.getContentResolver().call(DocumentsContract.buildTreeDocumentUri(AUTHORITY,"root"),"append",name,bundle);first=false;}}
     }
     private void runChecks()throws Exception {
         waitForIdleSync();final Context target=getTargetContext();IndependentConfig.require(target);IndependentSqlite.initialize(target);IndependentSqlite.requireReady();

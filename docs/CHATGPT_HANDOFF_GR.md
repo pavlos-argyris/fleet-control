@@ -1,3 +1,11 @@
+## #95 — actual Android SAF bootstrap και UI εικόνες, 13/11/2026
+
+- CI43347796361: normal Server Cloudflare/Direct Chromium PASS, νέο generated offline SW/recovery Chromium PASS, desktop/mobile Fleet viewport regression PASS. Τα υπόλοιπα source gates συνεχίζονταν στο checkpoint.
+- Android/API30 στο byte-exact normal APK εγκαταστάθηκε και πέρασε bundled SQLite JSON/WAL/savepoints, πραγματικό Rhino/business schema/owner login και encrypted FCB3 isolated restore. Απέτυχε στην πρώτη SAF fixture upload: ο target UID ζητούσε MANAGE_DOCUMENTS πριν ξεκινήσει ο provider/παραχωρηθεί tree URI grant. Δεν πρόκειται για παραγωγικό import αποτέλεσμα.
+- Προστέθηκε emulator-only document-owner Activity στο instrumentation APK, που ξεκινά τον προστατευμένο DocumentsProvider με τον δικό του UID πριν τα tests. Ο target λαμβάνει το πραγματικό read/write tree grant και χρησιμοποιεί tree URI στο upload. Καμία αλλαγή permissions στο παραδιδόμενο normal APK και κανένα bypass των Android ελέγχων.
+- Οπτικός έλεγχος πραγματικών Chromium εικόνων στα320px έδειξε inline labels στη νέα owner φόρμα. Χρησιμοποιείται πλέον η υπάρχουσα settings-form/switch-row εμφάνιση, με έλεγχο full-width input κάτω από το label. Οι αρχικές καρτέλες/υπόλοιπη οθόνη παραμένουν ίδιες.
+- Τοπικό instrumentation construction PASS μετά τη διόρθωση SAF. Νέο exact-source CI και full native SAF/manual/automatic backup/cold recovery evidence ακόμη απαιτούνται. PR #96 draft· όχι merge/publish ή φυσική ενεργοποίηση Direct.
+
 ## #95 — έλεγχος native file fence και κλειδιών, 13/11/2026
 
 - CI43347016783 επιβεβαίωσε Chromium Server UI Cloudflare/Direct και τις τέσσερις αρχικές καρτέλες στα320/390/1280. Το νέο offline fixture περίμενε raw fetch rejection, ενώ ο κανονικός Direct transport επιστρέφει σκόπιμα503 independent_unavailable για διατήρηση φόρμας. Το assertion ελέγχει πλέον το πραγματικό503, raw discovery failure και μη επανάληψη POST· δεν δέχεται cached/success response.
