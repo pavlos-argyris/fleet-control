@@ -15,7 +15,31 @@ public final class UnifiedNativeChecks{
         new android.os.Handler(android.os.Looper.getMainLooper()).post(task);
         return task.get(20,java.util.concurrent.TimeUnit.SECONDS);
     }
+    /** Regress actual Note10+/Android 12 splash-only crash before any restore. */
+    static void checkDirectWebViewCallbacks(Context scope)throws Exception{
+        check(scope instanceof ScopedContext && scope.getApplicationContext()==scope,"Direct Context retains its isolated app-storage identity");
+        check(ScopedContext.class.getDeclaredMethod("registerComponentCallbacks",ComponentCallbacks.class)!=null&&
+              ScopedContext.class.getDeclaredMethod("unregisterComponentCallbacks",ComponentCallbacks.class)!=null,
+              "Direct Context overrides Android 12 callback registration and removal");
+        java.util.concurrent.FutureTask<Void> task=new java.util.concurrent.FutureTask<>(()->{
+            ComponentCallbacks callback=new ComponentCallbacks(){
+                public void onConfigurationChanged(android.content.res.Configuration configuration){}
+                public void onLowMemory(){}
+            };
+            scope.registerComponentCallbacks(callback);
+            scope.unregisterComponentCallbacks(callback);
+            // The shipped Direct Activity creates the same WebView on the main
+            // Looper; Android 12 previously recursed here before displaying UI.
+            android.webkit.WebView webView=new android.webkit.WebView(scope);
+            webView.destroy();
+            return null;
+        });
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(task);
+        task.get(30,java.util.concurrent.TimeUnit.SECONDS);
+        android.util.Log.i("FleetSqliteTest","PASS Android Direct scoped callback registration and real WebView construction on main Looper");
+    }
     static void checkFreshDashboard(Context base,Context scope)throws Exception{
+        checkDirectWebViewCallbacks(scope);
         MainActivity activity=fixtureActivity(base);
         java.lang.reflect.Field prefs=MainActivity.class.getDeclaredField("preferences");prefs.setAccessible(true);prefs.set(activity,activity.getSharedPreferences(BackupManager.PREFS,0));
         JSONObject dashboard=new JSONObject(activity.new ServerBridge().getDashboard());
