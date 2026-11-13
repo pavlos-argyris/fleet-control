@@ -7,6 +7,16 @@ public final class UnifiedNativeChecks{
     private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
     private static String read(InputStream input)throws Exception{try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>2*1024*1024)throw new IOException("Fixture response too large");out.write(b,0,n);}return out.toString("UTF-8");}}
     static void run(Context base,Context target,Uri manifest,JSONObject owner,String password)throws Exception{
+        android.content.SharedPreferences sessions=base.getSharedPreferences("issue95_session_vault",0);String sample="synthetic-client-session-2026-only";
+        sessions.edit().putString("cloud",sample).commit();
+        check(gr.argyrismitsos.fleetupdates.SessionVault.read(base,sessions,"cloud",gr.argyrismitsos.fleetupdates.SessionVault.CLOUD).equals(sample)&&!sessions.contains("cloud"),"Legacy remembered token migrates atomically to Android Keystore ciphertext");
+        gr.argyrismitsos.fleetupdates.SessionVault.save(base,sessions,"direct",gr.argyrismitsos.fleetupdates.SessionVault.DIRECT,sample+"-direct");
+        check(!sessions.getString("direct.sealed","").contains(sample),"No plaintext Direct token in preferences");
+        check(gr.argyrismitsos.fleetupdates.SessionVault.read(base,sessions,"direct",gr.argyrismitsos.fleetupdates.SessionVault.DIRECT).equals(sample+"-direct"),"Real Android Keystore token survives reopen");
+        sessions.edit().putString("direct.sealed",sessions.getString("cloud.sealed","")).commit();
+        check(gr.argyrismitsos.fleetupdates.SessionVault.read(base,sessions,"direct",gr.argyrismitsos.fleetupdates.SessionVault.DIRECT).isEmpty(),"Ciphertext copied across realms/names fails closed");
+        check(gr.argyrismitsos.fleetupdates.SessionVault.read(base,sessions,"cloud",gr.argyrismitsos.fleetupdates.SessionVault.CLOUD).equals(sample),"Wrong-realm attempt does not clear the other realm");
+        check(gr.argyrismitsos.fleetupdates.SessionVault.pageRealm("file:///android_asset/www/portal.html").equals(gr.argyrismitsos.fleetupdates.SessionVault.CLOUD)&&gr.argyrismitsos.fleetupdates.SessionVault.pageRealm("https://fleet-control.duckdns.org/fleet.html").equals(gr.argyrismitsos.fleetupdates.SessionVault.DIRECT)&&gr.argyrismitsos.fleetupdates.SessionVault.pageRealm("https://fleet-control.duckdns.org.attacker.invalid/").isEmpty(),"Page-bound token realm accepts only the two trusted origins/assets");
         try{IndependentConfig.read(base);throw new AssertionError("Direct accepted unscoped Cloud context");}catch(SecurityException expected){}
         check(!BackendMode.direct(base),"Normal update defaults Cloudflare before every synthetic activation");
         try(android.database.sqlite.SQLiteDatabase db=base.openOrCreateDatabase("issue95-cloud-sentinel.db",0,null)){db.execSQL("CREATE TABLE keep(value TEXT)");db.execSQL("INSERT INTO keep VALUES('cloud-intact')");}
