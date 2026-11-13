@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-16e9790f-22e5-4402-88d0-ebd503299184",
-  "sourceCommit": "99f0bfeb5e12d6c9472c0253a64fa624c1b55db4",
-  "releaseVersion": "5.63.0",
-  "requestedAt": "2026-11-13T09:26:14.728Z",
-  "reason": "Ολοκλήρωση Issue #95 και διόρθωση ελέγχου πλήρους OCR/SQLite payload μετά επιτυχές CI στο ακριβές main. Κανονικό update με αρχικό Cloudflare, χωρίς ενεργοποίηση Direct ή μεταβολή παραγωγικών δεδομένων."
+  "requestId": "fleet-5abeaa6b-ec9a-4595-a585-5a32ded4fb63",
+  "sourceCommit": "cbaab2e3a6dbcd35e0530fa0e6e20a0896b724d5",
+  "releaseVersion": "5.64.0",
+  "requestedAt": "2026-11-13T12:32:18.448Z",
+  "reason": "Owner authorized Direct-only operation in Server Client Web, the control-provider fix, protected remembered Server credentials and normal original-signed release after successful exact-source CI."
 }
