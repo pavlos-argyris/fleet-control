@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-88ff84c7-8b28-4ac5-8b78-a182dc8af7cf",
-  "sourceCommit": "2bc0d4e17335336b29da576d2b58f0f85f9cbdc4",
-  "releaseVersion": "5.64.1",
-  "requestedAt": "2026-11-13T14:34:16.195Z",
-  "reason": "Owner authorized the Note10+ Direct WebView StackOverflowError fix, Fleet 5.64.1 / Server 2.13.1, and normal original-signed publication after successful exact-main source CI run 43442147959. No production data modification or restore."
+  "requestId": "fleet-2ea6929e-8273-4b24-95e4-73f6e3845991",
+  "sourceCommit": "0f65d869bc854d8d89ddfd32ad0efbbae3d94c58",
+  "releaseVersion": "5.64.2",
+  "requestedAt": "2026-11-13T17:02:31.861Z",
+  "reason": "Owner requested completion of offline owner-only S24 Ultra to Note 10+ HTTPS certificate migration. Exact-main CI 43466033481 succeeded, including full Android/crypto/visual tests. Publish original-signed Server 2.13.2; preserve existing data, S24 certificate and Direct mode."
 }
