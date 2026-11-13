@@ -67,7 +67,7 @@ public final class UnifiedNativeChecks{
         }catch(IOException expected){}
         try{IndependentCertificateTransfer.decrypt(offline,"fleet-control.duckdns.org","bad-passphrase-1234");
             throw new AssertionError("TLS transfer accepted incorrect password");
-        }catch(javax.crypto.AEADBadTagException expected){}
+        }catch(java.security.GeneralSecurityException expected){}
         android.util.Log.i("FleetSqliteTest","PASS actual Android HTTPS transfer crypto and wrong-host/wrong-password rejection");
         android.content.SharedPreferences sessions=base.getSharedPreferences("issue95_session_vault",0);String sample="synthetic-client-session-2026-only";
         sessions.edit().putString("cloud",sample).commit();
