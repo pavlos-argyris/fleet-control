@@ -81,6 +81,12 @@ public final class UnifiedNativeChecks{
         try{IndependentCertificateTransfer.importPlain(offline,"fleet-control.duckdns.org");
             throw new AssertionError("Plain HTTPS import silently accepted old encrypted file");
         }catch(IOException expected){}
+        check(IndependentActivity.class.getDeclaredMethod("exportExistingCertificate",Uri.class)!=null&&
+              IndependentActivity.class.getDeclaredMethod("importExistingCertificate",Uri.class)!=null,
+              "Real compiled Direct UI imports/exports TLS file without owner token/passphrase parameters");
+        try{IndependentActivity.class.getDeclaredField("certificateTransferCode");
+            throw new AssertionError("Direct UI still requires a transfer password field");
+        }catch(NoSuchFieldException expected){}
         android.util.Log.i("FleetSqliteTest","PASS actual Android plain offline HTTPS import/export and no-owner-file crypto compatibility");
         android.util.Log.i("FleetSqliteTest","PASS actual Android HTTPS transfer crypto and wrong-host/wrong-password rejection");
         android.content.SharedPreferences sessions=base.getSharedPreferences("issue95_session_vault",0);String sample="synthetic-client-session-2026-only";
