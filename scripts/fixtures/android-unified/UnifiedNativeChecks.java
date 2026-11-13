@@ -65,14 +65,17 @@ public final class UnifiedNativeChecks{
             String previousGeneration=IndependentConfig.read(target).getString("generation");
             JSONObject prepared=NativeRecoveryController.prepare(target,new JSONObject().put("previewId",preview.getString("previewId")).put("ownerId",ownerId).put("accountsReviewed",true).put("backupCodeSaved",true).put("replaceConfirmed",true));
             check(prepared.getBoolean("restartRequired")&&DirectHost.paused(target),"Prepared replacement fences further writes until explicit cold restart");
+            BackendMode.select(base,"cloudflare",BackendMode.read(base).getLong("revision"),true,"");
             runtime.close();runtime=null;
             NativeColdRuntime.applyIfPending(target);check(!NativeColdRuntime.blocked(target)&&NativeColdRuntime.core(target).state().getString("phase").equals("installed"),"Cold apply installs only scoped Direct directories");
             check(!IndependentConfig.read(target).getString("generation").equals(previousGeneration),"Recovery rotates Direct generation");
             File oldDb=new File(NativeColdRuntime.core(target).directory(preview.getString("previewId")),"old-databases/"+NativeColdRestore.DATABASE_NAME);check(oldDb.isFile(),"Previous Direct database retained after replacement");
             runtime=IndependentRuntime.get(target);
             JSONObject finished=NativeRecoveryController.finish(target);check(finished.getBoolean("newBackupVerified")&&!DirectHost.paused(target),"Recovery completes only after a new portable full backup/proof");
+            check(!BackendMode.direct(base),"Finishing pending Direct recovery after manual Cloud recovery never changes the selected backend");
             JSONObject login=runtime.localLogin(owner.getString("username"),owner.getString("password"));check(login.getInt("status")==200,"Original owner password still works after recovery; new sessions required");
             try(android.database.sqlite.SQLiteDatabase db=base.openOrCreateDatabase("issue95-cloud-sentinel.db",0,null);android.database.Cursor cursor=db.rawQuery("SELECT value FROM keep",null)){check(cursor.moveToFirst()&&cursor.getString(0).equals("cloud-intact"),"Cold Direct replacement leaves actual Cloud database directory intact");}
+            BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");
             JSONObject catalogue=UpdateManager.listReleases(target);check(catalogue.getJSONArray("releases").length()>=3,"Normal Updates controls show bundled Client/Web/Server in Direct");
             JSONObject client=UpdateManager.uploadClientApk(target,Uri.fromFile(new File(target.getFilesDir(),"direct-releases/bundled-client.apk")));
             JSONObject published=UpdateManager.localClientInfo(target);check(published.getBoolean("available")&&published.getString("sha256").equals(client.getString("sha256"))&&published.getString("downloadUrl").equals(BackendMode.DIRECT+"/download/client.apk"),"Uploaded original-signed Client is the public Direct update selection");

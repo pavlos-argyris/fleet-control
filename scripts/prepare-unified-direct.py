@@ -96,6 +96,24 @@ for name,p in sources.items():
         value=change(value,declaration,declaration+'\n    @Override protected void attachBaseContext(Context base){super.attachBaseContext(new ScopedContext(base));}\n')
     if name=='IndependentActivity.java':
         value=change(value,'IndependentConfig.require(this);build();','IndependentConfig.require(this);try{DirectHost.startup(this);}catch(Exception error){getSharedPreferences("independent_ui",MODE_PRIVATE).edit().putString("blocked","Η ασφαλής προετοιμασία Direct χρειάζεται έλεγχο.").commit();}build();')
+        value=change(value,'}build();','}OtaManager.resumeAfterRestart(this);build();')
+        value=change(value,'        text("Ασφαλές αντίγραφο",20);','''        // These owner tools remain reachable from Cloudflare after a manual
+        // recovery. They finish an explicit pending operation, never the switch.
+        try{
+            if(NativeColdRuntime.core(this).state().optString("phase").equals("ready")){
+                text("Συνέχεια έτοιμης ανάκτησης Direct",20);
+                button("Επανεκκίνηση για την έτοιμη ανάκτηση",v->task(()->{requireOwner();if(!NativeColdRuntime.core(this).state().optString("phase").equals("ready"))throw new Exception("Δεν υπάρχει έτοιμη ανάκτηση Direct.");runOnUiThread(()->startActivity(new Intent(this,DirectRestartActivity.class)));return "Η έτοιμη ανάκτηση θα εφαρμοστεί με ασφαλή επανεκκίνηση Direct. Η επιλογή λειτουργίας δεν αλλάζει.";}));
+            }
+            if(getSharedPreferences(BackupManager.PREFS,0).getBoolean("native_recovery_pending",false)){
+                text("Έλεγχος νέου backup μετά την ανάκτηση Direct",20);
+                button("Ολοκλήρωση ανάκτησης Direct",v->task(()->{requireOwner();JSONObject result=NativeRecoveryController.finish(this);if(!result.optBoolean("newBackupVerified"))throw new Exception("Το νέο backup δεν επιβεβαιώθηκε.");return "Η ανάκτηση Direct ολοκληρώθηκε με νέο επαληθευμένο backup. Η επιλογή λειτουργίας διατηρήθηκε. Συνδέσου ξανά ως ιδιοκτήτης.";}));
+            }
+            if(getSharedPreferences(BackupManager.PREFS,0).getBoolean("ota_quiescing",false)){
+                text("Εκκρεμής ενημέρωση Direct",20);
+                button("Αναβολή εκκρεμούς ενημέρωσης Direct",v->task(()->{requireOwner();if(OtaManager.installationPending(this))throw new Exception("Η εγκατάσταση εκκρεμεί στο Android. Ολοκλήρωσέ την ή ακύρωσέ την από το παράθυρο εγκατάστασης.");OtaManager.cancelWait(this);return "Η ενημέρωση Direct αναβλήθηκε. Τα δεδομένα και η επιλογή λειτουργίας διατηρήθηκαν.";}));
+            }
+        }catch(Exception error){text("Η κατάσταση της εκκρεμούς ανάκτησης χρειάζεται έλεγχο πριν συνεχιστεί.",14);}
+        text("Ασφαλές αντίγραφο",20);''')
         value=value.replace('Fleet Independent Server','Fleet — Προετοιμασία Direct')
         value=value.replace('Νέα ανεξάρτητη εγκατάσταση / Δοκιμή','Προετοιμασία Direct')
         value=change(value,'Η υπάρχουσα εγκατάσταση παραμένει ανέπαφη. Εισήγαγε το πλήρες τελευταίο backup στη δεύτερη συσκευή.','Τα δεδομένα Cloudflare διατηρούνται χωριστά. Επίλεξε τον φάκελο με το πλήρες backup για την αρχική βάση Direct.')

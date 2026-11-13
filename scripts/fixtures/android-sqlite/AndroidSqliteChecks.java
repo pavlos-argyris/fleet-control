@@ -33,7 +33,7 @@ public final class AndroidSqliteChecks extends Instrumentation {
         waitForIdleSync();final Context target=getTargetContext();IndependentConfig.require(target);IndependentSqlite.initialize(target);IndependentSqlite.requireReady();
         // startInstrumentation force-stops the target and revokes transient URI
         // grants. Grant this real SAF tree after instrumentation has started.
-        getContext().startActivity(new Intent(getContext(),SyntheticBackupActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        target.startActivity(new Intent(getContext(),SyntheticBackupActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         Uri fixtureTree=DocumentsContract.buildTreeDocumentUri(AUTHORITY,"root");long grantDeadline=System.currentTimeMillis()+10000;
         while(target.checkUriPermission(fixtureTree,android.os.Process.myPid(),android.os.Process.myUid(),Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION)!=android.content.pm.PackageManager.PERMISSION_GRANTED&&System.currentTimeMillis()<grantDeadline)Thread.sleep(25);
         check(target.checkUriPermission(fixtureTree,android.os.Process.myPid(),android.os.Process.myUid(),Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION)==android.content.pm.PackageManager.PERMISSION_GRANTED,"Actual SAF tree read/write permission must be granted after the target process starts");
