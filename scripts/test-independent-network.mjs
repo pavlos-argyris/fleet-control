@@ -40,8 +40,8 @@ public class IndependentNetworkTest {
   check(recovered.getString("key").equals(identity.getString("key"))&&recovered.getString("chain").equals(identity.getString("chain")),
         "certificate and private key decrypt exactly");
   IndependentTls.chain(recovered,host,true);
-  for(String wrong:new String[]{"wrongpassword00000","another-long-secret-passphrase"}){
-      boolean rejected=false;try{IndependentCertificateTransfer.decrypt(portable,host,wrong);}
+  for(String passphraseCandidate:new String[]{"wrongpassword00000","another-long-secret-passphrase"}){
+      boolean rejected=false;try{IndependentCertificateTransfer.decrypt(portable,host,passphraseCandidate);}
       catch(Exception expected){rejected=true;}check(rejected,"wrong passphrase cannot decrypt");
   }
   boolean rejected=false;
