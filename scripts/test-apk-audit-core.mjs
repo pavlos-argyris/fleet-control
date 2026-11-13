@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {parseCompiledManifest, certificateDigests, assertCandidate, compareApks} from './apk-audit-core.mjs';
+import {parseCompiledManifest, certificateDigests, assertCandidate, compareApks, assertPermissionChanges} from './apk-audit-core.mjs';
 
 const xml = [
  'E: manifest (line=1)', '  A: package="test.fleet" (Raw: "test.fleet")',
@@ -39,4 +39,14 @@ const old = changed(r => { r.label = 'historical'; r.manifest.components[1].expo
 const diff = compareApks(old, record);
 assert.equal(diff.components.length, 1); assert.equal(diff.components[0].after.exported, false);
 assert.deepEqual(diff.permissionsAdded, []);
+const special='android.permission.FOREGROUND_SERVICE_SPECIAL_USE',foreground='android.permission.FOREGROUND_SERVICE';
+const previous=structuredClone(record);previous.kind='server';previous.manifest.packageName='gr.argyrismitsos.fleetserver';previous.manifest.permissions.push(foreground);
+const direct=structuredClone(previous);direct.manifest.permissions.push(special);direct.manifest.components.push({kind:'service',name:'gr.argyrismitsos.fleetdirect.IndependentService',exported:false,process:':direct',foregroundServiceType:0x40000000,properties:[{name:'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE',value:'Owner controlled private HTTPS fleet server with independent SQLite and read-only source synchronization.'}]});
+assert.deepEqual(assertPermissionChanges(previous,direct).authorizedAdditions,[special]);
+assert.deepEqual(assertPermissionChanges(record,record).authorizedAdditions,[]);
+for(const mutate of [r=>r.kind='client',r=>r.manifest.permissions.push('android.permission.READ_SMS'),r=>r.manifest.components.at(-1).exported=true,r=>r.manifest.components.at(-1).process=null,r=>r.manifest.components.at(-1).foregroundServiceType=1,r=>r.manifest.components.at(-1).properties=[],r=>r.manifest.permissions=r.manifest.permissions.filter(p=>p!==foreground),r=>r.manifest.permissions=r.manifest.permissions.filter(p=>p!=='android.permission.INTERNET')]){
+ const invalid=structuredClone(direct);mutate(invalid);assert.throws(()=>assertPermissionChanges(previous,invalid),'Only the exact private Direct purpose is authorized');
+}
+const compiledService=parseCompiledManifest(xml+'\n    E: service (line=11)\n      A: android:name(0x01010003)="gr.argyrismitsos.fleetdirect.IndependentService"\n      A: android:foregroundServiceType(0x01010599)=(type 0x11)0x40000000\n      E: property (line=12)\n        A: android:name(0x01010003)="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n        A: android:value(0x01010024)="Owner controlled private HTTPS fleet server with independent SQLite and read-only source synchronization."');
+assert.equal(compiledService.components.find(c=>c.kind==='service').foregroundServiceType,0x40000000);assert.equal(compiledService.components.find(c=>c.kind==='service').properties[0].name,'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE');
 console.log('PASS compiled APK audit parser, absent/default distinction, permission/export/signature rejection and precise history diff.');

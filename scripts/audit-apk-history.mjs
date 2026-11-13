@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {Readable, Transform} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
-import {parseCompiledManifest, certificateDigests, assertCandidate, compareApks} from './apk-audit-core.mjs';
+import {parseCompiledManifest, certificateDigests, assertCandidate, compareApks, assertPermissionChanges} from './apk-audit-core.mjs';
 
 const args = process.argv.slice(2);
 assert.ok(args.every(a => ['--production','--local-only'].includes(a)), 'Unknown APK audit option');
@@ -28,7 +28,7 @@ const shaFile = async file => {
 };
 async function historicalFile(reference) {
   assert.match(reference.sha256,/^[a-f0-9]{64}$/);
-  assert.ok(Number.isSafeInteger(reference.size) && reference.size > 0 && reference.size < 128*1024*1024);
+  assert.ok(Number.isSafeInteger(reference.size) && reference.size > 0 && reference.size < 192*1024*1024);
   assert.equal(reference.url,'https://github.com/' + references.repository + '/releases/download/' + reference.tag + '/' + reference.fileName);
   assert.equal(path.basename(reference.fileName),reference.fileName);
   const file = path.join(cache,reference.fileName);
@@ -77,7 +77,7 @@ function command(binary,args,options = {}) {
   catch(error) { throw new Error(path.basename(binary) + ' rejected APK inspection (exit ' + (error.status ?? error.code) + ')'); }
 }
 async function inspect(file,kind,label,role) {
-  assert.ok(fs.statSync(file).size < 128*1024*1024,'APK size bound');
+  assert.ok(fs.statSync(file).size < 192*1024*1024,'APK size bound');
   const verified = command('java',['-jar',signer,'verify','--verbose','--print-certs',file]);
   const certificates = certificateDigests(verified);
   assert.ok(certificates.length,'apksigner did not report a certificate');
@@ -107,8 +107,7 @@ for (const kind of ['client','server']) {
   for (const before of records.filter(r => r.kind === kind)) {
     const comparison = compareApks(before,record); comparisons.push({kind,...comparison});
     if (before.role === 'latest') {
-      assert.deepEqual(comparison.permissionsAdded,[],'No new permission is authorized by this update');
-      assert.deepEqual(comparison.permissionsRemoved,[],'Existing update permissions must be preserved');
+      comparison.permissionAuthorization=assertPermissionChanges(before,record);
       assert.ok(record.manifest.versionCode > before.manifest.versionCode,'Candidate code must upgrade the installed release');
     }
   }

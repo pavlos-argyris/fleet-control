@@ -191,7 +191,7 @@ for version in versions:shutil.copytree(root/'cloudflare-worker/public/assets'/v
 for directory in [www]+[www/'assets'/v for v in versions]:
     for source,target in [('transport.js','primary-transport.js'),('live.js','live-changes.js'),('ota-disabled.js','client-ota.js')]:shutil.copy2(root/'independent-web'/source,directory/target)
 (www/'fleet-config.js').write_text('window.FLEET_CONFIG=Object.freeze({apiBase:location.origin,legacyApiBase:"",independent:true});\n')
-(www/'independent-owner.js').write_text((root/'independent-web/owner.js').read_text().replace("(value.mode==='primary'?'Κύριο':'Δοκιμαστικό')","(root.FleetBackend?.selection.activeMode==='direct'?'Direct':'Προετοιμασία Direct')").replace("activate.hidden=user.role!=='owner'||value.mode==='primary';","activate.hidden=true;").replace("probe.hidden=activate.hidden=user?.role!=='owner';","probe.hidden=user?.role!=='owner';activate.hidden=true;"))
+(www/'independent-owner.js').write_text((root/'independent-web/owner.js').read_text().replace("(value.mode==='primary'?'Κύριο':'Δοκιμαστικό')","(root.FleetBackend?.selection.activeMode==='direct'?'Direct':'Προετοιμασία Direct')").replace("activate.hidden=user.role!=='owner'||value.mode==='primary';","activate.hidden=true;").replace("probe.hidden=activate.hidden=user?.role!=='owner';","probe.hidden=user?.role!=='owner';activate.hidden=true;").replace('Ανεξάρτητη δοκιμή','Direct Android Server'))
 for html in www.rglob('*.html'):
     value=html.read_text().replace('</head>','<script src="/independent-owner.js" defer></script></head>').replace('./index.html?embedded=1','./fleet.html?embedded=1')
     html.write_text(value)
