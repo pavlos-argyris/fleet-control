@@ -68,6 +68,26 @@ public final class UnifiedNativeChecks{
         try{IndependentCertificateTransfer.decrypt(offline,"fleet-control.duckdns.org","bad-passphrase-1234");
             throw new AssertionError("TLS transfer accepted incorrect password");
         }catch(java.security.GeneralSecurityException expected){}
+        // New default: plain local file, no passphrase and no owner login.
+        byte[] plain=IndependentCertificateTransfer.exportPlain(syntheticCert,"fleet-control.duckdns.org");
+        check(new String(plain,"UTF-8").contains("synthetic-tls-key-only"),"Explicit plaintext export contains matching private key");
+        JSONObject plainRestored=IndependentCertificateTransfer.importPlain(plain,"fleet-control.duckdns.org");
+        check(plainRestored.getString("key").equals(syntheticCert.getString("key"))&&
+              plainRestored.getString("chain").equals(syntheticCert.getString("chain")),
+              "No-password Android transfer round trips exact key and chain");
+        try{IndependentCertificateTransfer.importPlain(plain,"other.duckdns.org");
+            throw new AssertionError("Plain HTTPS import accepted another DuckDNS name");
+        }catch(IOException expected){}
+        try{IndependentCertificateTransfer.importPlain(offline,"fleet-control.duckdns.org");
+            throw new AssertionError("Plain HTTPS import silently accepted old encrypted file");
+        }catch(IOException expected){}
+        check(IndependentActivity.class.getDeclaredMethod("exportExistingCertificate",Uri.class)!=null&&
+              IndependentActivity.class.getDeclaredMethod("importExistingCertificate",Uri.class)!=null,
+              "Real compiled Direct UI imports/exports TLS file without owner token/passphrase parameters");
+        try{IndependentActivity.class.getDeclaredField("certificateTransferCode");
+            throw new AssertionError("Direct UI still requires a transfer password field");
+        }catch(NoSuchFieldException expected){}
+        android.util.Log.i("FleetSqliteTest","PASS actual Android plain offline HTTPS import/export and no-owner-file crypto compatibility");
         android.util.Log.i("FleetSqliteTest","PASS actual Android HTTPS transfer crypto and wrong-host/wrong-password rejection");
         android.content.SharedPreferences sessions=base.getSharedPreferences("issue95_session_vault",0);String sample="synthetic-client-session-2026-only";
         sessions.edit().putString("cloud",sample).commit();

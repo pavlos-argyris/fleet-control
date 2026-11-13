@@ -3,7 +3,7 @@ import android.app.*;import android.os.*;import android.content.*;import android
 
 /** Owner-only setup console; clients continue to use the existing username/password UI. */
 public final class IndependentActivity extends Activity {
-    private final ExecutorService work=Executors.newSingleThreadExecutor();private TextView status,message;private LinearLayout content;private EditText username,password,backupCode,hostname,ddnsToken,ordexaUser,ordexaPassword,certificateTransferCode;private CheckBox terms,sync;private String ownerToken="";private int folderAction;
+    private final ExecutorService work=Executors.newSingleThreadExecutor();private TextView status,message;private LinearLayout content;private EditText username,password,backupCode,hostname,ddnsToken,ordexaUser,ordexaPassword;private CheckBox terms,sync;private String ownerToken="";private int folderAction;
     private final SharedPreferences.OnSharedPreferenceChangeListener stateChanges=(preferences,key)->runOnUiThread(()->{if(!isFinishing())refresh();});
     interface Task{String run()throws Exception;}
     @Override public void onCreate(Bundle state){super.onCreate(state);IndependentConfig.require(this);build();if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},90);refresh();try{JSONObject configured=IndependentConfig.read(this);if(configured.has("backupSha256")&&!configured.optString("hostname").isEmpty())IndependentService.start(this);}catch(Exception error){message.setText("Ο Server χρειάζεται έλεγχο πριν την επανεκκίνηση.");}}
@@ -20,8 +20,7 @@ public final class IndependentActivity extends Activity {
         text("Απομακρυσμένη πρόσβαση",20);text("Μόνο ο ιδιοκτήτης ρυθμίζει μία φορά το δικό του καταχωρισμένο όνομα DuckDNS. Τα στοιχεία αυτά δεν ζητούνται από τους χρήστες.",14);hostname=field("Το δικό σου όνομα .duckdns.org",false);ddnsToken=field("Προστατευμένο token ενημέρωσης DuckDNS",true);terms=new CheckBox(this);terms.setText("Έχω καταχωρίσει το όνομα και αποδέχομαι τους τρέχοντες όρους Let's Encrypt για το δικό μου πιστοποιητικό.");content.addView(terms);
         button("Ρύθμιση HTTPS και έναρξη Server",v->{final String host=hostname.getText().toString(),token=ddnsToken.getText().toString();final boolean accepted=terms.isChecked();ddnsToken.setText("");task(()->{requireOwner();String selected=IndependentPolicy.hostname(host);JSONObject config=IndependentConfig.read(this);if(!config.optString("hostname").isEmpty()&&!config.optString("hostname").equals(selected))throw new Exception("Η αλλαγή ενεργού ονόματος χρειάζεται νέα ελεγχόμενη δοκιμή. Διατήρησε την τρέχουσα διεύθυνση.");if(!accepted)throw new Exception("Χρειάζεται αποδοχή των όρων για το πιστοποιητικό σου.");if(!token.matches("[A-Za-z0-9-]{20,128}"))throw new Exception("Χρειάζεται το δικό σου έγκυρο token DuckDNS.");boolean first=config.optString("hostname").isEmpty();config.put("hostname",selected).put("ddnsToken",token).put("acmeTermsAccepted",true);IndependentConfig.save(this,config);if(first){IndependentRuntime.get(this).close();ownerToken="";}IndependentService.start(this);return "Η προετοιμασία HTTPS ξεκίνησε. Θα εμφανιστεί η πραγματική κατάσταση πιστοποιητικού. Ο έλεγχος από 4G/5G παραμένει εκκρεμής.";});});
         text("Μεταφορά υπάρχοντος HTTPS από άλλη συσκευή",20);
-        text("Μόνο ο ιδιοκτήτης μπορεί να εξαγάγει ή να εισαγάγει το ενεργό πιστοποιητικό και το αντίστοιχο ιδιωτικό κλειδί. Το αρχείο κρυπτογραφείται με ξεχωριστό κωδικό 12+ χαρακτήρων, δεν περιέχει δεδομένα/κωδικούς Fleet ή ACME και δεν αποστέλλεται στο διαδίκτυο. Φύλαξέ το εκτός κοινόχρηστου χώρου και διέγραψέ το μετά τη μεταφορά.",14);
-        certificateTransferCode=field("Ξεχωριστός κωδικός μεταφοράς HTTPS (12+ χαρακτήρες)",true);
+        text("Απλή αντιγραφή χωρίς κωδικό ή σύνδεση ιδιοκτήτη. ΠΡΟΣΟΧΗ: Το αρχείο περιέχει ΜΗ κρυπτογραφημένο ιδιωτικό κλειδί HTTPS. Όποιος αποκτήσει το αρχείο μπορεί να χρησιμοποιήσει το κλειδί. Μετέφερέ το μόνο ιδιωτικά (USB/Quick Share), όχι σε GitHub/συνομιλίες, και διέγραψέ το μετά την επιβεβαίωση.",14);
         button("Εξαγωγή υπάρχοντος πιστοποιητικού HTTPS",v->certificatePicker(true));
         button("Εισαγωγή υπάρχοντος πιστοποιητικού HTTPS",v->certificatePicker(false));
         text("Ανάκτηση κλειδιού πιστοποιητικού",20);
@@ -50,10 +49,10 @@ public final class IndependentActivity extends Activity {
     private void folder(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(intent,90);}
     private void certificatePicker(boolean export){
         Intent intent=new Intent(export?Intent.ACTION_CREATE_DOCUMENT:Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE).setType(export?"application/octet-stream":"*/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE).setType(export?"application/json":"*/*");
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         if(export)intent.putExtra(Intent.EXTRA_TITLE,"FleetControl_HTTPS_"+
-            new java.text.SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date())+".fctls");
+            new java.text.SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date())+".fctls.json");
         startActivityForResult(intent,export?91:92);
     }
     private static byte[] readSmall(Context c,Uri uri)throws Exception{
@@ -67,53 +66,53 @@ public final class IndependentActivity extends Activity {
             return out.toByteArray();
         }
     }
-    private String exportExistingCertificate(Uri uri,String passphrase)throws Exception{
-        requireOwner();JSONObject config=IndependentConfig.read(this);
-        if(!config.has("backupSha256"))throw new IOException("Χρειάζεται πρώτα πλήρες επαληθευμένο backup.");
+    private String exportExistingCertificate(Uri uri)throws Exception{
+        JSONObject config=IndependentConfig.read(this);
         String host=IndependentPolicy.hostname(config.getString("hostname"));
         if(!IndependentTls.valid(this,host))throw new IOException("Δεν υπάρχει έγκυρο πιστοποιητικό HTTPS για εξαγωγή στη συσκευή.");
         JSONObject identity=IndependentTls.read(this);
         IndependentTls.chain(identity,host,true);
-        byte[] encrypted=IndependentCertificateTransfer.encrypt(identity,host,passphrase);
+        byte[] certificateFile=IndependentCertificateTransfer.exportPlain(identity,host);
         boolean complete=false;
         try{
             try(OutputStream output=getContentResolver().openOutputStream(uri,"w")){
-                if(output==null)throw new IOException("Δεν γράφτηκε το κρυπτογραφημένο αρχείο πιστοποιητικού.");
-                output.write(encrypted);output.flush();
+                if(output==null)throw new IOException("Δεν γράφτηκε το αρχείο πιστοποιητικού HTTPS.");
+                output.write(certificateFile);output.flush();
             }
-            if(!Arrays.equals(encrypted,readSmall(this,uri)))
+            if(!Arrays.equals(certificateFile,readSmall(this,uri)))
                 throw new IOException("Το αρχείο δεν επαληθεύτηκε μετά την εγγραφή.");
             complete=true;
         }finally{
-            Arrays.fill(encrypted,(byte)0);
+            Arrays.fill(certificateFile,(byte)0);
             if(!complete)try{DocumentsContract.deleteDocument(getContentResolver(),uri);}catch(Exception ignored){}
         }
-        return "Το πιστοποιητικό HTTPS εξήχθη κρυπτογραφημένο και επαληθεύτηκε. Μετάφερέ το ιδιωτικά στο Note 10+ και κράτησε χωριστά τον κωδικό μεταφοράς. Το S24 Ultra παραμένει ανέπαφο.";
+        return "Εξαγωγή HTTPS επιτυχής χωρίς κωδικό. Το αρχείο περιέχει ιδιωτικό κλειδί: μετάφερέ το ιδιωτικά και διέγραψέ το μετά την επιβεβαιωμένη εισαγωγή. Το S24 Ultra παραμένει ανέπαφο.";
     }
-    private String importExistingCertificate(Uri uri,String passphrase)throws Exception{
-        requireOwner();JSONObject config=IndependentConfig.read(this);
-        if(!config.has("backupSha256"))throw new IOException("Εισήγαγε πρώτα το πλήρες FCB3 backup για να ενεργοποιηθεί ο ιδιοκτήτης.");
-        String host=IndependentPolicy.hostname(config.optString("hostname"));
-        if(!config.optBoolean("acmeTermsAccepted"))throw new IOException("Ρύθμισε πρώτα το όνομα HTTPS και αποδέξου τους όρους στην οθόνη Server.");
-        byte[] encrypted=readSmall(this,uri);JSONObject identity;
-        try{identity=IndependentCertificateTransfer.decrypt(encrypted,host,passphrase);}
-        catch(Exception error){throw new IOException("Λάθος κωδικός μεταφοράς, άλλο όνομα DuckDNS ή μη έγκυρο αρχείο HTTPS.");}
-        finally{Arrays.fill(encrypted,(byte)0);}
+    private String importExistingCertificate(Uri uri)throws Exception{
+        JSONObject config=IndependentConfig.read(this);
+        // The Direct hostname is fixed for this installation. The certificate
+        // can be imported before backup restoration; the listener stays gated
+        // by the existing verified backup + readiness requirements.
+        String configuredHost=config.optString("hostname");
+        String host=IndependentPolicy.hostname(configuredHost.isEmpty()?"fleet-control.duckdns.org":configuredHost);
+        byte[] certificateFile=readSmall(this,uri);JSONObject identity;
+        try{identity=IndependentCertificateTransfer.importPlain(certificateFile,host);}
+        finally{Arrays.fill(certificateFile,(byte)0);}
         IndependentAcme.installExistingCertificate(this,identity,host);
+        if(config.optString("hostname").isEmpty())
+            IndependentConfig.save(this,config.put("hostname",host));
         if(!getSharedPreferences("independent_ui",MODE_PRIVATE).edit()
             .remove("certificateRetryAt").remove("certificateFailureCode")
             .putString("certificate","Έγκυρο πιστοποιητικό HTTPS μεταφέρθηκε με ασφάλεια από άλλη συσκευή. Δεν έγινε νέα αίτηση Let's Encrypt.").commit())
             throw new IOException("Το πιστοποιητικό αποθηκεύτηκε, αλλά δεν ενημερώθηκε η κατάσταση· επανεκκίνησε την υπηρεσία.");
         IndependentService.start(this);
-        return "Εισαγωγή επιτυχής: έγκυρη αλυσίδα, ακριβές DuckDNS και ιδιωτικό κλειδί. Η εκκίνηση HTTPS στην 8443 ακολουθεί τοπικά· έλεγξε τον listener και μετά δοκίμασε εξωτερική σύνδεση.";
+        return "Εισαγωγή HTTPS επιτυχής χωρίς κωδικό ή login. Πιστοποιητικό και ιδιωτικό κλειδί επαληθεύτηκαν. Ο HTTPS listener ξεκινά μετά το πλήρες backup/προετοιμασία. Διέγραψε το μη κρυπτογραφημένο αρχείο μετά την επιβεβαίωση.";
     }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(request==91||request==92){
             if(result!=RESULT_OK||data==null||data.getData()==null)return;
             final Uri file=data.getData();
-            final String code=certificateTransferCode.getText().toString();
-            certificateTransferCode.setText("");
-            task(()->request==91?exportExistingCertificate(file,code):importExistingCertificate(file,code));
+            task(()->request==91?exportExistingCertificate(file):importExistingCertificate(file));
             return;
         }
         if(request!=90||result!=RESULT_OK||data==null)return;final Uri tree=data.getData();getContentResolver().takePersistableUriPermission(tree,data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION));final String code=backupCode.getText().toString();backupCode.setText("");

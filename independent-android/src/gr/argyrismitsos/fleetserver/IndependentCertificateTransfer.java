@@ -13,15 +13,48 @@ import javax.crypto.spec.SecretKeySpec;
 import org.json.JSONObject;
 
 /**
- * Owner-operated, offline certificate migration between Android installations.
- * Never uploads TLS private keys, ACME account credentials or owner credentials.
- * Keystore-wrapped on each device; only the exported file uses this passphrase.
+ * Offline TLS certificate transfer; never sends keys through the network.
+ * Plain JSON export intentionally exposes the TLS private key to anyone with
+ * the file: use local storage and delete the file after a successful import.
+ * The existing password-encrypted format remains supported for legacy callers.
  */
 public final class IndependentCertificateTransfer {
     private static final String KIND="fleet-control-https-transfer";
     private static final int VERSION=1, ITERATIONS=320000, MAX_BYTES=65536;
     private static final int SALT_BYTES=16, IV_BYTES=12, KEY_BITS=256;
     private IndependentCertificateTransfer(){}
+    private static final String PLAIN_KIND="fleet-control-https-plain";
+
+    /** Explicit unencrypted export requested for owner-operated device-to-device copy. */
+    static byte[] exportPlain(JSONObject identity,String host)throws Exception {
+        String selected=IndependentPolicy.hostname(host);
+        JSONObject exported=new JSONObject()
+            .put("type",PLAIN_KIND).put("schemaVersion",1).put("hostname",selected)
+            .put("key",identity.getString("key")).put("chain",identity.getString("chain"));
+        byte[] file=exported.toString().getBytes(StandardCharsets.UTF_8);
+        if(file.length==0||file.length>MAX_BYTES)throw new IOException("Το πιστοποιητικό υπερβαίνει το επιτρεπόμενο μέγεθος.");
+        return file;
+    }
+
+    /** Parse an unencrypted file. Actual PKI chain/key trust is verified by IndependentAcme. */
+    static JSONObject importPlain(byte[] file,String host)throws Exception {
+        String selected=IndependentPolicy.hostname(host);
+        if(file==null||file.length==0||file.length>MAX_BYTES)
+            throw new IOException("Το αρχείο HTTPS είναι κενό ή υπερβολικά μεγάλο.");
+        JSONObject value;
+        try{value=new JSONObject(new String(file,StandardCharsets.UTF_8));}
+        catch(Exception invalid){throw new IOException("Το αρχείο HTTPS δεν είναι έγκυρο JSON. Δημιούργησε νέα εξαγωγή από τον Server 2.13.3.");}
+        if(KIND.equals(value.optString("type")))
+            throw new IOException("Αυτό είναι παλιό κρυπτογραφημένο αρχείο. Εξήγαγε νέο αρχείο χωρίς κωδικό από τον Server 2.13.3.");
+        if(!PLAIN_KIND.equals(value.optString("type"))||value.optInt("schemaVersion")!=1)
+            throw new IOException("Δεν αναγνωρίζεται το αρχείο HTTPS αυτής της έκδοσης.");
+        if(!selected.equals(value.optString("hostname")))
+            throw new IOException("Το αρχείο HTTPS αφορά άλλο όνομα DuckDNS και δεν εισήχθη.");
+        String key=value.optString("key"),chain=value.optString("chain");
+        if(key.isEmpty()||chain.isEmpty())
+            throw new IOException("Λείπει το πιστοποιητικό ή το ιδιωτικό κλειδί από το αρχείο HTTPS.");
+        return new JSONObject().put("key",key).put("chain",chain);
+    }
 
     private static void password(String value)throws IOException {
         if(value==null||value.length()<12||value.length()>512)
