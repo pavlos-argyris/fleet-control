@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-82e5a913-8137-4458-b077-bba51e5a0b96",
-  "sourceCommit": "fd6df8ad612797750e487a7ddc57758fc5ecd07f",
-  "releaseVersion": "5.64.3",
-  "requestedAt": "2026-11-13T18:36:43.750Z",
-  "reason": "Owner requested published signed Server 2.13.3, with one-file plaintext HTTPS certificate import/export requiring no passphrase or additional owner login. Exact-main source CI run 43481984777 succeeded for fd6df8ad612797750e487a7ddc57758fc5ecd07f. Preserve S24 original HTTPS identity and all existing production/backup data."
+  "requestId": "fleet-304757db-5d69-498f-91c9-76cb8704308d",
+  "sourceCommit": "60c9514eff938b8ce05493e0c12c0c8de0710a1a",
+  "releaseVersion": "5.65.0",
+  "requestedAt": "2026-11-13T21:05:09.938Z",
+  "reason": "Ο χρήστης ζήτησε ταχύτερο Direct Web, διόρθωση φόρτωσης μηχανών και τιμολογίων, αφαίρεση τεχνικών ενδείξεων και προεπιλεγμένη ισχύ αντιστοιχίσεων Ordexa από πάντα. Αυτόματη δημοσίευση μετά το επιτυχές exact-main CI 43505556066, βάσει της ρητής εξουσιοδότησης για Fleet updates."
 }
