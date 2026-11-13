@@ -1,3 +1,9 @@
+## #95 — actual SAF/Keystore/import PASS μέχρι file fence fixture, 13/11/2026
+
+- CI43350461746 στο κανονικό APK πέρασε πλέον πραγματικό SAF tree grant, encrypted FCB3 import/read-back, JSON/WAL/savepoint και ACME Keystore persistence/rotation, ιδιωτικό provider configuration, Client AES token migration/cross-realm rejection και διαφορετικά native Cloud/Direct Keystore wrapping keys.
+- Επόμενη αποτυχία ήταν το νέο stale-upload fixture: χρησιμοποιούσε το τελικό DuckDNS URL ενώ στο test δεν έχει ακόμη ρυθμιστεί hostname και το πραγματικό local runtime realm είναι fleet-independent.invalid. Η σωστή origin allowlist απέρριψε το αίτημα πριν διαβαστεί το stream. Το test χρησιμοποιεί runtime.realm(), κρατά το πραγματικό mode switch στο μέσο του stream και τις ίδιες assertions μη εισαγωγής αρχείου/οικονομικής εγγραφής. Η παραγωγική allowlist δεν αλλάζει.
+- Native manual/automatic backup/cold replacement/local catalogue έπονται και ΔΕΝ έχουν ακόμη επιβεβαιωθεί. Source/Chromium job συνέχιζε. Το επόμενο exact-source CI πρέπει να περάσει όλα τα gates πριν merge/publish. Δεν έγινε καμία φυσική/παραγωγική ενεργοποίηση.
+
 ## #95 — συνέχεια εκκρεμούς Direct ανάκτησης από Cloudflare, 13/11/2026
 
 - Code review εντόπισε πραγματικό αδιέξοδο: μετά χειροκίνητη επιστροφή Cloudflare, pending Direct recovery/OTA απαγόρευε νέα ενεργοποίηση, ενώ τα εργαλεία ολοκλήρωσης ήταν μόνο στο ενεργό Direct UI. Προστέθηκαν ΜΟΝΟ στην πρόσθετη Προετοιμασία Direct, με σύνδεση owner, έτοιμη cold επανεκκίνηση, finish/new verified backup και αναβολή OTA πριν installer. Η επιλογή δεν αλλάζει και δεν γίνεται restore μέσω του μοχλού. Το Android fixture πλέον τελειώνει recovery με επιλεγμένο Cloudflare και ελέγχει ότι παραμένει Cloudflare και το root DB διατηρείται.

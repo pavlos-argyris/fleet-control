@@ -46,7 +46,7 @@ public final class UnifiedNativeChecks{
                     return super.read(bytes,offset,length);
                 }
             };
-            try{runtime.request(BackendMode.DIRECT+"/api/fixture-upload","POST",null,null,changingSource,17,"application/pdf",null,null);throw new AssertionError("Upload from an old mode revision reached the file importer");}catch(IOException expected){check(expected.getMessage().contains("Η λειτουργία άλλαξε"),"Stale upload rejected by the mode fence before the business request");}
+            try{runtime.request(runtime.realm()+"/api/fixture-upload","POST",null,null,changingSource,17,"application/pdf",null,null);throw new AssertionError("Upload from an old mode revision reached the file importer");}catch(IOException expected){check(expected.getMessage()!=null&&expected.getMessage().contains("Η λειτουργία άλλαξε"),"Stale upload rejected by the mode fence before the business request: "+expected.getMessage());}
             try(FleetDataStore store=new FleetDataStore(target)){check(transfersBefore==new BusinessSqlite(store.getReadableDatabase()).call("sql.query",new JSONObject().put("sql","SELECT count(*) n FROM native_file_transfers")).getJSONArray("results").getJSONObject(0).getLong("n"),"Mode switch while reading an upload creates no private transfer/financial write");}
             try(FleetDataStore store=new FleetDataStore(target)){
                 String manual=BackupManager.createBackup(target,store);
