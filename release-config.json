@@ -1,6 +1,6 @@
 {
   "releaseVersion": "5.64.1",
-  "notes": "• Διορθώθηκε το άμεσο κλείσιμο του Direct Android Server σε Samsung Note 10+ / Android 12 κατά την εκκίνηση του WebView.\\n• Διατηρούνται αυτούσια η SQLite, τα backup, τα στοιχεία ιδιοκτήτη, το HTTPS και η ανεξάρτητη λειτουργία Direct.\\n• Προστέθηκε πραγματική δοκιμή Android για δημιουργία WebView και εγγραφή callbacks πριν την εισαγωγή backup.",
+  "notes": "• Διορθώθηκε το άμεσο κλείσιμο του Direct Android Server σε Samsung Note 10+ / Android 12 κατά την εκκίνηση του WebView.\n• Διατηρούνται αυτούσια η SQLite, τα backup, τα στοιχεία ιδιοκτήτη, το HTTPS και η ανεξάρτητη λειτουργία Direct.\n• Προστέθηκε πραγματική δοκιμή Android για δημιουργία WebView και εγγραφή callbacks πριν την εισαγωγή backup.",
   "client": {
     "version": "5.64.0",
     "versionCode": 108,
