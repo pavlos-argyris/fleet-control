@@ -1,3 +1,10 @@
+## #95 / PR #99 — cold Android PASS και τελική πολιτική UI,13/11/2026
+
+- Το head609b57de93cfdb729449fb1972fa6265289731ba/treeb034118661e9e034838df4f768e99cd98e561d08 πέρασε το πραγματικό normal-APK Android/API30 job131873020209 στο run43421661706 SUCCESS. Περιλαμβάνονται generated ServerBridge/ιδιωτικός ContentResolver, fresh/no-empty-database και cold process remembered-owner authentication με πραγματικό Android Keystore, full FCB3/import/manual/automatic backup/cold recovery και Cloud sentinel preservation. Η διόρθωση Rhino loader επιβεβαιώθηκε στη συσκευή του CI. Δεν αποτελεί φυσικό Note10+/CA/router/4G acceptance.
+- Τελικό UI cleanup στην ίδια υποψήφια5.64.0/Server2.13.0: ο παλιός σύνδεσμος «Εφεδρική πρόσβαση στον Server χωρίς D1» παραμένει αδρανής/hidden στην Direct-only πολιτική (HTML από το πρώτο frame + κοινός JS policy έλεγχος). Σε ξεχωριστή dormant-policy κατασκευή μπορεί να εμφανιστεί πάλι. Νέες assertions unit και actual generated Chromium shell διασφαλίζουν ότι δεν προσφέρεται παλιά σύζευξη/εναλλακτικό backend. Το αποθηκευμένο owner password καθαρίζεται από το native input μετά την επιτυχή προστατευμένη αποθήκευση.
+- Τοπικά PASS final APK construction, fast gate, mode tests, προηγούμενο full business suite και packaged-only Rhino cold-loader/sandbox/byte-exact resources. Η τελική μικρή αλλαγή UI απαιτεί νέο πλήρες exact-source CI· δεν αρκεί το προηγούμενο επιτυχές Android job για τελικό merge/publication.
+- Επόμενο: τελικό full CI στο νέο PR head, merge/exact-main CI και εξουσιοδοτημένο normal original-signed publish. Καμία αλλαγή αρχικών κλειδιών, παραγωγικού backup/restore/delete, router/CA ή χρέωσης. Η5.63.0 παραμένει η τελευταία δημοσιευμένη μέχρι επιβεβαιωμένο activated:true της νέας έκδοσης.
+
 ## #95 / PR #99 — πραγματική αιτία cold Direct startup,13/11/2026
 
 - Full CI43420640328/head c31e802b2d689dbe871880f5e5eef91c96b0b93b επιβεβαίωσε το fresh generated dashboard/no-premature-database πριν αποτύχει στην εκκίνηση runtime από τον ιδιωτικό Android provider. Η ασφαλής διάγνωση έδειξε EvaluatorException στη φάση runtime, πριν authentication· δεν πρόκειται για απώλεια αποθηκευμένου password.

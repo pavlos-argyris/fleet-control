@@ -6,7 +6,7 @@ const CLOUD='https://fleet-control.pavlosargyris.workers.dev',DIRECT='https://fl
 const source=fs.readFileSync('cloudflare-worker/public/backend-mode.js','utf8');
 const descriptor=(mode,revision)=>({schema:1,revision,selectedMode:mode,activeMode:mode,cloudUrl:CLOUD,directUrl:DIRECT,updatedAt:Date.now()});
 function fixture({mode='cloudflare',revision=0,url=CLOUD+'/',outage=503,fresh=false,directOnly=false}={}){
-  const dom=new JSDOM('<!doctype html><html><body><main>Fleet</main></body></html>',{url,runScripts:'outside-only'}),w=dom.window,calls=[],navigation=[];
+  const dom=new JSDOM('<!doctype html><html><body><main>Fleet</main><a href="./direct.html" hidden style="display:none">Legacy Server access</a></body></html>',{url,runScripts:'outside-only'}),w=dom.window,calls=[],navigation=[];
   Object.assign(w,{Headers,Response,AbortController,Request:class extends Request{constructor(input,init){super(typeof input==='string'?new URL(input,w.location.href):input,init);}}});
   let saved=JSON.stringify(descriptor(mode,revision)),current=descriptor(mode,revision),pending=null;
   w.AndroidFleet={getBackendSelection:()=>fresh?'':saved,setBackendSelection:value=>{saved=value;},openBackend:value=>navigation.push(value)};
@@ -52,6 +52,7 @@ for(const outage of [500,429,503,'timeout']){
     assert(f.calls.every(r=>new URL(r.url).origin===DIRECT),'Cloud API is blocked before any network send');
     assert.equal(f.w.FleetBackend.key('fleet-control-auth-token'),'direct:fleet-control-auth-token');assert.equal(f.w.localStorage.getItem('fleet-control-auth-token'),'cloud-session-only','old Cloud session is retained and never reused');
     assert(!f.w.document.getElementById('fleetBackendStatus').textContent.includes('Cloudflare'),'no Cloud option or recovery button');
+    assert(f.w.document.querySelector('a[href$="direct.html"]').hidden,'no legacy backup-Server/pairing choice on the Direct login');
     assert.equal(f.w.FleetBackend.selection.activeMode,'direct');
   }finally{f.close();}
 }
