@@ -1,14 +1,14 @@
 {
-  "releaseVersion": "5.64.0",
-  "notes": "• Server, Client και Web συνδέονται πλέον μέσω του Android Server.\n• Οι επιλογές Cloudflare είναι προσωρινά ανενεργές και ο μηχανισμός διατηρείται για μελλοντική επανενεργοποίηση.\n• Διορθώθηκε το σφάλμα φόρτωσης της κατάστασης Direct στον Server.\n• Διατηρούνται τα χωριστά δεδομένα και η ασφαλής προετοιμασία HTTPS.\n• Τα στοιχεία ιδιοκτήτη και ο κωδικός backup αποθηκεύονται προστατευμένα στον Server, με αυτόματη σύνδεση.\n• Η δημοσίευση υποστηρίζει τα πλήρη μεγάλα APK χωρίς αφαίρεση λειτουργιών.",
+  "releaseVersion": "5.64.1",
+  "notes": "• Διορθώθηκε το άμεσο κλείσιμο του Direct Android Server σε Samsung Note 10+ / Android 12 κατά την εκκίνηση του WebView.\\n• Διατηρούνται αυτούσια η SQLite, τα backup, τα στοιχεία ιδιοκτήτη, το HTTPS και η ανεξάρτητη λειτουργία Direct.\\n• Προστέθηκε πραγματική δοκιμή Android για δημιουργία WebView και εγγραφή callbacks πριν την εισαγωγή backup.",
   "client": {
     "version": "5.64.0",
     "versionCode": 108,
     "packageName": "gr.argyrismitsos.fleetcontrol"
   },
   "server": {
-    "version": "2.13.0",
-    "versionCode": 78,
+    "version": "2.13.1",
+    "versionCode": 79,
     "packageName": "gr.argyrismitsos.fleetserver"
   },
   "web": {
