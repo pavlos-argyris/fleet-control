@@ -32,5 +32,15 @@ public final class ScopedContext extends ContextWrapper implements gr.argyrismit
     @Override public File getExternalFilesDir(String type){File base=super.getExternalFilesDir(type);if(base==null)return null;File scoped=new File(base,"fleet-direct");return scoped.isDirectory()||scoped.mkdirs()?scoped:null;}
     @Override public File getExternalCacheDir(){File base=super.getExternalCacheDir();if(base==null)return null;File scoped=new File(base,"fleet-direct");return scoped.isDirectory()||scoped.mkdirs()?scoped:null;}
     @Override public SharedPreferences getSharedPreferences(String name,int mode){return super.getSharedPreferences("fleet_direct_"+name,mode);}
+    // Android 12 Context.registerComponentCallbacks delegates to the application
+    // context. getApplicationContext() intentionally returns this scoped wrapper
+    // for isolated Direct storage, so callbacks must go to the real base context
+    // instead of recursively invoking this ScopedContext until StackOverflowError.
+    @Override public void registerComponentCallbacks(ComponentCallbacks callback){
+        getBaseContext().registerComponentCallbacks(callback);
+    }
+    @Override public void unregisterComponentCallbacks(ComponentCallbacks callback){
+        getBaseContext().unregisterComponentCallbacks(callback);
+    }
     @Override public Context getApplicationContext(){return this;}
 }
