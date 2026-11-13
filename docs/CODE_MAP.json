@@ -362,6 +362,8 @@
         "scripts/validate-publish-request.mjs",
         "release-config.json",
         "scripts/verify-apks.mjs",
+        "scripts/verify-apk-payload.py",
+        "scripts/check-unified-apks.py",
         "scripts/prepare-business-dependencies.py",
         "scripts/probe-server-mirror.mjs",
         "scripts/probe-primary-policy.mjs",
@@ -375,6 +377,7 @@
         "scripts/test-ota-releases.mjs",
         "scripts/test-web-release-inventory.mjs",
         "scripts/test-business-runtime-resources.mjs",
+        "scripts/test-apk-payload.py",
         "scripts/test-probe-primary-policy.mjs",
         "scripts/test-tail-error-safety.mjs"
       ],
