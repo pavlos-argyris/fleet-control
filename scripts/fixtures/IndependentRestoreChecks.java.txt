@@ -1,0 +1,29 @@
+package gr.argyrismitsos.fleetserver;
+import android.content.Context;import android.database.sqlite.SQLiteDatabase;import android.net.Uri;import org.json.*;import java.io.*;import java.nio.file.*;import java.util.*;
+
+/** Actual new importer/cold journal; only Android storage/Keystore/file-picker adapters are fixtures. */
+public final class IndependentRestoreChecks {
+ static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
+ static boolean rejected(Context target,Uri manifest,String password)throws Exception{try{IndependentRestore.importBackup(target,manifest,password);return false;}catch(Exception expected){return true;}}
+ public static void run(Context source,SQLiteDatabase live)throws Exception{
+  String password="Συνθετικός φορητός κωδικός 2026!";File directory=new File(source.getFilesDir(),"independent-source-packet");String id=UUID.randomUUID().toString();
+  JSONObject state=NativePrimaryState.read(live),recovery=new JSONObject().put("schemaVersion",1).put("realm",state.getString("realm")).put("authPepper",BusinessTest.PEPPER).put("recoveryToken","rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr").put("ownerId","synthetic-owner").put("sourceGeneration",state.getString("generation")).put("sourceFingerprint","a".repeat(64));
+  try(BackupEnvelope envelope=new BackupEnvelope(PortableBackupCipher.create(password),new byte[32])){
+   JSONObject parts=NativeBackupBuilder.prepare(source,live,directory,id,new JSONObject().put("workerUrl",state.getString("realm")),recovery,envelope,(stage,done,total)->{});
+   File manifest=new File(directory,parts.getString("dataPath")),database=new File(directory,parts.getString("databasePath")),documents=new File(directory,parts.getString("docsPath"));String originalManifest=NativeDatabaseSnapshot.digest(manifest),originalDatabase=NativeDatabaseSnapshot.digest(database),originalDocs=NativeDatabaseSnapshot.digest(documents);
+   BackupManager.fixtureEnvelope=new BackupEnvelope(null,new byte[32]);BackupManager.fixtureDatabase=database;BackupManager.fixtureDocuments=documents;Uri uri=Uri.parse(manifest.toURI().toString());
+   Context target=new Context(new File(source.getCacheDir(),"second-independent-phone").getPath());File targetDb=target.getDatabasePath(NativeColdRestore.DATABASE_NAME);
+   check(rejected(target,uri,"wrong fixture password"),"wrong FCB3 password stops before touching independent DB");check(!targetDb.exists()&&!IndependentConfig.read(target).has("backupSha256"),"failed password leaves no imported DB or identity");
+   BackupManager.fixtureMissingDatabase=true;check(rejected(target,uri,password),"missing database companion rejected");BackupManager.fixtureMissingDatabase=false;check(!targetDb.exists(),"missing part cannot create replacement DB");
+   BackupManager.fixtureLegacy=true;check(rejected(target,uri,password),"legacy Android-only snapshot is never promoted to full primary DB");BackupManager.fixtureLegacy=false;check(!targetDb.exists(),"legacy failure preserves empty target");
+   File corrupt=new File(directory,"corrupt-copy.fcdb");Files.copy(database.toPath(),corrupt.toPath());try(RandomAccessFile file=new RandomAccessFile(corrupt,"rw")){file.seek(file.length()-1);file.write(file.read()^1);}BackupManager.fixtureDatabase=corrupt;check(rejected(target,uri,password),"tampered encrypted database rejected");BackupManager.fixtureDatabase=database;check(!targetDb.exists(),"corrupt part cannot install target DB");
+   JSONObject proof=IndependentRestore.importBackup(target,uri,password);check(proof.getBoolean("imported")&&proof.getBoolean("restoreVerified")&&proof.getBoolean("documentsVerified")&&proof.getString("mode").equals("test"),"new independent importer actually installs full DB and files in test mode");
+   JSONObject config=IndependentConfig.read(target);check(config.getString("instanceId").matches("[a-f0-9-]{36}")&&config.getString("generation").matches("[a-f0-9-]{36}")&&!config.getBoolean("testOrdexa"),"new independent identity and source polling OFF");check(IndependentRestore.core(target).state().getString("phase").equals("installed"),"real cold journal completed");
+   JSONObject root=BackupManager.readBackupRoot(target,uri,password);NativeDatabaseSnapshot.verifyReadOnly(targetDb,root.getJSONObject("nativeDatabase"));
+   JSONArray objects=root.getJSONObject("nativeDatabase").getJSONArray("objects");for(int i=0;i<objects.length();i++){JSONObject object=objects.getJSONObject(i);File file=new File(target.getFilesDir(),"service-documents/"+object.getString("local_name"));check(file.isFile()&&file.length()==object.getLong("size")&&NativeDatabaseSnapshot.digest(file).equals(object.getString("sha256")),"each exact private object recovered by actual importer");}
+   String installed=NativeDatabaseSnapshot.digest(targetDb);check(rejected(target,uri,password)&&NativeDatabaseSnapshot.digest(targetDb).equals(installed),"second import cannot overwrite an existing independent DB");
+   check(NativeDatabaseSnapshot.digest(manifest).equals(originalManifest)&&NativeDatabaseSnapshot.digest(database).equals(originalDatabase)&&NativeDatabaseSnapshot.digest(documents).equals(originalDocs),"all original encrypted backup parts remain byte-exact");
+   System.out.println("PASS actual independent FCB3 import/cold installation: wrong password, missing/corrupt/legacy parts stop without target DB; full SQLite+all private objects install in separate sandbox/test mode with new identity/source OFF; second import cannot overwrite; original three parts byte-exact. Android picker/Keystore/directory-fsync are fixture adapters, physical device remains pending.");
+  }
+ }
+}

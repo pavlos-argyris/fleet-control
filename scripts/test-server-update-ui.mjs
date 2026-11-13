@@ -19,7 +19,8 @@ const bridge = { getDashboard: () => JSON.stringify(data), saveSettings: raw => 
 }, loadReleases() {}, checkServerUpdate() {}, verifyLastBackup(){backupChecks++;}, chooseBackupVerification(){selectedChecks++;} };
 let backupChecks=0,selectedChecks=0,forced=0,retried=0,postponed=0;Object.assign(bridge,{pauseAndInstallServerUpdate(){forced++;},retryBackupExport(){retried++;},postponeServerUpdate(){postponed++;}});
 let tick;
-const context = vm.createContext({ console, window: { AndroidServer: bridge, scrollTo() {} },
+const events=new EventTarget();let lastNativeEvent;events.addEventListener('fleet-server-event',event=>{lastNativeEvent=event.detail;});
+const context = vm.createContext({ console, CustomEvent, window: { AndroidServer: bridge, dispatchEvent:event=>events.dispatchEvent(event), scrollTo() {} },
   document: { getElementById: element, querySelectorAll: () => [] }, setInterval: fn => { tick = fn; }, setTimeout: () => 1, clearTimeout() {} });
 vm.runInContext(source, context);
 assert.equal(element('syncSeconds').value, '30');
@@ -44,6 +45,7 @@ tick(); assert.equal(element('otaProgress').attrs['aria-valuenow'], undefined, '
 data.ota = { stage: 'installing', installStatus: 'confirmation', installMessage: 'Android confirmation', ready: { version: '2.1.5' } };
 tick(); assert.equal(element('installServerUpdate').textContent, 'Επιβεβαίωση στο Android'); assert.equal(element('installServerUpdate').disabled, false);
 context.window.FleetServer.onNativeEvent('releases', { ok: true, releases: [{ kind: 'server', version: '2.1.5', notes: 'Πρώτο, Δεύτερο', created_at: '2026-10-10' }] });
+assert.equal(lastNativeEvent.event,'releases','Native events remain available to the additive mode/recovery controls');
 assert.match(element('releaseList').innerHTML, /<li>Πρώτο<\/li><li>Δεύτερο<\/li>/);
 data.backupMetadata={time:'2026-10-11T10:00:00Z',fileName:'good.fcbackup',includedDocuments:3,expectedDocuments:5,missingDocuments:2,workforceIncluded:true};
 data.canVerifyLastBackup=true;data.lastBackupResult='Αποτυχία νεότερης προσπάθειας';data.backupVerification={fileName:'good.fcbackup',checkedAt:'2026-10-11T10:10:00Z',complete:false,message:'Λείπουν 2 τιμολόγια.'};tick();

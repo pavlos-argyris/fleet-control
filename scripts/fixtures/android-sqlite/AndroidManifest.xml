@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="gr.argyrismitsos.fleetserver.sqlitetest">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="30" />
+  <application android:label="SQLite synthetic instrumentation" android:allowBackup="false">
+    <activity android:name="gr.argyrismitsos.fleetserver.SyntheticBackupActivity" android:exported="true" />
+    <!-- Disposable emulator-only provider. Never included in either delivery APK. -->
+    <provider android:name="gr.argyrismitsos.fleetserver.SyntheticBackupProvider" android:authorities="gr.argyrismitsos.fleetserver.sqlitetest.backup" android:permission="android.permission.MANAGE_DOCUMENTS" android:grantUriPermissions="true" android:exported="true" />
+  </application>
+  <instrumentation android:name="gr.argyrismitsos.fleetserver.AndroidSqliteChecks" android:targetPackage="gr.argyrismitsos.fleetserver.independent" android:label="Actual APK SQLite/FCB3 regression" />
+</manifest>

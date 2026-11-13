@@ -630,6 +630,81 @@
         "docs/CLOUD_PRIMARY_RETURN_GR.md",
         "docs/CLOUD_WRITE_REDUCTION_GR.md"
       ]
+    },
+    {
+      "id": "independent-android",
+      "title": "Issue 90: ανεξάρτητη δοκιμαστική Android εγκατάσταση / HTTPS / DNS-01 / restore",
+      "paths": [
+        "independent-android/**",
+        "independent-client/**",
+        "independent-web/**",
+        "server-runtime/standalone.js",
+        "scripts/prepare-independent-build.py",
+        "scripts/build-independent-android.sh",
+        "scripts/check-independent-apks.py",
+        "scripts/wait-independent-source-check.mjs",
+        "scripts/package-independent-delivery.py",
+        ".github/workflows/independent-android.yml",
+        "android-build-support/independent-sqlite.lock.json",
+        "third-party/independent-sqlite/**",
+        "scripts/prepare-independent-sqlite.py",
+        "scripts/build-independent-android-test.py",
+        "scripts/fixtures/android-sqlite/**"
+      ],
+      "tests": [
+        "scripts/test-independent-business.mjs",
+        "scripts/test-independent-network.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-cash-pilot-native.mjs",
+        "scripts/test-independent-web.mjs",
+        "scripts/test-independent-browser.mjs",
+        "scripts/test-independent-android.sh"
+      ],
+      "related": [
+        "server-foundation",
+        "backups",
+        "worker-core"
+      ],
+      "docs": [
+        "docs/ISSUE_90_INDEPENDENT_ANDROID_GR.md"
+      ]
+    },
+    {
+      "id": "unified-backend-mode",
+      "title": "Ενιαίος διακόπτης Cloudflare / Direct και ανάκτηση",
+      "paths": [
+        "server-android/src/gr/argyrismitsos/fleetserver/BackendMode.java",
+        "unified-android/src/gr/argyrismitsos/fleetdirect/*.java",
+        "scripts/prepare-unified-direct.py",
+        "cloudflare-worker/public/backend-mode.js",
+        "cloudflare-worker/public/backend-mode.css",
+        "server-android/assets/www/backend-mode.js",
+        "client-android/src/gr/argyrismitsos/fleetcontrol/BackendSelection.java",
+        "common-android/src/gr/argyrismitsos/fleetupdates/PublicReleaseFeed.java",
+        "common-android/src/gr/argyrismitsos/fleetupdates/SessionVault.java",
+        "scripts/build-independent-android-test.py",
+        "scripts/test-independent-android.sh",
+        "scripts/check-unified-apks.py",
+        "unified-android/assets/*.js",
+        "scripts/fixtures/android-unified/*.java"
+      ],
+      "tests": [
+        "scripts/test-backend-mode.mjs",
+        "scripts/test-backend-mode-native.mjs",
+        "scripts/test-independent-network.mjs",
+        "scripts/test-server-http.mjs",
+        "scripts/test-large-release.mjs",
+        "scripts/test-unified-server-browser.mjs",
+        "scripts/test-direct-offline-browser.mjs"
+      ],
+      "related": [
+        "server-foundation",
+        "direct-access",
+        "backups"
+      ],
+      "docs": [
+        "docs/ISSUE_95_UNIFIED_MODE_GR.md"
+      ]
     }
   ]
 }

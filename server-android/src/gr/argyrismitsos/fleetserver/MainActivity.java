@@ -36,6 +36,8 @@ public final class MainActivity extends Activity {
     private static final int PICK_BACKUP_VERIFY = 206;
     private static final int PICK_BACKUP_RECOVERY_TEST = 207;
     private static final int PICK_PRIMARY_RECOVERY = 208;
+    private final ExecutorService backendWork=Executors.newSingleThreadExecutor();
+    private String backendOwnerToken="";
     private WebView webView;
     private FleetDataStore store;
     private SharedPreferences preferences;
@@ -53,11 +55,17 @@ public final class MainActivity extends Activity {
     private void clearRestoreData() { pendingRestoreUri=null;pendingRestoreData=null;pendingRestoreGuard=null;pendingRestoreLocalState="";pendingRestoreBase=""; }
     private void clearRestorePreview() { pendingRestorePin="";clearRestoreData(); }
     private String localRestoreState() throws Exception { return store.getFleet().toString()+"|"+store.getSystemExport().toString(); }
+    private boolean routeBackend(){
+        String target=BackendMode.direct(this)?"gr.argyrismitsos.fleetdirect.MainActivity":"gr.argyrismitsos.fleetserver.MainActivity";
+        if(getClass().getName().equals(target))return false;
+        startActivity(new Intent().setClassName(this,target));finish();return true;
+    }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if(routeBackend())return;
         getWindow().setStatusBarColor(Color.rgb(7, 28, 35));
         getWindow().setNavigationBarColor(Color.rgb(7, 28, 35));
         preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
@@ -88,7 +96,9 @@ public final class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient());
         setContentView(webView);
         webView.loadUrl("file:///android_asset/www/index.html");
-        if (preferences.getBoolean("automatic_start", true)) startServerService();
+        if (preferences.getBoolean("automatic_start", true)) {
+            startServerService();backendWork.execute(()->{try{directControl("startControl","",null);}catch(Exception ignored){}});
+        }
     }
 
     private WebViewClient localWebViewClient() {
@@ -137,7 +147,7 @@ public final class MainActivity extends Activity {
     }
 
     private void startServerService() {
-        Intent intent = new Intent(this, SyncService.class);
+        Intent intent = BackendMode.direct(this)?new Intent().setClassName(this,"gr.argyrismitsos.fleetdirect.IndependentService"):new Intent(this, SyncService.class);
         try {
             if (Build.VERSION.SDK_INT >= 26) {
                 Method method = Context.class.getMethod("startForegroundService", Intent.class);
@@ -152,6 +162,7 @@ public final class MainActivity extends Activity {
 
     private void stopServerService() {
         stopService(new Intent(this, SyncService.class));
+        if(BackendMode.direct(this))stopService(new Intent().setClassName(this,"gr.argyrismitsos.fleetdirect.IndependentService"));
         preferences.edit().putBoolean("service_running", false).apply();
     }
 
@@ -221,6 +232,12 @@ public final class MainActivity extends Activity {
             result.put("invoiceReprocess", JSONObject.NULL);
         }
         result.put("health", DeviceHealth.collect(getApplicationContext()));
+        result.put("backend",BackendMode.read(this));
+        if(BackendMode.direct(this)){
+            JSONObject direct=new JSONObject(directControl("dashboard","",null).getString("json"));JSONObject stats=direct.optJSONObject("stats");result.put("ota",direct.optJSONObject("ota"));
+            if(stats!=null){for(String name:new String[]{"bikes","users","activeShifts","openAlerts","historyEntries"})result.put(name,stats.opt(name));}
+            result.put("workerUrl",BackendMode.DIRECT).put("serverOnline",direct.optBoolean("listenerActive")).put("serviceRunning",true).put("lastError",direct.optString("listenerError")).put("syncDiagnostics",new JSONObject().put("stage","Direct · τοπική SQLite").put("endpoint",BackendMode.DIRECT)).put("dataSource","Direct · ανεξάρτητα δεδομένα");
+        }
         result.put("settingsLoaded", true);
         return result;
     }
@@ -251,13 +268,15 @@ public final class MainActivity extends Activity {
     }
 
     private void runTask(final String event, final String requestId, final Task task) {
-        executor.submit(new Runnable() {
+        final long requestedRevision;try{requestedRevision=BackendMode.read(this).getLong("revision");}catch(Exception error){emitError(event,"Δεν φορτώθηκε η επιλογή λειτουργίας.");return;}
+        final Runnable work=new Runnable() {
             @Override
             public void run() {
                 boolean critical="backup".equals(event)||"backupRestore".equals(event)||"clientUpload".equals(event)||"webUpload".equals(event)||"releaseActivated".equals(event)||"invoiceResume".equals(event)||"authorityStage".equals(event)||"backupProtection".equals(event);
                 String lane="action:"+event;
                 boolean started=false;
                 try {
+                    if(BackendMode.read(MainActivity.this).getLong("revision")!=requestedRevision)throw new IllegalStateException("Η λειτουργία άλλαξε. Άνοιξε ξανά την ενέργεια στον επιλεγμένο Server.");
                     if(critical){
                         if(!ServerWorkTracker.begin(getApplicationContext(),lane,"Ενέργεια Server",event.equals("backup")?"Χειροκίνητο backup":event.equals("backupRestore")?"Επαναφορά δεδομένων":event.equals("authorityStage")?"Προετοιμασία μεταφοράς βάσης":"Αποθήκευση αλλαγών"))throw new IllegalStateException("Προετοιμάζεται ενημέρωση. Πάτησε Αναβολή ενημέρωσης πριν ξεκινήσεις νέα εργασία.");
                         started=true;
@@ -271,7 +290,8 @@ public final class MainActivity extends Activity {
                     else try { emit(event, new JSONObject().put("ok", false).put("requestId", requestId).put("message", error.getMessage()==null?"Η ενέργεια Server απέτυχε.":error.getMessage())); } catch (Exception ignored) {}
                 }finally{if(started)ServerWorkTracker.finish(lane);}
             }
-        });
+        };
+        executor.submit(()->{if(event.matches("primaryMigration.*|primaryRecovery.*|cloudReturn|authorityStage"))work.run();else NativeWorkGate.pipeline(work);});
     }
 
     private static String ordexaRequestId(String value) {
@@ -279,7 +299,25 @@ public final class MainActivity extends Activity {
         catch (Exception ignored) { return ""; }
     }
 
+    private Bundle directControl(String method,String arg,Bundle input){return getContentResolver().call(Uri.parse("content://gr.argyrismitsos.fleetserver.direct-control"),method,arg,input);}
     public final class ServerBridge {
+        @JavascriptInterface public String getBackendMode(){try{return directControl("status","",null).getString("json");}catch(Exception e){return "{\"error\":\"Η κατάσταση λειτουργίας δεν φορτώθηκε.\"}";}}
+        @JavascriptInterface public void prepareDirect(){runOnUiThread(()->startActivity(new Intent().setClassName(MainActivity.this,"gr.argyrismitsos.fleetdirect.IndependentActivity")));}
+        @JavascriptInterface public void backendLogin(final String username,final String password){backendWork.execute(()->{try{Bundle input=new Bundle();input.putString("username",username);input.putString("password",password);Bundle result=directControl("login","",input);input.clear();if(!result.getBoolean("ok"))throw new Exception(result.getString("error"));backendOwnerToken=result.getString("token","");emit("backendMode",new JSONObject().put("ok",true).put("message","Συνδέθηκες ως ιδιοκτήτης για την επιλογή λειτουργίας."));}catch(Exception e){emitError("backendMode",e.getMessage());}});}
+        @JavascriptInterface public void selectBackend(final String mode,final long revision){backendWork.execute(()->{try{
+            Bundle input=new Bundle();input.putString("token",backendOwnerToken);Bundle checked=directControl("check",mode,input);
+            if(!checked.getBoolean("ok")){
+                String reason=checked.getString("error");if(mode.equals("direct")&&checked.getBoolean("authenticated"))BackendMode.select(MainActivity.this,mode,revision,false,reason);
+                throw new Exception(reason);
+            }
+            final long deadline=System.currentTimeMillis()+45000;NativeWorkGate.exclusive(()->{if(System.currentTimeMillis()>deadline)throw new java.io.IOException("Οι τρέχουσες εργασίες δεν ολοκληρώθηκαν. Η επιλογή διατηρήθηκε· επανάλαβε σε λίγο.");});JSONObject state;
+            try{state=BackendMode.select(MainActivity.this,mode,revision,true,"");}finally{NativeWorkGate.release();}
+            if(mode.equals("direct"))stopService(new Intent().setClassName(MainActivity.this,"gr.argyrismitsos.fleetserver.SyncService"));
+            emit("backendMode",state.put("ok",true).put("message","Η επιλογή αποθηκεύτηκε. Οι συσκευές ενημερώνονται όταν επικοινωνήσουν με τον Direct Server."));
+            final String target=mode.equals("direct")?"gr.argyrismitsos.fleetdirect.MainActivity":"gr.argyrismitsos.fleetserver.MainActivity";
+            runOnUiThread(()->{if(!MainActivity.this.getClass().getName().equals(target)){startActivity(new Intent().setClassName(MainActivity.this,target));finish();}else startServerService();});
+        }catch(Exception e){emitError("backendMode",e.getMessage());}});}
+
         @JavascriptInterface public String getDirectAccessState(){try{return DirectServer.state(getApplicationContext(),store).toString();}catch(Exception e){return "{\"error\":\"Δεν φορτώθηκε η κατάσταση πρόσβασης.\"}";}}
         @JavascriptInterface public void configureDirectAccess(final boolean enabled){runTask("directAccess",new Task(){public JSONObject run()throws Exception{DirectServer.configure(getApplicationContext(),store,enabled);if(enabled)startServerService();return DirectServer.state(getApplicationContext(),store);}});}
         @JavascriptInterface public void shareDirectAccess(){runOnUiThread(new Runnable(){public void run(){try{String key=DirectIdentity.pairingCode(getApplicationContext());if(!preferences.getBoolean("direct_access_enabled",false)||key.length()==0)return;String base=preferences.getString("worker_url",ServerConfig.DEFAULT_WORKER_URL).replaceAll("/+$","");Intent share=new Intent(Intent.ACTION_SEND);share.setType("text/plain");share.putExtra(Intent.EXTRA_TEXT,base+"/direct.html#pair="+key);startActivity(Intent.createChooser(share,"Σύζευξη με τον Server"));}catch(Exception ignored){}}});}
@@ -664,14 +702,16 @@ public final class MainActivity extends Activity {
     }
     private void finishBackNavigation(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
 
-    @Override protected void onResume() { super.onResume();if(NativeColdRuntime.blocked(this))return;OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
+    @Override protected void onResume() { super.onResume();if(routeBackend()||preferences==null||NativeColdRuntime.blocked(this))return;OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
     @Override protected void onPause() { OtaInstaller.pause(this); super.onPause(); }
 
     @Override
     protected void onDestroy() {
+        backendWork.shutdownNow();backendOwnerToken="";
         if (executor != null) executor.shutdownNow();
         if (store != null) store.close();
         if (webView != null) {
+            webView.removeJavascriptInterface("AndroidServer");
             webView.loadUrl("about:blank");
             webView.stopLoading();
             webView.destroy();

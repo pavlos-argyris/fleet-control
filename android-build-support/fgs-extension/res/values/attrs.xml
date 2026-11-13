@@ -3,5 +3,6 @@
     <!-- Android 10+ framework attribute needed by targetSdk 34 foreground services. -->
     <attr name="foregroundServiceType">
         <flag name="dataSync" value="0x00000001" />
+        <flag name="specialUse" value="0x40000000" />
     </attr>
 </resources>

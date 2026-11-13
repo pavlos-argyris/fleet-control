@@ -4,7 +4,7 @@ import { MAX_RELEASE_MANIFEST_BYTES, releaseCapacityError } from './release-limi
 const PACKAGES = { client: "gr.argyrismitsos.fleetcontrol", server: "gr.argyrismitsos.fleetserver" };
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const SHA = /^[a-f0-9]{64}$/;
-const APK_LIMIT = 50 * 1024 * 1024;
+const APK_LIMIT = 192 * 1024 * 1024;
 function assetPath(value) {
   if (!value || value.length > 220 || value.includes("\\") || value.includes("%") || value.split("/").some(p => !p || p === "." || p === "..")) return "";
   return /^[A-Za-z0-9_./-]+$/.test(value) ? value : "";
@@ -75,6 +75,28 @@ export async function routeReleases(request, env, helpers) {
     if (!match || request.method !== "PUT" || !ID.test(match[1]) || !assetPath(match[2])) return json({ error: "Μη έγκυρη διαδρομή δημοσίευσης." }, 400);
     const limit = match[2].endsWith(".apk") && !match[2].startsWith("web/") ? APK_LIMIT : 10 * 1024 * 1024;
     if (Number(request.headers.get("content-length") || 0) > limit) return json({ error: "Μεγάλο αρχείο." }, 413);
+    if(!match[2].startsWith('web/')&&Number(request.headers.get('content-length')||0)>50*1024*1024){
+      const length=Number(request.headers.get('content-length')),sha256=request.headers.get('x-fleet-content-sha256')||'',key=`ota/${match[1]}/${match[2]}`;
+      if(!Number.isSafeInteger(length)||length<1||length>APK_LIMIT||!SHA.test(sha256)||!request.body)return json({error:'Απαιτούνται έγκυρα μέγεθος και SHA-256 για μεγάλο APK.'},400);
+      const old=await env.RELEASES.head(key);
+      if(old){
+        // Finish the bounded authenticated request before replying. An early
+        // response can reset an HTTP/1 upload while its sender is still writing.
+        const discarded=new FixedLengthStream(length);
+        const drained=await Promise.allSettled([request.body.pipeTo(discarded.writable),discarded.readable.pipeTo(new WritableStream())]);
+        if(drained.some(result=>result.status==='rejected'))return json({error:'Δεν επιβεβαιώθηκε το μέγεθος του αιτήματος.'},400);
+        return old.size===length&&old.customMetadata?.sha256===sha256?json({uploaded:true,sha256,sizeBytes:length}):json({error:'Τα αρχεία μιας έκδοσης δεν αντικαθίστανται.'},409);
+      }
+      // A fixed stream bounds actual bytes; R2 verifies SHA-256 while storing.
+      // No complete APK or tee backlog is retained in Worker memory.
+      const fixed=new FixedLengthStream(length),abort=new AbortController();
+      const copying=request.body.pipeTo(fixed.writable,{signal:abort.signal});
+      const storing=env.RELEASES.put(key,fixed.readable,{sha256,onlyIf:new Headers({'If-None-Match':'*'}),httpMetadata:{contentType:contentType(match[2])},customMetadata:{sha256}}).then(value=>{if(value===null)abort.abort();return value;},error=>{abort.abort();throw error;});
+      const [copied,stored]=await Promise.allSettled([copying,storing]);
+      if(stored.status==='fulfilled'&&stored.value===null){const raced=await env.RELEASES.head(key);return raced?.size===length&&raced.customMetadata?.sha256===sha256?json({uploaded:true,sha256,sizeBytes:length}):json({error:'Η αμετάβλητη έκδοση υπάρχει ήδη.'},409);}
+      if(copied.status==='rejected'||stored.status==='rejected'||stored.value.size!==length)return json({error:'Δεν επαληθεύτηκαν το μέγεθος και το SHA-256 του μεγάλου APK.'},400);
+      return json({uploaded:true,sha256,sizeBytes:length});
+    }
     // Read with a hard bound, including requests without Content-Length.
     const chunks = []; let length = 0; const reader = request.body?.getReader();
     if (!reader) return json({ error: "Κενό αρχείο." }, 400);

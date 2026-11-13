@@ -40,6 +40,8 @@ export function parseCompiledManifest(xml) {
     components: nodes.filter(n => ['activity', 'activity-alias', 'service', 'receiver', 'provider'].includes(n.tag)).map(n => ({
       kind: n.tag, name: n.attrs.name, exported: explicit(n.attrs, 'exported'),
       permission: explicit(n.attrs, 'permission'), process: explicit(n.attrs, 'process'),
+      foregroundServiceType: explicit(n.attrs, 'foregroundServiceType'),
+      properties: nodes.filter(p => p.tag === 'property' && p.parent === n).map(p => ({name:p.attrs.name,value:p.attrs.value})),
       actions: nodes.filter(a => a.tag === 'action' && a.parent?.parent === n).map(a => a.attrs.name).sort()
     })).sort((a, b) => (a.kind + ':' + a.name).localeCompare(b.kind + ':' + b.name))
   };
@@ -49,7 +51,7 @@ export function certificateDigests(output) {
 }
 export function assertCandidate(record, config, expectedCert, production, sourceManifest) {
   const m = record.manifest;
-  assert.ok(Number.isSafeInteger(record.bytes) && record.bytes > 0 && record.bytes <= 50 * 1024 * 1024, 'Candidate must fit the installed OTA 50 MiB limit');
+  assert.ok(Number.isSafeInteger(record.bytes) && record.bytes > 0 && record.bytes <= 192 * 1024 * 1024, 'Candidate must fit the new OTA 192 MiB limit');
   assert.equal(m.packageName, config.packageName, 'Candidate package');
   assert.equal(m.versionName, config.version, 'Candidate version name');
   assert.equal(m.versionCode, config.versionCode, 'Candidate version code');
@@ -88,4 +90,26 @@ export function compareApks(before, after) {
     nativeAbis: { before: before.archive.nativeAbis, after: after.archive.nativeAbis },
     dexCount: { before: before.archive.dex.length, after: after.archive.dex.length }
   };
+}
+
+// Issue #95 adds an owner-controlled, persistent HTTPS listener in :direct.
+// This permission authorizes that foreground-service type, not data access.
+// Keep the exception bound to the actual private compiled service contract.
+export function assertPermissionChanges(before, after) {
+  const diff=compareApks(before,after),special='android.permission.FOREGROUND_SERVICE_SPECIAL_USE';
+  const allowed=[];
+  if(diff.permissionsAdded.includes(special)&&after.kind==='server'&&after.manifest.packageName==='gr.argyrismitsos.fleetserver'){
+    const services=after.manifest.components.filter(c=>c.kind==='service'&&c.foregroundServiceType===0x40000000);
+    assert.equal(services.length,1,'Only the private Direct listener may use specialUse');
+    const service=services[0];
+    assert.equal(service.name,'gr.argyrismitsos.fleetdirect.IndependentService','specialUse must belong to the Direct listener');
+    assert.equal(service.exported,false,'Direct listener must remain private');
+    assert.equal(service.process,':direct','Direct listener must use isolated process state');
+    assert.deepEqual(service.properties,[{name:'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE',value:'Owner controlled private HTTPS fleet server with independent SQLite and read-only source synchronization.'}],'Compiled Direct foreground-service purpose must be explicit');
+    assert.ok(after.manifest.permissions.includes('android.permission.FOREGROUND_SERVICE'),'Base foreground-service permission is required');
+    allowed.push(special);
+  }
+  assert.deepEqual(diff.permissionsAdded,allowed,'Unexpected new permission outside the Direct listener contract');
+  assert.deepEqual(diff.permissionsRemoved,[],'Existing update permissions must be preserved');
+  return {authorizedAdditions:allowed,reason:allowed.length?'Issue #95: owner-controlled private Direct HTTPS foreground service':'No additional permission'};
 }

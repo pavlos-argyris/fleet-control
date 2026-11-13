@@ -59,6 +59,7 @@ public class MainActivity extends Activity {
     private byte[] pendingHistoryExport;
     private static final int INVOICE_ZIP_REQUEST=210,DIAGNOSTIC_EXPORT_REQUEST=211;
     private String pendingInvoiceZipJson, pendingInvoiceZipToken;
+    private String pendingInvoiceZipRealm;private long pendingInvoiceZipRevision;
     private byte[] pendingDiagnosticReport;
     private final AtomicBoolean invoiceZipCancelled=new AtomicBoolean(false);
     private volatile boolean invoiceZipRunning=false;
@@ -76,9 +77,13 @@ public class MainActivity extends Activity {
     private static final String UPDATE_FILE_NAME = FleetUpdateProvider.UPDATE_FILE_NAME;
     private static final long UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000L;
     private static final long UPDATE_PROMPT_INTERVAL_MS = 12 * 60 * 60 * 1000L;
-    private static final long MAX_UPDATE_BYTES = 50L * 1024L * 1024L;
+    private static final long MAX_UPDATE_BYTES = 192L * 1024L * 1024L;
     private WebView webView;
     private String transientAuthToken = "";
+    private volatile String authRealm=gr.argyrismitsos.fleetupdates.SessionVault.CLOUD;
+    private String realmTokenKey(String realm){return realm.equals(gr.argyrismitsos.fleetupdates.SessionVault.DIRECT)?"auth_token_direct":"auth_token";}
+    private String rememberedToken(String realm){if(realm.isEmpty())return "";return gr.argyrismitsos.fleetupdates.SessionVault.read(this,getSharedPreferences(SESSION_PREFERENCES,MODE_PRIVATE),realmTokenKey(realm),realm);}
+    private synchronized void bindAuthRealm(String url){String next=gr.argyrismitsos.fleetupdates.SessionVault.pageRealm(url);if(!next.equals(authRealm)){transientAuthToken=rememberedToken(next);authRealm=next;}}
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicBoolean updateCheckInFlight = new AtomicBoolean(false);
     private final AtomicBoolean updateDownloadInFlight = new AtomicBoolean(false);
@@ -119,8 +124,7 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.rgb(17, 24, 39));
         createNotificationChannel();
         requestNotificationPermissionIfNeeded();
-        transientAuthToken = getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE)
-                .getString(AUTH_TOKEN_KEY, "");
+        authRealm=BackendSelection.apiBase(this);transientAuthToken=rememberedToken(authRealm);
         AlertJobService.schedule(getApplicationContext());
 
         webView = new WebView(this);
@@ -191,7 +195,7 @@ public class MainActivity extends Activity {
             }
         });
         setContentView(webView);
-        webView.loadUrl("file:///android_asset/www/portal.html");
+        webView.loadUrl(BackendSelection.direct(this)?BackendSelection.DIRECT+"/":"file:///android_asset/www/portal.html");
         scheduleUpdateCheck(2500L);
     }
 
@@ -206,9 +210,17 @@ public class MainActivity extends Activity {
 
     private WebViewClient localWebViewClient() {
         return new WebViewClient() {
+            @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap icon){bindAuthRealm(url);super.onPageStarted(view,url,icon);}
+            @Override
+            public void onReceivedError(WebView view,android.webkit.WebResourceRequest request,android.webkit.WebResourceError error){
+                if(!request.isForMainFrame()||!BackendSelection.direct(MainActivity.this))return;
+                new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Direct Server εκτός σύνδεσης").setMessage("Η επιλογή Direct διατηρείται. Η αποθήκευση δεν επιβεβαιώθηκε.")
+                    .setPositiveButton("Ανάκτηση Cloudflare",new android.content.DialogInterface.OnClickListener(){public void onClick(android.content.DialogInterface dialog,int which){try{org.json.JSONObject selected=new org.json.JSONObject(BackendSelection.read(MainActivity.this)).put("activeMode","cloudflare").put("selectedMode","cloudflare").put("localRecovery",true);BackendSelection.save(MainActivity.this,selected.toString());webView.loadUrl("file:///android_asset/www/portal.html");}catch(Exception invalid){Toast.makeText(MainActivity.this,"Η επιλογή δεν αποθηκεύτηκε.",Toast.LENGTH_LONG).show();}}})
+                    .setNegativeButton("Επανάληψη",new android.content.DialogInterface.OnClickListener(){public void onClick(android.content.DialogInterface dialog,int which){view.reload();}}).setNeutralButton("Παραμονή",null).show();
+            }
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (isLocalAppUrl(url)) return false;
+                if (isLocalAppUrl(url)||url!=null&&(url.equals(BackendSelection.DIRECT)||url.startsWith(BackendSelection.DIRECT+"/"))) return false;
                 openExternalUrl(url);
                 return true;
             }
@@ -261,8 +273,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if(requestCode==INVOICE_ZIP_REQUEST){
-            final String manifest=pendingInvoiceZipJson,token=pendingInvoiceZipToken;pendingInvoiceZipJson=null;pendingInvoiceZipToken=null;
-            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&manifest!=null&&token!=null)writeInvoiceZip(data.getData(),manifest,token);
+            final String manifest=pendingInvoiceZipJson,token=pendingInvoiceZipToken,realm=pendingInvoiceZipRealm;final long revision=pendingInvoiceZipRevision;pendingInvoiceZipJson=null;pendingInvoiceZipToken=null;pendingInvoiceZipRealm=null;
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&manifest!=null&&token!=null&&realm!=null)writeInvoiceZip(data.getData(),manifest,token,realm,revision);
             else {invoiceZipRunning=false;emitInvoiceZip("cancelled",0,0);}
         }
         if(requestCode==DIAGNOSTIC_EXPORT_REQUEST){
@@ -408,7 +420,7 @@ public class MainActivity extends Activity {
                         && AlertJobService.notificationsAllowed(getApplicationContext());
                 return new org.json.JSONObject()
                         .put("enabled", enabled)
-                        .put("remembered", preferences.getString(AUTH_TOKEN_KEY, "").length() > 0)
+                        .put("remembered", rememberedToken(authRealm).length() > 0)
                         .toString();
             } catch (Exception error) { return "{\"enabled\":false}"; }
         }
@@ -438,25 +450,31 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String getBackendSelection(){return BackendSelection.read(MainActivity.this);}
+        @JavascriptInterface public void setBackendSelection(String value){try{boolean before=BackendSelection.direct(MainActivity.this);BackendSelection.save(MainActivity.this,value);if(before!=BackendSelection.direct(MainActivity.this)){invoiceZipCancelled.set(true);AlertJobService.cancel(MainActivity.this);}}catch(Exception invalid){throw new SecurityException("Η επιλογή λειτουργίας δεν αποθηκεύτηκε.");}}
+        @JavascriptInterface
+        public void openBackend(final String mode){if(!mode.matches("direct|cloudflare"))return;runOnUiThread(new Runnable(){public void run(){if(webView!=null)webView.loadUrl(mode.equals("direct")?BackendSelection.DIRECT+"/":"file:///android_asset/www/portal.html");}});}
+        @JavascriptInterface
         public String getAuthToken() {
-            return transientAuthToken == null ? "" : transientAuthToken;
+            synchronized(MainActivity.this){return transientAuthToken == null ? "" : transientAuthToken;}
         }
 
         @JavascriptInterface
         public void saveAuthToken(String token, boolean remember) {
+            synchronized(MainActivity.this){
             transientAuthToken = token == null ? "" : token;
-            SharedPreferences.Editor editor = getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE).edit();
-            if (remember && !transientAuthToken.isEmpty()) editor.putString(AUTH_TOKEN_KEY, transientAuthToken);
-            else editor.remove(AUTH_TOKEN_KEY);
-            editor.apply();
-            if (remember && !transientAuthToken.isEmpty()) AlertJobService.schedule(getApplicationContext());
+            try{gr.argyrismitsos.fleetupdates.SessionVault.save(MainActivity.this,getSharedPreferences(SESSION_PREFERENCES,MODE_PRIVATE),realmTokenKey(authRealm),authRealm,remember?transientAuthToken:"");}catch(Exception error){throw new SecurityException("Η αποθήκευση σύνδεσης δεν επιβεβαιώθηκε.");}
+            if (remember && !transientAuthToken.isEmpty()&&authRealm.equals(BackendSelection.apiBase(MainActivity.this))) AlertJobService.schedule(getApplicationContext());
+            }
         }
 
         @JavascriptInterface
         public void clearAuthToken() {
+            synchronized(MainActivity.this){
             transientAuthToken = "";
-            getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE).edit().remove(AUTH_TOKEN_KEY).apply();
+            if(!authRealm.isEmpty())gr.argyrismitsos.fleetupdates.SessionVault.clear(getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE),realmTokenKey(authRealm));
             AlertJobService.cancel(getApplicationContext());
+            }
         }
 
         @JavascriptInterface
@@ -469,7 +487,7 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    if (webView != null) webView.loadUrl("file:///android_asset/www/index.html?from=portal&embedded=1");
+                    if (webView != null) webView.loadUrl(BackendSelection.direct(MainActivity.this)?BackendSelection.DIRECT+"/fleet.html?embedded=1":"file:///android_asset/www/index.html?from=portal&embedded=1");
                 }
             });
         }
@@ -546,9 +564,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void exportInvoiceZip(final String manifest,final String token){
             if(manifest==null||manifest.length()>512*1024||token==null||token.length()<20||token.length()>4096)return;
+            final String realm=authRealm;final long revision=BackendSelection.revision(MainActivity.this);
             runOnUiThread(new Runnable(){public void run(){if(invoiceZipRunning)return;try{
+                if(!realm.equals(BackendSelection.apiBase(MainActivity.this))||revision!=BackendSelection.revision(MainActivity.this))throw new IllegalStateException("Η λειτουργία άλλαξε πριν την εξαγωγή.");
                 org.json.JSONArray files=new org.json.JSONObject(manifest).getJSONArray("files");if(files.length()<1||files.length()>500)return;
-                invoiceZipRunning=true;invoiceZipCancelled.set(false);pendingInvoiceZipJson=manifest;pendingInvoiceZipToken=token;
+                invoiceZipRunning=true;invoiceZipCancelled.set(false);pendingInvoiceZipJson=manifest;pendingInvoiceZipToken=token;pendingInvoiceZipRealm=realm;pendingInvoiceZipRevision=revision;
                 Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/zip");intent.putExtra(Intent.EXTRA_TITLE,"Fleet_Invoices.zip");startActivityForResult(intent,INVOICE_ZIP_REQUEST);
             }catch(Exception error){pendingInvoiceZipJson=null;pendingInvoiceZipToken=null;invoiceZipRunning=false;emitInvoiceZip("error",0,0);}}});
         }
@@ -698,13 +718,15 @@ public class MainActivity extends Activity {
 
     private UpdateInfo fetchUpdateInfo() throws Exception {
         HttpURLConnection connection = null;
+        final boolean direct=BackendSelection.direct(this);
         try {
-            URL endpoint = new URL(UPDATE_CHECK_URL);
+            URL endpoint = new URL(BackendSelection.apiBase(this)+"/api/client-update");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση ενημέρωσης.");
             connection = (HttpURLConnection) endpoint.openConnection();
             connection.setConnectTimeout(10000);
             connection.setReadTimeout(10000);
             connection.setUseCaches(false);
+            connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept", "application/json");
             if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) throw new IllegalStateException("HTTP " + connection.getResponseCode());
             org.json.JSONObject body = new org.json.JSONObject(readResponse(connection.getInputStream(), 64 * 1024));
@@ -718,6 +740,10 @@ public class MainActivity extends Activity {
                     body.optString("notes", "").trim(),
                     body.optInt("versionCode", 0),
                     body.optString("downloadUrl", UPDATE_DOWNLOAD_URL));
+        } catch(Exception error){
+            if(!direct)throw error;
+            org.json.JSONObject body=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");
+            return new UpdateInfo(body.getString("version"),body.getLong("sizeBytes"),body.getString("sha256"),body.optString("notes"),body.getInt("versionCode"),body.getString("downloadUrl"));
         } finally {
             if (connection != null) connection.disconnect();
         }
@@ -815,10 +841,11 @@ public class MainActivity extends Activity {
         if (apk.exists() && !apk.delete()) throw new IllegalStateException("Δεν καθαρίστηκε η προηγούμενη ενημέρωση.");
         try {
             URL endpoint = new URL(update.downloadUrl);
-            URL trusted = new URL(UPDATE_DOWNLOAD_URL);
-            if (!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort() || !trusted.getPath().equals(endpoint.getPath())) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
+            URL trusted = new URL(BackendSelection.apiBase(this)+"/download/client.apk");
+            if (!(BackendSelection.direct(this)&&gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl))&&(!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort() || !trusted.getPath().equals(endpoint.getPath()))) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση APK.");
-            connection = (HttpURLConnection) endpoint.openConnection();
+            if(endpoint.getUserInfo()!=null||endpoint.getRef()!=null)throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
+            connection = gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl)?gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint):(HttpURLConnection) endpoint.openConnection();
             connection.setConnectTimeout(15000);
             connection.setReadTimeout(30000);
             connection.setInstanceFollowRedirects(false);
@@ -901,14 +928,17 @@ public class MainActivity extends Activity {
     private void emitInvoiceZip(final String status,final int files,final int total){
         try{final String json=new org.json.JSONObject().put("status",status).put("files",files).put("total",total).toString();mainHandler.post(new Runnable(){public void run(){if(webView!=null)webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('fleet-invoice-zip',{detail:"+json+"}));",null);}});}catch(Exception ignored){}
     }
-    private void writeInvoiceZip(final Uri target,final String manifest,final String token){
+    private void writeInvoiceZip(final Uri target,final String manifest,final String token,final String realm,final long revision){
         new Thread(new Runnable(){public void run(){boolean success=false;int count=0;try{
+            if(!realm.equals(BackendSelection.apiBase(MainActivity.this))||revision!=BackendSelection.revision(MainActivity.this))throw new IllegalStateException("Η λειτουργία άλλαξε πριν την εξαγωγή.");
             org.json.JSONArray rows=new org.json.JSONObject(manifest).getJSONArray("files");final java.util.List<InvoiceZipWriter.Item> files=new java.util.ArrayList<InvoiceZipWriter.Item>();for(int i=0;i<rows.length();i++){org.json.JSONObject row=rows.getJSONObject(i);files.add(new InvoiceZipWriter.Item(row.getString("key"),row.getString("name")));}count=files.size();
             OutputStream output=getContentResolver().openOutputStream(target);if(output==null)throw new Exception("Output unavailable");
             try{InvoiceZipWriter.write(files,output,new InvoiceZipWriter.Source(){public InputStream open(String key)throws Exception{
-                final HttpURLConnection connection=(HttpURLConnection)new URL("https://fleet-control.pavlosargyris.workers.dev/api/service-documents/"+Uri.encode(key,"/")).openConnection();connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(20000);connection.setReadTimeout(45000);connection.setRequestProperty("Authorization","Bearer "+token);
+                if(!realm.equals(BackendSelection.apiBase(MainActivity.this))||revision!=BackendSelection.revision(MainActivity.this))throw new IllegalStateException("Η λειτουργία άλλαξε κατά την εξαγωγή.");
+                final HttpURLConnection connection=(HttpURLConnection)new URL(realm+"/api/service-documents/"+Uri.encode(key,"/")).openConnection();connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(20000);connection.setReadTimeout(45000);connection.setRequestProperty("Authorization","Bearer "+token);connection.setRequestProperty("X-Fleet-Backend-Revision",String.valueOf(revision));
                 try{if(connection.getResponseCode()!=200||connection.getContentLength()>InvoiceZipWriter.MAX_FILE)throw new Exception("PDF unavailable");return new java.io.FilterInputStream(connection.getInputStream()){@Override public void close()throws java.io.IOException{try{super.close();}finally{connection.disconnect();}}};}catch(Exception error){connection.disconnect();throw error;}
-            }},new InvoiceZipWriter.Control(){public boolean cancelled(){return invoiceZipCancelled.get();}public void progress(int done,int total,long bytes){emitInvoiceZip("progress",done,total);}});}finally{output.close();}
+            }},new InvoiceZipWriter.Control(){public boolean cancelled(){return invoiceZipCancelled.get()||!realm.equals(BackendSelection.apiBase(MainActivity.this))||revision!=BackendSelection.revision(MainActivity.this);}public void progress(int done,int total,long bytes){emitInvoiceZip("progress",done,total);}});}finally{output.close();}
+            if(!realm.equals(BackendSelection.apiBase(MainActivity.this))||revision!=BackendSelection.revision(MainActivity.this))throw new java.io.InterruptedIOException("Η λειτουργία άλλαξε κατά την εξαγωγή.");
             success=true;emitInvoiceZip("complete",count,count);
         }catch(Exception error){emitInvoiceZip(invoiceZipCancelled.get()?"cancelled":"error",0,count);}finally{
             if(!success){try{android.provider.DocumentsContract.deleteDocument(getContentResolver(),target);}catch(Exception ignored){}}

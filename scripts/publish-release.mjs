@@ -47,7 +47,7 @@ if (dryRun) {
   const request = async (path, method, body) => {
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        const response = await fetch(new URL(path, base), { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': method === 'POST' ? 'application/json' : 'application/octet-stream' }, body, redirect: 'error', signal: AbortSignal.timeout(method === 'POST' ? 180000 : 90000) });
+        const response = await fetch(new URL(path, base), { method, headers: { 'X-Fleet-Content-SHA256':crypto.createHash('sha256').update(body).digest('hex'), Authorization: `Bearer ${token}`, 'Content-Type': method === 'POST' ? 'application/json' : 'application/octet-stream' }, body, redirect: 'error', signal: AbortSignal.timeout(method === 'POST' ? 180000 : 90000) });
         if (!response.ok) {
           await response.body?.cancel().catch(() => {});
           if ((response.status === 429 || response.status >= 500) && attempt < 3) { console.log(`Retry ${attempt + 2}/4 ${method} ${path}: HTTP ${response.status}`);await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); continue; }

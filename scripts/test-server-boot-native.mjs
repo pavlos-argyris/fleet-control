@@ -8,11 +8,12 @@ const root=process.cwd(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-boot-gu
 try {
   const files={
     'BroadcastReceiver.java':'package android.content;public abstract class BroadcastReceiver{public abstract void onReceive(Context context,Intent intent);}',
-    'Intent.java':'package android.content;public class Intent{public static final String ACTION_BOOT_COMPLETED="android.intent.action.BOOT_COMPLETED",ACTION_MY_PACKAGE_REPLACED="android.intent.action.MY_PACKAGE_REPLACED";private String action;public Intent(String s){action=s;}public Intent(Context c,Class<?> cls){}public String getAction(){return action;}}',
+    'Intent.java':'package android.content;public class Intent{public static final String ACTION_BOOT_COMPLETED="android.intent.action.BOOT_COMPLETED",ACTION_MY_PACKAGE_REPLACED="android.intent.action.MY_PACKAGE_REPLACED";private String action;public String target;public Intent(){}public Intent setClassName(Context c,String name){target=name;return this;}public Intent(String s){action=s;}public Intent(Context c,Class<?> cls){}public String getAction(){return action;}}',
     'Context.java':'package android.content;public class Context{public static final int MODE_PRIVATE=0;public boolean automatic=true;public int reads,background,foreground;public SharedPreferences getSharedPreferences(String n,int mode){reads++;return new SharedPreferences(this);}public void startService(Intent intent){background++;}public void startForegroundService(Intent intent){foreground++;}}',
     'SharedPreferences.java':'package android.content;public class SharedPreferences{final Context c;public SharedPreferences(Context c){this.c=c;}public boolean getBoolean(String name,boolean fallback){if(!name.equals("automatic_start"))throw new AssertionError(name);return c.automatic;}}',
     'Build.java':'package android.os;public class Build{public static class VERSION{public static int SDK_INT=23;}}',
     'BackupManager.java':'package gr.argyrismitsos.fleetserver;public class BackupManager{public static final String PREFS="fixture";}',
+    'BackendMode.java':'package gr.argyrismitsos.fleetserver;import android.content.Context;public class BackendMode{public static boolean selected;public static boolean direct(Context c){return selected;}}',
     'SyncService.java':'package gr.argyrismitsos.fleetserver;public class SyncService{}',
     'NativeColdRuntime.java':'package gr.argyrismitsos.fleetserver;import android.content.Context;public class NativeColdRuntime{public static boolean pending;public static boolean blocked(Context c){return pending;}}',
     'BootTest.java':String.raw`import android.content.*;import android.os.Build;import gr.argyrismitsos.fleetserver.BootReceiver;

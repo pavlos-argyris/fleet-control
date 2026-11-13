@@ -3,6 +3,7 @@
   const bridge=window.AndroidServer,anchor=document.getElementById('settingsDiagnostics');
   if(!anchor||typeof bridge?.getPrimaryMigrationStatus!=='function')return;
   const old=document.getElementById('settingsAuthority');if(old)old.hidden=true;
+  try{if(JSON.parse(bridge.getBackendMode()).activeMode==='direct')return;}catch{}
   const section=document.createElement('details');section.className='server-group';section.id='settingsPrimary';
   section.innerHTML='<summary><span><strong>Κύρια βάση δεδομένων</strong><small>Μεταφορά δεδομένων και ασφαλής απομακρυσμένη πρόσβαση</small></span></summary><div class="server-group-body">'+
     '<p data-primary-state role="status" aria-live="polite"></p><p data-primary-stage></p><p data-primary-error role="alert"></p>'+

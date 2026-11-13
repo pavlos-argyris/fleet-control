@@ -32,7 +32,7 @@ public final class UpdateManager {
 
     public static JSONObject uploadClientApk(Context context, Uri uri) throws Exception {
         File temporary = new File(context.getCacheDir(), "fleet-client-upload.apk");
-        copy(context.getContentResolver().openInputStream(uri), new FileOutputStream(temporary), MAX_WEB_TOTAL_BYTES * 3L);
+        copy(context.getContentResolver().openInputStream(uri), new FileOutputStream(temporary), 192L * 1024 * 1024);
         PackageInfo info = context.getPackageManager().getPackageArchiveInfo(temporary.getAbsolutePath(), 0);
         if (info == null || !"gr.argyrismitsos.fleetcontrol".equals(info.packageName)) {
             temporary.delete();
@@ -45,6 +45,7 @@ public final class UpdateManager {
         Map<String, String> headers = SyncService.serverHeaders();
         headers.put("X-Release-Version", version);
         headers.put("X-Release-Notes", "Ανέβηκε από το Fleet Control Server");
+        headers.put("X-Fleet-Content-SHA256",gr.argyrismitsos.fleetupdates.OtaInstaller.sha256(temporary));
         JSONObject result = FleetHttp.putStream(workerUrl(context) + "/api/admin/releases/client",
                 new FileInputStream(temporary), temporary.length(), "application/vnd.android.package-archive", headers);
         temporary.delete();

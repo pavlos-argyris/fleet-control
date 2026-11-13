@@ -38,7 +38,7 @@
     </header>
 
     <main class="server-content">
-      <section id="panelStatus" class="tab-panel" data-panel="status"><div class="section-heading"><div><span class="overline dark">ΕΠΟΠΤΕΙΑ SERVER</span><h2>Κατάσταση</h2></div></div><p class="server-page-intro">Η λειτουργία του Server και οι εργασίες που εκτελούνται αυτή τη στιγμή.</p>
+      <section id="panelStatus" class="tab-panel" data-panel="status"><div class="section-heading"><div><span class="overline dark">ΕΠΟΠΤΕΙΑ SERVER</span><h2>Κατάσταση</h2></div></div><p id="backendCurrentMode" class="server-page-intro" role="status">Cloudflare · χωριστά δεδομένα</p><p class="server-page-intro">Η λειτουργία του Server και οι εργασίες που εκτελούνται αυτή τη στιγμή.</p>
         <div class="ui-server-links"><button type="button" class="ui-server-link" data-server-jump="backup"><span><strong>Αντίγραφα ασφαλείας →</strong><small>Δημιουργία, έλεγχος και επαναφορά</small></span></button><button type="button" class="ui-server-link" data-server-jump="updates"><span><strong>Ενημερώσεις OTA →</strong><small>Έκδοση, λήψη και εγκατάσταση</small></span></button></div>
         <div class="metrics">
           <div><strong id="metricBikes">0</strong><span>μηχανάκια</span></div>
@@ -194,6 +194,14 @@
       <section id="panelSettings" class="tab-panel is-hidden" data-panel="settings">
         <div class="section-heading"><div><span class="overline dark">ΠΑΡΑΜΕΤΡΟΠΟΙΗΣΗ</span><h2>Ρυθμίσεις server</h2></div></div>
         <p class="server-page-intro">Συνδέσεις, δεδομένα και λειτουργία της συσκευής, οργανωμένα ανά ενότητα.</p>
+        <details class="server-group" id="backendModePanel"><summary><span><strong>Cloudflare / Direct Android Server</strong><small>Ενιαίος διακόπτης και ασφαλής προετοιμασία</small></span></summary><div class="server-group-body">
+          <p id="backendModeStatus" role="status" style="white-space:pre-line">Φόρτωση επιλογής…</p>
+          <p class="muted">Κάθε λειτουργία διατηρεί τα δικά της δεδομένα. Οι συσκευές λαμβάνουν την επιλογή όταν μπορούν να συνδεθούν στον Direct Server. Δεν γίνεται αυτόματη επιστροφή.</p>
+          <button id="backendPrepare" type="button" class="secondary-action">Προετοιμασία Direct / backup / HTTPS</button>
+          <form id="backendOwnerForm" class="settings-form"><label><span>Username ιδιοκτήτη της τοπικής βάσης</span><input id="backendUsername" autocomplete="username" required></label><label><span>Κωδικός</span><input id="backendPassword" type="password" autocomplete="current-password" required></label><button type="submit" class="secondary-action">Σύνδεση ιδιοκτήτη</button></form>
+          <label class="switch-row"><span>Direct Android Server</span><input id="backendModeToggle" type="checkbox" role="switch"></label>
+          <p id="backendModeMessage" class="action-message" role="status" aria-live="polite"></p>
+        </div></details>
         <h3 class="server-category">Συνδέσεις και συγχρονισμός</h3>
         <section id="ordexaServerPanel" class="ordexa-panel" aria-label="Σύνδεση Ordexa"></section>
         <form id="settingsForm" class="settings-form">
@@ -279,6 +287,7 @@
   <script src="./server-recovery.js"></script>
   <script src="./ordexa-server.js"></script>
   <script src="./server-ui.js"></script>
+  <script src="./backend-mode.js"></script>
 
 
 </body></html>

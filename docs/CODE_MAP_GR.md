@@ -18,6 +18,7 @@
 | Μηχανάκια και service | `service-operations.js`, `fleet-operations*.js`, `NextServiceNotes.java` | `test-fleet-operations-*.mjs`, `test-service-*.mjs` |
 | Backup/restore | `Backup*.java`, `HistoryMergePolicy.java` | `test-backup-*.mjs` |
 | Direct encrypted access | `Direct*.java`, `direct-relay.js`, `direct-*.js` | `test-direct-*.mjs` |
+| Ενιαίος Cloudflare / Direct | `BackendMode.java`, `unified-android/`, `backend-mode.js`, `prepare-unified-direct.py` | `test-backend-mode*.mjs`, `test-large-release.mjs`, `test-unified-server-browser.mjs` |
 | Client APK / mobile web | `client-android/src/.../MainActivity.java`, `portal.html`, `fleet-navigation.js` | `test-client-landscape*.mjs`, `test-ui-system*.mjs` |
 | Server UI και reconnect | `server-android/assets/www/server-*.js`, `MainActivity.java` | `test-server-reconnect-*.mjs`, `test-server-settings-recovery.mjs` |
 | Build, OTA, GitHub CI | `.github/workflows/`, `scripts/build-android.sh`, `release-config.json` | `test-publish-request.mjs`, `test-ota-releases.mjs` |
@@ -61,3 +62,11 @@
 Ο `OrdexaCashOrderProtocol` κρατά μόνο τα πραγματικά παρατηρημένα αριθμητικά `id/riderId/shopId`, `at` και `rider`. Ο `OrdexaCashSourceStore` συμμετέχει στο υπάρχον `StoreBillingSync`: τοπικό staging, δύο πλήρεις ίδιες αναγνώσεις, ατομικός δείκτης snapshot, παρατηρήσεις αλλαγών/απουσίας και ιστορικό ονομάτων, χωρίς οικονομική εφαρμογή. Το `server-runtime/cash-source.js` προσφέρει ιστορικές scoped αντιστοιχίσεις και coalesced durable αιτήματα προς τον ίδιο reader. Πρώτοι έλεγχοι: `test-ordexa-cash-source-native.mjs`, `test-store-billing-pipeline.mjs`, `test-business-runtime-native.mjs`, `test-native-management-ui.mjs` και `test-native-management-browser.mjs`.
 
 Το `cash-contract.js` ορίζει το επιβεβαιωμένο contract παράδοσης/απουσίας (ιδιοκτήτης07/11). Ο `cash-auto.js` εφαρμόζει πηγή μόνο με πλήρες επαναληπτικό snapshot σε τοπικές παρτίδες200, immutable ledger/history, pinned τιμές, manual cutover και εξαιρέσεις. Το `CashSync` ζητά current/previous05-day στον ίδιο reader ανά120sec και καλεί αποκλειστικά το εσωτερικό native financial port· δεν κάνει HTTP. Πρόσθετοι πραγματικοί έλεγχοι: `test-cash-auto-sqlite.mjs`, `test-cash-pilot-native.mjs`, `BusinessAutomaticCashChecks` και οι νέες automatic DOM/Chromium οθόνες.
+
+## Ανεξάρτητο Android test #90
+
+`independent-android/`, `independent-client/`, `independent-web/` και `server-runtime/standalone.js`: ξεχωριστά application IDs, πραγματικό FCB3 local restore, standalone authority, HTTPS/DuckDNS/ACME, native Web hosting και owner readiness/activation gates. Τα staged build inputs δημιουργούνται από `prepare-independent-build.py` χωρίς αλλαγή παραγωγικών manifests/assets. Η επίσημη SQLite/JSON κλειδώνεται στο `android-build-support/independent-sqlite.lock.json` και εφαρμόζεται μόνο στο staged Server. Το `scripts/test-independent-android.sh` εκτελεί το πραγματικό APK σε API30 (stock SQLite χωρίς JSON), με full SAF/FCB3 cold import και owner login. Οι φυσικοί έλεγχοι δεύτερης συσκευής/Nova/4G παραμένουν ρητά ξεχωριστή παραλαβή.
+
+## Ενιαίος Server #95
+
+Το `BackendMode` και τα Client/Web modules επιλογής κρατούν μία λογική επιλογή με epoch/fencing και τοπική offline ανάκτηση. Το `prepare-unified-direct.py` παράγει τη δεύτερη native MainActivity από την ίδια πηγή, στο ιδιωτικό :direct process. Τα `unified-android/src/...` συνδέουν ScopedContext, ιδιωτικό control provider, αυτόματο/χειροκίνητο FCB3, Direct cold recovery, τοπικές εκδόσεις Web/Client και scoped OTA callbacks με το κανονικό UI. Το `UnifiedNativeChecks` εκτελείται μόνο στο disposable Android test APK και ελέγχει πραγματικό SAF export/restore και διατήρηση Cloud δεδομένων. Οδηγός: `ISSUE_95_UNIFIED_MODE_GR.md`.
