@@ -30,7 +30,13 @@ public final class DirectHost {
     static boolean paused(Context c){return NativeRecoveryController.replacing()||NativeColdRuntime.blocked(c)||c.getSharedPreferences(BackupManager.PREFS,0).getBoolean("native_recovery_pending",false)||c.getSharedPreferences(BackupManager.PREFS,0).getBoolean("ota_quiescing",false);}
     static JSONObject primary(Context c)throws Exception{
         JSONObject config=IndependentConfig.read(c);
-        return new JSONObject().put("phase",c.getSharedPreferences(BackupManager.PREFS,0).getBoolean("native_recovery_pending",false)?"recovering":"active").put("realm",BackendMode.DIRECT).put("ready",config.has("backupSha256")).put("available",IndependentService.listenerOnline()).put("direct",true);
+        return new JSONObject().put("phase",c.getSharedPreferences(BackupManager.PREFS,0).getBoolean("native_recovery_pending",false)?"recovering":BackendMode.approved(c)?"active":"preparing").put("realm",BackendMode.DIRECT).put("ready",config.has("backupSha256")&&BackendMode.approved(c)).put("available",IndependentService.listenerOnline()).put("direct",true);
+    }
+    static void confirmReadiness(Context c,IndependentRuntime runtime)throws Exception{
+        if(!gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY||BackendMode.approved(c))return;
+        JSONObject config=IndependentConfig.read(c);
+        if(paused(c)||!config.has("backupSha256")||!config.getJSONObject("restoreProof").optBoolean("restoreVerified")||!IndependentTls.valid(c,config.optString("hostname"))||!IndependentService.listenerOnline()||!runtime.switchReadiness().optBoolean("ready"))throw new IOException("Ολοκλήρωσε την ασφαλή προετοιμασία και τον εξωτερικό έλεγχο HTTPS.");
+        BackendMode.select(c,"direct",BackendMode.read(c).getLong("revision"),true,"");
     }
     static JSONObject access(Context c)throws Exception{return new JSONObject().put("enabled",true).put("paired",true).put("direct",true).put("realm",BackendMode.DIRECT).put("online",IndependentService.listenerOnline()).put("message","Σύνδεση στο fleet-control.duckdns.org με όνομα χρήστη και κωδικό.");}
     static void cloudOnly()throws IOException{throw new IOException("Η μεταφορά Cloudflare είναι διαθέσιμη στη λειτουργία Cloudflare. Ο διακόπτης διατηρεί ανεξάρτητα τα δεδομένα των δύο λειτουργιών.");}

@@ -24,16 +24,17 @@ try{
   const cached=await page.evaluate(async()=>{const urls=[];for(const key of await caches.keys())for(const request of await(await caches.open(key)).keys())urls.push(new URL(request.url).pathname);return urls;});
   assert(cached.includes('/portal.html')&&cached.includes('/fleet.html')&&cached.some(x=>x.endsWith('/backend-mode.js')),'actual generated shell precaches both views and recovery module');
   assert(!cached.some(x=>x.startsWith('/api/')||x.startsWith('/download/')||x==='/fleet-mode.json'),'no private API/mode/APK cache');assert.equal(writes,1);
-  await context.setOffline(true);await page.reload();await page.getByRole('button',{name:'Ανάκτηση Cloudflare',exact:true}).waitFor();
+  await context.setOffline(true);await page.reload();await page.getByRole('button',{name:'Επανάληψη σύνδεσης',exact:true}).waitFor();
   const offline=await page.evaluate(async()=>{const result=[];for(const [url,method]of [['/api/fixture','GET'],['/api/fixture','POST'],['/fleet-mode.json','GET']])try{const response=await fetch(url,{method,...(method==='POST'?{body:'{}'}:{})});result.push({status:response.status,code:(await response.json()).code});}catch{result.push({networkFailed:true});}return result;});
   // The shipped Direct transport converts API network failures into explicit
   // 503 errors so existing forms retain their drafts. Discovery stays raw.
   assert.deepEqual(offline,[{status:503,code:'independent_unavailable'},{status:503,code:'independent_unavailable'},{networkFailed:true}],'offline API calls return explicit unconfirmed errors, never cached success');
   await page.evaluate(()=>FleetBackend.apply({...FleetBackend.selection,activeMode:'direct',selectedMode:'direct',revision:5},{navigate:false}));
-  await Promise.all([page.waitForEvent('domcontentloaded'),page.getByRole('button',{name:'Ανάκτηση Cloudflare',exact:true}).click()]);
-  await page.waitForFunction(()=>window.FleetBackend?.selection.localRecovery===true&&FleetBackend.selection.activeMode==='cloudflare');
+  await page.getByRole('button',{name:'Επανάληψη σύνδεσης',exact:true}).click();
+  await page.waitForFunction(()=>window.FleetBackend?.selection.activeMode==='direct'&&!FleetBackend.selection.localRecovery);
+  assert.equal(await page.getByRole('button',{name:'Ανάκτηση Cloudflare',exact:true}).count(),0,'Cloud recovery is inactive in the shipped policy');
   await page.locator('#bootScreen').waitFor({state:'hidden'});
-  await page.getByRole('button',{name:'Ανάκτηση Cloudflare',exact:true}).click({trial:true});
+  await page.getByRole('button',{name:'Επανάληψη σύνδεσης',exact:true}).click({trial:true});
   assert.equal(writes,1,'offline mutation was not replayed');
   await page.screenshot({path:path.join(out,'offline-recovery-390.png'),fullPage:true});
   await context.setOffline(false);await page.reload();assert.equal(writes,1,'reconnection never replays the failed POST');await context.close();

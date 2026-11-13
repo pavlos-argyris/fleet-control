@@ -26,11 +26,10 @@ public final class DirectControlProvider extends ContentProvider {
             }
             initialize();IndependentRuntime runtime=IndependentRuntime.get(scope);
             if(method.equals("login")){
-                JSONObject reply=runtime.localLogin(extras.getString("username",""),extras.getString("password",""));
-                if(reply.getInt("status")!=200)throw new Exception("Η τοπική σύνδεση ιδιοκτήτη δεν επιβεβαιώθηκε.");
-                JSONObject body=new JSONObject(reply.getString("body"));if(!body.getJSONObject("user").optString("role").equals("owner"))throw new Exception("Απαιτείται λογαριασμός ιδιοκτήτη.");
+                JSONObject body=RememberedOwner.login(scope,extras.getString("username",""),extras.getString("password",""));
                 result.putString("token",body.getString("token"));
             }else if(method.equals("check")){
+                if(gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY&&!"direct".equals(argument))throw new Exception("Η επιλογή Cloudflare είναι προσωρινά ανενεργή.");
                 // Fresh local auth is checked even when the public listener/router is offline.
                 String token=extras.getString("token","");JSONObject auth=runtime.external(new JSONObject().put("url",runtime.realm()+"/api/auth/me").put("method","GET").put("headers",new JSONObject().put("Authorization","Bearer "+token)));
                 if(auth.getInt("status")!=200||!new JSONObject(auth.getString("body")).getJSONObject("user").optString("role").equals("owner"))throw new Exception("Συνδέσου ξανά ως ιδιοκτήτης.");

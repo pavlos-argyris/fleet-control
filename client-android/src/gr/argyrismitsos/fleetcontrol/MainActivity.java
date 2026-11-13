@@ -214,6 +214,11 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view,android.webkit.WebResourceRequest request,android.webkit.WebResourceError error){
                 if(!request.isForMainFrame()||!BackendSelection.direct(MainActivity.this))return;
+                if(gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY){
+                    new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Ο Server δεν είναι διαθέσιμος").setMessage("Έλεγξε ότι ο Android Server λειτουργεί και έχει έτοιμο HTTPS. Η σύνδεση παραμένει μέσω Server.")
+                        .setPositiveButton("Επανάληψη σύνδεσης",new android.content.DialogInterface.OnClickListener(){public void onClick(android.content.DialogInterface dialog,int which){view.loadUrl(BackendSelection.DIRECT+"/");}})
+                        .setNegativeButton("Κλείσιμο",null).show();return;
+                }
                 new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Direct Server εκτός σύνδεσης").setMessage("Η επιλογή Direct διατηρείται. Η αποθήκευση δεν επιβεβαιώθηκε.")
                     .setPositiveButton("Ανάκτηση Cloudflare",new android.content.DialogInterface.OnClickListener(){public void onClick(android.content.DialogInterface dialog,int which){try{org.json.JSONObject selected=new org.json.JSONObject(BackendSelection.read(MainActivity.this)).put("activeMode","cloudflare").put("selectedMode","cloudflare").put("localRecovery",true);BackendSelection.save(MainActivity.this,selected.toString());webView.loadUrl("file:///android_asset/www/portal.html");}catch(Exception invalid){Toast.makeText(MainActivity.this,"Η επιλογή δεν αποθηκεύτηκε.",Toast.LENGTH_LONG).show();}}})
                     .setNegativeButton("Επανάληψη",new android.content.DialogInterface.OnClickListener(){public void onClick(android.content.DialogInterface dialog,int which){view.reload();}}).setNeutralButton("Παραμονή",null).show();
@@ -453,7 +458,7 @@ public class MainActivity extends Activity {
         public String getBackendSelection(){return BackendSelection.read(MainActivity.this);}
         @JavascriptInterface public void setBackendSelection(String value){try{boolean before=BackendSelection.direct(MainActivity.this);BackendSelection.save(MainActivity.this,value);if(before!=BackendSelection.direct(MainActivity.this)){invoiceZipCancelled.set(true);AlertJobService.cancel(MainActivity.this);}}catch(Exception invalid){throw new SecurityException("Η επιλογή λειτουργίας δεν αποθηκεύτηκε.");}}
         @JavascriptInterface
-        public void openBackend(final String mode){if(!mode.matches("direct|cloudflare"))return;runOnUiThread(new Runnable(){public void run(){if(webView!=null)webView.loadUrl(mode.equals("direct")?BackendSelection.DIRECT+"/":"file:///android_asset/www/portal.html");}});}
+        public void openBackend(final String mode){if(!mode.matches("direct|cloudflare")||gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY&&!mode.equals("direct"))return;runOnUiThread(new Runnable(){public void run(){if(webView!=null)webView.loadUrl(mode.equals("direct")?BackendSelection.DIRECT+"/":"file:///android_asset/www/portal.html");}});}
         @JavascriptInterface
         public String getAuthToken() {
             synchronized(MainActivity.this){return transientAuthToken == null ? "" : transientAuthToken;}

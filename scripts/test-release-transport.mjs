@@ -10,3 +10,7 @@ await sandbox.upload(files,request,s=>progress.push(s));assert.equal(finished,fi
 fail=true;let activated=false;calls.length=0;await assert.rejects(async()=>{await sandbox.upload(files,request,()=>{});activated=true;},/Transport fixture failure/);assert.equal(active,0,'All outstanding uploads settle before the failure is returned');assert.equal(activated,false);assert.ok(calls.length<files.length,'A failed upload stops new transfers');
 await assert.rejects(()=>sandbox.upload(files,async()=>({sha256:'bad',sizeBytes:1}),()=>{}),/Upload verification failed/);
 console.log('PASS actual release transport: sequential large APKs, at most three Web uploads, verified progress, hash rejection and no activation/dangling transfers after failure.');
+Object.assign(sandbox.manifest,{releaseId:'v5.64.0-'+ 'a'.repeat(12),sourceCommit:'a'.repeat(40)});
+const large={remote:'server.apk',local:'server.apk',version:'2.13.0',sha256:'b'.repeat(64),sizeBytes:105406116};
+await sandbox.upload([large],async(route,method,body)=>{assert(route.endsWith('/server.apk/from-github'));assert.equal(method,'POST');assert.deepEqual(JSON.parse(body),{releaseVersion:'5.64.0',sourceCommit:'a'.repeat(40),version:'2.13.0',sha256:large.sha256,sizeBytes:large.sizeBytes});return {sha256:large.sha256,sizeBytes:large.sizeBytes};},()=>{});
+console.log('PASS full oversized APK transport uses the already signed GitHub release and a bounded control request.');

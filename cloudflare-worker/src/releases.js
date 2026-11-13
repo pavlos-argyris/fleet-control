@@ -13,6 +13,19 @@ function metadata(row) { try { return JSON.parse(row.manifest || "{}"); } catch 
 function contentType(path) {
   return ({ apk: "application/vnd.android.package-archive", html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8", wasm: "application/wasm", css: "text/css; charset=utf-8", json: "application/json", webmanifest: "application/manifest+json", png: "image/png", svg: "image/svg+xml" })[path.split(".").pop()] || "application/octet-stream";
 }
+async function githubApk(body,kind,fetchAsset) {
+  let target=new URL(`https://github.com/pavlos-argyris/fleet-control/releases/download/fleet-v${body.releaseVersion}/Fleet_Control_${kind==='server'?'Server':'Client'}_v${body.version}.apk`);
+  for(let redirects=0;redirects<5;redirects++){
+    if(target.protocol!=='https:'||target.username||target.password||target.port||!['github.com','release-assets.githubusercontent.com','objects.githubusercontent.com'].includes(target.hostname))throw Error('Untrusted release redirect');
+    if(target.hostname==='github.com'&&!target.pathname.startsWith('/pavlos-argyris/fleet-control/releases/download/'))throw Error('Untrusted repository path');
+    // Never forward the publishing credential, Server key, cookies or sessions.
+    const response=await fetchAsset(target.href,{redirect:'manual',headers:{Accept:'application/octet-stream','Accept-Encoding':'identity'},signal:AbortSignal.timeout(90000)});
+    if(response.status>=300&&response.status<400){const location=response.headers.get('location');await response.body?.cancel();if(!location)throw Error('Missing redirect');target=new URL(location,target);continue;}
+    if(response.status!==200||!response.body||response.headers.has('content-length')&&Number(response.headers.get('content-length'))!==body.sizeBytes){await response.body?.cancel();throw Error('Release bytes unavailable');}
+    return response;
+  }
+  throw Error('Too many release redirects');
+}
 export async function routeReleases(request, env, helpers) {
   const { json, secureEqual, serverAuthorized, digestHex, invalidateWeb } = helpers;
   const url = new URL(request.url), path = url.pathname;
@@ -20,6 +33,19 @@ export async function routeReleases(request, env, helpers) {
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "") || "";
     if (!env.RELEASE_TOKEN || !token || !await secureEqual(token, env.RELEASE_TOKEN)) return json({ error: "Δεν επιτρέπεται η δημοσίευση." }, 401);
     if (!env.RELEASES) return json({ error: "Λείπει ο χώρος εκδόσεων." }, 503);
+    const imported=path.match(/^\/api\/deploy\/releases\/([^/]+)\/(client|server)\.apk\/from-github$/);
+    if(imported&&request.method==='POST'){
+      if(!ID.test(imported[1]))return json({error:'Μη έγκυρη ταυτότητα έκδοσης.'},400);
+      const reader=request.body?.getReader();if(!reader)return json({error:'Λείπουν τα στοιχεία APK.'},400);
+      const chunks=[];let size=0;while(true){const part=await reader.read();if(part.done)break;size+=part.value.length;if(size>4096){await reader.cancel();return json({error:'Μεγάλο αίτημα μεταφοράς.'},413);}chunks.push(part.value);}
+      let body;try{const bytes=new Uint8Array(size);let offset=0;for(const part of chunks){bytes.set(part,offset);offset+=part.length;}body=JSON.parse(new TextDecoder().decode(bytes));}catch{return json({error:'Μη έγκυρα στοιχεία APK.'},400);}
+      if(!/^\d+\.\d+\.\d+$/.test(body.releaseVersion||'')||!/^\d+\.\d+\.\d+$/.test(body.version||'')||!/^[a-f0-9]{40}$/.test(body.sourceCommit||'')||imported[1]!==`v${body.releaseVersion}-${body.sourceCommit.slice(0,12)}`||!SHA.test(body.sha256||'')||!Number.isSafeInteger(body.sizeBytes)||body.sizeBytes<1||body.sizeBytes>APK_LIMIT)return json({error:'Μη έγκυρα μέγεθος, hash ή πηγαία έκδοση APK.'},400);
+      const remote=imported[2]+'.apk',key=`ota/${imported[1]}/${remote}`,old=await env.RELEASES.head(key);
+      if(old)return old.size===body.sizeBytes&&old.customMetadata?.sha256===body.sha256?json({uploaded:true,sha256:body.sha256,sizeBytes:body.sizeBytes}):json({error:'Τα αρχεία μιας έκδοσης δεν αντικαθίστανται.'},409);
+      let response;try{response=await githubApk(body,imported[2],helpers.releaseFetch||fetch);}catch{return json({error:'Δεν επιβεβαιώθηκε η λήψη του δημοσιευμένου APK από το GitHub.'},502);}
+      // Use the same bounded R2 stream and native checksum verification as PUT.
+      return routeReleases(new Request(`${url.origin}/api/deploy/releases/${imported[1]}/${remote}`,{method:'PUT',headers:{Authorization:request.headers.get('authorization'),'Content-Length':String(body.sizeBytes),'X-Fleet-Content-SHA256':body.sha256},body:response.body}),env,helpers);
+    }
     if (path === "/api/deploy/releases/activate" && request.method === "POST") {
       if (Number(request.headers.get("content-length") || 0) > MAX_RELEASE_MANIFEST_BYTES) return json({ error: "Μεγάλο manifest." }, 413);
       const text = await request.text();

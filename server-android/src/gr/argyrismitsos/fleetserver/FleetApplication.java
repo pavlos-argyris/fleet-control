@@ -12,6 +12,7 @@ public final class FleetApplication extends Application {
         }
         if(process.equals(getPackageName()+":restore"))return;
         if(!process.equals(getPackageName())){getSharedPreferences(BackupManager.PREFS,MODE_PRIVATE).edit().putBoolean("native_recovery_blocked",true).commit();return;}
+        if(gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY)return;
         NativeColdRuntime.prepareStartup(this);if(!NativeColdRuntime.blocked(this))NativePrimaryService.install(this);
     }
 }

@@ -1,24 +1,24 @@
 {
-  "releaseVersion": "5.63.0",
-  "notes": "• Προστέθηκε ενιαίος διακόπτης Cloudflare / Direct στο υπάρχον Server.\n• Η επιλογή αποθηκεύεται τοπικά χωρίς απαίτηση πρόσβασης Cloudflare.\n• Κάθε λειτουργία διατηρεί χωριστά δεδομένα και συνδέσεις, χωρίς αυτόματη επιστροφή.\n• Προστέθηκαν ασφαλής προετοιμασία HTTPS, κατάσταση listener και ανάκτηση σύνδεσης.",
+  "releaseVersion": "5.64.0",
+  "notes": "• Server, Client και Web συνδέονται πλέον μέσω του Android Server.\n• Οι επιλογές Cloudflare είναι προσωρινά ανενεργές και ο μηχανισμός διατηρείται για μελλοντική επανενεργοποίηση.\n• Διορθώθηκε το σφάλμα φόρτωσης της κατάστασης Direct στον Server.\n• Διατηρούνται τα χωριστά δεδομένα και η ασφαλής προετοιμασία HTTPS.",
   "client": {
-    "version": "5.63.0",
-    "versionCode": 107,
+    "version": "5.64.0",
+    "versionCode": 108,
     "packageName": "gr.argyrismitsos.fleetcontrol"
   },
   "server": {
-    "version": "2.12.0",
-    "versionCode": 77,
+    "version": "2.13.0",
+    "versionCode": 78,
     "packageName": "gr.argyrismitsos.fleetserver"
   },
   "web": {
-    "version": "5.63.0",
+    "version": "5.64.0",
     "retainedAssetVersions": [
-      "5.62.1",
-      "5.62.0"
+      "5.63.0",
+      "5.62.1"
     ]
   },
   "worker": {
-    "version": "5.20.0"
+    "version": "5.21.0"
   }
 }

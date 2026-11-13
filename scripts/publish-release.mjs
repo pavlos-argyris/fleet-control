@@ -15,7 +15,10 @@ const files = [
 async function uploadFiles(files, request, report = console.log) {
   let completed = 0, cursor = 0, failure = null;
   const upload = async file => {
-    const result = await request(`/api/deploy/releases/${manifest.releaseId}/${file.remote}`, 'PUT', fs.readFileSync(file.local));
+    const largeApk=!file.remote.startsWith('web/')&&file.sizeBytes>90*1024*1024;
+    const result = largeApk
+      ? await request(`/api/deploy/releases/${manifest.releaseId}/${file.remote}/from-github`, 'POST', JSON.stringify({releaseVersion:manifest.releaseId.match(/^v(\d+\.\d+\.\d+)-/)?.[1],sourceCommit:manifest.sourceCommit,version:file.version,sha256:file.sha256,sizeBytes:file.sizeBytes}))
+      : await request(`/api/deploy/releases/${manifest.releaseId}/${file.remote}`, 'PUT', fs.readFileSync(file.local));
     if (result.sha256 !== file.sha256 || result.sizeBytes !== file.sizeBytes) throw new Error(`Upload verification failed: ${file.remote}`);
     completed++;
     if (completed <= 2 || completed % 10 === 0 || completed === files.length) report(`Verified upload ${completed}/${files.length}: ${file.remote}`);
