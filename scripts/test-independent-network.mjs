@@ -31,6 +31,31 @@ public class IndependentNetworkTest {
   JSONObject identity=new JSONObject().put("key",java.util.Base64.getEncoder().encodeToString(privateKey.getEncoded())).put("chain",chain);tls=IndependentTls.context(identity,host,true);AcmeProtocolChecks.run(IndependentAcme.decode(identity.getString("key")),chain,true);
   boolean mismatch=false;try{IndependentTls.chain(identity,"other.duckdns.org",true);}catch(Exception expected){mismatch=true;}check(mismatch,"hostname/SAN mismatch denied");
   JSONObject wrong=new JSONObject(identity.toString()).put("key",IndependentAcme.encoded(IndependentAcme.generate().getPrivate()));mismatch=false;try{IndependentTls.chain(wrong,host,true);}catch(Exception expected){mismatch=true;}check(mismatch,"mismatched TLS key denied");
+  // New no-password device-to-device format: cleartext private key, strict
+  // hostname + real trusted certificate/private-key proof before installation.
+  byte[] plain=IndependentCertificateTransfer.exportPlain(identity,host);
+  check(plain.length<65536&&new String(plain,"UTF-8").contains(identity.getString("key"))&&
+        new String(plain,"UTF-8").contains("BEGIN CERTIFICATE"),
+        "Plain owner-controlled export contains the exact private key and chain");
+  JSONObject plainImported=IndependentCertificateTransfer.importPlain(plain,host);
+  check(plainImported.getString("key").equals(identity.getString("key"))&&
+        plainImported.getString("chain").equals(identity.getString("chain")),
+        "Plain import is exact, without password");
+  IndependentTls.chain(plainImported,host,true);
+  boolean plainRejected=false;
+  try{IndependentCertificateTransfer.importPlain(plain,"other.duckdns.org");}
+  catch(IOException expected){plainRejected=true;}
+  check(plainRejected,"Plain file cannot import for a different DuckDNS name");
+  JSONObject wrongPlain=new JSONObject(new String(plain,"UTF-8"))
+        .put("key",IndependentAcme.encoded(IndependentAcme.generate().getPrivate()));
+  plainRejected=false;
+  try{IndependentTls.chain(IndependentCertificateTransfer.importPlain(wrongPlain.toString().getBytes("UTF-8"),host),host,true);}
+  catch(Exception expected){plainRejected=true;}
+  check(plainRejected,"Even valid-formatted plaintext transfer with wrong TLS key is rejected");
+  plainRejected=false;
+  try{IndependentCertificateTransfer.importPlain("not a Fleet TLS file".getBytes("UTF-8"),host);}
+  catch(IOException expected){plainRejected=true;}
+  check(plainRejected,"Malformed plaintext transfer is rejected");
   // Transfer must wrap the real TLS identity offline and fail closed on every mutation.
   String portableCode="fixture-only-very-long-private-passphrase";
   byte[] portable=IndependentCertificateTransfer.encrypt(identity,host,portableCode);
