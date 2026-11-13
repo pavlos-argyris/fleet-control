@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-1132b687-df83-491a-b4cb-7e12eb9d8ba1",
-  "sourceCommit": "62f378c519a9c8186b85cf57a3f8aeba8ea04b4c",
+  "requestId": "fleet-16e9790f-22e5-4402-88d0-ebd503299184",
+  "sourceCommit": "99f0bfeb5e12d6c9472c0253a64fa624c1b55db4",
   "releaseVersion": "5.63.0",
-  "requestedAt": "2026-11-13T03:27:26.104Z",
-  "reason": "Πλήρης υλοποίηση Issue #95 και κανονική αυτόματη ενημέρωση μετά επιτυχείς ελέγχους, με αρχικό Cloudflare και χωρίς ενεργοποίηση Direct από τον agent."
+  "requestedAt": "2026-11-13T09:26:14.728Z",
+  "reason": "Ολοκλήρωση Issue #95 και διόρθωση ελέγχου πλήρους OCR/SQLite payload μετά επιτυχές CI στο ακριβές main. Κανονικό update με αρχικό Cloudflare, χωρίς ενεργοποίηση Direct ή μεταβολή παραγωγικών δεδομένων."
 }
