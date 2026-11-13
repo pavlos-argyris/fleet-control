@@ -66,6 +66,7 @@ try{for(const width of [390,1280]){
     const embedded=page.frameLocator('#fleetModuleFrame');await embedded.locator('#bikeCount').filter({hasText:'27'}).waitFor();
     assert.equal(await embedded.locator('#fleetLoadNotice').isHidden(),true,'complete same-origin Fleet read clears the loading state');
     assert.equal(await page.locator('#fleetBackendStatus').isHidden(),true);assert.equal(await page.locator('#fleetPrimaryStatus').isHidden(),true);
+    await page.waitForFunction(()=>document.querySelector('#fleetModuleShell').classList.contains('is-loaded')&&document.querySelector('#fleetModuleShell').getAttribute('aria-busy')==='false');
     await page.screenshot({path:path.join(out,'fleet-'+width+'.png'),fullPage:true});
     const documents=page.locator('#bottomNav [data-go="invoices"]');if(await documents.isVisible())await documents.click();else await page.locator('#sideNav [data-go="invoices"]').click();
     await page.locator('[data-invoice-card]').first().waitFor();await page.locator('#invoiceLoadProgress').waitFor({state:'hidden'});
