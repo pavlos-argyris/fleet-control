@@ -83,8 +83,8 @@ public final class IndependentHttps implements AutoCloseable {
                 StaticAsset value=asset(asset);boolean compressed=value.gzip!=null&&acceptsGzip(headers.get("accept-encoding"));byte[] bytes=compressed?value.gzip:value.bytes;
                 String etag="\""+value.hash+(compressed?"-gzip":"-identity")+"\"";
                 JSONObject metadata=new JSONObject().put("Content-Type",mime(asset)).put("ETag",etag).put("Vary","Accept-Encoding").put("Cache-Control",handler.immutable(asset)?"public, max-age=31536000, immutable":"public, no-cache");if(compressed)metadata.put("Content-Encoding","gzip");
-                if(matches(headers.get("if-none-match"),etag)){head(output,304,-1,metadata);output.flush();return;}
-                head(output,200,bytes.length,metadata);if(!start[0].equals("HEAD"))output.write(bytes);output.flush();
+                if(matches(headers.get("if-none-match"),etag)){publicHead(output,304,-1,metadata);output.flush();return;}
+                publicHead(output,200,bytes.length,metadata);if(!start[0].equals("HEAD"))output.write(bytes);output.flush();
             }catch(FileNotFoundException missing){respond(output,error(404,"Δεν βρέθηκε."),false);}
         }catch(Exception rejected){/* Bounded fail-closed connection. Never emit request values or credentials. */}finally{sockets.remove(socket);}
     }
@@ -96,6 +96,13 @@ public final class IndependentHttps implements AutoCloseable {
     static JSONObject error(int status,String message)throws Exception{return new JSONObject().put("status",status).put("headers",new JSONObject().put("Content-Type","application/json")).put("body",new JSONObject().put("error",message).toString());}
     private static void head(OutputStream output,int status,long length,JSONObject supplied)throws Exception{head(output,status,length,supplied,false);}
     private static void head(OutputStream output,int status,long length,JSONObject supplied,boolean discovery)throws Exception{
+        head(output,status,length,supplied,discovery,false);
+    }
+    private static void publicHead(OutputStream output,int status,long length,JSONObject supplied)throws Exception{head(output,status,length,supplied,false,true);}
+    private static void head(OutputStream output,int status,long length,JSONObject supplied,boolean discovery,boolean publicAsset)throws Exception{
+        // Public cache/encoding headers can only originate in the static asset
+        // encoder above. Business/private responses cannot opt into this cache.
+        if(!publicAsset){supplied=new JSONObject(supplied.toString());List<String> discard=new ArrayList<String>();Iterator<String> names=supplied.keys();while(names.hasNext()){String name=names.next();if(name.equalsIgnoreCase("cache-control")||name.equalsIgnoreCase("content-encoding"))discard.add(name);}for(String name:discard)supplied.remove(name);supplied.put("Cache-Control","private, no-store");}
         StringBuilder headers=new StringBuilder("HTTP/1.1 "+status+" Response\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000\r\nContent-Security-Policy: default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'\r\n");
         if(!supplied.has("Cache-Control")&&!supplied.has("cache-control"))headers.append("Cache-Control: private, no-store\r\n");
         if(discovery)headers.append("Access-Control-Allow-Origin: *\r\n");
