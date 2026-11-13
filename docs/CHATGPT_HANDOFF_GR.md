@@ -1,3 +1,9 @@
+## #95 — έλεγχοι διάταξης και ανεξάρτητο native gate, 13/11/2026
+
+- Συνέχεια στο PR #96 από709ff11/treefeec444. Full CI43345409970 πέρασε όλο το check-all και τα πρώτα Chromium suites, αλλά απέτυχε στο desktop Fleet workspace: η πρόσθετη recovery γραμμή ήταν sibling πάνω από Portal100dvh και κρυβόταν πίσω από sidebar. Το screenshot του CI επιβεβαίωσε το πραγματικό regression. Μετακινείται μέσα στη main-shell μετά login και επιστρέφει έξω πριν login· το detail viewport κρατά χώρο και για ανάκτηση. Οι αρχικές assertions ύψους/scroll παραμένουν, με πρόσθετο έλεγχο sidebar overlap.
+- Τα νέα unified/offline browser fixtures τρέχουν πρώτα μετά το browser install. Το byte-exact normal-APK Android/API30 isolation gate έγινε ανεξάρτητο job στο ίδιο υποχρεωτικό workflow, ώστε αποτυχία άλλου browser να μην αναβάλλει JNI/Keystore/SAF/cold recovery evidence. Κανένα gate αφαιρέθηκε και το συνολικό workflow απαιτεί όλα τα jobs επιτυχή.
+- Τοπικά PASS mode DOM/outages/stale/no-replay και static snapshot consistency. Το exact normal APK instrumentation κατασκευάστηκε χωρίς repack/resign. Εκτέλεση Android και νέα Chromium fixtures εκκρεμούν στο επόμενο CI. Δεν δηλώνεται έτοιμη έκδοση/merge/publish. Δεν έγινε ενεργοποίηση Direct ή παραγωγική μεταβολή.
+
 ## #95 — συνέχεια πλήρους παράδοσης, 13/11/2026
 
 - PR #96 παραμένει draft: https://github.com/pavlos-argyris/fleet-control/pull/96 . Ο ιδιοκτήτης επανέλαβε «Συνέχεια αυτής της συνομιλίας». Συνεχίζουμε μέχρι τα απαιτούμενα gates/κανονική παράδοση, χωρίς νέα άδεια για τα ήδη εγκεκριμένα uploads/CI. Καμία ενεργοποίηση Direct εκ μέρους του agent.
