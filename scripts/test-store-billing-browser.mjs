@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url)),{chromium}=require('playwright'),root=path.resolve('cloudflare-worker/public'),output=path.resolve('verification/store-billing');fs.mkdirSync(output,{recursive:true});
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']}),user={id:'stores-owner',username:'owner',fullName:'Stores Fixture',role:'owner',permissions:['*']};
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),user={id:'stores-owner',username:'owner',fullName:'Stores Fixture',role:'owner',permissions:['*']};
 try{for(const [mode,width,height]of[['desktop',1440,1000],['mobile',390,844],['client-landscape',1024,768]]){
  const context=await browser.newContext({viewport:{width,height},locale:'el-GR',serviceWorkers:'block'}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));let failed=true;const saves=[];
  const store={id:'store:1',name:'Συνθετικό κατάστημα',sourceShopId:'7',revision:1,retainOrders:false,pricingState:'ready',orderCount:9,orderChargeCents:1800,minimumTopUpCents:2200,totalChargeCents:4000,coveredDays:7,terms:{supported:true,unitPriceCents:200,dailyMinimumCents:4000,chargeOnZero:false}};
@@ -17,7 +17,8 @@ try{for(const [mode,width,height]of[['desktop',1440,1000],['mobile',390,844],['c
   return route.fulfill({headers,json:data});
  }const file=path.resolve(root,'.'+decodeURIComponent(url.pathname));return file.startsWith(root+path.sep)&&fs.existsSync(file)&&fs.statSync(file).isFile()?route.fulfill({path:file,contentType:({'.js':'text/javascript','.css':'text/css','.html':'text/html','.svg':'image/svg+xml'})[path.extname(file)]||'application/octet-stream'}):route.fulfill({status:404});});
  try{
-  await page.goto(mode==='client-landscape'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/portal.html');
+  // Direct Client now loads the Server URL; bundled file pages remain dormant.
+  await page.goto('https://fixture.invalid/portal.html');
   await page.locator('#sideNav [data-go="stores"]').waitFor({state:'attached'});
   // The mobile drawer stays in the DOM outside the viewport, so isVisible()
   // alone cannot choose the navigation the user can actually reach.

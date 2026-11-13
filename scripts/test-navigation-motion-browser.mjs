@@ -7,7 +7,7 @@ const publicRoot=path.resolve('cloudflare-worker/public'),output=path.resolve('v
 const user={id:'motion-owner',fullName:'Δοκιμαστικός Owner',username:'owner',role:'owner',permissions:['*']};
 const bikes=Array.from({length:35},(_,i)=>({id:'bike-'+i,name:'ΜΗΧ '+String(i).padStart(3,'0'),intervalKm:3000,lastServiceKm:1000,currentKm:1200,lastCheckedAt:'2026-10-18',createdAt:'2026-10-01',updatedAt:'2026-10-01',history:i===15?Array.from({length:15},(_,j)=>({id:'service-'+j,type:'service',date:'2026-09-01',km:1000-j,tasks:['Αλλαγή λαδιών'],notes:'Έλεγχος',oilChanged:true,createdAt:'2026-09-01'})):[]}));
 const empty={user,configured:true,bikes,version:1,snapshotVersion:1,serverOnline:true,databaseOk:true,storageOk:true,employees:[],vehicles:[],rules:[],shifts:[],alerts:[],documents:[],days:[],summary:{},today:{vehicles:{}},currentWeek:{payableHours:0,payrollCents:0,kilometers:0,startDate:'2026-10-12',endDate:'2026-10-18'},realtime:[],dailySchedule:[],actionCount:0};
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']});
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,args:['--no-sandbox','--allow-file-access-from-files']});
 const report=[];
 try{
  for(const mode of ['standalone','embedded','client','reduced']){
@@ -42,7 +42,7 @@ try{
    return route.fulfill({status:200,path:full,contentType});
   });
   const embedded=mode==='embedded'||mode==='client';
-  await page.goto(mode==='client'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/'+(embedded?'portal.html':'index.html'));
+  await page.goto('https://fixture.invalid/'+(mode==='client'||embedded?'portal.html':'index.html'));
   if(embedded)await page.locator('#bottomNav [data-go="fleet"]').click();
   const fleet=embedded?page.frameLocator('#fleetModuleFrame'):page;
   await fleet.locator('#bikeList [data-bike-id="bike-15"]').waitFor();

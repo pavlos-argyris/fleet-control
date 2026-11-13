@@ -1,3 +1,11 @@
+## #95 / PR #99 — συνέχεια CI και πρώτη εγκατάσταση,13/11/2026
+
+- Το draft PR #99/head b3a5915d3f012a163c188b4a22b4968fc70e3f57 πέρασε Fast43417727364· full43417727207 εντόπισε αποτυχία στο cold-process remembered-owner fixture και παλιό file:// Client browser entry. Δεν έγινε merge/δημοσίευση.
+- Η πραγματική φωτογραφημένη authority διορθώνεται στο compiled APK. Νέα προετοιμασία Direct ΔΕΝ ανοίγει/δημιουργεί κενή βάση πριν εισαχθεί το πρώτο πλήρες backup: lazy helper μετά verified import, με νέο actual generated ServerBridge/provider/no-database Android fixture. Τα business/backup gates παραμένουν.
+- Τα Chromium responsive Client fixtures ακολουθούν πλέον το πραγματικό remote Direct entry, αντί για το αδρανές Cloud file page. Διατηρούνται assertions επιχειρησιακής ροής/σφαλμάτων/δικαιωμάτων/rotation/export. Τα native mode και ξεχωριστά production/dormant mode fixtures ελέγχουν ακόμη file/Cloud ανάκτηση της ανενεργής δυνατότητας.
+- Ιδιωτικός same-UID provider επιστρέφει ασφαλές όνομα exception class μαζί με το φιλτραρισμένο μήνυμα για διάγνωση του cold restart. Αποθηκευμένα στοιχεία αφαιρούνται αυτόματα μόνο σε πραγματικό401/403, όχι λόγω429/προσωρινού σφάλματος. Κανένα μυστικό δεν εμφανίζεται στα logs ή στο δίκτυο.
+- Επόμενο: exact-source CI και επίλυση πραγματικών αποτυχιών, χωρίς χαλάρωση ελέγχων. Η5.63.0 παραμένει δημοσιευμένη·5.64.0/Server2.13.0 είναι ακόμη υποψήφια. Φυσικό Android/CA/router/4G acceptance δεν έχει γίνει από agent.
+
 ## #95 — τοπικό checkpoint Direct-only5.64.0 / Server2.13.0, 13/11/2026
 
 - Ολοκληρώθηκαν οι αλλαγές Direct-only σε κοινή native πολιτική/Server/Client/Web, κρυφά διατηρημένα Server controls και απόρριψη Cloud επιλογής, χωρίς Cloud API ως προαπαιτούμενο. Υπάρχουν προετοιμασία/HTTPS/εξωτερικός owner probe πριν εγκριθούν επιχειρησιακές εγγραφές· ο επιτυχής public-peer έλεγχος ολοκληρώνει την ετοιμότητα χωρίς μοχλό. Παλιό εγκεκριμένο Direct διατηρείται. Οι παλιές Cloud βάσεις/ρυθμίσεις/κώδικας παραμένουν.

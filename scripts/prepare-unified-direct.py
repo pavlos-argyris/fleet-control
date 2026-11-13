@@ -29,6 +29,12 @@ for name,p in sources.items():
     imports=('\nimport '+old+'.R;' if re.search(r'\bR\.',value) else '')+('\nimport '+old+'.BackendMode;' if 'BackendMode.' in value or name in ('IndependentRuntime.java','IndependentService.java','IndependentActivity.java') else '')
     value=value.replace('package '+new+';','package '+new+';'+imports)
     if name=='MainActivity.java':
+        value=change(value,'    private FleetDataStore store;','    private volatile FleetDataStore store;')
+        value=change(value,'        store = new FleetDataStore(getApplicationContext());','        store = null; // Open lazily after verified import; preparation must not create a database.')
+        value=change(value,'        try { result = store.getStats(); }','''        try {
+            if(store==null&&IndependentConfig.read(this).has("backupSha256"))synchronized(this){if(store==null)store=new FleetDataStore(getApplicationContext());}
+            result=store==null?new JSONObject().put("directPreparing",true):store.getStats();
+        }''')
         value=change(value,'public final class MainActivity extends Activity {','''public final class MainActivity extends Activity {
     @Override protected void attachBaseContext(Context base){super.attachBaseContext(new ScopedContext(base));}
 ''')
@@ -147,7 +153,7 @@ for name,p in sources.items():
         value=value.replace('Άνοιγμα Web δοκιμής','Άνοιγμα Web Direct').replace('Ενεργοποίηση δοκιμαστικού Ordexa read-only','Ενεργοποίηση Ordexa στο Direct (μόνο ανάγνωση)')
         value=change(value,'Uri.parse("https://"+host)','Uri.parse("https://"+host+(BackendMode.direct(this)?"/":"/?fleetSetup=1"))')
         value=change(value,'Αρχικά ανενεργό. Ενεργοποίησέ το συνειδητά για τη δοκιμή ώστε να αποφευχθεί δεύτερος παράλληλος reader. Ασφαλής αρχική συχνότητα 5 λεπτών· τα καταστήματα ανά ώρα. Το ~15s απαιτεί πραγματική μέτρηση και άδεια πλατφόρμας.','Αρχικά ανενεργό. Ρύθμισε τον λογαριασμό και την πόλη για τη βάση Direct. Παρουσίες κάθε 5 λεπτά και καταστήματα ανά ώρα, μόνο όσο είναι επιλεγμένο Direct.')
-        value=change(value,'Γίνεται μόνο από τον ιδιοκτήτη στη Web οθόνη μετά από πραγματικό HTTPS έλεγχο με 4G/5G και ρητή επιβεβαίωση. Η εφαρμογή δεν αλλάζει το Cloudflare και δεν μεταφέρει αυτόματα τους παλιούς Clients.','Στο Web κάνε μόνο τον έλεγχο σύνδεσης με 4G/5G. Έπειτα επέστρεψε στις Ρυθμίσεις Server, συνδέσου ως ιδιοκτήτης και άλλαξε τον ενιαίο μοχλό Cloudflare / Direct. Δεν χρειάζεται επιπλέον παράθυρο επιβεβαίωσης και τα δύο σύνολα δεδομένων παραμένουν χωριστά.')
+        value=change(value,'Γίνεται μόνο από τον ιδιοκτήτη στη Web οθόνη μετά από πραγματικό HTTPS έλεγχο με 4G/5G και ρητή επιβεβαίωση. Η εφαρμογή δεν αλλάζει το Cloudflare και δεν μεταφέρει αυτόματα τους παλιούς Clients.','Στο Web συνδέσου ως ιδιοκτήτης και κάνε τον έλεγχο σύνδεσης με 4G/5G. Με επιτυχές HTTPS, πλήρες backup και δημόσιο έλεγχο ο Direct Server ολοκληρώνει την προετοιμασία αυτόματα. Δεν χρειάζεται επιλογή λειτουργίας.')
         value=change(value,'IndependentConfig.save(this,IndependentConfig.read(this).put("testOrdexa",false));','OrdexaSync.configure(this,new JSONObject().put("cityId",OrdexaSync.status(this).getString("cityId")).put("enabled",false));IndependentConfig.save(this,IndependentConfig.read(this).put("testOrdexa",false));')
         value=value.replace('Παύση δοκιμαστικού Ordexa','Παύση Ordexa στο Direct').replace('Ενεργοποιήθηκε ο δοκιμαστικός reader.','Ενεργοποιήθηκε ο reader Direct.').replace('δοκιμαστικό συγχρονισμό','συγχρονισμό Direct').replace('Ο δοκιμαστικός συγχρονισμός σταμάτησε.','Ο συγχρονισμός Direct σταμάτησε.')
         value=value.replace('getSharedPreferences("independent_ui",MODE_PRIVATE).getString("mode","test").equals("primary")?"Κύριο":"Δοκιμαστικό"','BackendMode.direct(this)?"Direct":"Προετοιμασία Direct"')
@@ -187,7 +193,7 @@ for name,p in sources.items():
             if(!preflight&&DirectHost.paused(context)&&!path.equals("/api/status"))return IndependentHttps.error(503,"Ο Server προετοιμάζει ασφαλή ενημέρωση ή ανάκτηση. Επανάλαβε μετά την ολοκλήρωση.");
             String epoch=request.getJSONObject("headers").optString("x-fleet-backend-revision",request.getJSONObject("headers").optString("X-Fleet-Backend-Revision"));
             if(!internal&&!preflight&&!epoch.equals(String.valueOf(BackendMode.read(context).getLong("revision"))))return IndependentHttps.error(409,"Η λειτουργία άλλαξε. Ανανέωσε πριν αποθηκεύσεις.");
-            if(path.equals("/api/independent/activate"))return IndependentHttps.error(403,"Χρησιμοποίησε τον διακόπτη στις Ρυθμίσεις Server.");
+            if(path.equals("/api/independent/activate"))return IndependentHttps.error(403,"Ολοκλήρωσε τον εξωτερικό έλεγχο HTTPS για την προεπιλεγμένη σύνδεση μέσω Server.");
             result=engine.request(request,internal,30000);
         }''')
         value=change(value,'JSONObject external(final JSONObject request)throws Exception{return serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}});}', '''JSONObject external(final JSONObject request)throws Exception{

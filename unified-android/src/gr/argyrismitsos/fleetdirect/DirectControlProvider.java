@@ -43,7 +43,7 @@ public final class DirectControlProvider extends ContentProvider {
                 }
             }else throw new IllegalArgumentException("Unknown Direct control command");
             result.putBoolean("ok",true);
-        }catch(Exception error){result.putBoolean("ok",false);String message=error.getMessage();result.putString("error",message!=null&&message.startsWith("Ε")||message!=null&&message.startsWith("Σ")||message!=null&&message.startsWith("Α")||message!=null&&message.startsWith("Η")||message!=null&&message.startsWith("Ο")?message:"Η τοπική λειτουργία δεν επιβεβαιώθηκε. Τα δεδομένα διατηρούνται.");}
+        }catch(Exception error){result.putBoolean("ok",false);result.putString("errorType",error.getClass().getSimpleName());String message=error.getMessage();result.putString("error",message!=null&&message.startsWith("Ε")||message!=null&&message.startsWith("Σ")||message!=null&&message.startsWith("Α")||message!=null&&message.startsWith("Η")||message!=null&&message.startsWith("Ο")?message:"Η τοπική λειτουργία δεν επιβεβαιώθηκε. Τα δεδομένα διατηρούνται.");}
         return result;
     }
     @Override public Cursor query(Uri u,String[] p,String s,String[] a,String o){throw new UnsupportedOperationException();}

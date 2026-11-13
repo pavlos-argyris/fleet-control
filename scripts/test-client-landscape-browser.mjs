@@ -17,10 +17,10 @@ const week={...generic,weekStart:'2026-10-19',weekEnd:'2026-10-25',scheduleState
 
 const payroll={period:{status:'open'},totals:{},employees:[]};
 
-// Chromium/file tests exercise responsive content, not Android's window manager.
+// Chromium tests exercise the current remote Direct Client content, not Android's window manager.
 // A before capture is deliberately the unchanged browser baseline: the old native
 // portrait lock is verified separately and is not faked with a narrow iframe.
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
 const sizes=[{name:'phone',portrait:{width:390,height:844},landscape:{width:844,height:390}},
  {name:'small-phone',portrait:{width:320,height:667},landscape:{width:667,height:320}},
  {name:'tablet',portrait:{width:800,height:1280},landscape:{width:1280,height:800}}];
@@ -55,7 +55,8 @@ try{
    await page.locator('[data-view="'+id+'"]:not(.is-hidden)').waitFor();await page.waitForTimeout(250);
   };
   try{
-   await page.goto(mode==='client'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/portal.html');
+   // Direct Client now loads the Server URL; bundled file pages remain dormant.
+  await page.goto('https://fixture.invalid/portal.html');
    await page.locator('.ui-priority').first().waitFor();const marker=await page.evaluate(()=>window.__landscapePage);
    await capture('portrait-dashboard');
    await page.setViewportSize(device.landscape);await page.waitForTimeout(300);await capture('landscape-dashboard');

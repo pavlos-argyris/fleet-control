@@ -36,7 +36,7 @@ final class RememberedOwner {
         JSONObject response=runtime.localLogin(username,password),body=new JSONObject(response.getString("body"));
         if(response.getInt("status")!=200||!body.getJSONObject("user").optString("role").equals("owner")){
             token="";realm="";
-            if(!remember&&response.getInt("status")<500)SealedLocalState.remove(c,NAME);
+            if(!remember&&(response.getInt("status")==401||response.getInt("status")==403))SealedLocalState.remove(c,NAME);
             throw new IOException("Η σύνδεση ιδιοκτήτη χρειάζεται έλεγχο. Ενημέρωσε τα αποθηκευμένα στοιχεία.");
         }
         if(remember)SealedLocalState.write(c,NAME,ALIAS,new JSONObject().put("username",username).put("password",password));

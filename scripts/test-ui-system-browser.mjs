@@ -35,7 +35,7 @@ async function readableQrLayout(fleet,label){
  throw new Error(label+' QR warning never became measurable: '+JSON.stringify(last));
 }
 
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
+const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM||undefined,args:['--no-sandbox','--allow-file-access-from-files']}),report=[];
 try{for(const mode of ['desktop','mobile','small','client']){
  let invoiceRows=structuredClone(documents),failNextReview=false,documentReads=0;
  const width=mode==='desktop'?1440:mode==='small'?320:390;const context=await browser.newContext({viewport:{width,height:900},locale:'el-GR',isMobile:mode!=='desktop',hasTouch:mode!=='desktop',serviceWorkers:'block'}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -44,11 +44,12 @@ try{for(const mode of ['desktop','mobile','small','client']){
  const navigate=async id=>{const nav=mode==='desktop'?page.locator('#sideNav'):page.locator('#bottomNav');const direct=nav.locator('[data-go="'+id+'"]');if(await direct.count())await direct.click();else{await nav.locator('[data-ui-more]').click();await page.locator('#uiMoreDialog [data-go="'+id+'"]').click();}await page.locator('[data-view="'+id+'"]:not(.is-hidden)').waitFor();await page.waitForTimeout(250);};
  const capture=async name=>{assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),mode+' '+name+' horizontal overflow');await page.screenshot({path:path.join(output,mode+'-'+name+'.png')});};
  try{
- await page.goto(mode==='client'?'file://'+path.resolve('client-android/assets/www/portal.html'):'https://fixture.invalid/portal.html');await page.locator('.ui-priority').first().waitFor();await capture('dashboard');
+ // Direct Client now loads the Server URL; bundled file pages remain dormant.
+  await page.goto('https://fixture.invalid/portal.html');await page.locator('.ui-priority').first().waitFor();await capture('dashboard');
  if(mode!=='desktop'){assert.ok(await page.locator('#bottomNav button').count()<=5);await page.locator('#bottomNav [data-ui-more]').click();await capture('more');await page.locator('#uiMoreDialog [data-close]').click();}
  await navigate('invoices');await page.locator('#invoiceQueueList [data-invoice-review]').first().waitFor();assert.equal(await page.locator('[data-ui-count="attention"]').textContent(),'3');await capture('invoices');
  await page.locator('#viewInvoices .ui-toolbar-details summary').click();const explanation=page.locator('.ui-explain-button[data-ui-help]');assert.match(await explanation.textContent(),/Νέα ανάλυση από την αρχήΠώς λειτουργεί;/);await capture('invoice-tools');await explanation.click();await page.locator('#uiHelpDialog[open]').waitFor();assert.match(await page.locator('#uiHelpDialog').textContent(),/Αγνοεί το ήδη αποθηκευμένο αποτέλεσμα/);await page.locator('#uiHelpDialog button').click();await page.locator('#viewInvoices .ui-toolbar-details summary').click();
- // Both menu surfaces are application dialogs, including the file:// Client.
+ // Both menu surfaces are application dialogs, including the Direct Client view.
  const plate=page.locator('#invoicePlatePicker');assert.equal(await plate.locator('[data-ui-select-label]').textContent(),'Όλες οι πινακίδες');
  const labelBounds=await plate.locator('[data-ui-select-label]').evaluate(n=>{const r=document.createRange();r.selectNodeContents(n);return {text:r.getBoundingClientRect().width,available:n.clientWidth};});assert.ok(labelBounds.text<=labelBounds.available+1,mode+' full plate label is visible');
  await plate.click();await page.locator('#uiInvoiceFilterDialog[open]').waitFor();assert.equal(await page.locator('#uiInvoiceFilterOptions button').count(),2);const pickerBox=await page.locator('#uiInvoiceFilterDialog').boundingBox();assert.ok(pickerBox.height<600&&pickerBox.y>=12,mode+' compact choice dialog '+JSON.stringify(pickerBox));await capture('plate-picker');
