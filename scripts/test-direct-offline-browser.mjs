@@ -32,6 +32,8 @@ try{
   await page.evaluate(()=>FleetBackend.apply({...FleetBackend.selection,activeMode:'direct',selectedMode:'direct',revision:5},{navigate:false}));
   await Promise.all([page.waitForEvent('domcontentloaded'),page.getByRole('button',{name:'Ανάκτηση Cloudflare',exact:true}).click()]);
   await page.waitForFunction(()=>window.FleetBackend?.selection.localRecovery===true&&FleetBackend.selection.activeMode==='cloudflare');
+  await page.locator('#bootScreen').waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Ανάκτηση Cloudflare',exact:true}).click({trial:true});
   assert.equal(writes,1,'offline mutation was not replayed');
   await page.screenshot({path:path.join(out,'offline-recovery-390.png'),fullPage:true});
   await context.setOffline(false);await page.reload();assert.equal(writes,1,'reconnection never replays the failed POST');await context.close();
