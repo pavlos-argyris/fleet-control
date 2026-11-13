@@ -9,6 +9,18 @@ import java.util.TimeZone;
 
 /** Executes only the signed APK's bundled handlers, with explicit primitive capabilities. */
 public final class BusinessRuntime implements java.io.Closeable {
+    static {
+        // Rhino 1.9 resolves its RegExp service once, through the caller's
+        // context loader. Android Binder threads can start with the boot loader.
+        // Initialize from the signed APK before any Rhino ContextFactory field,
+        // then restore the caller; the script ClassShutter stays unchanged.
+        Thread thread=Thread.currentThread();ClassLoader previous=thread.getContextClassLoader();
+        try{
+            ClassLoader application=BusinessRuntime.class.getClassLoader();thread.setContextClassLoader(application);
+            Class.forName("org.mozilla.javascript.Context",true,application);
+        }catch(ClassNotFoundException unavailable){throw new ExceptionInInitializerError(unavailable);}
+        finally{thread.setContextClassLoader(previous);}
+    }
     public interface Host {
         String call(String command,String json)throws Exception;
         default void beforeRequest(JSONObject request,boolean internal)throws Exception{}

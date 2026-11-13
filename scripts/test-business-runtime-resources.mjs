@@ -29,6 +29,18 @@ import java.util.*;
 import org.mozilla.javascript.*;
 public class RhinoResourceSmoke {
  public static void main(String[] args) throws Exception {
+  if(args.length==1&&args[0].equals("host-loader")){
+   ClassLoader previous=Thread.currentThread().getContextClassLoader(),foreign=new ClassLoader(null){};
+   Thread.currentThread().setContextClassLoader(foreign);
+   try{
+    String code="globalThis.__fleetInit=function(){if(!/^fleet[0-9]+$/.test('fleet95'))throw Error('Regexp failed');};";
+    try(gr.argyrismitsos.fleetserver.BusinessRuntime runtime=new gr.argyrismitsos.fleetserver.BusinessRuntime((command,raw)->"{}",code,gr.argyrismitsos.fleetserver.BusinessRuntime.sha256(code.getBytes("UTF-8")),new org.json.JSONObject())){
+     if(Thread.currentThread().getContextClassLoader()!=foreign)throw new AssertionError("Host thread loader was not restored");
+     org.json.JSONObject sandbox=runtime.sandboxStatus();for(String key:sandbox.keySet())if(!sandbox.getString(key).equals("undefined"))throw new AssertionError("Reflection exposed: "+key);
+    }
+   }finally{Thread.currentThread().setContextClassLoader(previous);}
+   System.out.println("PASS actual BusinessRuntime cold bootstrap with a foreign Binder-like thread loader: APK ServiceLoader RegExp, restored caller loader and unchanged sandbox.");return;
+  }
   Locale.setDefault(Locale.US);
   for(Locale locale:new Locale[]{Locale.US,Locale.FRANCE,Locale.SIMPLIFIED_CHINESE,Locale.forLanguageTag("el-GR")}) {
    ResourceBundle messages=ResourceBundle.getBundle("org.mozilla.javascript.resources.Messages",locale);
@@ -51,8 +63,8 @@ public class RhinoResourceSmoke {
 }
 `);
   const toolchain = process.env.FLEET_ANDROID_TOOLCHAIN_ROOT || path.resolve('.android-toolchain');
-  execFileSync('java', ['-jar', path.join(toolchain, 'usr/share/java/eclipse-jdt-core-3.32.0.jar'), '-proc:none', '-source', '8', '-target', '8', '-nowarn', '-encoding', 'UTF-8', '-classpath', jar, '-d', dir, path.join(dir, 'RhinoResourceSmoke.java')], { stdio: 'inherit' });
-  const probe = file => spawnSync('java', ['-cp', [dir, path.join(dir, 'classes-only.jar'), file].join(path.delimiter), 'RhinoResourceSmoke'], { encoding: 'utf8', timeout: 30000 });
+  execFileSync('java', ['-jar', path.join(toolchain, 'usr/share/java/eclipse-jdt-core-3.32.0.jar'), '-proc:none', '-source', '8', '-target', '8', '-nowarn', '-encoding', 'UTF-8', '-classpath', [jar,path.resolve('vendor/json-java/json-20240303.jar')].join(path.delimiter), '-d', dir, path.join(dir, 'RhinoResourceSmoke.java'),path.resolve('server-android/src/gr/argyrismitsos/fleetserver/BusinessRuntime.java')], { stdio: 'inherit' });
+  const probe = (file,extra=[]) => spawnSync('java', ['-cp', [dir, path.join(dir, 'classes-only.jar'), file,path.resolve('vendor/json-java/json-20240303.jar')].join(path.delimiter), 'RhinoResourceSmoke',...extra], { encoding: 'utf8', timeout: 30000 });
   if (!apk) {
     const missing = probe(path.join(dir, 'missing.apk'));
     assert.notEqual(missing.status, 0);
@@ -73,6 +85,9 @@ with zipfile.ZipFile(root/'complete.apk','w') as z:
   const target = apk || path.join(dir, 'complete.apk');
   const result = probe(target);
   assert.equal(result.status, 0, result.stderr || result.error?.message || 'Packaged Rhino smoke failed');
+  const cold=probe(target,['host-loader']);
+  assert.equal(cold.status,0,cold.stderr||cold.error?.message||'Cold host loader smoke failed');
+  process.stdout.write(cold.stdout);
   python(`import sys,zipfile
 with zipfile.ZipFile(sys.argv[1]) as jar,zipfile.ZipFile(sys.argv[3]) as apk:
  names=apk.namelist();expected=[]

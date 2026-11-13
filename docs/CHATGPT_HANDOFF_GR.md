@@ -1,3 +1,12 @@
+## #95 / PR #99 — πραγματική αιτία cold Direct startup,13/11/2026
+
+- Full CI43420640328/head c31e802b2d689dbe871880f5e5eef91c96b0b93b επιβεβαίωσε το fresh generated dashboard/no-premature-database πριν αποτύχει στην εκκίνηση runtime από τον ιδιωτικό Android provider. Η ασφαλής διάγνωση έδειξε EvaluatorException στη φάση runtime, πριν authentication· δεν πρόκειται για απώλεια αποθηκευμένου password.
+- Αναπαράχθηκε ΑΚΡΙΒΩΣ το σφάλμα τοπικά σε νέο JVM με πραγματικό BusinessRuntime, packaged-only Rhino και foreign/boot-like thread context loader: «Regular expressions are not available». Η επίσημη Rhino1.9.1 Context αποθηκεύει static RegExpLoader από ServiceLoader.load, ο οποίος χρησιμοποιεί τον loader του καλούντος: https://github.com/mozilla/rhino/blob/Rhino1_9_1_Release/rhino/src/main/java/org/mozilla/javascript/ScriptRuntime.java . Ο Binder thread μπορεί να έχει boot loader· η προηγούμενη instrumentation περνούσε στο app thread.
+- Διόρθωση BusinessRuntime: bounded host static bootstrap με τον class loader του υπογεγραμμένου APK ΠΡΙΝ τα Rhino ContextFactory fields, ρητή αρχικοποίηση Context/ServiceLoader και finally επαναφορά του αρχικού thread loader. Δεν αλλάζουν ClassShutter/sandbox, capabilities, pinned dependency/resources, auth, SQLite/backup ή mode gates. Το ίδιο root source παράγει και το namespaced Direct runtime.
+- Το υπάρχον resources smoke τώρα εκκινεί ξεχωριστό πραγματικό BusinessRuntime με foreign loader και regex, ελέγχει αποκατάσταση caller loader και μη διαθέσιμη Java reflection. BEFORE απέτυχε με το ίδιο EvaluatorException· AFTER PASS, μαζί με τους παλιούς αρνητικούς ελέγχους και byte-exact5 APK Java resources. Νέα πλήρης πραγματική Android provider/cold restart δοκιμή απαιτείται ακόμη.
+- Το Activity fixture κατασκευάζεται στο Android main Looper μέσω FutureTask, χωρίς αντικατάσταση compiled bridge/provider. Δεν χαλάρωσε καμία assertion. Το προηγούμενο harness failure43419884376 δεν εξισώνεται με προϊόν ή επιτυχές CI.
+- Επόμενο: νέο exact-source full CI, μετά merge/exact-main CI και normal original-signed5.64.0/Server2.13.0 publication. Η5.63.0 είναι ακόμη η ενεργή δημοσιευμένη. Φυσικό Android/CA/router/4G acceptance και παραγωγικό restore δεν εκτελέστηκαν από agent.
+
 ## #95 / PR #99 — συνέχεια CI και πρώτη εγκατάσταση,13/11/2026
 
 - Το draft PR #99/head b3a5915d3f012a163c188b4a22b4968fc70e3f57 πέρασε Fast43417727364· full43417727207 εντόπισε αποτυχία στο cold-process remembered-owner fixture και παλιό file:// Client browser entry. Δεν έγινε merge/δημοσίευση.
