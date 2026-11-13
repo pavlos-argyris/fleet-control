@@ -93,7 +93,8 @@ public final class IndependentActivity extends Activity {
         // The Direct hostname is fixed for this installation. The certificate
         // can be imported before backup restoration; the listener stays gated
         // by the existing verified backup + readiness requirements.
-        String host=IndependentPolicy.hostname(config.optString("hostname","fleet-control.duckdns.org"));
+        String configuredHost=config.optString("hostname");
+        String host=IndependentPolicy.hostname(configuredHost.isEmpty()?"fleet-control.duckdns.org":configuredHost);
         byte[] certificateFile=readSmall(this,uri);JSONObject identity;
         try{identity=IndependentCertificateTransfer.importPlain(certificateFile,host);}
         finally{Arrays.fill(certificateFile,(byte)0);}
