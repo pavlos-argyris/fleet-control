@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-2ea6929e-8273-4b24-95e4-73f6e3845991",
-  "sourceCommit": "0f65d869bc854d8d89ddfd32ad0efbbae3d94c58",
-  "releaseVersion": "5.64.2",
-  "requestedAt": "2026-11-13T17:02:31.861Z",
-  "reason": "Owner requested completion of offline owner-only S24 Ultra to Note 10+ HTTPS certificate migration. Exact-main CI 43466033481 succeeded, including full Android/crypto/visual tests. Publish original-signed Server 2.13.2; preserve existing data, S24 certificate and Direct mode."
+  "requestId": "fleet-b2e7e55d-4183-4439-bdbe-2b873f9e4ff2",
+  "sourceCommit": "fd6df8ad612797750e487a7ddc57758fc5ecd07f",
+  "releaseVersion": "5.64.3",
+  "requestedAt": "2026-11-13T18:36:37.307Z",
+  "reason": "Owner explicitly requested direct plaintext HTTPS cert export/import without a transfer password or owner login on personal S24 Ultra and Note 10+, retaining PKI validity checks and protected local Android Keystore. Exact-main full GitHub CI 43481984777 success, 12/12 jobs. Publish original-signed Fleet 5.64.3/Server 2.13.3; do not migrate data, change router or remove S24 certificate."
 }
