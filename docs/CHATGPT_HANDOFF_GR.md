@@ -1,3 +1,10 @@
+## 15/11/2026 — PR106 συγχωνεύθηκε, ανάληψη κανονικής δημοσίευσης5.66.1
+
+- Ελεγμένο head44ac73543c1cc9e20cbc16eff76407da4bf39b4b/tree62a57731ad8a3ce6e2dc2058d6dddd6a9c0eaba9. Full43653024458 SUCCESS και Fast43653024454 SUCCESS. Όλα12 jobs πέρασαν: full check-all, actual normal-APK Android, Java/Rhino/SQLite/native/backup/security και πραγματικά staged Chromium390/1280 με29 μηχανές σε8 canonical pages, μαζί με όλες τις9 visual reviews.
+- Artifact14137515869/navigation-motion-verification κατέβηκε και διασταυρώθηκε ZIP SHA256da540cf42cef394a6592a262fb4773580cf75dde76c50a6cae45e8b3c1d27fed. Επιθεωρήθηκαν οι πραγματικές mobile390/desktop1280 εικόνες Fleet, με29 ορατό πλήθος και ευανάγνωστη λίστα. Είναι συνθετικά δεδομένα, όχι φυσική παραλαβή της ιδιωτικής βάσης.
+- Squash merge main1c1bc611e77a101717b58ce7957a197c4e77f18f με το ίδιο ακριβές tree. Η παρούσα συνομιλία αναλαμβάνει ΜΙΑ κανονική αρχικά υπογεγραμμένη δημοσίευση Client/Web5.66.1/code112, Server2.15.1/code85, Worker5.21.4. Απαιτείται πλήρες exact-main CI στον source commit που περιέχει το παρόν checkpoint, μετά request-only scripts/request-publish.mjs --publish, παρακολούθηση μίας ενεργοποίησης και public manifests/APK/hash/πλήρους πηγής έλεγχος.
+- Δεν έχει καταχωριστεί publish request ή ενεργοποιηθεί5.66.1. Η πραγματική εγκατάσταση/ιδιωτική λίστα επαληθεύονται μετά την ενημέρωση Server και Client χωρίς απεγκατάσταση. Τεχνική πρόσβαση/backdoor παραμένει μελλοντική πρόταση. Καμία παραγωγική εγγραφή/restore/delete/backup, Ordexa write, κωδικός/ιδιωτικό κλειδί, router/certificate ή νέα χρέωση.
+
 ## 15/11/2026 — PR106 πρώτη πλήρης επαλήθευση
 
 - Remote head65ba38190e6c90630375f564d886ced676480ca1/tree80c47fc85561d06f6730c07a803989db5ef32c9d επαληθεύτηκε byte-exact με local3b9ee53. Μετά τη νέα ρητή άδεια το CLI push απέτυχε τεχνικά χωρίς credentials· η εξουσιοδοτημένη αποστολή ολοκληρώθηκε από τη συνδεδεμένη GitHub εφαρμογή, με SHA επαλήθευση όλων21 νέων blobs/ολόκληρου tree. PR106.
