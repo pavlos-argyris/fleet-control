@@ -1,3 +1,23 @@
+## 15/11/2026 — Νέα ρητή άδεια δημοσίευσης διόρθωσης μηχανών
+
+- Τοπικό source `c44e20a416f71d474868c6a24b8fe24c1c40f5e9` / tree `8b419a086a60b93afd7218a6cfd53e0e995cb06f`. Δύο public GitHub pushes απορρίφθηκαν από automatic approval review. Μεταξύ τους επαληθεύτηκαν repo1412318293, συνδεδεμένος owner/admin, ακριβές origin και η προηγούμενη πάγια έγκριση· δεν χρησιμοποιήθηκε connector workaround και δεν στάλθηκε πηγή.
+- Ο χρήστης απάντησε τώρα «Σου παρέχω άδεια να το κάνεις» μετά τη συγκεκριμένη εξήγηση του αποκλεισμένου δημόσιου upload. Συνεχίζουμε εξουσιοδοτημένη αποστολή source/PR/full exact CI/merge και μία κανονική δημοσίευση. Καταγράφηκε και στο AGENTS.
+- Τελικό fast/source safety/code map/static assets/DOM/service/API checks PASS. Ο κανονικός Client5.66.1 κατασκευάστηκε με disposable test key. Ο Server2.15.1 μεταγλωττίστηκε χωρίς errors και ολοκληρώνεται το πακετάρισμα. System Chromium εκκινήθηκε αλλά απορρίφθηκε από το τοπικό περιβάλλον (`socket() failed: Operation not permitted`), όχι από τον ιστότοπο· δεν παρακάμφθηκε ο περιορισμός. Το mandatory GitHub CI αναλαμβάνει πραγματικά Chromium/Android/APK checks πριν δημοσίευση.
+- Δεν δημιουργήθηκε τελική παράδοση/Library source ή νέα δημοσίευση κατά τον αποκλεισμό. Η φυσική ιδιωτική λίστα παραμένει ανεπιβεβαίωτη μετά τη διόρθωση.
+
+## 15/11/2026 — Υποψήφια5.66.1: τμηματική πλήρης canonical ανάγνωση
+
+- Ίδιο branch/base όπως η ανάληψη παρακάτω. Client/Web5.66.1/code112, Server2.15.1/code85, Worker5.21.4. Νέο bounded canonical GET με4 μηχανές/σελίδα, counts/version/offset/cursor guards, πλήρες ιστορικό, εφαρμογή μόνο ολοκληρωμένης λίστας και401 logout σε οποιαδήποτε σελίδα. Η legacy aggregate ανάγνωση δεν μετατρέπει ανύπαρκτη row/στήλη σε επιτυχημένο0.
+- PASS local: fast gate, actual service model/DOM/API retry+dirty edits και Node SQLite40/20.000 ιστορικά. Actual Java/Rhino/SQLite29 με μεγάλο Unicode ιστορικό/response-file reconstruction και8 canonical pages PASS. Η αρχική νέα status assertion διορθώθηκε σε άμεσο SQL count, επειδή το συνθετικό άμεσο UPDATE δεν ακυρώνει το αναμενόμενο5sec status cache· δεν αλλάχθηκε παραγωγικό cache. Local Chromium δεν εκτελέστηκε (δεν υπάρχει το pinned binary), αναλαμβάνει το υποχρεωτικό full CI.
+- Πραγματικό Direct Web5.66.0/Server2.15.0 και bytes app/service-model επαληθεύτηκαν· standalone επαναλήφθηκε synced0. Δεν εξήχθη ιδιωτικό token/κωδικός ή raw sync/ιστορικό. Exact private αιτία παραμένει μη αποδεδειγμένη· η ελεγχόμενη αποτυχία aggregate αναπαράγεται και η νέα διαδρομή παρακάμπτει αυτό το σημείο με έλεγχο πληρότητας. Δεν παρουσιάζουμε τις συνθετικές29 ως φυσική επιτυχία.
+- Επόμενο: πλήρες exact-source PR/main CI, review πραγματικών Chromium screenshots/Android checks, μία κανονική αρχικά υπογεγραμμένη δημοσίευση και live feed/bytes verification. Καμία παραγωγική εγγραφή/restore/delete/backup, νέο δικαίωμα, Ordexa write, router/certificate/key/χρέωση. Runbook docs/FLEET_CANONICAL_READ_5.66.1_GR.md. Η πρόσβαση υποστήριξης αναβλήθηκε ρητά για το μέλλον.
+
+## 15/11/2026 — Ανάληψη πραγματικής λίστας μηχανών μετά τη5.66.0
+
+- Branch `fix/fleet-canonical-read-20261115`, βάση main `c35343180d21685cd23bcefccb38fcaf9ed9e8a2`. Ο χρήστης ζητά διόρθωση των μηχανών και επιβεβαίωση πώς ανεβαίνει η Direct Web έκδοση. Η πρόσβαση υποστήριξης παραμένει μόνο μελλοντική πρόταση.
+- Πραγματική εξουσιοδοτημένη Owner συνεδρία αναπαράγει Web0. Η δημόσια Direct `/api/status` με τρέχον backend revision1 επιστρέφει200, bikes29/databaseOk/storageOk. Τα πραγματικά `/fleet.html` και DOM iframe σερβίρουν assets5.66.0, άρα το πρόβλημα επιμένει μετά τη νέα εγκατάσταση και δεν αποδίδεται αυθαίρετα σε παλιά έκδοση ή διαγραφή. Δεν έχει αναγνωσθεί ακόμη η ιδιωτική sync απάντηση ή επιβεβαιωθεί συγκεκριμένη νέα αιτία.
+- Νεότερο main CI43631298909 SUCCESS και Publish43629744355 SUCCESS· καμία άλλη ενεργή δημοσίευση/PR για αυτή τη λίστα. Διερεύνηση canonical snapshot, actual Direct transport και UI. Καμία παραγωγική εγγραφή/restore/delete/backup, Ordexa write, αλλαγή λογαριασμού ή διαπιστευτηρίων.
+
 ## 14/11/2026 — Fleet5.66.0 / Server2.15.0 δημοσιεύθηκε και επαληθεύτηκε
 
 - Δημοσιευμένο source **b514adac87e4e5948117d169ecee58c8721ad67c**, tree **7141388f93ae161e601ce526ca6ade963f27e96f**. PR105/head35d3efaf3d5880871669f6347c7dd82420d95656 πέρασε Full43611596799 και Fast43611596854. Ακριβές main/source b514ada πέρασε **43628504424 SUCCESS**, όλα12 jobs, μαζί με actual normal APK Android, staged Chromium29 με >6MB ιστορικού και πλήρεις cash/native/backup/security/export ελέγχους.

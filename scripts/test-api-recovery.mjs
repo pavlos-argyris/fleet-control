@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import '../cloudflare-worker/public/service-model.js';
 const source=fs.readFileSync('cloudflare-worker/public/portal.js','utf8');
 const api=source.slice(source.indexOf('  async function api('),source.indexOf('  function escapeHtml('));
 const state={token:'fixture-token',invoiceDocuments:[{id:'already-loaded'}]};
@@ -37,7 +38,7 @@ const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),rem
 const bike1={id:'one',name:'Fixture one',currentKm:10,history:[]},bike2={id:'two',name:'Fixture two',currentKm:20,history:[]};
 let seen=[];let editDuringUpload=false;let failPost=false;
 const loading=[];
-const syncContext={window:{},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,fleetLoaded:false,fleetLoading:(message,failed)=>loading.push({message,failed}),
+const syncContext={window:{FleetServiceModel:globalThis.FleetServiceModel},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,fleetLoaded:false,fleetLoading:(message,failed)=>loading.push({message,failed}),
  webToken:'fixture-token',apiBase:'https://fixture.invalid',navigator:{onLine:true},activeBikeId:null,localStorage:storage,
  STORAGE_KEY:'bikes',DIRTY_KEY:'dirty',DIRTY_BIKE_KEY:'dirty-ids',setSyncState(){},scheduleSync(){},renderHome(){},renderDetail(){},
  requestHeaders(){return {'Authorization':'Bearer fixture-token','Content-Type':'application/json'};},

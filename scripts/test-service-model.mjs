@@ -23,3 +23,12 @@ const restored=M.undo(entry,data,revision);assert.equal(entry.km,9000);assert.de
 entry.updatedAt='later';assert.equal(M.undo(entry,data,revision),null);assert.equal(M.resolved({...entry,id:'other'},data),false);
 const blob=globalThis.FleetServiceExport.workbook([['Πινακίδα','Κόστος'],['BTO 756',59],['=1+1',-5]]);fs.writeFileSync('/tmp/fleet-history-test.xlsx',new Uint8Array(await blob.arrayBuffer()));
 console.log('OK service model: exact monetary sums, credits, filters, missing amounts, deduplication, dates, maintenance chronology, bound mileage acknowledgements and guarded undo; real XLSX generated.');
+
+const firstFleet={paged:true,version:12,totalBikes:2,offset:0,bikes:[{id:'one',name:'One',history:[{id:'old',notes:'original'}]}],hasMore:true,nextCursor:'12:1'};
+const secondFleet={...firstFleet,offset:1,bikes:[{id:'two',name:'Two',history:[]}],hasMore:false,nextCursor:''};
+const completed=await M.completeFleetSnapshot(firstFleet,async path=>{assert.equal(path,'/api/sync?paged=1&cursor=12%3A1');return secondFleet;});
+assert.equal(completed.bikes.length,2);assert.equal(completed.bikes[0].history[0].notes,'original');assert.equal(firstFleet.bikes.length,1,'completion does not mutate an incomplete first page');
+for(const broken of [{...secondFleet,version:13},{...secondFleet,totalBikes:3},{...secondFleet,offset:0},{...secondFleet,bikes:firstFleet.bikes},{...secondFleet,bikes:[]}])await assert.rejects(M.completeFleetSnapshot(firstFleet,async()=>broken));
+await assert.rejects(M.completeFleetSnapshot(firstFleet,async()=>{throw Error('late network failure');}),/late network failure/);
+assert.deepEqual(await M.completeFleetSnapshot({paged:true,version:1,totalBikes:0,offset:0,bikes:[],hasMore:false,nextCursor:''},async()=>{throw Error('unexpected page');}),{paged:true,version:1,totalBikes:0,offset:0,bikes:[],hasMore:false,nextCursor:''});
+console.log('OK complete canonical Fleet pages: all IDs/history, exact count/version/offset, no duplicates or partial acceptance, real empty fleet and legacy compatibility.');

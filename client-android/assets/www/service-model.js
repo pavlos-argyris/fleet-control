@@ -1,6 +1,29 @@
 (function (root) {
   'use strict';
   const clone = v => JSON.parse(JSON.stringify(v));
+  async function completeFleetSnapshot(first, api) {
+    if (first.paged !== true) return first;
+    const bikes = [], ids = new Set(), cursors = new Set();
+    const version = first.version, total = first.totalBikes;
+    if (!Number.isSafeInteger(total) || total < 0 || total > 40 || !Number.isSafeInteger(version)) throw new Error('Δεν επιβεβαιώθηκε το μέγεθος του στόλου.');
+    let data = first;
+    for (let page = 0; page < 11; page++) {
+      if (data.paged !== true || data.version !== version || data.totalBikes !== total || data.offset !== bikes.length || !Array.isArray(data.bikes)) throw new Error('Η λίστα μηχανών άλλαξε ή δεν διαβάστηκε πλήρως. Δοκίμασε ξανά.');
+      for (const bike of data.bikes) {
+        if (!bike || !bike.id || !bike.name || ids.has(String(bike.id))) throw new Error('Δεν επιβεβαιώθηκε πλήρης λίστα μηχανών.');
+        ids.add(String(bike.id)); bikes.push(bike);
+      }
+      if (bikes.length > total) throw new Error('Δεν συμφωνεί το πλήθος μηχανών του Server.');
+      if (data.hasMore === false) {
+        if (bikes.length !== total || data.nextCursor) throw new Error('Δεν παραλήφθηκαν όλα τα μηχανάκια. Τα προηγούμενα δεδομένα διατηρούνται.');
+        return { ...data, bikes };
+      }
+      if (data.hasMore !== true || !data.bikes.length || !data.nextCursor || cursors.has(data.nextCursor)) throw new Error('Η ανάγνωση του στόλου δεν ολοκληρώθηκε.');
+      cursors.add(data.nextCursor);
+      data = await api('/api/sync?paged=1&cursor=' + encodeURIComponent(data.nextCursor));
+    }
+    throw new Error('Η ανάγνωση του στόλου υπερβαίνει το όριο σελίδων.');
+  }
   async function loadInvoiceDocuments(api, options={}){
     for(let attempt=0;attempt<2;attempt++){
       const documents=new Map();let cursor='',version=null;
@@ -181,5 +204,5 @@
     }
     return rows.sort((a,b)=>date(b.entry.date).localeCompare(date(a.entry.date))||String(a.bike.name).localeCompare(String(b.bike.name),'el')||String(a.entry.id).localeCompare(String(b.entry.id)));
   }
-  root.FleetServiceModel={loadInvoiceDocuments,isOilTask,cents,euro,date,invoice,sourcePhoto,preserveInvoiceFiles,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,qrDocumentState,pendingInvoice,missingInvoices};
+  root.FleetServiceModel={completeFleetSnapshot,loadInvoiceDocuments,isOilTask,cents,euro,date,invoice,sourcePhoto,preserveInvoiceFiles,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,qrDocumentState,pendingInvoice,missingInvoices};
 })(globalThis);

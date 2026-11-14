@@ -54,7 +54,11 @@
         "scripts/test-cloud-return-preflight.py",
         "scripts/test-business-cloud-ports.mjs",
         "scripts/test-cloud-business-db.mjs",
-        "scripts/test-cloud-business-runtime.mjs"
+        "scripts/test-cloud-business-runtime.mjs",
+        "scripts/test-worker-snapshot-load.mjs",
+        "scripts/test-direct-web-speed.mjs",
+        "scripts/test-independent-business.mjs",
+        "scripts/test-direct-unified-browser.mjs"
       ],
       "related": [
         "server-foundation",
@@ -63,7 +67,8 @@
       ],
       "docs": [
         "docs/REQUEST_REDUCTION_5.48.0_GR.md",
-        "docs/CLOUD_PRIMARY_RETURN_GR.md"
+        "docs/CLOUD_PRIMARY_RETURN_GR.md",
+        "docs/FLEET_CANONICAL_READ_5.66.1_GR.md"
       ]
     },
     {
@@ -228,14 +233,19 @@
       "tests": [
         "scripts/test-fleet-operations-*.mjs",
         "scripts/test-service-*.mjs",
-        "scripts/test-next-service-model.mjs"
+        "scripts/test-next-service-model.mjs",
+        "scripts/test-worker-snapshot-load.mjs",
+        "scripts/test-direct-web-speed.mjs",
+        "scripts/test-independent-business.mjs",
+        "scripts/test-direct-unified-browser.mjs"
       ],
       "related": [
         "invoices",
         "workforce-schedule"
       ],
       "docs": [
-        "docs/OPERATIONS_UPDATE_5.46.0_GR.md"
+        "docs/OPERATIONS_UPDATE_5.46.0_GR.md",
+        "docs/FLEET_CANONICAL_READ_5.66.1_GR.md"
       ]
     },
     {

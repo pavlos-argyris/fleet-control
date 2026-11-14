@@ -31,7 +31,7 @@ const direct='https://fleet-control.duckdns.org';
   const remote=Array.from({length:29},(_,i)=>({id:'bike-'+i,name:'Fixture '+i,history:[]}));
   const context={navigator:{onLine:true},syncRunning:false,syncQueued:false,fleetLoaded:false,webToken:'fixture',pendingFleetChange:false,
     cloudSnapshotVersion:null,bikes:[],apiBase:direct,activeBikeId:null,
-    window:{},setTimeout,Set,localStorage:{},sessionStorage:{},
+    window:{FleetServiceModel:globalThis.FleetServiceModel},setTimeout,Set,localStorage:{},sessionStorage:{},
     setSyncState:(state)=>states.push(state),fleetLoading:(message,failed)=>notices.push({message,failed}),
     fetchReadWithRetry:async url=>{urls.push(url);return Response.json({version:123,bikes:remote});},
     mergeFleets:(local,value)=>{if(failMerge)throw Error('Synthetic historical record failure');return value;},
@@ -40,12 +40,19 @@ const direct='https://fleet-control.duckdns.org';
   vm.runInContext(app.slice(app.indexOf('  async function syncNow('),app.indexOf('  function scheduleSync('))+'\nglobalThis.sync=syncNow;',context);
   await context.sync();assert.equal(context.cloudSnapshotVersion,null,'a failed merge cannot acknowledge a server revision');
   assert.equal(context.fleetLoaded,false);assert.equal(notices.at(-1).failed,true);
-  failMerge=false;await context.sync();assert.equal(urls[1],direct+'/api/sync','retry asks for the complete fleet instead of accepting unchanged');
+  failMerge=false;await context.sync();assert.equal(urls[1],direct+'/api/sync?paged=1','retry asks for the complete fleet instead of accepting unchanged');
   assert.equal(context.bikes.length,29);assert.equal(context.cloudSnapshotVersion,123);assert.equal(context.fleetLoaded,true);
   context.fleetLoaded=false;context.cloudSnapshotVersion=null;context.bikes=[];
   context.fetchReadWithRetry=async()=>Response.json({version:124,bikes:[{id:'incomplete'}]});
   await context.sync();assert.equal(context.fleetLoaded,false);assert.equal(context.cloudSnapshotVersion,null,'invalid identities cannot become a successful zero');
   assert.match(notices.at(-1).message,/ελλιπή/);
+  const prior=remote;context.bikes=prior;context.fleetLoaded=true;context.cloudSnapshotVersion=123;
+  context.fetchReadWithRetry=async url=>url.includes('cursor=')?Response.json({error:'Synthetic late-page failure'},{status:503}):Response.json({paged:true,bikes:remote.slice(0,4),version:124,totalBikes:29,offset:0,hasMore:true,nextCursor:'124:4'});
+  await context.sync();assert.equal(context.bikes,prior,'a late page failure retains every previously loaded bike');
+  assert.equal(context.cloudSnapshotVersion,123,'partial pages cannot acknowledge a new snapshot');assert.equal(notices.at(-1).failed,true);
+  let sessionCleared=0;context.clearFleetSession=()=>{sessionCleared++;};
+  context.fetchReadWithRetry=async url=>url.includes('cursor=')?Response.json({error:'Session expired'},{status:401}):Response.json({paged:true,bikes:remote.slice(0,4),version:124,totalBikes:29,offset:0,hasMore:true,nextCursor:'124:4'});
+  await context.sync();assert.equal(sessionCleared,1,'a revoked session on a later page uses the same logout path as the first read');
 }
 {
   let scheduled=0,opened=0;

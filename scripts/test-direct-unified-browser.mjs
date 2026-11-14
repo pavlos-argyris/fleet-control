@@ -41,7 +41,12 @@ try{for(const width of [390,1280]){
         return route.fulfill({json:{instanceId:'fixture-instance',mode:'primary',ordexaLastSuccessAt:null}});
       }
       if(url.pathname==='/api/independent/events')return route.fulfill({contentType:'text/event-stream',body:'event: ready\ndata: {}\n\n'});
-      if(url.pathname==='/api/sync')return route.fulfill({json:url.searchParams.has('sinceVersion')?{unchanged:true,version:10}:{bikes,version:10,archivedBikeIds:[]}});
+      if(url.pathname==='/api/sync'){
+        if(url.searchParams.has('sinceVersion'))return route.fulfill({json:{unchanged:true,version:10}});
+        assert.equal(url.searchParams.get('paged'),'1','normal Direct reads bounded canonical pages');
+        const offset=Number((url.searchParams.get('cursor')||'10:0').split(':')[1]),next=Math.min(offset+4,bikes.length);
+        return route.fulfill({json:{paged:true,bikes:bikes.slice(offset,next),version:10,totalBikes:bikes.length,offset,hasMore:next<bikes.length,nextCursor:next<bikes.length?'10:'+next:'',archivedBikeIds:[]}});
+      }
       if(url.pathname==='/api/admin/vehicles/archived')return route.fulfill({json:{bikes:[]}});
       if(url.pathname==='/api/workforce/vehicles')return route.fulfill({json:{vehicles:bikes.map(b=>({id:b.id,name:b.name,status:'available',odometer:b.currentKm}))}});
       if(url.pathname==='/api/admin/service-documents'){

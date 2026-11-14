@@ -1213,6 +1213,30 @@
     } catch (error) {}
   }
 
+  function clearFleetSession() {
+    window.FleetLive?.stop();window.FleetSharedReads?.clear();
+    webToken = "";
+    cloudSnapshotVersion = null;
+    window.FleetFollowup?.reset();window.FleetOperations?.reset();
+    currentUser = null;
+    bikes = [];
+    try {
+      localStorage.removeItem(AUTH_TOKEN_PERSIST);
+      sessionStorage.removeItem(AUTH_TOKEN_SESSION);
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(DIRTY_KEY);
+      localStorage.removeItem(DIRTY_BIKE_KEY);
+      dirtyBikeIds.clear();
+      localStorage.removeItem(USER_CACHE);
+      sessionStorage.setItem("fleet-control-return-to-fleet", "1");
+    } catch (error) {}
+    try {
+      if (window.AndroidFleet && typeof window.AndroidFleet.clearAuthToken === "function") window.AndroidFleet.clearAuthToken();
+    } catch (error) {}
+    renderAccessState();
+    returnToPortal(true);
+  }
+
   async function fetchReadWithRetry(url, options) {
     const attempts = (options.method || "GET") === "GET" ? 3 : 1;
     for (let attempt=0; attempt<attempts; attempt++) {
@@ -1259,7 +1283,7 @@
           persistDirtyBikes();
         }
       }
-      const response = await fetchReadWithRetry(apiBase + "/api/sync" + (cloudSnapshotVersion === null ? "" : "?sinceVersion=" + encodeURIComponent(cloudSnapshotVersion)), {
+      const response = await fetchReadWithRetry(apiBase + "/api/sync?paged=1" + (cloudSnapshotVersion === null ? "" : "&sinceVersion=" + encodeURIComponent(cloudSnapshotVersion)), {
         method: "GET", headers: { Authorization: "Bearer " + webToken }, cache: "no-store"
       });
       let payload;
@@ -1267,27 +1291,7 @@
       catch (error) { throw new Error("Ο Server δεν επέστρεψε έγκυρα δεδομένα συγχρονισμού."); }
       if (!response.ok) {
         if (response.status === 401) {
-          window.FleetLive?.stop();window.FleetSharedReads?.clear();
-          webToken = "";
-          cloudSnapshotVersion = null;
-          window.FleetFollowup?.reset();window.FleetOperations?.reset();
-          currentUser = null;
-          bikes = [];
-          try {
-            localStorage.removeItem(AUTH_TOKEN_PERSIST);
-            sessionStorage.removeItem(AUTH_TOKEN_SESSION);
-            localStorage.removeItem(STORAGE_KEY);
-            localStorage.removeItem(DIRTY_KEY);
-            localStorage.removeItem(DIRTY_BIKE_KEY);
-            dirtyBikeIds.clear();
-            localStorage.removeItem(USER_CACHE);
-            sessionStorage.setItem("fleet-control-return-to-fleet", "1");
-          } catch (error) {}
-          try {
-            if (window.AndroidFleet && typeof window.AndroidFleet.clearAuthToken === "function") window.AndroidFleet.clearAuthToken();
-          } catch (error) {}
-          renderAccessState();
-          returnToPortal(true);
+          clearFleetSession();
         }
         throw new Error(payload.error || "Αποτυχία συγχρονισμού");
       }
@@ -1296,6 +1300,12 @@
         setSyncState(pendingFleetChange ? "syncing" : "synced",pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");return;
       }
       if (!Array.isArray(payload.bikes)) throw new Error("Δεν επιστράφηκε έγκυρος στόλος. Τα δεδομένα διατηρούνται.");
+      payload = await window.FleetServiceModel.completeFleetSnapshot(payload, async function (path) {
+        const page = await fetchReadWithRetry(apiBase + path, { method: "GET", headers: { Authorization: "Bearer " + webToken }, cache: "no-store" });
+        const data = await page.json();
+        if (!page.ok) throw Object.assign(new Error(data.error || "Δεν ολοκληρώθηκε η ανάγνωση μηχανών."), { status: page.status });
+        return data;
+      });
       const remote = payload.bikes;
       if (remote.some(function (bike) { return !bike || !bike.id || !bike.name; })) throw new Error("Ο Server επέστρεψε ελλιπή στοιχεία μηχανής. Ο στόλος διατηρείται· χρειάζεται επανέλεγχος.");
       bikes = mergeFleets(bikes, remote);
@@ -1313,6 +1323,7 @@
       fleetLoading("", false);
       setSyncState(pendingFleetChange ? "syncing" : "synced", pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");
     } catch (error) {
+      if (error.status === 401) clearFleetSession();
       setSyncState(navigator.onLine === false ? "offline" : "error", navigator.onLine === false ? "Χωρίς σύνδεση" : "Εκκρεμεί");
       fleetLoading(error.message || "Δεν φορτώθηκαν τα μηχανάκια. Δοκίμασε ξανά.", true);
     } finally {
