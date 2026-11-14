@@ -1,3 +1,9 @@
+## 15/11/2026 — PR106 πρώτη πλήρης επαλήθευση
+
+- Remote head65ba38190e6c90630375f564d886ced676480ca1/tree80c47fc85561d06f6730c07a803989db5ef32c9d επαληθεύτηκε byte-exact με local3b9ee53. Μετά τη νέα ρητή άδεια το CLI push απέτυχε τεχνικά χωρίς credentials· η εξουσιοδοτημένη αποστολή ολοκληρώθηκε από τη συνδεδεμένη GitHub εφαρμογή, με SHA επαλήθευση όλων21 νέων blobs/ολόκληρου tree. PR106.
+- Fast43652527808 SUCCESS. Actual normal-APK Android132623933018 SUCCESS και manual diagnostic SUCCESS. Full43652527822/check132623932786 απέτυχε στο test-backup-restore-local.mjs: διαγνωστικό workerVersion είχε μείνει5.21.3 αντί5.21.4. Διορθώνεται το literal στο service-operations.js· η παρεπόμενη απουσία apk-security artifact δεν είναι δεύτερη αιτία. Κανένα merge/publish από την αποτυχημένη υποψήφια.
+- Οι τοπικές κανονικές κατασκευές Client/Server με disposable test key ολοκληρώθηκαν και πέρασαν payload/ABIs/192MiB bounds και cold Rhino/resource checks. Πραγματικό τοπικό Chromium εμποδίζεται από socket policy· απαιτείται το πλήρες GitHub browser/visual CI. Όλες οι αρχικές υπογραφές παραμένουν στη διαδικασία δημοσίευσης. Καμία παραγωγική μεταβολή δεδομένων.
+
 ## 15/11/2026 — Νέα ρητή άδεια δημοσίευσης διόρθωσης μηχανών
 
 - Τοπικό source `c44e20a416f71d474868c6a24b8fe24c1c40f5e9` / tree `8b419a086a60b93afd7218a6cfd53e0e995cb06f`. Δύο public GitHub pushes απορρίφθηκαν από automatic approval review. Μεταξύ τους επαληθεύτηκαν repo1412318293, συνδεδεμένος owner/admin, ακριβές origin και η προηγούμενη πάγια έγκριση· δεν χρησιμοποιήθηκε connector workaround και δεν στάλθηκε πηγή.
