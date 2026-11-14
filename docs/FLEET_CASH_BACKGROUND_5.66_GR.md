@@ -1,4 +1,4 @@
-# Fleet5.66.0 / Server2.15.0 — Υποψήφια υπό έλεγχο
+# Fleet5.66.0 / Server2.15.0 — Δημοσιεύτηκε14/11/2026
 
 Η προβολή στόλου διαχωρίζει πλέον τη λήψη από το προαιρετικό τοπικό read cache. Ένα μεγάλο ιστορικό που δεν χωρά στο synchronous browser storage παραμένει ορατό μετά την επαληθευμένη ανάγνωση. Αποτυχημένη επεξεργασία δεν αποδέχεται τη server revision. Τοπικές αλλαγές εξακολουθούν να απαιτούν επιβεβαιωμένη αποθήκευση και δεν απορρίπτονται προσχέδια/outbox/credentials.
 
@@ -8,6 +8,8 @@
 
 Το άνοιγμα δείχνει πρώτα το αποθηκευμένο αποτέλεσμα. Η ορατή λίστα ελέγχει τοπικά αποτελέσματα ανά5sec και δέχεται live events· δεν ξεκινά provider scan ανά οθόνη/ανά poll. Τα ποσά ενημερώνονται στις υπάρχουσες γραμμές χωρίς νέο loading block/ηλικία συγχρονισμού και με διατήρηση ανάλυσης και εστίασης. Άγνωστη κάλυψη και πραγματικές εκκρεμότητες παραμένουν εμφανείς.
 
-Εγκατάσταση μετά επιβεβαιωμένη δημοσίευση: πρώτα Server2.15.0 και μετά Client5.66.0, χωρίς απεγκατάσταση. Ανανεώνεται το Web. Διατηρούνται τα κανονικά backup και τα αρχικά κλειδιά· ο source ZIP δεν αποτελεί backup δεδομένων. Η φυσική επιβεβαίωση της ιδιωτικής λίστας29, του Note10+ και του πραγματικού χρόνου επεξεργασίας παραμένει εκκρεμής. Δεν εκτελέστηκε παραγωγική εισαγωγή/restore/delete ή Ordexa business write από τον agent.
+Εγκατάσταση της δημοσιευμένης έκδοσης: πρώτα Server2.15.0 και μετά Client5.66.0, χωρίς απεγκατάσταση. Ανανεώνεται το Web. Διατηρούνται τα κανονικά backup και τα αρχικά κλειδιά· ο source ZIP δεν αποτελεί backup δεδομένων. Η φυσική επιβεβαίωση της ιδιωτικής λίστας29, του Note10+ και του πραγματικού χρόνου επεξεργασίας παραμένει εκκρεμής. Δεν εκτελέστηκε παραγωγική εισαγωγή/restore/delete ή Ordexa business write από τον agent.
 
-Έλεγχοι αναφοράς: test-direct-web-speed, test-direct-unified-browser, test-api-recovery, test-new-service-ui, test-native-management-ui/browser, test-cash-auto-sqlite, test-cash-pilot-native, test-ordexa-cash-source-native και full check-all/actual normal Android. Η παρούσα αναφορά δεν δηλώνει δημοσίευση ή επιτυχή φυσική παραλαβή.
+Έλεγχοι αναφοράς: test-direct-web-speed, test-direct-unified-browser, test-api-recovery, test-new-service-ui, test-native-management-ui/browser, test-cash-auto-sqlite, test-cash-pilot-native, test-ordexa-cash-source-native και full check-all/actual normal Android. Η δημοσίευση ολοκληρώθηκε επιτυχώς με430/430 verified uploads και αρχικές υπογραφές (Publish43629744355). Η φυσική παραλαβή στον Server/Client παραμένει εκκρεμής. Το δημόσιο Direct feed δίνει τη νέα έκδοση, αλλά το Direct Web κατά τον τελικό έλεγχο σερβίρει ακόμη5.65.1 και χρειάζεται πρώτα ενημέρωση Server.
+
+Η επίσημη έκδοση, τα APK, το πλήρες source ZIP, τα build inputs και τα SHA256SUMS διατίθενται στο https://github.com/pavlos-argyris/fleet-control/releases/tag/fleet-v5.66.0 . Εκδοθέν source b514adac87e4e5948117d169ecee58c8721ad67c. Η μεταγενέστερη ενημέρωση αυτού του οδηγού δεν αλλάζει την εκδοθείσα πηγή ή τα APK.
