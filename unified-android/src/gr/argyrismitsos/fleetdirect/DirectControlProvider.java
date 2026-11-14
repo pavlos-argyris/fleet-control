@@ -19,6 +19,18 @@ public final class DirectControlProvider extends ContentProvider {
                 if(method.equals("dashboard")&&config.has("backupSha256")){initialize();state.put("stats",IndependentRuntime.get(scope).dashboard()).put("ota",OtaManager.state(scope));}
                 result.putString("json",state.toString());result.putBoolean("ok",true);return result;
             }
+            if(method.equals("ota")){
+                initialize();
+                if(!BackendMode.direct(scope))throw new IllegalStateException("Ο Direct Server δεν είναι επιλεγμένος.");
+                if("check".equals(argument))OtaManager.check(scope,true);
+                else if("install".equals(argument))OtaManager.requestApply(scope);
+                else if("force".equals(argument))OtaManager.requestForce(scope);
+                else if("postpone".equals(argument))OtaManager.cancelWait(scope);
+                else if("automatic-on".equals(argument)||"automatic-off".equals(argument))scope.getSharedPreferences(BackupManager.PREFS,0).edit().putBoolean("automatic_ota","automatic-on".equals(argument)).commit();
+                else throw new IllegalArgumentException("Unknown OTA action");
+                if("check".equals(argument)||"install".equals(argument)||"force".equals(argument))IndependentService.start(scope);
+                result.putBoolean("ok",true);return result;
+            }
             if(method.equals("startControl")){
                 JSONObject config=IndependentConfig.read(scope);
                 if(config.has("backupSha256")&&scope.getSharedPreferences(BackupManager.PREFS,0).getBoolean("automatic_start",true))IndependentService.start(scope);

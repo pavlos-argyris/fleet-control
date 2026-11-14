@@ -5,7 +5,7 @@
   const KEY='fleet-backend-selection-v1',network=root.fetch.bind(root),controllers=new Set();
   const discoveryOrigin=['localhost','127.0.0.1','[::1]'].includes(location.hostname)?location.origin:DIRECT;
   const valid=s=>s?.schema===1&&Number.isSafeInteger(s.revision)&&s.revision>=0&&['cloudflare','direct'].includes(s.activeMode)&&s.cloudUrl===CLOUD&&s.directUrl===DIRECT;
-  let loaded=false,selection={schema:1,revision:0,activeMode:'cloudflare',selectedMode:'cloudflare',cloudUrl:CLOUD,directUrl:DIRECT,updatedAt:0},changing=false,lastContact=0,flight=null;
+  let loaded=false,selection={schema:1,revision:0,activeMode:'cloudflare',selectedMode:'cloudflare',cloudUrl:CLOUD,directUrl:DIRECT,updatedAt:0},changing=false,lastContact=0,flight=null,businessStarted=false;
   try{const saved=JSON.parse(root.AndroidFleet?.getBackendSelection?.()||localStorage.getItem(KEY)||'null');if(valid(saved)){selection=saved;loaded=true;}}catch{}
   // Direct documents carry only this origin's accounts. A fresh Direct URL opens
   // the setup/probe UI without assuming an active production connection.
@@ -26,6 +26,13 @@
     if(!local&&value.revision<selection.revision)return false;
     const changed=value.activeMode!==selection.activeMode||value.revision!==selection.revision;
     if(!changed&&!selection.localRecovery)return false;
+    // The first verified same-origin revision is bootstrap, not a switch.
+    // No business request has left this document yet; auth is revision-exempt.
+    // Halting here used to abort the very first read and navigate Android's
+    // whole WebView even when discovery ran inside its Fleet iframe.
+    if(!changing&&!businessStarted&&!local&&value.activeMode===pageMode&&selection.activeMode===pageMode){
+      selection={...value,directOnly:DIRECT_ONLY,localRecovery:false};persist(selection);return true;
+    }
     halt();selection={...value,directOnly:DIRECT_ONLY,localRecovery:DIRECT_ONLY?false:local};persist(selection);
     announce(DIRECT_ONLY?'Direct Android Server · η σύνδεση ενημερώθηκε.':local?'Τοπική ανάκτηση Cloudflare · απαιτείται ξεχωριστή σύνδεση.':'Η λειτουργία άλλαξε. Απαιτείται σύνδεση στη συγκεκριμένη βάση.');
     if(navigate&&root.AndroidFleet?.openBackend){root.AndroidFleet.openBackend(value.activeMode);return true;}
@@ -50,6 +57,7 @@
     if(DIRECT_ONLY&&url.origin===CLOUD)throw new DOMException('Η σύνδεση Cloudflare είναι προσωρινά ανενεργή.','AbortError');
     if(pageMode==='direct'&&!lastContact&&!url.pathname.startsWith('/api/auth/')&&!url.pathname.startsWith('/api/independent/'))await discover();
     if(changing||pageMode!==selection.activeMode&&!url.pathname.startsWith('/api/auth/')&&!url.pathname.startsWith('/api/independent/'))throw new DOMException('Η λειτουργία άλλαξε. Ανανέωσε τη σελίδα.','AbortError');
+    if(!url.pathname.startsWith('/api/auth/')&&!url.pathname.startsWith('/api/independent/'))businessStarted=true;
     const captured=selection.revision,controller=new AbortController(),abort=()=>controller.abort();request.signal?.addEventListener('abort',abort,{once:true});if(request.signal?.aborted)controller.abort();controllers.add(controller);
     try{const headers=new Headers(request.headers);if(pageMode==='direct')headers.set('X-Fleet-Backend-Revision',String(captured));const response=await network(new Request(request,{headers,signal:controller.signal}));if(changing||captured!==selection.revision)throw new DOMException('Η προηγούμενη απάντηση απορρίφθηκε.','AbortError');return response;}finally{controllers.delete(controller);request.signal?.removeEventListener('abort',abort);}
   };

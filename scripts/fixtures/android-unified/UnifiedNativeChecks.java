@@ -209,6 +209,16 @@ public final class UnifiedNativeChecks{
             JSONObject mode=new JSONObject(bridge.getBackendMode());check(!mode.has("error")&&mode.getBoolean("directOnly")&&mode.getString("activeMode").equals("direct"),"Generated ServerBridge resolves the real provider, not the renamed Java package");
             JSONObject dashboard=new JSONObject(bridge.getDashboard());check(dashboard.optBoolean("settingsLoaded")&&!dashboard.has("dashboardError"),"Actual generated Direct dashboard loads instead of Unknown authority: "+dashboard.optString("dashboardError"));
             check(dashboard.getString("workerUrl").equals(BackendMode.DIRECT)&&dashboard.getJSONObject("health").getString("androidVersion").equals(android.os.Build.VERSION.RELEASE),"Real bridge returns Direct authority and device health");
+            // Real UI-process bridge -> private Direct provider -> scoped OTA
+            // preferences. The provider process must observe both changes.
+            bridge.setAutomaticOta(false);
+            long otaDeadline=System.currentTimeMillis()+5000;
+            while(new JSONObject(bridge.getDashboard()).getJSONObject("ota").getBoolean("automatic")&&System.currentTimeMillis()<otaDeadline)Thread.sleep(25);
+            check(!new JSONObject(bridge.getDashboard()).getJSONObject("ota").getBoolean("automatic"),"Disabling automatic OTA reaches actual Direct provider state");
+            bridge.setAutomaticOta(true);otaDeadline=System.currentTimeMillis()+5000;
+            while(!new JSONObject(bridge.getDashboard()).getJSONObject("ota").getBoolean("automatic")&&System.currentTimeMillis()<otaDeadline)Thread.sleep(25);
+            check(new JSONObject(bridge.getDashboard()).getJSONObject("ota").getBoolean("automatic"),"Enabling automatic OTA reaches the same Direct scope");
+
         }
         android.util.Log.i("FleetSqliteTest","PASS actual compiled generated ServerBridge dashboard, physical authority, real Android ContentResolver/provider and device health");
     }

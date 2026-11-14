@@ -12,7 +12,7 @@ const staged=path.join(out,'assets/independent-www');
 const csp=fs.readFileSync('independent-android/src/gr/argyrismitsos/fleetserver/IndependentHttps.java','utf8').match(/Content-Security-Policy: (.*?)\\r\\n/)[1];
 const selection={schema:1,revision:7,selectedMode:'direct',activeMode:'direct',directOnly:true,directApproved:true,pending:false,cloudUrl:'https://fleet-control.pavlosargyris.workers.dev',directUrl:origin,updatedAt:1};
 const user={id:'fixture-owner',username:'fixture.owner',fullName:'Συνθετικός ιδιοκτήτης',role:'owner',permissions:['*']};
-const bikes=Array.from({length:27},(_,i)=>({id:'bike-'+i,name:'Μηχανάκι '+i,currentKm:9000,lastServiceKm:8000,intervalKm:2000,history:[],updatedAt:'2026-11-13T12:00:00Z'}));
+const bikes=Array.from({length:29},(_,i)=>({id:'bike-'+i,name:'Μηχανάκι '+i,currentKm:9000,lastServiceKm:8000,intervalKm:2000,history:[],updatedAt:'2026-11-13T12:00:00Z'}));
 const invoices=Array.from({length:57},(_,i)=>({id:'invoice-'+i,key:'service-documents/b/e'+i+'/f.pdf',bikeId:'bike-0',bikeName:'Μηχανάκι 0',entryId:'e'+i,name:'Fixture-'+i+'.pdf',status:'warning',serviceDate:'2026-11-10',invoiceData:{}}));
 const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined});
 try{for(const width of [390,1280]){
@@ -20,7 +20,9 @@ try{for(const width of [390,1280]){
   const requests=[],errors=[],missing=[],management=managementData();let logged=false,invoiceRequests=0;
   page.on('pageerror',error=>errors.push(error.message));
   await context.addInitScript(selection=>{
-    localStorage.setItem('fleet-backend-selection-v1',JSON.stringify(selection));
+    // A fresh Web/Client starts at revision zero, unlike the Server.
+    localStorage.removeItem('fleet-backend-selection-v1');
+    if(innerWidth===390){let saved='';window.AndroidFleet={getBackendSelection:()=>saved,setBackendSelection:v=>{saved=v;},openBackend:()=>{throw Error('Unexpected native navigation during same-mode bootstrap');},getClientUpdateState:()=>JSON.stringify({stage:'waiting',ready:{version:'99.0.0',notes:'• fixture',sizeBytes:100}}),checkClientUpdate:()=>{window.fixtureUpdateChecked=true;},installClientUpdate:()=>{window.fixtureUpdateInstalled=true;}};}
     // Regression: an old saved endpoint must not send Direct account data to it.
     localStorage.setItem('fleet-control-server-url','https://old-cloud.invalid');
   },selection);
@@ -58,12 +60,13 @@ try{for(const width of [390,1280]){
   try{
     await page.goto(origin+'/');await page.locator('#loginForm').waitFor({state:'visible'});
     await page.locator('#loginUsername').fill('fixture.owner');await page.locator('#loginPassword').fill('Fixture-Password');await page.locator('#loginButton').click();await page.locator('#portal').waitFor({state:'visible'});
+    if(width===390){await page.locator('#menuButton').click();await page.locator('.sidebar-foot .client-ota-open').click();await page.locator('#clientOtaCheck').click();assert(await page.evaluate(()=>window.fixtureUpdateChecked));await page.locator('.client-ota-close').click();await page.locator('#sidebarBackdrop').click({position:{x:width-10,y:10}});}
     assert.equal(await page.locator('#fleetBackendStatus').isHidden(),true);assert.equal(await page.locator('#fleetPrimaryStatus').isHidden(),true);
     await page.waitForTimeout(1900);
     assert.equal(requests.some(p=>p.startsWith('/api/sync')),false,'opening the home page does not secretly read the full Fleet history');
     assert.equal(await page.locator('#fleetModuleFrame').getAttribute('src'),null);
     const fleet=page.locator('#bottomNav [data-go="fleet"]');if(await fleet.isVisible())await fleet.click();else await page.locator('#sideNav [data-go="fleet"]').click();
-    const embedded=page.frameLocator('#fleetModuleFrame');await embedded.locator('#bikeCount').filter({hasText:'27'}).waitFor();
+    const embedded=page.frameLocator('#fleetModuleFrame');await embedded.locator('#bikeCount').filter({hasText:'29'}).waitFor();
     assert.equal(await embedded.locator('#fleetLoadNotice').isHidden(),true,'complete same-origin Fleet read clears the loading state');
     assert.equal(await page.locator('#fleetBackendStatus').isHidden(),true);assert.equal(await page.locator('#fleetPrimaryStatus').isHidden(),true);
     await page.waitForFunction(()=>document.querySelector('#fleetModuleShell').classList.contains('is-loaded')&&document.querySelector('#fleetModuleShell').getAttribute('aria-busy')==='false');
@@ -75,4 +78,4 @@ try{for(const width of [390,1280]){
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);assert.deepEqual(errors,[]);assert.deepEqual(missing,[]);
   }catch(error){fs.writeFileSync(path.join(out,'error-'+width+'.json'),JSON.stringify({requests,errors,missing},null,2));await page.screenshot({path:path.join(out,'error-'+width+'.png'),fullPage:true});throw error;}finally{await context.close();}
 }}finally{await browser.close();}
-console.log('PASS actual normal Direct Portal/Fleet/Invoices at 390/1280: same-origin despite stale URL, revision fence, 27 loaded bikes, no hidden Fleet reads or top technical banners, fresh-login owner session, complete 57 invoices in two reads. Synthetic data/network; physical Note10+/Nova not measured.');
+console.log('PASS actual normal Direct Portal/Fleet/Invoices at 390/1280: same-origin despite stale URL, revision fence, 29 loaded bikes, no hidden Fleet reads or top technical banners, fresh-login owner session, complete 57 invoices in two reads. Synthetic data/network; physical Note10+/Nova not measured.');
