@@ -21,6 +21,15 @@ public class IndependentBusinessTest {
  }
  static JSONObject call(String path,String method,JSONObject body,String token)throws Exception{return call(path,method,body,token,false,java.util.UUID.randomUUID().toString(),false);}
  static JSONObject body(JSONObject response){return new JSONObject(response.getString("body"));}
+ static JSONObject fleetBody(JSONObject response,String token)throws Exception{
+  if(response.has("body"))return body(response);
+  JSONObject file=response.getJSONObject("bodyFile");ByteArrayOutputStream output=new ByteArrayOutputStream();
+  while(output.size()<file.getLong("size")){
+   JSONObject chunk=body(call("/api/native/files/"+file.getString("ref")+"?offset="+output.size(),"GET",null,token));
+   byte[] bytes=java.util.Base64.getDecoder().decode(chunk.getString("data"));check(bytes.length>0,"private fleet chunk makes progress");output.write(bytes);
+  }
+  check(output.size()==file.getLong("size"),"complete private fleet response");return new JSONObject(new String(output.toByteArray(),"UTF-8"));
+ }
  static String mode()throws Exception{return sql.call("sql.query",new JSONObject().put("sql","SELECT mode FROM independent_instance WHERE id=1")).getJSONArray("results").getJSONObject(0).getString("mode");}
  public static void main(String[] args)throws Exception{
   db=new SQLiteDatabase(args[0]);sql=new BusinessSqlite(db);String code=new String(Files.readAllBytes(Paths.get(args[1])),"UTF-8");JSONObject manifest=new JSONObject(new String(Files.readAllBytes(Paths.get(args[2])),"UTF-8"));
@@ -70,6 +79,22 @@ public class IndependentBusinessTest {
    do{JSONObject page=body(call("/api/admin/service-documents?paged=1"+(cursor.isEmpty()?"":"&cursor="+java.net.URLEncoder.encode(cursor,"UTF-8")),"GET",null,token));int count=page.getJSONArray("documents").length();check(count<=32,"native invoice page remains bounded");if(invoicePages==0)check(count==32,"Android reads 32 service entries per WAN request");invoiceCount+=count;invoicePages++;cursor=page.optString("nextCursor");}while(!cursor.isEmpty());
    check(invoiceCount==57&&invoicePages==2,"all 57 invoices load in two native requests, instead of 15");
    check(sql.call("sql.query",new JSONObject().put("sql","SELECT data FROM fleet_snapshot WHERE id=1")).getJSONArray("results").getJSONObject(0).getString("data").equals(snapshot),"invoice listing leaves source/history unchanged");
+   check(body(call("/api/sync","GET",null,token)).getJSONArray("bikes").length()==1,"native sync reads the same nonempty canonical fleet as status");
+   JSONArray largeFleet=new JSONArray();StringBuilder notes=new StringBuilder();for(int i=0;i<100000;i++)notes.append('Ω');
+   for(int i=0;i<29;i++)largeFleet.put(new JSONObject().put("id","large-"+i).put("name","Fixture "+i).put("history",new JSONArray().put(new JSONObject().put("id","history-"+i).put("notes",notes.toString()))));
+   String largeSnapshot=new JSONObject().put("bikes",largeFleet).toString();db.execSQL("UPDATE fleet_snapshot SET data=?,version=124 WHERE id=1",new Object[]{largeSnapshot});
+   check(sql.call("sql.query",new JSONObject().put("sql","SELECT json_array_length(data,'$.bikes') AS bikes FROM fleet_snapshot WHERE id=1")).getJSONArray("results").getJSONObject(0).getInt("bikes")==29,"canonical SQL sees all 29 historical bikes");
+   JSONObject largeSync=call("/api/sync","GET",null,token);check(largeSync.getInt("status")==200,"large native sync succeeds");
+   JSONArray received=fleetBody(largeSync,token).getJSONArray("bikes");check(received.length()==29,"large native sync cannot silently become an empty fleet");
+   check(received.getJSONObject(28).getJSONArray("history").getJSONObject(0).getString("notes").equals(notes.toString()),"large sync preserves complete Unicode history");
+   check(body(call("/api/sync?sinceVersion=124","GET",null,token)).getBoolean("unchanged"),"unchanged follows a complete native fleet read");
+   int loaded=0,pages=0;String fleetCursor="";
+   do{JSONObject page=fleetBody(call("/api/sync?paged=1"+(fleetCursor.isEmpty()?"":"&cursor="+java.net.URLEncoder.encode(fleetCursor,"UTF-8")),"GET",null,token),token);
+    check(page.getInt("totalBikes")==29&&page.getInt("offset")==loaded,"native page agrees with canonical SQL count and previous offset");
+    JSONArray rows=page.getJSONArray("bikes");check(rows.length()<=4&&rows.length()>0,"bounded historical native rows");loaded+=rows.length();pages++;fleetCursor=page.getString("nextCursor");
+   }while(!fleetCursor.isEmpty());check(loaded==29&&pages==8,"all 29 complete histories load through eight bounded native pages");
+   check(call("/api/sync?paged=1&cursor=123:4","GET",null,token).getInt("status")==409,"stale page cursor cannot mix snapshot revisions");
+   check(call("/api/sync?paged=1&cursor=invalid","GET",null,token).getInt("status")==400,"invalid page cursor rejected");
    System.out.println("Native invoice benchmark: "+new JSONObject().put("entries",invoiceCount).put("requests",invoicePages).put("previousRequests",15).put("elapsedMs",(System.nanoTime()-invoiceStarted)/1000000).toString());
    check(call("/api/auth/user-logout","POST",new JSONObject(),token).getInt("status")==200,"logout supported");check(call("/api/independent/probe","POST",new JSONObject(),token).getInt("status")==401,"revoked owner cannot reuse readiness");
    check(network==0,"zero Cloudflare/external capability calls in actual local runtime scenario");

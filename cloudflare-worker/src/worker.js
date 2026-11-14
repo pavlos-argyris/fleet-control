@@ -11,7 +11,7 @@ const ServiceModel = globalThis.FleetServiceModel;
 import '../public/fleet-operations-model.js';
 const OperationsModel = globalThis.FleetOperationsModel;
 import { INVOICE_IMPORT_SCHEMA, routeInvoiceImports, readImportDraftForJob, finishImportDraft, restartImportDraft, invoiceDuplicates } from './invoice-imports.js';
-import { visibleSnapshotRow, snapshotSummary, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike } from "./snapshot-store.js";
+import { visibleSnapshotRow, snapshotSummary, snapshotPage, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike } from "./snapshot-store.js";
 import { routeServiceOperations } from './service-operations.js';
 import { stableReviewJson, readReviewReceipt, commitInvoiceReview } from './invoice-review-store.js';
 import { parseInvoiceText, enrichInvoiceExtraction, evaluateInvoiceConfirmation, INVOICE_RULES_VERSION, MAX_INVOICE_TEXT, MAX_INVOICE_ITEMS } from './invoice-extraction.js';
@@ -2908,18 +2908,25 @@ async function snapshotResponse(request, env) {
 }
 
 function snapshotJsonResponse(row, extra = {}) {
+  if (!row || typeof row.bikes_json !== 'string' || !row.bikes_json.startsWith('[')) throw new Error('Δεν διαβάστηκε ο πλήρης στόλος. Τα δεδομένα διατηρούνται.');
   const metadata = JSON.stringify({ version: Number(row?.version || 0), source: row?.source || "canonical", ...extra });
-  return new Response('{"bikes":' + (row?.bikes_json || '[]') + ',' + metadata.slice(1), {
+  return new Response('{"bikes":' + row.bikes_json + ',' + metadata.slice(1), {
     headers: baseHeaders({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" })
   });
 }
 
 async function legacySyncGet(request, env) {
   if (!await mayViewFleet(request, env)) return json({ error: "Χρειάζεται σύνδεση για την προβολή του στόλου." }, 401);
-  const sinceVersion = new URL(request.url).searchParams.get("sinceVersion");
+  const url = new URL(request.url);
+  const sinceVersion = url.searchParams.get("sinceVersion");
   if (sinceVersion !== null) {
     const summary = await snapshotSummary(env);
     if (String(summary.version) === sinceVersion) return json({unchanged:true,version:summary.version});
+  }
+  if (url.searchParams.get('paged') === '1') {
+    const page = await snapshotPage(env, url.searchParams.get('cursor') || '');
+    if (page.error) return json({ error: page.error }, page.status);
+    return json({ ...page, archivedBikeIds: [...await activeArchivedBikeIds(env)], serverTime: new Date().toISOString() });
   }
   const row = await visibleSnapshotRow(env);
   const archivedBikeIds = [...await activeArchivedBikeIds(env)];

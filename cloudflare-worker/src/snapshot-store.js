@@ -17,6 +17,35 @@ export async function snapshotSummary(env) {
   return { version: Number(row?.version || 0), source: row?.source || 'canonical', updatedAt: row?.updated_at || '', bikes: Number(row?.bikes || 0) };
 }
 
+// Read bounded canonical rows rather than one aggregate containing every
+// invoice/history cell. A missing/partial native cursor is never an empty fleet.
+export async function snapshotPage(env, cursor = '') {
+  const summary = await snapshotSummary(env);
+  const match = cursor ? /^(\d+):(\d+)$/.exec(cursor) : null;
+  if (cursor && !match) return { error: 'Μη έγκυρη θέση ανάγνωσης στόλου.', status: 400 };
+  if (match && Number(match[1]) !== summary.version) return { error: 'Ο στόλος άλλαξε κατά την ανάγνωση. Δοκίμασε ξανά.', status: 409 };
+  const offset = match ? Number(match[2]) : 0;
+  if (!Number.isSafeInteger(offset) || offset > summary.bikes) return { error: 'Η θέση ανάγνωσης στόλου άλλαξε.', status: 409 };
+  const result = await env.DB.prepare(`SELECT b.value AS bike_json
+    FROM fleet_snapshot s, json_each(s.data,'$.bikes') b
+    WHERE s.id=1 AND s.version=? AND NOT EXISTS
+      (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=json_extract(b.value,'$.id'))
+    ORDER BY CAST(b.key AS INTEGER) LIMIT 4 OFFSET ?`).bind(summary.version, offset).all();
+  const after = await snapshotSummary(env);
+  if (after.version !== summary.version || after.bikes !== summary.bikes) return { error: 'Ο στόλος άλλαξε κατά την ανάγνωση. Δοκίμασε ξανά.', status: 409 };
+  const rows = result.results;
+  if (!Array.isArray(rows) || rows.length !== Math.min(4, summary.bikes - offset)) throw new Error('Δεν διαβάστηκε ο πλήρης στόλος. Τα δεδομένα διατηρούνται.');
+  const bikes = rows.map(row => {
+    if (typeof row.bike_json !== 'string') throw new Error('Δεν διαβάστηκε η καταχώρηση μηχανής.');
+    const bike = JSON.parse(row.bike_json);
+    if (!bike || !bike.id || !bike.name) throw new Error('Ελλιπή στοιχεία μηχανής στον Server.');
+    return bike;
+  });
+  const next = offset + bikes.length;
+  return { paged: true, bikes, version: summary.version, source: summary.source, totalBikes: summary.bikes,
+    offset, hasMore: next < summary.bikes, nextCursor: next < summary.bikes ? summary.version + ':' + next : '' };
+}
+
 export async function readServiceEntry(env, bikeId, entryId) {
   const row = await env.DB.prepare(`SELECT s.version, b.key AS bike_index, h.key AS entry_index,
     json_extract(b.value,'$.id') AS bike_id, json_extract(b.value,'$.name') AS bike_name, json_extract(b.value,'$.currentKm') AS current_km, h.value AS entry_json
