@@ -1,4 +1,4 @@
-import {list,hash,stamp,day,NativeError,audit,reply,integer} from './common.js';
+import {list,hash,stamp,day,addDay,NativeError,audit,reply,integer} from './common.js';
 import {CASH_ORDER_CONTRACT as CONTRACT,cashContext} from './cash-contract.js';
 
 export const CASH_AUTO_SCHEMA=`
@@ -39,6 +39,12 @@ async function configuration(env,scope,date){
 function selectRule(cfg,store,pin){if(pin)return pin;const candidates=cfg.byStore.get(store)||[];return candidates.length===1?candidates[0]:null;}
 async function sourceCoverage(env,scope,date){const row=await env.DB.prepare("SELECT data FROM store_billing_local WHERE scope=? AND kind='cash_source_coverage' AND day=?").bind(scope,date).first();return row?decode(row.data):null;}
 function complete(source){return source?.revision===CONTRACT.revision&&source.identityVerified===true&&source.ordersCoverageComplete===true&&!source.needsSourceRefresh&&source.timeSemanticsVerified===true&&source.cancellationSemanticsVerified===true&&/^[a-f0-9]{64}$/.test(source.sourceDigest||'')&&Number.isFinite(Date.parse(source.lastCompleteAt));}
+export function cashSourceAfterClose(date,sourceAt){
+  if(!Number.isFinite(Date.parse(sourceAt)))return false;
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Athens',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(sourceAt)).map(p=>[p.type,p.value]));
+  const calendar=parts.year+'-'+parts.month+'-'+parts.day,business=Number(parts.hour)<5?addDay(calendar,-1):calendar;
+  return business>date;
+}
 export async function cashAutomaticPreview(env,date){
   const source=requireSource(env);return publicPlan(await plan(env,source,day(date)));
 }
@@ -77,6 +83,10 @@ async function saveDay(env,p,state,cursor,issues=[]){
   const before=await env.DB.prepare('SELECT * FROM native_cash_auto_days WHERE scope=? AND day=?').bind(p.scope,p.day).first(),encoded=JSON.stringify(issues),at=stamp();
   const changed=!before||before.state!==state||before.proof!==(p.proof||'')||before.cursor!==cursor||before.issues!==encoded||state==='ready'&&before.source_complete_at!==p.coverage.lastCompleteAt;
   if(changed)await env.DB.prepare('INSERT INTO native_cash_auto_days(scope,day,state,proof,source_digest,cursor,source_at,source_complete_at,applied_at,issues) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(scope,day) DO UPDATE SET state=excluded.state,proof=excluded.proof,source_digest=excluded.source_digest,cursor=excluded.cursor,source_at=excluded.source_at,source_complete_at=excluded.source_complete_at,applied_at=excluded.applied_at,issues=excluded.issues').bind(p.scope,p.day,state,p.proof||'',p.coverage?.sourceDigest||'',cursor,p.coverage?.sourceAt||'',state==='ready'?p.coverage.lastCompleteAt:before?.source_complete_at||null,state==='ready'?at:before?.applied_at||null,encoded).run();
+  if(state==='ready'&&cashSourceAfterClose(p.day,p.coverage.sourceAt)){
+    const key='cash-closed:'+await hash({scope:p.scope,id:p.day}),value=JSON.stringify({day:p.day,proof:p.proof,sourceDigest:p.coverage.sourceDigest,sourceAt:p.coverage.sourceAt,closedAt:at});
+    await env.DB.prepare("INSERT INTO store_billing_local(id,kind,scope,store_id,day,data,dirty) VALUES(?,'cash_day_closed',?,'',?,?,0) ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE json_extract(store_billing_local.data,'$.proof')<>json_extract(excluded.data,'$.proof')").bind(key,p.scope,p.day,value).run();
+  }
   return changed;
 }
 async function acknowledge(env,request){await env.DB.prepare("DELETE FROM store_billing_local WHERE id=? AND kind='cash_apply_request' AND data=?").bind(request.id,request.data).run();}
@@ -143,10 +153,10 @@ export async function automaticCashStatus(env,sourceStatus,from,to){
   const source=cashContext(env);if(!source.configured||!source.scope)return sourceStatus;if(source.historicalOnly)return{...sourceStatus,state:'stale',coverageVerified:false};
   const days=list(await env.DB.prepare("SELECT d.*,c.data coverage,EXISTS(SELECT 1 FROM store_billing_local q WHERE q.scope=d.scope AND q.day=d.day AND q.kind='cash_apply_request') pending FROM native_cash_auto_days d JOIN store_billing_local c ON c.scope=d.scope AND c.day=d.day AND c.kind='cash_source_coverage' WHERE d.scope=? AND d.day BETWEEN ? AND ? ORDER BY d.day").bind(source.scope,from,to).all());
   const expected=Math.round((Date.parse(to+'T12:00:00Z')-Date.parse(from+'T12:00:00Z'))/86400000)+1;
-  const ready=days.filter(row=>{const cov=decode(row.coverage);return row.state==='ready'&&!row.pending&&complete(cov)&&cov.sourceDigest===row.source_digest;}),all=ready.length===expected&&!sourceStatus.pendingDays&&!sourceStatus.financialJobError&&!['error','backoff','stale'].includes(sourceStatus.state),times=days.map(row=>row.source_complete_at).filter(at=>Number.isFinite(Date.parse(at))).sort();
+  const completed=days.filter(row=>{const cov=decode(row.coverage);return row.state==='ready'&&complete(cov)&&cov.sourceDigest===row.source_digest;}),ready=completed.filter(row=>!row.pending),all=ready.length===expected&&!sourceStatus.pendingDays&&!sourceStatus.financialJobError&&!['error','backoff','stale'].includes(sourceStatus.state),times=days.map(row=>row.source_complete_at).filter(at=>Number.isFinite(Date.parse(at))).sort();
   const financialRevision=await hash({scope:source.scope,days:days.map(row=>[row.day,row.state,row.proof,row.cursor,row.source_complete_at,row.pending])});
   return{...sourceStatus,protocolVerified:true,timeSemanticsVerified:true,cancellationSemanticsVerified:true,automaticWritesEnabled:true,
-    state:all?'ready':sourceStatus.financialJobError?'error':sourceStatus.state==='backoff'?'backoff':days.some(row=>row.state==='manual-review')?'manual-review':days.some(row=>row.state==='unmapped')?'unmapped':days.some(row=>row.state==='not-configured')?'not-configured':sourceStatus.state==='pending'||days.some(row=>row.state==='applying'||row.pending)?'pending':'partial',coverageVerified:all,lastCompleteAt:times[times.length-1]||null,financialRevision,
+    state:all?'ready':sourceStatus.financialJobError?'error':sourceStatus.state==='backoff'?'backoff':days.some(row=>row.state==='manual-review')?'manual-review':days.some(row=>row.state==='unmapped')?'unmapped':days.some(row=>row.state==='not-configured')?'not-configured':sourceStatus.state==='pending'||days.some(row=>row.state==='applying'||row.pending)?'pending':'partial',coverageVerified:all,completedSnapshotAvailable:completed.length===expected,lastCompleteAt:times[times.length-1]||null,financialRevision,
     financialDaysComplete:ready.length,financialDaysExpected:expected,issues:days.filter(row=>row.state!=='ready'||row.pending).map(row=>({day:row.day,state:row.state,issues:decode(row.issues)}))};
 }
 export async function automaticCashOverview(env,from,to){

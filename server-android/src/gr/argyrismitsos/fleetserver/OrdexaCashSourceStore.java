@@ -88,7 +88,7 @@ public final class OrdexaCashSourceStore {
     }
     public JSONObject nextRequest(String scope,String generation)throws Exception{
         for(;;){
-            Cursor cursor=db.rawQuery("SELECT id,data FROM store_billing_local WHERE scope=? AND kind='cash_refresh_request' ORDER BY day DESC LIMIT 1",new String[]{scope});
+            Cursor cursor=db.rawQuery("SELECT id,data FROM store_billing_local WHERE scope=? AND kind='cash_refresh_request' ORDER BY json_extract(data,'$.requestedAt'),day DESC LIMIT 1",new String[]{scope});
             String id,raw;try{if(!cursor.moveToFirst())return null;id=cursor.getString(0);raw=cursor.getString(1);}finally{cursor.close();}
             JSONObject value=new JSONObject(raw);
             if(generation.equals(value.optString("generation")))return new JSONObject(value.toString()).put("cashRefreshId",id).put("cashRefreshValue",raw);

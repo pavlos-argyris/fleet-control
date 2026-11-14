@@ -34,7 +34,7 @@ console.log('OK actual Portal/Fleet functions: bounded read retries, explicit ga
 // while an earlier upload is awaiting confirmation.
 const values=new Map();
 const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
-const bike1={id:'one',currentKm:10,history:[]},bike2={id:'two',currentKm:20,history:[]};
+const bike1={id:'one',name:'Fixture one',currentKm:10,history:[]},bike2={id:'two',name:'Fixture two',currentKm:20,history:[]};
 let seen=[];let editDuringUpload=false;let failPost=false;
 const loading=[];
 const syncContext={window:{},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,fleetLoaded:false,fleetLoading:(message,failed)=>loading.push({message,failed}),
@@ -68,7 +68,7 @@ console.log('OK actual Client sync: only changed bikes uploaded, edits during a 
 
 // Unchanged replies preserve both loaded rows and pending edits.
 failPost=false;syncContext.dirtyBikeIds.clear();syncContext.pendingFleetChange=false;
-syncContext.cloudSnapshotVersion=42;const existingRows=syncContext.bikes;
+syncContext.fleetLoaded=true;syncContext.cloudSnapshotVersion=42;const existingRows=syncContext.bikes;
 syncContext.fetch=async(url,opts)=>{assert.match(url,/sinceVersion=42/);return response(200,{unchanged:true,version:42});};
 await vm.runInContext('syncNow()',syncContext);assert.equal(syncContext.bikes,existingRows);
 console.log('OK actual Client conditional read preserves loaded fleet.');

@@ -2,9 +2,16 @@ import assert from 'node:assert/strict';
 import {WORKFORCE_SCHEMA} from '../cloudflare-worker/src/workforce.js';
 import {createSimulation} from './fixtures/workforce-simulation.mjs';
 import {CASH_SCHEMA} from '../server-runtime/cash.js';
-import {CASH_AUTO_SCHEMA,queueAutomaticDay,applyAutomaticCashBatch,cashAutomaticPreview,reconcileManualCash,preserveAutomaticReversal,resumeAutomaticOrder,automaticCashStatus} from '../server-runtime/cash-auto.js';
+import {CASH_AUTO_SCHEMA,queueAutomaticDay,applyAutomaticCashBatch,cashAutomaticPreview,reconcileManualCash,preserveAutomaticReversal,resumeAutomaticOrder,automaticCashStatus,cashSourceAfterClose} from '../server-runtime/cash-auto.js';
 import {CASH_ORDER_CONTRACT as CONTRACT} from '../server-runtime/cash-contract.js';
 import {hash} from '../server-runtime/common.js';
+assert.equal(cashSourceAfterClose('2026-11-07','2026-11-08T02:59:59Z'),false);
+assert.equal(cashSourceAfterClose('2026-11-07','2026-11-08T03:00:00Z'),true);
+assert.equal(cashSourceAfterClose('2026-03-28','2026-03-29T01:59:59Z'),false);
+assert.equal(cashSourceAfterClose('2026-03-28','2026-03-29T02:00:00Z'),true,'DST spring close uses Athens 05:00');
+assert.equal(cashSourceAfterClose('2026-10-24','2026-10-25T02:59:59Z'),false);
+assert.equal(cashSourceAfterClose('2026-10-24','2026-10-25T03:00:00Z'),true,'DST autumn close uses Athens 05:00');
+assert.equal(cashSourceAfterClose('2026-11-07','invalid'),false);
 const date='2026-11-07',scope='auto-fixture';let clock=Date.now()-60000;
 globalThis.FleetHost=command=>{assert.equal(command,'store.context');return{configured:true,scope,generation:'generation1',worker:'https://simulation.invalid'};};
 async function fixture(){
@@ -31,6 +38,7 @@ const user={user_id:'owner',full_name:'Synthetic owner',role:'owner'},request=bo
 {
  const f=await fixture();try{
   for(const n of [0,1,50,51,1055]){const rows=Array.from({length:n},(_,id)=>({id}));await source(f,rows);await drain(f);assert.equal(ledger(f).orders,n);assert.equal(ledger(f).due,n*250);const old=count(f,'native_cash_events');await source(f,rows);await drain(f);assert.equal(count(f,'native_cash_events'),old,'identical full source repeat creates no events');}
+  const closed=f.db.sqlite.prepare("SELECT data FROM store_billing_local WHERE kind='cash_day_closed' AND day=?").get(date);assert(closed,'verified historical totals close only after the 05:00 cutoff');const pendingStatus=await automaticCashStatus(f.env,{state:'pending',pendingDays:1},date,date);assert.equal(pendingStatus.completedSnapshotAvailable,true,'background read preserves availability of the already completed financial snapshot');assert.equal(pendingStatus.coverageVerified,false,'queued refresh still cannot claim a new source completion');
   let rows=Array.from({length:1055},(_,id)=>({id}));const old=count(f,'native_cash_events');await source(f,[],date,false);await drain(f);assert.equal(count(f,'native_cash_events'),old,'partial/failed source cannot cancel previous charges');assert.equal((await automaticCashStatus(f.env,{pendingDays:0},date,date)).coverageVerified,false);
   rows=rows.filter(r=>r.id!==0);await source(f,rows);await drain(f);assert.equal(ledger(f).orders,1054,'complete absence reverses once');
   rows.find(r=>r.id===1).rider=18;await source(f,rows);await drain(f);assert.equal(ledger(f).orders,1054);assert.equal(ledger(f).due,1054*250);assert.equal(f.db.sqlite.prepare("SELECT employee_id FROM native_cash_auto_orders WHERE order_id='1'").get().employee_id,'employee-b');
