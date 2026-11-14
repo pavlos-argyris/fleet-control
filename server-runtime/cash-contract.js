@@ -8,6 +8,6 @@ export const CASH_ORDER_CONTRACT=Object.freeze({
   timestampMeaning:'delivery',timeZone:'Europe/Athens',cutoffHour:5,
   cancellationMeaning:'absence-after-complete-repeated-snapshot',
   timeSemanticsVerified:true,cancellationSemanticsVerified:true,
-  pilotIntervalSeconds:120
+  pilotIntervalSeconds:60
 });
 export const cashContext=businessContext;

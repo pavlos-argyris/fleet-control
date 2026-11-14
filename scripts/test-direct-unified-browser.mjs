@@ -12,7 +12,7 @@ const staged=path.join(out,'assets/independent-www');
 const csp=fs.readFileSync('independent-android/src/gr/argyrismitsos/fleetserver/IndependentHttps.java','utf8').match(/Content-Security-Policy: (.*?)\\r\\n/)[1];
 const selection={schema:1,revision:7,selectedMode:'direct',activeMode:'direct',directOnly:true,directApproved:true,pending:false,cloudUrl:'https://fleet-control.pavlosargyris.workers.dev',directUrl:origin,updatedAt:1};
 const user={id:'fixture-owner',username:'fixture.owner',fullName:'Συνθετικός ιδιοκτήτης',role:'owner',permissions:['*']};
-const bikes=Array.from({length:29},(_,i)=>({id:'bike-'+i,name:'Μηχανάκι '+i,currentKm:9000,lastServiceKm:8000,intervalKm:2000,history:[],updatedAt:'2026-11-13T12:00:00Z'}));
+const bikes=Array.from({length:29},(_,i)=>({id:'bike-'+i,name:'Μηχανάκι '+i,currentKm:9000,lastServiceKm:8000,intervalKm:2000,history:Array.from({length:2},(_,j)=>({id:'e-'+j,type:'service',date:'2026-11-10',km:8000,oilChanged:true,tasks:['Fixture service'],invoiceData:{rawText:'Ω'.repeat(110000),totalAmount:'10,00'}})),updatedAt:'2026-11-13T12:00:00Z'}));
 const invoices=Array.from({length:57},(_,i)=>({id:'invoice-'+i,key:'service-documents/b/e'+i+'/f.pdf',bikeId:'bike-0',bikeName:'Μηχανάκι 0',entryId:'e'+i,name:'Fixture-'+i+'.pdf',status:'warning',serviceDate:'2026-11-10',invoiceData:{}}));
 const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined});
 try{for(const width of [390,1280]){
@@ -41,9 +41,9 @@ try{for(const width of [390,1280]){
         return route.fulfill({json:{instanceId:'fixture-instance',mode:'primary',ordexaLastSuccessAt:null}});
       }
       if(url.pathname==='/api/independent/events')return route.fulfill({contentType:'text/event-stream',body:'event: ready\ndata: {}\n\n'});
-      if(url.pathname==='/api/sync')return route.fulfill({json:{bikes,version:10,archivedBikeIds:[]}});
+      if(url.pathname==='/api/sync')return route.fulfill({json:url.searchParams.has('sinceVersion')?{unchanged:true,version:10}:{bikes,version:10,archivedBikeIds:[]}});
       if(url.pathname==='/api/admin/vehicles/archived')return route.fulfill({json:{bikes:[]}});
-      if(url.pathname==='/api/workforce/vehicles')return route.fulfill({json:{vehicles:bikes.map(b=>({...b,status:'available',odometer:b.currentKm}))}});
+      if(url.pathname==='/api/workforce/vehicles')return route.fulfill({json:{vehicles:bikes.map(b=>({id:b.id,name:b.name,status:'available',odometer:b.currentKm}))}});
       if(url.pathname==='/api/admin/service-documents'){
         invoiceRequests++;const offset=url.searchParams.has('cursor')?32:0;
         return route.fulfill({json:{documents:invoices.slice(offset,offset+32),serverVersion:10,hasMore:offset===0,nextCursor:offset===0?'10:32':''}});
@@ -67,7 +67,7 @@ try{for(const width of [390,1280]){
     assert.equal(await page.locator('#fleetModuleFrame').getAttribute('src'),null);
     const fleet=page.locator('#bottomNav [data-go="fleet"]');if(await fleet.isVisible())await fleet.click();else await page.locator('#sideNav [data-go="fleet"]').click();
     const embedded=page.frameLocator('#fleetModuleFrame');await embedded.locator('#bikeCount').filter({hasText:'29'}).waitFor();
-    assert.equal(await embedded.locator('#fleetLoadNotice').isHidden(),true,'complete same-origin Fleet read clears the loading state');
+    assert.equal(await embedded.locator('#fleetLoadNotice').isHidden(),true,'complete same-origin Fleet read clears the loading state even beyond synchronous browser cache capacity');assert.equal(await embedded.locator('.bike-card').count(),29);assert(JSON.stringify(bikes).length>5_000_000,'real Chromium fixture uses multi-megabyte service history');
     assert.equal(await page.locator('#fleetBackendStatus').isHidden(),true);assert.equal(await page.locator('#fleetPrimaryStatus').isHidden(),true);
     await page.waitForFunction(()=>document.querySelector('#fleetModuleShell').classList.contains('is-loaded')&&document.querySelector('#fleetModuleShell').getAttribute('aria-busy')==='false');
     await page.screenshot({path:path.join(out,'fleet-'+width+'.png'),fullPage:true});
@@ -78,4 +78,4 @@ try{for(const width of [390,1280]){
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);assert.deepEqual(errors,[]);assert.deepEqual(missing,[]);
   }catch(error){fs.writeFileSync(path.join(out,'error-'+width+'.json'),JSON.stringify({requests,errors,missing},null,2));await page.screenshot({path:path.join(out,'error-'+width+'.png'),fullPage:true});throw error;}finally{await context.close();}
 }}finally{await browser.close();}
-console.log('PASS actual normal Direct Portal/Fleet/Invoices at 390/1280: same-origin despite stale URL, revision fence, 29 loaded bikes, no hidden Fleet reads or top technical banners, fresh-login owner session, complete 57 invoices in two reads. Synthetic data/network; physical Note10+/Nova not measured.');
+console.log('PASS actual normal Direct Portal/Fleet/Invoices at 390/1280: same-origin despite stale URL, revision fence, 29 loaded bikes with >6 MB original invoice history, no hidden Fleet reads or top technical banners, fresh-login owner session, complete 57 invoices in two reads. Synthetic data/network; physical Note10+/Nova not measured.');

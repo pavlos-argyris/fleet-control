@@ -49,13 +49,13 @@ export async function queueCashSourceRefresh(request,env,user){
   const at=stamp(),nonce=crypto.randomUUID();let queuedDays=0;
   for(let date=from;date<=to;date=addDay(date,1)){
     const key='cash-refresh:'+await hash({scope:source.scope,id:date}),data=JSON.stringify({from:date,to:date,generation:source.generation,requestedAt:at,requestId:nonce});
-    await env.DB.prepare("INSERT INTO store_billing_local(id,kind,scope,store_id,day,data,dirty) VALUES(?,'cash_refresh_request',?,'',?,?,0) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,scope=excluded.scope,day=excluded.day,data=excluded.data,dirty=0").bind(key,source.scope,date,data).run();queuedDays++;
+    await env.DB.prepare("INSERT INTO store_billing_local(id,kind,scope,store_id,day,data,dirty) VALUES(?,'cash_refresh_request',?,'',?,?,0) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,scope=excluded.scope,day=excluded.day,data=excluded.data,dirty=0 WHERE ?=0 OR store_billing_local.kind<>'cash_refresh_request' OR COALESCE(json_extract(store_billing_local.data,'$.generation'),'')<>json_extract(excluded.data,'$.generation')").bind(key,source.scope,date,data,b.background===true?1:0).run();queuedDays++;
   }
-  await audit(env,request,user,'cash_source_refresh','cash_source',source.scope,null,{from,to,queuedDays},'Χειροκίνητη λήψη από τον κοινό reader· χωρίς οικονομική εφαρμογή');
+  await audit(env,request,user,'cash_source_refresh','cash_source',source.scope,null,{from,to,queuedDays},b.background===true?'Background λήψη κατά το άνοιγμα· διατήρηση ενεργού αιτήματος και ACK':'Χειροκίνητη λήψη από τον κοινό reader· χωρίς οικονομική εφαρμογή');
   return reply({queued:true,state:'pending',source:'shared-orders-reader',queuedDays,automaticWritesEnabled:false},202);
 }
 export async function cashSourceStatus(env,from,to){
-  const source=currentScope(env),base={state:'awaiting-source',protocolVerified:true,identityFieldsVerified:true,coverageVerified:false,lastCompleteAt:null,lastAttemptAt:null,automaticPollingEnabled:false,proposedPilotIntervalSeconds:120,timeSemanticsVerified:true,cancellationSemanticsVerified:true,
+  const source=currentScope(env),base={state:'awaiting-source',protocolVerified:true,identityFieldsVerified:true,coverageVerified:false,lastCompleteAt:null,lastAttemptAt:null,automaticPollingEnabled:false,proposedPilotIntervalSeconds:60,timeSemanticsVerified:true,cancellationSemanticsVerified:true,
     reason:'Παράδοση βάσει ώρας Ordexa. Ακύρωση μόνο μετά από πλήρη συνεπή επαναληπτική λήψη.'};
   if(!source.configured||!source.scope)return{...base,state:'source-not-configured',reason:'Σύνδεσε πρώτα το Ordexa στον Server. Οι καταγεγραμμένες κινήσεις παραμένουν διαθέσιμες.'};
   const rows=list(await env.DB.prepare("SELECT day,data FROM store_billing_local WHERE scope=? AND kind='cash_source_coverage' AND day BETWEEN ? AND ?").bind(source.scope,from,to).all());
@@ -68,6 +68,6 @@ export async function cashSourceStatus(env,from,to){
   const pilotRow=await env.DB.prepare("SELECT data FROM store_billing_local WHERE id='meta:cash-sync'").first(),pilot=pilotRow?JSON.parse(pilotRow.data):{};
   const expected=Math.round((Date.parse(to+'T12:00:00Z')-Date.parse(from+'T12:00:00Z'))/86400000)+1;
   return{...base,state:backoff?'backoff':Number(pending.n)>0?'pending':coverage.some(row=>!row.identityVerified||!row.ordersCoverageComplete||row.needsSourceRefresh)?'partial':base.state,
-    sourceScope:source.scope,identityRevision,financialJobError:pilot.scope===source.scope&&pilot.generation===source.generation&&pilot.error?pilot.error:null,retryAt:backoff?new Date(reader.nextDue).toISOString():null,automaticPollingEnabled:pilot.scope===source.scope&&pilot.generation===source.generation&&pilot.automaticPollingEnabled===true&&!pilot.error&&Date.now()>=Number(pilot.lastTick)&&Date.now()-Number(pilot.lastTick)<300000,pilotIntervalSeconds:120,pendingDays:Number(pending.n),identityDaysComplete:complete.length,identityDaysExpected:expected,
+    sourceScope:source.scope,identityRevision,financialJobError:pilot.scope===source.scope&&pilot.generation===source.generation&&pilot.error?pilot.error:null,retryAt:backoff?new Date(reader.nextDue).toISOString():null,automaticPollingEnabled:pilot.scope===source.scope&&pilot.generation===source.generation&&pilot.automaticPollingEnabled===true&&!pilot.error&&Date.now()>=Number(pilot.lastTick)&&Date.now()-Number(pilot.lastTick)<300000,pilotIntervalSeconds:60,pendingDays:Number(pending.n),identityDaysComplete:complete.length,identityDaysExpected:expected,
     orderSnapshotCoverageComplete:complete.length===expected,lastOrderSnapshotAt:times.length?times[times.length-1]:null};
 }

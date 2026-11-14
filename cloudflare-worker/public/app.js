@@ -495,7 +495,7 @@
     };
   }
 
-  function persistBikes() {
+  function persistBikes(cacheOnly) {
     const payload=JSON.stringify(bikes);
     try { localStorage.setItem(STORAGE_KEY,payload); }
     catch(error){
@@ -506,8 +506,14 @@
       for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith('fleet-view-cache-v1:')||key?.startsWith('fleet-shared-read-v1:'))disposable.push(key);}
       disposable.forEach(key=>localStorage.removeItem(key));
       try { localStorage.setItem(STORAGE_KEY,payload); }
-      catch(second){throw new Error('Δεν χώρεσε η καταχώρηση στην τοπική αποθήκευση. Τα προηγούμενα δεδομένα διατηρήθηκαν. Μην κάνεις εκκαθάριση δεδομένων της εφαρμογής.');}
+      catch(second){
+        // A verified server read is usable even when the optional synchronous
+        // browser cache is full. Local edits still require durable storage.
+        if(cacheOnly===true&&!pendingFleetChange&&(['QuotaExceededError','NS_ERROR_DOM_QUOTA_REACHED'].includes(second?.name)||Number(second?.code)===22))return false;
+        throw new Error('Δεν χώρεσε η καταχώρηση στην τοπική αποθήκευση. Τα προηγούμενα δεδομένα διατηρήθηκαν. Μην κάνεις εκκαθάριση δεδομένων της εφαρμογής.');
+      }
     }
+    return true;
   }
 
   function persistDirtyBikes() {
@@ -1285,22 +1291,26 @@
         }
         throw new Error(payload.error || "Αποτυχία συγχρονισμού");
       }
-      if (payload.unchanged === true && cloudSnapshotVersion !== null && String(payload.version) === String(cloudSnapshotVersion)) {
+      if (payload.unchanged === true && fleetLoaded && cloudSnapshotVersion !== null && String(payload.version) === String(cloudSnapshotVersion)) {
         fleetLoaded = true; fleetLoading("", false);
         setSyncState(pendingFleetChange ? "syncing" : "synced",pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");return;
       }
       if (!Array.isArray(payload.bikes)) throw new Error("Δεν επιστράφηκε έγκυρος στόλος. Τα δεδομένα διατηρούνται.");
-      cloudSnapshotVersion = payload.version === undefined ? null : payload.version;
       const remote = payload.bikes;
+      if (remote.some(function (bike) { return !bike || !bike.id || !bike.name; })) throw new Error("Ο Server επέστρεψε ελλιπή στοιχεία μηχανής. Ο στόλος διατηρείται· χρειάζεται επανέλεγχος.");
       bikes = mergeFleets(bikes, remote);
       const archivedIds = new Set(Array.isArray(payload.archivedBikeIds) ? payload.archivedBikeIds.map(function (id) { return String(id); }) : []);
       if (archivedIds.size) bikes = bikes.filter(function (bike) { return !archivedIds.has(String(bike.id)); });
-      persistBikes();
+      persistBikes(true);
       persistDirtyBikes();
-      fleetLoaded = true;
       renderHome();
-      fleetLoading("", false);
       if (activeBikeId) renderDetail();
+      // Publish the revision only after the whole snapshot was applied. A
+      // failed normalization/storage/render must retry the full response;
+      // otherwise the next unchanged reply falsely confirms an empty fleet.
+      cloudSnapshotVersion = payload.version === undefined ? null : payload.version;
+      fleetLoaded = true;
+      fleetLoading("", false);
       setSyncState(pendingFleetChange ? "syncing" : "synced", pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");
     } catch (error) {
       setSyncState(navigator.onLine === false ? "offline" : "error", navigator.onLine === false ? "Χωρίς σύνδεση" : "Εκκρεμεί");
