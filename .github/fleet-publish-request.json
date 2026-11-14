@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-e098c617-eccc-4af0-af64-55edfc4b062d",
-  "sourceCommit": "b514adac87e4e5948117d169ecee58c8721ad67c",
-  "releaseVersion": "5.66.0",
-  "requestedAt": "2026-11-14T19:00:20.665Z",
-  "reason": "User approved the combined Fleet list correction and background courier cash update, including publication after complete exact-source checks."
+  "requestId": "fleet-7cbe4eaa-0597-4ce4-817c-558db3bb65d2",
+  "sourceCommit": "19908d9600bccdb7f961b1b3bfc7a59956d6b6a1",
+  "releaseVersion": "5.66.1",
+  "requestedAt": "2026-11-14T23:53:14.392Z",
+  "reason": "Ρητή έγκριση χρήστη 15/11/2026: δημοσίευση της διόρθωσης μηχανών Fleet 5.66.1 μετά από πλήρεις ελέγχους."
 }
