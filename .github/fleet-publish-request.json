@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-de5a565d-0067-4452-8519-6a3d99c04676",
-  "sourceCommit": "ee0f11abfe4bf084a8cb24ffda2fdeffff9594e6",
-  "releaseVersion": "5.65.1",
-  "requestedAt": "2026-11-14T14:17:26.555Z",
-  "reason": "Ο ιδιοκτήτης ενέκρινε πάντα source upload και δημοσίευση μετά επιτυχείς πλήρεις ελέγχους· PR104 και exact-main CI43602764169 success."
+  "requestId": "fleet-e098c617-eccc-4af0-af64-55edfc4b062d",
+  "sourceCommit": "b514adac87e4e5948117d169ecee58c8721ad67c",
+  "releaseVersion": "5.66.0",
+  "requestedAt": "2026-11-14T19:00:20.665Z",
+  "reason": "User approved the combined Fleet list correction and background courier cash update, including publication after complete exact-source checks."
 }
