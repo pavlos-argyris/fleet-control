@@ -562,16 +562,26 @@ public final class MainActivity extends Activity {
             try { if (Build.VERSION.SDK_INT>=26) Context.class.getMethod("startForegroundService",Intent.class).invoke(MainActivity.this,intent); else startService(intent); }
             catch (Exception error) {emitError("server",error.getMessage());}
         }
-        @JavascriptInterface public void pauseAndInstallServerUpdate(){OtaManager.requestForce(getApplicationContext());startAction(SyncService.SYNC_NOW,null);}
-        @JavascriptInterface public void postponeServerUpdate(){OtaManager.cancelWait(getApplicationContext());}
+        private boolean directOta(final String action){
+            if(!BackendMode.direct(MainActivity.this))return false;
+            backendWork.execute(()->{try{
+                Bundle result=directControl("ota",action,new Bundle());
+                if(result==null||!result.getBoolean("ok"))throw new Exception(result==null?"Ο Direct Server δεν απάντησε.":result.getString("error"));
+                emit("dashboard",dashboard());
+            }catch(Exception error){emitError("ota",error.getMessage());}});
+            return true;
+        }
+        @JavascriptInterface public void pauseAndInstallServerUpdate(){if(directOta("force"))return;OtaManager.requestForce(getApplicationContext());startAction(SyncService.SYNC_NOW,null);}
+        @JavascriptInterface public void postponeServerUpdate(){if(directOta("postpone"))return;OtaManager.cancelWait(getApplicationContext());}
         @JavascriptInterface public void retryBackupExport(){new Thread(new Runnable(){public void run(){try{BackupJobs.retry(getApplicationContext());}catch(Exception e){emitError("backup",e.getMessage());}}},"fleet-backup-retry").start();}
-        @JavascriptInterface public void checkServerUpdate() { OtaManager.check(getApplicationContext(), true); }
-        @JavascriptInterface public void setAutomaticOta(boolean enabled) { preferences.edit().putBoolean("automatic_ota", enabled).apply(); }
+        @JavascriptInterface public void checkServerUpdate() { if(directOta("check"))return;OtaManager.check(getApplicationContext(), true); }
+        @JavascriptInterface public void setAutomaticOta(boolean enabled) { if(directOta(enabled?"automatic-on":"automatic-off"))return;preferences.edit().putBoolean("automatic_ota", enabled).apply(); }
         @JavascriptInterface public void installServerUpdate() {
             runOnUiThread(new Runnable() { @Override public void run() {
                 try {
                     if (!OtaInstaller.canInstall(MainActivity.this)) { OtaInstaller.openPermission(MainActivity.this); return; }
                     OtaInstaller.openConfirmation(MainActivity.this);
+                    if(directOta("install"))return;
                     OtaManager.requestApply(getApplicationContext()); startServerService();
                 } catch (Exception error) { emitError("ota", error.getMessage()); }
             } });

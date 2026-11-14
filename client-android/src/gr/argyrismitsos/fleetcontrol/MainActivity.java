@@ -724,6 +724,13 @@ public class MainActivity extends Activity {
     private UpdateInfo fetchUpdateInfo() throws Exception {
         HttpURLConnection connection = null;
         final boolean direct=BackendSelection.direct(this);
+        // The installed Server can expose an older bundled/selected Client.
+        // Check the public signed release first; its availability does not
+        // depend on business readiness, revision, login or Server version.
+        if(direct)try{
+            org.json.JSONObject body=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");
+            if(isNewerVersion(body.getString("version"),currentVersionName()))return new UpdateInfo(body.getString("version"),body.getLong("sizeBytes"),body.getString("sha256"),body.optString("notes"),body.getInt("versionCode"),body.getString("downloadUrl"));
+        }catch(Exception unavailable){/* The verified local catalogue remains usable offline. */}
         try {
             URL endpoint = new URL(BackendSelection.apiBase(this)+"/api/client-update");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση ενημέρωσης.");

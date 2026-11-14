@@ -57,3 +57,25 @@ for(const outage of [500,429,503,'timeout']){
   }finally{f.close();}
 }
 console.log('PASS shipped Direct-only browser policy: fresh/legacy defaults, zero Cloud API sends, no Cloud controls/fallback, scoped sessions and all outage codes.');
+
+// First contact must learn the server revision before sending a business read.
+{
+ const f=fixture({directOnly:true,fresh:true,url:DIRECT+'/'});
+ try{
+  f.current=descriptor('direct',1);
+  const response=await f.w.fetch(DIRECT+'/api/status');
+  assert.equal(response.status,200);
+  assert.equal(f.calls.at(-1).headers.get('X-Fleet-Backend-Revision'),'1');
+  assert.equal(f.navigation.length,0,'initial same-mode discovery must not halt the pending read or navigate the native WebView');
+ }finally{f.close();}
+}
+
+{
+ const f=fixture({directOnly:true,mode:'direct',revision:1,url:DIRECT+'/'});
+ try{
+  f.current=descriptor('direct',1);await tick();
+  const pending=f.w.fetch(DIRECT+'/api/deferred',{method:'POST',body:'{}'}).then(()=>false,()=>true);
+  await tick();f.w.FleetBackend.apply(descriptor('direct',2),{navigate:false});f.finish();
+  assert.equal(await pending,true,'a later revision still fences and rejects an in-flight mutation; bootstrap never replays it');
+ }finally{f.close();}
+}
