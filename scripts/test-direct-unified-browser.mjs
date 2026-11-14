@@ -60,7 +60,7 @@ try{for(const width of [390,1280]){
   try{
     await page.goto(origin+'/');await page.locator('#loginForm').waitFor({state:'visible'});
     await page.locator('#loginUsername').fill('fixture.owner');await page.locator('#loginPassword').fill('Fixture-Password');await page.locator('#loginButton').click();await page.locator('#portal').waitFor({state:'visible'});
-    if(width===390){await page.locator('.client-ota-open').first().click();await page.locator('#clientOtaCheck').click();assert(await page.evaluate(()=>window.fixtureUpdateChecked));await page.locator('.client-ota-close').click();}
+    if(width===390){await page.locator('#menuButton').click();await page.locator('.sidebar-foot .client-ota-open').click();await page.locator('#clientOtaCheck').click();assert(await page.evaluate(()=>window.fixtureUpdateChecked));await page.locator('.client-ota-close').click();await page.locator('#sidebarBackdrop').click({position:{x:width-10,y:10}});}
     assert.equal(await page.locator('#fleetBackendStatus').isHidden(),true);assert.equal(await page.locator('#fleetPrimaryStatus').isHidden(),true);
     await page.waitForTimeout(1900);
     assert.equal(requests.some(p=>p.startsWith('/api/sync')),false,'opening the home page does not secretly read the full Fleet history');

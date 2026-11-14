@@ -1,3 +1,8 @@
+## 14/11/2026 — PR104 πρώτη πλήρης επαλήθευση και mobile menu fixture
+
+- Source4e8008138950dac7a44e9da736142492fdb02007/tree0cb7bcddc3ac481a81fb3342eb0baa4153158a33 αποθηκεύτηκε μέσω συνδεδεμένου GitHub, byte-exact με τοπικόa214b06. PR104, full43601045643. Native normal-APK Android job132465651929 SUCCESS, manual diagnostic SUCCESS, full check-all SUCCESS, Fast43601045644 SUCCESS. Browser Server και offline shell PASS.
+- Το νέο actual normal Chromium fixture απέτυχε στο tap Client OTA: στόχευε κλειστό mobile sidebar μετά login. Διορθώνεται μόνο η πραγματική πλοήγηση της δοκιμής (Μενού → OTA → κλείσιμο → backdrop), χωρίς force click/αλλαγή ορατότητας/παράκαμψη assertion. Ουδέν merge/publish από την αποτυχημένη υποψήφια. Απαιτείται νέο πλήρες exact-source CI. Η πρόσθετη αποτυχία upload apk-security ήταν επακόλουθο μη εκτέλεσης του αργότερου build βήματος.
+
 ## 14/11/2026 — Επανέγκριση αποστολής και δημοσίευσης
 
 - Ρητή απάντηση ιδιοκτήτη: «Ναι εγκρίνω πάντα», μετά την ερώτηση για δημόσιο source upload στο ίδιο repository και δημοσίευση μετά πλήρη checks. Αντικαθιστά το προηγούμενο permission blocker. Main παραμένει3a69721, συνδυασμένη πηγήb57a7d2. Συνεχίζουμε αποστολή branch/PR/full exact CI και μία αρχικά υπογεγραμμένη έκδοση.
