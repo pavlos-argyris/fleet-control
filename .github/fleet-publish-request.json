@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-304757db-5d69-498f-91c9-76cb8704308d",
-  "sourceCommit": "60c9514eff938b8ce05493e0c12c0c8de0710a1a",
-  "releaseVersion": "5.65.0",
-  "requestedAt": "2026-11-13T21:05:09.938Z",
-  "reason": "Ο χρήστης ζήτησε ταχύτερο Direct Web, διόρθωση φόρτωσης μηχανών και τιμολογίων, αφαίρεση τεχνικών ενδείξεων και προεπιλεγμένη ισχύ αντιστοιχίσεων Ordexa από πάντα. Αυτόματη δημοσίευση μετά το επιτυχές exact-main CI 43505556066, βάσει της ρητής εξουσιοδότησης για Fleet updates."
+  "requestId": "fleet-de5a565d-0067-4452-8519-6a3d99c04676",
+  "sourceCommit": "ee0f11abfe4bf084a8cb24ffda2fdeffff9594e6",
+  "releaseVersion": "5.65.1",
+  "requestedAt": "2026-11-14T14:17:26.555Z",
+  "reason": "Ο ιδιοκτήτης ενέκρινε πάντα source upload και δημοσίευση μετά επιτυχείς πλήρεις ελέγχους· PR104 και exact-main CI43602764169 success."
 }
