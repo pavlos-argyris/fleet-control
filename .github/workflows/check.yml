@@ -96,6 +96,7 @@ jobs:
           name: navigation-motion-verification
           include-hidden-files: true
           path: |
+            .build/readmodel-verification/
             .build/primary-transport-browser/
             .build/native-management-browser/
             verification/navigation-motion/

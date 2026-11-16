@@ -13,7 +13,7 @@ try{
  write('IndependentBusinessTest.java',String.raw`package gr.argyrismitsos.fleetserver;
 import org.json.*;import android.database.sqlite.*;import java.io.*;import java.nio.file.*;
 public class IndependentBusinessTest {
- static SQLiteDatabase db;static BusinessSqlite sql;static NativeBusinessEngine engine;static int network;static boolean trusted=true;static String instance="fixture-instance";static final String realm="https://fixture.duckdns.org";
+ static SQLiteDatabase db;static BusinessSqlite sql;static NativeBusinessEngine engine;static int network;static boolean storeReady;static boolean trusted=true;static String instance="fixture-instance";static final String realm="https://fixture.duckdns.org";
  static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
  static JSONObject call(String path,String method,JSONObject body,String token,boolean internal,String operation,boolean external)throws Exception{
   JSONObject headers=new JSONObject().put("Content-Type","application/json");if(token!=null)headers.put("Authorization","Bearer "+token);if(internal)headers.put("X-Fleet-Server-Key","fixture-independent-server-key-123456");if(operation!=null)headers.put("X-Fleet-Operation",operation);
@@ -37,7 +37,7 @@ public class IndependentBusinessTest {
   check(sql.call("sql.query",new JSONObject().put("sql","PRAGMA synchronous")).getJSONArray("results").getJSONObject(0).getInt("synchronous")==2,"independent writer uses FULL SQLite durability");
   JSONObject configuration=new JSONObject().put("standalone",true).put("realm",realm).put("generation","00000000-0000-4000-8000-000000000001").put("serverKey","fixture-independent-server-key-123456").put("authPepper","fixture-independent-pepper").put("eventSigningKey","fixture-independent-events-123456789");
   engine=new NativeBusinessEngine(db,new File(args[3],"documents"),new File(args[3],"temporary"),configuration,code,manifest.getString("bundleSha256"),new NativeBusinessEngine.Authority(){public void beforeRequest(JSONObject r,boolean internal){}public void beforeCommit(JSONObject r,boolean internal){}},new NativeBusinessEngine.Ports(){public JSONObject call(String command,JSONObject value,BusinessObjects objects)throws Exception{
-   if(command.equals("store.context"))return new JSONObject().put("configured",false);
+   if(command.equals("store.context"))return new JSONObject().put("configured",storeReady).put("scope","readmodel-stores").put("generation","fixture-source-generation");
    if(command.equals("health.snapshot"))return new JSONObject();
    if(command.equals("independent.status"))return new JSONObject().put("instanceId",instance).put("mode",mode());
    if(command.equals("independent.probe"))return IndependentReadiness.probe(db,value,System.currentTimeMillis());
@@ -95,6 +95,15 @@ public class IndependentBusinessTest {
    }while(!fleetCursor.isEmpty());check(loaded==29&&pages==8,"all 29 complete histories load through eight bounded native pages");
    check(call("/api/sync?paged=1&cursor=123:4","GET",null,token).getInt("status")==409,"stale page cursor cannot mix snapshot revisions");
    check(call("/api/sync?paged=1&cursor=invalid","GET",null,token).getInt("status")==400,"invalid page cursor rejected");
+   IndependentReadModels.install(db);SQLiteDatabase projectionDb=SQLiteDatabase.openDatabase(args[0],null,SQLiteDatabase.OPEN_READONLY);java.util.List<Runnable> projectionQueue=new java.util.ArrayList<Runnable>();
+   IndependentReadModels models=new IndependentReadModels(projectionDb,realm,configuration.getString("authPepper"),new IndependentReadModels.Loader(){public void schedule(Runnable r){projectionQueue.add(r);}public JSONObject compute(JSONObject r)throws Exception{return engine.request(r,false,30000);}});
+   try{
+    JSONObject request=new JSONObject().put("url",realm+"/api/admin/employees").put("method","GET").put("headers",new JSONObject().put("Authorization","Bearer "+token));IndependentReadModels.Ticket ticket=models.ticket(request);JSONObject authoritative=engine.request(request,false,30000);models.remember(request,authoritative,ticket);JSONObject prepared=body(models.get(request));prepared.remove("snapshot");check(prepared.toString().equals(body(authoritative).toString()),"actual shared-handler result equals prepared native read model");
+    check(models.get(new JSONObject(request.toString()).put("headers",new JSONObject().put("Authorization","Bearer "+rider)))==null,"revoked real employee cannot reuse owner projection");
+    db.beginTransaction();try{db.execSQL("UPDATE app_users SET full_name='uncommitted fixture' WHERE id=?",new Object[]{employee});check(!body(models.get(request)).getJSONObject("snapshot").getBoolean("stale"),"real API cache reads last committed state while writer holds an uncommitted change");}finally{db.endTransaction();}
+    db.execSQL("UPDATE app_users SET full_name='committed fixture' WHERE id=?",new Object[]{employee});check(body(models.get(request)).getJSONObject("snapshot").getBoolean("stale"),"actual source commit invalidates only after commit");while(!projectionQueue.isEmpty())projectionQueue.remove(0).run();check(models.get(request)!=null&&!body(models.get(request)).getJSONObject("snapshot").getBoolean("stale"),"real shared handlers rebuild an exact authorized read model");
+${fs.readFileSync('scripts/fixtures/IndependentStoreReadModelChecks.java.txt','utf8')}
+   }finally{models.close();projectionDb.close();}
    System.out.println("Native invoice benchmark: "+new JSONObject().put("entries",invoiceCount).put("requests",invoicePages).put("previousRequests",15).put("elapsedMs",(System.nanoTime()-invoiceStarted)/1000000).toString());
    check(call("/api/auth/user-logout","POST",new JSONObject(),token).getInt("status")==200,"logout supported");check(call("/api/independent/probe","POST",new JSONObject(),token).getInt("status")==401,"revoked owner cannot reuse readiness");
    check(network==0,"zero Cloudflare/external capability calls in actual local runtime scenario");
@@ -103,7 +112,7 @@ public class IndependentBusinessTest {
  }
 }`);
  const native=['NativeBusinessEngine','BusinessRuntime','BusinessPrimitives','BusinessSqlite','BusinessObjects','BusinessActor'];
- files.push(...native.map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java')),...['IndependentPolicy','IndependentReadiness','IndependentDatabase'].map(n=>path.join(root,'independent-android/src/gr/argyrismitsos/fleetserver',n+'.java')));
+ files.push(...native.map(n=>path.join(root,'server-android/src/gr/argyrismitsos/fleetserver',n+'.java')),...['IndependentPolicy','IndependentReadiness','IndependentDatabase','IndependentReadModels'].map(n=>path.join(root,'independent-android/src/gr/argyrismitsos/fleetserver',n+'.java')));
  const jars=path.resolve('vendor/json-java/json-20240303.jar')+path.delimiter+path.resolve('.build/runtime-deps/rhino-1.9.1.jar');
  execFileSync('java',['-jar',path.resolve('.android-toolchain/usr/share/java/eclipse-jdt-core-3.32.0.jar'),'-proc:none','-source','8','-target','8','-nowarn','-encoding','UTF-8','-cp',jars,'-d',dir,...files],{stdio:'inherit'});
  execFileSync('java',['-Xmx384m','-Dfixture.rpc='+path.join(dir,'sqlite_rpc.py'),'-cp',dir+path.delimiter+jars,'gr.argyrismitsos.fleetserver.IndependentBusinessTest',path.join(dir,'business.sqlite'),path.resolve('.build/business-runtime/runtime.js'),path.resolve('.build/business-runtime/manifest.json'),dir],{stdio:'inherit',timeout:180000});

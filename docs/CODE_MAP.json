@@ -307,14 +307,17 @@
       ],
       "tests": [
         "scripts/test-direct-*.mjs",
-        "scripts/test-direct-browser.mjs"
+        "scripts/test-direct-browser.mjs",
+        "scripts/test-independent-readmodels.mjs",
+        "scripts/test-view-cache.mjs"
       ],
       "related": [
         "server-foundation",
         "worker-core"
       ],
       "docs": [
-        "docs/D1_DIRECT_ACCESS_GR.md"
+        "docs/D1_DIRECT_ACCESS_GR.md",
+        "docs/ISSUE_107_READ_MODELS_GR.md"
       ]
     },
     {
@@ -331,14 +334,17 @@
       "tests": [
         "scripts/test-client-landscape*.mjs",
         "scripts/test-ui-system*.mjs",
-        "scripts/test-navigation-motion*.mjs"
+        "scripts/test-navigation-motion*.mjs",
+        "scripts/test-independent-readmodels.mjs",
+        "scripts/test-view-cache.mjs"
       ],
       "related": [
         "worker-core",
         "release-ci"
       ],
       "docs": [
-        "docs/UI_SYSTEM_5.51.0_GR.md"
+        "docs/UI_SYSTEM_5.51.0_GR.md",
+        "docs/ISSUE_107_READ_MODELS_GR.md"
       ]
     },
     {
@@ -554,7 +560,9 @@
         "scripts/test-server-health-diagnostics.mjs",
         "scripts/test-business-runtime-native.mjs",
         "scripts/test-native-management-ui.mjs",
-        "scripts/test-native-management-browser.mjs"
+        "scripts/test-native-management-browser.mjs",
+        "scripts/test-independent-readmodels.mjs",
+        "scripts/test-view-cache.mjs"
       ],
       "related": [
         "server-foundation",
@@ -564,7 +572,8 @@
       ],
       "docs": [
         "docs/ISSUE_64_PARALLEL_START_GR.md",
-        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md",
+        "docs/ISSUE_107_READ_MODELS_GR.md"
       ]
     },
     {
@@ -671,7 +680,9 @@
         "scripts/build-independent-android-test.py",
         "scripts/fixtures/android-sqlite/**",
         "independent-android/src/gr/argyrismitsos/fleetserver/IndependentWorkQueue.java",
-        "scripts/fixtures/IndependentKeepAliveChecks.java.txt"
+        "scripts/fixtures/IndependentKeepAliveChecks.java.txt",
+        "independent-android/src/gr/argyrismitsos/fleetserver/IndependentReadModels.java",
+        "scripts/fixtures/IndependentReadModelBench.java.txt"
       ],
       "tests": [
         "scripts/test-independent-business.mjs",
@@ -681,7 +692,9 @@
         "scripts/test-independent-web.mjs",
         "scripts/test-independent-browser.mjs",
         "scripts/test-independent-android.sh",
-        "scripts/test-independent-work-queue.mjs"
+        "scripts/test-independent-work-queue.mjs",
+        "scripts/test-independent-readmodels.mjs",
+        "scripts/test-view-cache.mjs"
       ],
       "related": [
         "server-foundation",
@@ -690,7 +703,8 @@
       ],
       "docs": [
         "docs/ISSUE_90_INDEPENDENT_ANDROID_GR.md",
-        "docs/ISSUE_107_TRANSPORT_GR.md"
+        "docs/ISSUE_107_TRANSPORT_GR.md",
+        "docs/ISSUE_107_READ_MODELS_GR.md"
       ]
     },
     {

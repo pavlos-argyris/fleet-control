@@ -152,7 +152,7 @@
   }
   async function cached(state,identity,request){
     if(request.method!=='GET'||!state.pin||!sameIdentity(identity,state.pin)||request.url.includes('/api/native/files/'))return null;
-    const key=await cacheKey(state,identity,request.headers,request.url),saved=key&&await storage.read(key.id);if(!saved||Date.now()-saved.at>7*86400000)return null;
+    const key=await cacheKey(state,identity,request.headers,request.url),saved=key&&await storage.read(key.id);if(!saved||Date.now()-saved.at>300000)return null;
     report('offline','Αποθηκευμένα δεδομένα · μόνο προβολή · '+new Date(saved.at).toLocaleString('el-GR'),{dataAt:saved.at,origin:state.origin,generation:identity.generation});return new Response(saved.body,{status:200,headers:{...saved.headers,'X-Fleet-ReadOnly':'1','X-Fleet-Cache-At':String(saved.at)}});
   }
   async function nativeFetch(state,identity,request){

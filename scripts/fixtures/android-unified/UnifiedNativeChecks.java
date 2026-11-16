@@ -118,6 +118,14 @@ public final class UnifiedNativeChecks{
         try{
             try{DirectHost.confirmReadiness(target,runtime);throw new AssertionError("Untrusted TLS/local probe approved business writes");}catch(IOException expected){}
             check(!BackendMode.approved(base),"Direct-only default never bypasses TLS/external owner proof");
+            // A deliberately hot synthetic DTO must not bypass the normal APK's
+            // readiness/mode fence, even before reaching the writer/JS engine.
+            JSONObject cachedLogin=runtime.localLogin(owner.getString("username"),owner.getString("password"));JSONObject cachedAccount=new JSONObject(cachedLogin.getString("body"));
+            String cachedToken=cachedAccount.getString("token"),cachedActor=cachedAccount.getJSONObject("user").getString("id");java.lang.reflect.Field modelsField=IndependentRuntime.class.getDeclaredField("readModels");modelsField.setAccessible(true);IndependentReadModels models=(IndependentReadModels)modelsField.get(runtime);
+            JSONObject cachedRequest=new JSONObject().put("url",runtime.realm()+"/api/admin/employees").put("method","GET").put("headers",new JSONObject().put("Authorization","Bearer "+cachedToken).put("X-Fleet-Backend-Revision",String.valueOf(BackendMode.read(base).getLong("revision"))));
+            models.remember(cachedRequest,new JSONObject().put("status",200).put("headers",new JSONObject().put("Content-Type","application/json").put("x-fleet-actor",cachedActor)).put("body","{\"employees\":[]}"),models.ticket(cachedRequest));check(models.get(cachedRequest)!=null,"Disposable fixture has a hot authorized DTO");
+            check(runtime.external(cachedRequest).getInt("status")==503,"Hot read model cannot bypass real normal-APK readiness fence");models.clear();
+
             // Internal backup operations work while Cloudflare is unavailable;
             // the synthetic selected-mode command does not exercise TLS readiness.
             BackendMode.select(base,"direct",BackendMode.read(base).getLong("revision"),true,"");

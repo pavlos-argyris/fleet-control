@@ -8,6 +8,10 @@ import java.util.*;
 
 /** D1-shaped operations on actual Android SQLite. SQL comes only from bundled handlers. */
 public final class BusinessSqlite {
+    private static final Map<String,long[]> timings=new TreeMap<String,long[]>();
+    private static final Set<String> stages=new HashSet<String>(Arrays.asList("sql.query","sql.raw","sql.run","sql.batch","sql.exec","sql.request.begin","sql.request.end","queue.wait","business.request","export.pdf","export.xlsx","files.materialize"));
+    static void recordTiming(String stage,long nanos){if(!stages.contains(stage))return;nanos=Math.max(0,nanos);synchronized(timings){long[] t=timings.get(stage);if(t==null){t=new long[4];timings.put(stage,t);}t[0]++;t[1]+=nanos;t[2]=Math.max(t[2],nanos);if(nanos>=100000000)t[3]++;}}
+    static JSONObject profile()throws Exception{JSONObject result=new JSONObject();synchronized(timings){for(Map.Entry<String,long[]> e:timings.entrySet()){long[] t=e.getValue();result.put(e.getKey(),new JSONObject().put("count",t[0]).put("totalMs",t[1]/1000000.0).put("maxMs",t[2]/1000000.0).put("meanMs",t[0]==0?0:t[1]/1000000.0/t[0]).put("over100ms",t[3]));}}return result;}
     private final SQLiteDatabase db;
     private boolean requestTransaction;
     public BusinessSqlite(SQLiteDatabase db){this.db=db;}
@@ -96,6 +100,9 @@ public final class BusinessSqlite {
         return false;
     }
     public synchronized JSONObject call(String command,JSONObject value)throws Exception {
+        long started=System.nanoTime();try{return execute(command,value);}finally{recordTiming(command,System.nanoTime()-started);}
+    }
+    private JSONObject execute(String command,JSONObject value)throws Exception {
         long started=System.nanoTime();String sql=value.optString("sql");Object[] args=values(value.optJSONArray("params"));
         if(command.equals("sql.request.begin")){
             if(requestTransaction||db.inTransaction())throw new IOException("Η υπηρεσία εξυπηρετεί ήδη άλλη συναλλαγή.");
