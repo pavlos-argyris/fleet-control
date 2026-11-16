@@ -1,6 +1,6 @@
-import {CASH_AUTO_SCHEMA,applyAutomaticCashBatch,automaticCashStatus,automaticCashOverview,cashAutomaticPreview,reconcileManualCash,resumeAutomaticOrder,queueAutomaticDay,queueAutomaticDays,preserveAutomaticReversal} from './cash-auto.js';
+import {CASH_AUTO_SCHEMA,applyAutomaticCashBatch,automaticCashStatus,automaticCashOverview,cashAutomaticPreview,cashOrderAudit,reconcileManualCash,resumeAutomaticOrder,queueAutomaticDay,queueAutomaticDays,preserveAutomaticReversal} from './cash-auto.js';
 import {cashContext} from './cash-contract.js';
-import {list,reply,NativeError,text,day,range,integer,actor,audit,stamp} from './common.js';
+import {list,reply,NativeError,text,day,range,integer,actor,audit,stamp,hash} from './common.js';
 import {CASH_SOURCE_SCHEMA,ORDER_IDENTITY_CONTRACT,cashSourceCatalog,saveCashRiderLink,queueCashSourceRefresh,cashSourceStatus} from './cash-source.js';
 
 export const CASH_SCHEMA=`
@@ -94,9 +94,10 @@ export async function cashProjection(env,from,to,courierId='',{eventOffset=0,eve
   const employees=list(await env.DB.prepare('SELECT id,full_name FROM app_users WHERE '+(courierId?'id=?':"role='employee' AND active=1 AND deleted_at IS NULL")+' ORDER BY full_name').bind(...(courierId?[courierId]:[])).all());
   const byCourier=new Map(groups.map(row=>[row.courierId,row]));for(const employee of employees){const row=byCourier.get(employee.id);if(row)row.courierName=employee.full_name;else groups.push({courierId:employee.id,courierName:employee.full_name,orders:0,dueCents:0,receivedCents:0});}
   groups.sort((a,b)=>a.courierName.localeCompare(b.courierName));
-  for(const row of groups){row.balanceCents=row.dueCents-row.receivedCents;row.breakdown=breakdown.filter(b=>b.courierId===row.courierId).map(({courierId,...item})=>item);for(const n of [row.orders,row.dueCents,row.receivedCents,row.balanceCents])if(!Number.isSafeInteger(n))throw new NativeError(413,'Το ποσό υπερβαίνει το επιτρεπόμενο όριο αναφοράς.');}
+  for(const row of groups){row.balanceCents=row.dueCents-row.receivedCents;row.breakdown=breakdown.filter(b=>b.courierId===row.courierId).map(({courierId,...item})=>item);for(const n of [row.orders,row.dueCents,row.receivedCents,row.balanceCents])if(!Number.isSafeInteger(n))throw new NativeError(413,'Το ποσό υπερβαίνει το επιτρεπόμενο όριο αναφοράς.');if(row.breakdown.reduce((s,r)=>s+r.dueCents,0)!==row.dueCents)throw new NativeError(409,'Η ανάλυση καταστημάτων χρειάζεται επανέλεγχο.','cash_breakdown_mismatch');row.deliveryDueCents=row.dueCents;}
   const sync=await automaticCashStatus(env,await cashSourceStatus(env,from,to),from,to);
-  return{from,to,timeZone:'Europe/Athens',cutoffHour:5,source:sync.coverageVerified?'ordexa-confirmed':'recorded-pending',automaticOrderMappingVerified:sync.coverageVerified===true,sync,couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
+  const revision=await hash({from,to,courierId,financialRevision:sync.financialRevision,couriers:groups,eventCount:total.n});
+  return{from,to,revision,computedAt:stamp(),sourceSyncedAt:sync.lastCompleteAt||null,coverageVerified:sync.coverageVerified===true,timeZone:'Europe/Athens',cutoffHour:5,source:sync.coverageVerified?'ordexa-confirmed':'recorded-pending',automaticOrderMappingVerified:sync.coverageVerified===true,sync,couriers:groups,events,eventCount:total.n,eventOffset,eventsComplete:eventOffset+events.length>=Number(total.n),hasMoreEvents:eventOffset+events.length<Number(total.n),observedAt:stamp()};
 }
 function sourceEvidence(env){
   try{return cashContext(env).cashOrdersProtocol||null;}catch{return null;}
@@ -107,6 +108,7 @@ export async function routeCash(request,env){
   if(!url.pathname.startsWith('/api/native/cash'))return null;
   if(url.pathname==='/api/native/cash/export')return null;
   const user=await actor(request,env,request.method==='GET'&&!url.pathname.endsWith('/protocol-evidence')?'cash.view':'cash.manage');
+  if(url.pathname==='/api/native/cash/order-audit'&&request.method==='GET'){await actor(request,env,'cash.manage');return reply(await cashOrderAudit(env,day(url.searchParams.get('day')),{after:text(url.searchParams.get('after'),100),revision:text(url.searchParams.get('revision'),64)}));}
   if(url.pathname==='/api/native/cash/protocol-evidence'&&request.method==='GET')return reply({report:'Ordexa cash protocol evidence',schemaVersion:1,automaticWritesEnabled:false,identityContract:ORDER_IDENTITY_CONTRACT,requiredProof:['complete-source-snapshot','employee-mapping','historical-tariff','manual-reconciliation'],evidence:sourceEvidence(env)});
   if(url.pathname==='/api/native/cash/automatic'&&request.method==='GET'){const {from,to}=range(url);return reply(await automaticCashOverview(env,from,to));}
   if(url.pathname==='/api/native/cash/automatic/preview'&&request.method==='GET')return reply(await cashAutomaticPreview(env,day(url.searchParams.get('day'))));

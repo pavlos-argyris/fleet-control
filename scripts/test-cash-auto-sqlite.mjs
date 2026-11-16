@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {WORKFORCE_SCHEMA} from '../cloudflare-worker/src/workforce.js';
 import {createSimulation} from './fixtures/workforce-simulation.mjs';
 import {CASH_SCHEMA} from '../server-runtime/cash.js';
-import {CASH_AUTO_SCHEMA,queueAutomaticDay,applyAutomaticCashBatch,cashAutomaticPreview,reconcileManualCash,preserveAutomaticReversal,resumeAutomaticOrder,automaticCashStatus,cashSourceAfterClose} from '../server-runtime/cash-auto.js';
+import {CASH_AUTO_SCHEMA,queueAutomaticDay,applyAutomaticCashBatch,cashAutomaticPreview,reconcileManualCash,preserveAutomaticReversal,resumeAutomaticOrder,automaticCashStatus,cashSourceAfterClose,cashOrderAudit} from '../server-runtime/cash-auto.js';
 import {CASH_ORDER_CONTRACT as CONTRACT} from '../server-runtime/cash-contract.js';
 import {hash} from '../server-runtime/common.js';
 assert.equal(cashSourceAfterClose('2026-11-07','2026-11-08T02:59:59Z'),false);
@@ -73,3 +73,21 @@ const user={user_id:'owner',full_name:'Synthetic owner',role:'owner'},request=bo
  }finally{f.db.sqlite.close();}
 }
 console.log('PASS actual SQLite auto cash:0/1/50/51/1055, bounded/repeat/dedupe, partial retention, cancellation, rider/shop/day movement, alias, pinned historical rates, manual reconciliation/CAS with receipts retained, explicit reversal/resume and atomic history failure rollback. Synthetic source data only.');
+
+{
+ const f=await fixture();try{
+  await source(f,[{id:1},{id:2,rider:18},{id:3,store:'not-selected'}]);await drain(f);
+  const audit=await cashOrderAudit(f.env,date);
+  assert.equal(audit.orders.length,3);assert.equal(audit.coverageVerified,true);
+  assert.equal(audit.orders.find(r=>r.sourceOrderId==='1').reason,'included');
+  assert.equal(audit.orders.find(r=>r.sourceOrderId==='2').courierId,'employee-b');
+  assert.equal(audit.orders.find(r=>r.sourceOrderId==='3').reason,'store-not-selected');
+  assert.equal(audit.orders.reduce((s,r)=>s+r.appliedCents,0),500);
+  assert.equal(count(f,'native_cash_events'),2,'explanation is strictly read-only');
+  await source(f,[{id:2,rider:18}]);await drain(f);
+  await assert.rejects(()=>cashOrderAudit(f.env,date,{revision:audit.revision}),e=>e.status===409);
+  const canceled=await cashOrderAudit(f.env,date);assert.equal(canceled.orders.find(r=>r.sourceOrderId==='1').reason,'absent-after-complete-read');assert.equal(canceled.orders.find(r=>r.sourceOrderId==='1').appliedCents,0);
+  await source(f,[],date,false);const incomplete=await cashOrderAudit(f.env,date);assert.equal(incomplete.coverageVerified,false);assert(incomplete.orders.every(r=>r.reason==='source-incomplete'));
+ }finally{f.db.sqlite.close();}
+}
+console.log('PASS read-only cash order explanation: included/not-selected/cancellation/partial, stable source IDs and employee/rate, exact applied cents and stale-page rejection.');
