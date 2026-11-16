@@ -42,7 +42,7 @@ public final class InvoicePipeline {
     }
 
     private static synchronized void acquire(Context c) throws Exception {
-        while(activeOcr>=Math.max(1,Math.min(3,c.getSharedPreferences(BackupManager.PREFS,0).getInt("ocr_parallelism",1)))) {
+        while(activeOcr>=1) {
             if(Thread.currentThread().isInterrupted())throw new InterruptedException();
             InvoicePipeline.class.wait(250);
         }

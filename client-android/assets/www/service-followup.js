@@ -5,7 +5,7 @@
   const km=n=>Number(n).toLocaleString('el-GR')+' χλμ.';
   const date=d=>M.date(d)?M.date(d).split('-').reverse().join('/'):'Χωρίς ημερομηνία';
   const A=()=>root.FleetFollowupAdapter;
-  let dialog=null,bikes=[],documents=[],outbox=[],tab='pending',filter={bikeId:'',from:'',to:'',includeExempt:false},request=0,recoveryTimer=0,recoveryActive=false;
+  let dialog=null,bikes=[],documents=[],outbox=[],tab='pending',filter={bikeId:'',from:'',to:'',includeExempt:false},attentionKeys=null,request=0,recoveryTimer=0,recoveryActive=false;
   const pathApi=(path,options)=>A().api(path,options);
   async function load(){
     const revision=++request,context=A().context?.();
@@ -26,8 +26,8 @@
     const local=localRows(),queued=new Set(local.map(v=>String(v.row.data.entryId)));
     const missing=M.missingInvoices(bikes,{...filter,queuedEntryIds:[...queued]});
     const mileage=bikes.flatMap(b=>M.chronology(b)).filter(r=>filtered(r.bike,r.entry)&&(!r.acknowledgment||filter.includeExempt));
-    const invoices=documents.filter(r=>r.status!=='confirmed'&&(!filter.bikeId||String(r.bikeId)===filter.bikeId)&&(!(filter.from||filter.to)||(M.date(r.serviceDate)&&(!filter.from||M.date(r.serviceDate)>=filter.from)&&(!filter.to||M.date(r.serviceDate)<=filter.to))));
-    return {missing,mileage,invoices,local:local.filter(r=>r.bike&&r.entry?filtered(r.bike,r.entry):!filter.bikeId&&!filter.from&&!filter.to)};
+    const invoices=documents.filter(r=>(!attentionKeys||attentionKeys.has(String(r.bikeId)+':'+String(r.entryId)))&&r.status!=='confirmed'&&(!filter.bikeId||String(r.bikeId)===filter.bikeId)&&(!(filter.from||filter.to)||(M.date(r.serviceDate)&&(!filter.from||M.date(r.serviceDate)>=filter.from)&&(!filter.to||M.date(r.serviceDate)<=filter.to))));
+    return {missing,mileage,invoices,local:local.filter(r=>(!attentionKeys||attentionKeys.has(String(r.row.data.bikeId)+':'+String(r.row.data.entryId)))&&(r.bike&&r.entry?filtered(r.bike,r.entry):!filter.bikeId&&!filter.from&&!filter.to))};
   }
   function card(title,context,body,buttons,badge){return '<article class="followup-card"><header><div><strong>'+esc(title)+'</strong><small>'+esc(context)+'</small></div><span class="followup-badge">'+esc(badge||'Εκκρεμεί')+'</span></header><p>'+esc(body)+'</p><div class="service-tools-toolbar">'+buttons+'</div></article>';}
   const button=(name,label,index)=>'<button type="button" class="secondary-button" data-followup-action="'+name+'" data-index="'+index+'">'+label+'</button>';
@@ -125,7 +125,7 @@
     if(options?.recover&&Array.isArray(options.entryIds)){filter={bikeId:'',from:'',to:'',includeExempt:false};if(dialog?.open){dialog.querySelector('[data-bike]').value='';dialog.querySelector('[data-from]').value='';dialog.querySelector('[data-to]').value='';dialog.querySelector('[data-exempt]').checked=false;}}
     if(!A()?.canManage())return A()?.toast('Χρειάζεται πρόσβαση διαχείρισης στόλου.');
     if(dialog?.open){tab=selected||tab;render();if(options?.recover){await load();await recoverAll(options.entryIds);}return;}
-    tab=selected||'pending';bikes=A().getBikes?.()||[];documents=[];outbox=[];
+    attentionKeys=options?.entryIds?.length?new Set(options.entryIds.map(String)):null;tab=selected||'pending';bikes=A().getBikes?.()||[];documents=[];outbox=[];
     dialog=U.dialog('Εκκρεμότητες στόλου','<p class="service-section-help" data-followup-explanation></p><div class="service-tools-toolbar" data-followup-tabs></div><div class="followup-filters"><label>Μηχανάκι<select data-bike><option value="">Όλα</option></select></label><label>Από<input type="date" data-from></label><label>Έως<input type="date" data-to></label><label class="followup-check"><input type="checkbox" data-exempt> Εμφάνιση εξαιρέσεων / ελεγμένων</label></div><p data-followup-caption></p><p data-followup-message role="alert"></p><section class="service-section-help" data-recovery-status role="status" aria-live="polite"></section><div class="service-tools-toolbar"><button type="button" class="primary-button" data-followup-recover hidden>Επανάληψη όλων</button><button type="button" class="secondary-button" data-recovery-resume hidden>Συνέχιση ουράς</button></div><div data-followup-list></div><div class="service-tools-toolbar"><button type="button" class="secondary-button" data-server-report-open>Συνολικός έλεγχος από Server</button><button type="button" class="secondary-button" data-followup-refresh>Ανανέωση</button><button type="button" class="ghost-button" data-followup-close>Πίσω</button></div>');dialog.classList.add('followup-dialog');
     const d=dialog;const select=d.querySelector('[data-bike]');
     function populate(){const val=filter.bikeId;select.innerHTML='<option value="">Όλα</option>'+bikes.map(b=>'<option value="'+esc(b.id)+'">'+esc(b.name)+'</option>').join('');select.value=val;}
