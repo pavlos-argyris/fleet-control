@@ -51,6 +51,7 @@
   let webToken = "";
   let pendingFleetChange = loadSetting(DIRTY_KEY) === "1";
   const DIRTY_BIKE_KEY = DIRTY_KEY + "-bikes";
+  let lastReadBikes=new Map(bikes.map(bike=>[String(bike.id),JSON.stringify(bike)]));
   let dirtyBikeIds;
   try { dirtyBikeIds = new Set(JSON.parse(loadSetting(DIRTY_BIKE_KEY) || "[]").map(String)); }
   catch (error) { dirtyBikeIds = new Set(); }
@@ -496,6 +497,7 @@
   }
 
   function persistBikes(cacheOnly) {
+    if(cacheOnly===true&&config.independent&&!pendingFleetChange){localStorage.setItem(STORAGE_KEY,'[]');return true;}
     const payload=JSON.stringify(bikes);
     try { localStorage.setItem(STORAGE_KEY,payload); }
     catch(error){
@@ -527,7 +529,7 @@
   function saveBikes(shouldSync) {
     if (shouldSync !== false) {
       let previous = new Map();
-      try { previous = new Map(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(bike => [String(bike.id), JSON.stringify(bike)])); } catch (error) {}
+      try { previous = config.independent?lastReadBikes:new Map(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(bike => [String(bike.id), JSON.stringify(bike)])); } catch (error) {}
       bikes.forEach(bike => { if (previous.get(String(bike.id)) !== JSON.stringify(bike)) dirtyBikeIds.add(String(bike.id)); });
       persistDirtyBikes();
     }
@@ -1296,7 +1298,7 @@
         throw new Error(payload.error || "Αποτυχία συγχρονισμού");
       }
       if (payload.unchanged === true && fleetLoaded && cloudSnapshotVersion !== null && String(payload.version) === String(cloudSnapshotVersion)) {
-        fleetLoaded = true; fleetLoading("", false);
+        fleetLoaded = true; fleetLoading(payload.snapshot?.stale?"Αποθηκευμένα στοιχεία · η ενημέρωση συνεχίζεται στο παρασκήνιο.":"", false);
         setSyncState(pendingFleetChange ? "syncing" : "synced",pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");return;
       }
       if (!Array.isArray(payload.bikes)) throw new Error("Δεν επιστράφηκε έγκυρος στόλος. Τα δεδομένα διατηρούνται.");
@@ -1311,6 +1313,7 @@
       bikes = mergeFleets(bikes, remote);
       const archivedIds = new Set(Array.isArray(payload.archivedBikeIds) ? payload.archivedBikeIds.map(function (id) { return String(id); }) : []);
       if (archivedIds.size) bikes = bikes.filter(function (bike) { return !archivedIds.has(String(bike.id)); });
+      if(typeof lastReadBikes!=='undefined')lastReadBikes=new Map(bikes.map(bike=>[String(bike.id),JSON.stringify(bike)]));
       persistBikes(true);
       persistDirtyBikes();
       renderHome();
@@ -1320,7 +1323,7 @@
       // otherwise the next unchanged reply falsely confirms an empty fleet.
       cloudSnapshotVersion = payload.version === undefined ? null : payload.version;
       fleetLoaded = true;
-      fleetLoading("", false);
+      fleetLoading(payload.snapshot?.stale?"Αποθηκευμένα στοιχεία · η ενημέρωση συνεχίζεται στο παρασκήνιο.":"", false);
       setSyncState(pendingFleetChange ? "syncing" : "synced", pendingFleetChange ? "Εκκρεμεί…" : "Συγχρονίστηκε");
     } catch (error) {
       if (error.status === 401) clearFleetSession();

@@ -173,7 +173,7 @@
     state.invoiceListAcceptedSequence = 0;
     state.invoiceListVersion = 0;
     state.invoiceReviewPending = null;
-    state.viewLoadedAt = {};
+    state.viewLoadedAt = {};state.viewSnapshots={};state.viewReads={};state.viewReady={};
     state.pinResolver = null;
     state.simpleResolver = null;
     document.querySelectorAll("dialog[open]").forEach(function (dialog) { dialog.close(); });
@@ -216,7 +216,7 @@
 
   async function api(path, options) {
     const settings = options || {};
-    const requestToken=state.token;
+    const requestToken=state.token,requestView=state.view;
     if((settings.method||(settings.body===undefined?"GET":"POST"))==="GET"&&!settings.coalesced){
       const pending=api.pending||(api.pending=new Map()),key=requestToken+":"+path+":"+String(settings.keepSession)+":"+(window.FleetSharedReads?.generation()||"");
       if(pending.has(key))return pending.get(key);
@@ -225,7 +225,7 @@
     }
     const methodRequested=settings.method||(settings.body===undefined?"GET":"POST");
     if(state.previewSession&&methodRequested!=="GET"&&!path.startsWith("/api/auth/"))throw new Error("Περίμενε να επιβεβαιωθεί η σύνδεση πριν αποθηκεύσεις αλλαγές.");
-    if(state.previewSession&&window.FleetViewCache){const cached=window.FleetViewCache.read(state.user,path);if(cached){state.cacheAt=cached.at;renderCacheStatus();return cached.data;}}
+    if(state.previewSession&&window.FleetViewCache){const cached=window.FleetViewCache.read(state.user,path,requestToken);if(cached){state.cacheAt=cached.at;renderCacheStatus();return cached.data;}}
     const startedAt = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
     if (navigator.onLine === false) throw new Error("Δεν υπάρχει σύνδεση με τον Server. Η ενέργεια δεν ολοκληρώθηκε.");
     const headers = new Headers(settings.headers || {});
@@ -285,8 +285,11 @@
       }
       throw error;
     }
-    if(requestToken===state.token&&methodRequested==="GET"&&window.FleetViewCache){const saved=window.FleetViewCache.save(state.user,path,payload);if(saved&&state.user){state.cacheAt=Date.now();renderCacheStatus();}}
+    if(requestToken===state.token&&methodRequested==="GET"&&window.FleetViewCache){const saved=window.FleetViewCache.save(state.user,path,payload,requestToken);if(saved&&state.user){state.cacheAt=Date.now();renderCacheStatus();}}
     if(methodRequested!=="GET"&&!path.startsWith("/api/auth/")){window.FleetViewCache?.invalidate?.();window.FleetSharedReads?.invalidate();state.viewLoadedAt={};}
+    if(requestToken===state.token&&methodRequested==="GET"&&!path.startsWith("/api/auth/")){
+      const views=state.viewSnapshots||(state.viewSnapshots={}),view=views[requestView]||(views[requestView]={});view[path.split('?')[0]]=payload.snapshot||{stale:false};if(payload.snapshot){const reads=state.viewReads||(state.viewReads={}),current=reads[requestView]||(reads[requestView]={});current[path.split('?')[0]]={path,revision:payload.snapshot.revision};}if(state.view===requestView)renderCacheStatus();
+    }
     return payload;
   }
 
@@ -393,7 +396,7 @@
     });
   }
 
-  const navigationHelp = {cash:"Προς απόδοση, παραλαβές και υπόλοιπα ανά διανομέα",stores:"Ημερήσιες παραγγελίες, χρεώσεις και επιλογές διατήρησης",dashboard:"Η σημερινή εικόνα",shifts:"Καταγραφή παρουσιών και χιλιομέτρων",schedules:"Εβδομαδιαίος προγραμματισμός",employees:"Στοιχεία και δικαιώματα ομάδας",fleet:"Συντήρηση και ιστορικό μηχανών",invoices:"Ανάγνωση, έλεγχος και PDF",payroll:"Ώρες και υπολογισμός αμοιβών",reports:"Συγκεντρωτικές αναφορές",alerts:"Εκκρεμότητες που χρειάζονται ενέργεια",audit:"Ποιος άλλαξε τι και πότε",recycle:"Ανάκτηση διαγραμμένων εγγραφών",server:"Σύνδεση και αντίγραφα ασφαλείας",settings:"Λογαριασμοί και κανόνες συστήματος"};
+  const navigationHelp = {cash:"Ποσά παραδόσεων και ανάλυση ανά κατάστημα",stores:"Ημερήσιες παραγγελίες, χρεώσεις και επιλογές διατήρησης",dashboard:"Η σημερινή εικόνα",shifts:"Καταγραφή παρουσιών και χιλιομέτρων",schedules:"Εβδομαδιαίος προγραμματισμός",employees:"Στοιχεία και δικαιώματα ομάδας",fleet:"Συντήρηση και ιστορικό μηχανών",invoices:"Ανάγνωση, έλεγχος και PDF",payroll:"Ώρες και υπολογισμός αμοιβών",reports:"Συγκεντρωτικές αναφορές",alerts:"Εκκρεμότητες που χρειάζονται ενέργεια",audit:"Ποιος άλλαξε τι και πότε",recycle:"Ανάκτηση διαγραμμένων εγγραφών",server:"Σύνδεση και αντίγραφα ασφαλείας",settings:"Λογαριασμοί και κανόνες συστήματος"};
   function navigationIcon(item){return window.FleetUI?.icon(item.id) || '<span>'+item.icon+'</span>';}
   function quickNavigation(items){return state.user.role === "employee" ? items.slice(0,4) : ["dashboard","shifts","fleet","invoices"].map(id=>items.find(item=>item.id===id)).filter(Boolean);}
 
@@ -493,7 +496,7 @@
     const navigationId = ++navigationSequence;
     const previousView = state.view;
     const animateNavigation = previousView !== view && !$("portal").classList.contains("is-hidden");
-    state.view = view;
+    state.view = view;renderCacheStatus();
     if($("uiMoreDialog")?.open)$("uiMoreDialog").close();
     if($("uiViewError"))$("uiViewError").hidden=true;
     $("portal").classList.toggle("fleet-focus-mode", view === "fleet");
@@ -518,9 +521,10 @@
       if (view === "cash") window.FleetCashUI.load({opening:true});
       if (view === "invoices") refreshInvoiceReprocessBatch();
       $("portal").classList.remove("view-loading");
+      if(view!=="cash"&&view!=="fleet")revalidateView(view).then(changed=>{if(changed&&state.view===view)refreshLiveView(["fleet","invoices","workforce","schedule","payroll","stores","cash","status"],true);}).catch(()=>{});
       return;
     }
-    $("portal").classList.toggle("view-loading",!state.previewSession);
+    $("portal").classList.toggle("view-loading",!state.previewSession&&!state.viewReady?.[view]);
     try {
       if (view === "dashboard") await loadDashboard();
       if (view === "employee-home") await loadEmployeeHome();
@@ -541,15 +545,15 @@
       if (view === "recycle") await loadRecycle();
       if (view === "server") {await loadStatus(true);await window.FleetHealthUI.load();}
       if (view === "settings") await loadSettings();
-      state.viewLoadedAt[view] = Date.now();
+      state.viewLoadedAt[view] = Date.now();(state.viewReady||(state.viewReady={}))[view]=true;
     } catch (error) { if(error.name!=='AbortError'){toast(error.message);if(navigationId===navigationSequence){$("uiViewErrorText").textContent=error.message+". Έλεγξε τη σύνδεση και δοκίμασε ξανά.";$("uiViewError").hidden=false;}} }
     finally { if (navigationId === navigationSequence) $("portal").classList.remove("view-loading"); }
   }
 
   function renderCacheStatus(){
     let banner=$('localCacheStatus');if(!banner){banner=document.createElement('div');banner.id='localCacheStatus';banner.className='local-cache-status';$('portal').prepend(banner);}
-    banner.classList.toggle('is-hidden',!state.previewSession);
-    banner.textContent=state.previewSession?'Αποθηκευμένα δεδομένα · αναμονή επιβεβαίωσης σύνδεσης'+(state.cacheAt?' · '+formatDateTime(state.cacheAt):''):'';
+    const stale=Object.values(state.viewSnapshots?.[state.view]||{}).some(snapshot=>snapshot.stale===true);banner.classList.toggle('is-hidden',!state.previewSession&&!stale);
+    banner.textContent=state.previewSession?'Αποθηκευμένα δεδομένα · αναμονή επιβεβαίωσης σύνδεσης'+(state.cacheAt?' · '+formatDateTime(state.cacheAt):''):stale?'Προβάλλονται αποθηκευμένα στοιχεία. Η ενημέρωση συνεχίζεται στο παρασκήνιο.':'';
   }
 
   async function initialize() {
@@ -3465,7 +3469,7 @@
   async function fetchInvoiceDocument(record) {
     if (!record || !record.key) throw new Error("Το PDF δεν είναι ακόμη διαθέσιμο από τον Server.");
     const owner=state.user,requestToken=state.token;
-    const cached=window.FleetPdfCache?await window.FleetPdfCache.get(owner,record.key):null;
+    const cached=window.FleetPdfCache?await window.FleetPdfCache.get(owner,record.key,requestToken):null;
     if(cached&&requestToken===state.token)return {blob:cached,name:record.name||"τιμολόγιο.pdf"};
     const headers = new Headers();
     if (state.token) headers.set("Authorization", "Bearer " + state.token);
@@ -3475,7 +3479,7 @@
       throw new Error(payload.error || "Δεν ήταν δυνατή η λήψη του PDF.");
     }
     const blob=await response.blob();
-    if(window.FleetPdfCache&&requestToken===state.token&&owner?.id===state.user?.id)await window.FleetPdfCache.put(owner,record.key,blob);
+    if(window.FleetPdfCache&&requestToken===state.token&&owner?.id===state.user?.id)await window.FleetPdfCache.put(owner,record.key,blob,requestToken);
     return { blob, name: record.name || "τιμολόγιο.pdf" };
   }
 
@@ -4944,11 +4948,17 @@
     toast("Το Fleet Control εγκαταστάθηκε ως Web App.");
   });
   const pendingLiveScopes=new Set();let liveRefreshTimer=0;
-  async function refreshLiveView(scopes){
+  async function revalidateView(view){
+    if(!state.user||state.view!==view||document.hidden||document.querySelector('dialog[open]')||document.activeElement?.matches('input,textarea,select'))return false;
+    const token=state.token,reads=Object.values(state.viewReads?.[view]||{});if(!reads.length)return null;let changed=false;
+    for(const item of reads.slice(-8)){const result=await api(item.path,{forceRead:true});if(token!==state.token||state.view!==view)return false;if(result.snapshot&&result.snapshot.revision!==item.revision)changed=true;}
+    return changed;
+  }
+  async function refreshLiveView(scopes,checked=false){
     if(!state.user||document.hidden)return;
     state.viewLoadedAt={};window.FleetViewCache?.invalidate?.();
     if(document.querySelector('dialog[open]')||document.activeElement?.matches('input,textarea,select')){scopes.forEach(s=>pendingLiveScopes.add(s));return;}
-    const view=state.view;if(scopes.includes('status')&&view!=='server')window.FleetHealthUI?.load();
+    const view=state.view;if(!checked&&await revalidateView(view)===false)return;if(state.view!==view)return;if(scopes.includes('status')&&view!=='server')window.FleetHealthUI?.load();
     try{
       if(view==='stores'&&scopes.includes('stores'))await window.FleetStoreFinancialUI.changed();
       else if(view==='cash'&&scopes.includes('cash'))window.FleetCashUI.changed();

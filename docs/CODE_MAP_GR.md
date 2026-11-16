@@ -70,3 +70,7 @@
 ## Ενιαίος Server #95
 
 Το `BackendMode` και τα Client/Web modules επιλογής κρατούν μία λογική επιλογή με epoch/fencing και τοπική offline ανάκτηση. Το `prepare-unified-direct.py` παράγει τη δεύτερη native MainActivity από την ίδια πηγή, στο ιδιωτικό :direct process. Τα `unified-android/src/...` συνδέουν ScopedContext, ιδιωτικό control provider, αυτόματο/χειροκίνητο FCB3, Direct cold recovery, τοπικές εκδόσεις Web/Client και scoped OTA callbacks με το κανονικό UI. Το `UnifiedNativeChecks` εκτελείται μόνο στο disposable Android test APK και ελέγχει πραγματικό SAF export/restore και διατήρηση Cloud δεδομένων. Οδηγός: `ISSUE_95_UNIFIED_MODE_GR.md`.
+
+## Έτοιμες Direct προβολές #107
+
+`IndependentReadModels` προσθέτει allowlisted authorized JSON snapshots στη RAM, read-only WAL και commit-only scoped invalidation. `BusinessSqlite` παρέχει privacy-safe stage timings. `portal.js`, `local-view-cache.js` και `primary-storage.js` κρατούν private view/PDF αποτελέσματα μόνο σε bounded session RAM και διατηρούν πραγματικά unsent drafts. `prepare-unified-direct.py` εφαρμόζει τα ίδια readiness/backend guards και στα hot reads. Οδηγός `ISSUE_107_READ_MODELS_GR.md`, regressions `test-independent-readmodels.mjs`, `test-view-cache.mjs`, `test-primary-transport-unit.mjs` και actual normal-APK Android.

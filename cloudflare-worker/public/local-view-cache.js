@@ -1,133 +1,16 @@
-(function () {
-  "use strict";
-  const PREFIX = "fleet-view-cache-v1:",
-    MAX = 1500000,
-    AGE = 7 * 86400000;
-  const allowed = (path) =>
-    /^\/api\/(workforce\/(dashboard|vehicles|employees)(\?|$)|admin\/service-documents(\?|$))/.test(
-      path,
-    );
-  function key(user, path) {
-    return (
-      PREFIX +
-      String(user.id) +
-      ":" +
-      JSON.stringify(user.permissions || []) +
-      ":" +
-      path
-    );
-  }
-  function read(user, path) {
-    try {
-      if (!user || !allowed(path)) return null;
-      const item = JSON.parse(localStorage.getItem(key(user, path)) || "null");
-      return item && Date.now() - item.at < AGE ? item : null;
-    } catch (e) {
-      return null;
-    }
-  }
-  function save(user, path, data) {
-    try {
-      if (!user || !allowed(path)) return false;
-      const text = JSON.stringify({ at: Date.now(), data });
-      if (text.length > MAX) return false;
-      const names = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const name = localStorage.key(i);
-        if (name && name.startsWith(PREFIX)) names.push(name);
-      }
-      if (names.length > 12)
-        names.forEach((name) => localStorage.removeItem(name));
-      localStorage.setItem(key(user, path), text);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-  function invalidate() {
-    try {
-      const names = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const name = localStorage.key(i);
-        if (name && name.startsWith(PREFIX)) names.push(name);
-      }
-      names.forEach((name) => localStorage.removeItem(name));
-    } catch (e) {}
-  }
-  function clear(){invalidate();window.FleetPdfCache?.clear();window.FleetSharedReads?.clear();}
-  window.FleetViewCache = { read, save, clear, invalidate };
-})();
-(function () {
-  "use strict";
-  const MAX_FILES = 10,
-    MAX_BYTES = 40 * 1024 * 1024,
-    AGE = 7 * 86400000;
-  let database;
-  function db() {
-    if (!window.indexedDB) return Promise.resolve(null);
-    if (!database)
-      database = new Promise((resolve) => {
-        const req = indexedDB.open("fleet-recent-pdfs", 1);
-        req.onupgradeneeded = () =>
-          req.result.createObjectStore("pdfs", { keyPath: "id" });
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => resolve(null);
-      });
-    return database;
-  }
-  function request(store, operation) {
-    return new Promise((resolve) => {
-      try {
-        const r = operation(store);
-        r.onsuccess = () => resolve(r.result);
-        r.onerror = () => resolve(null);
-      } catch {
-        resolve(null);
-      }
-    });
-  }
-  async function get(user, key) {
-    try {
-      const value = await db();
-      if (!value || !user?.id) return null;
-      const item = await request(
-        value.transaction("pdfs").objectStore("pdfs"),
-        (s) => s.get(user.id + ":" + key),
-      );
-      return item && Date.now() - item.at < AGE ? item.blob : null;
-    } catch {
-      return null;
-    }
-  }
-  async function put(user, key, blob) {
-    try {
-      const value = await db();
-      if (!value || !user?.id || blob.size > 15 * 1024 * 1024) return;
-      const rows =
-        (await request(value.transaction("pdfs").objectStore("pdfs"), (s) =>
-          s.getAll(),
-        )) || [];
-      const tx = value.transaction("pdfs", "readwrite"),
-        store = tx.objectStore("pdfs"),
-        id = user.id + ":" + key,
-        kept = rows.filter((r) => r.id !== id).sort((a, b) => b.at - a.at);
-      let count = 1,
-        bytes = blob.size;
-      for (const row of kept) {
-        count++;
-        bytes += row.blob.size;
-        if (count > MAX_FILES || bytes > MAX_BYTES || Date.now() - row.at > AGE)
-          store.delete(row.id);
-      }
-      store.put({ id, blob, at: Date.now() });
-    } catch {}
-  }
-  async function clear() {
-    try {
-      const value = await db();
-      if (value)
-        value.transaction("pdfs", "readwrite").objectStore("pdfs").clear();
-    } catch {}
-  }
-  window.FleetPdfCache = { get, put, clear };
-})();
+(function(root){
+ 'use strict';
+ const AGE=300000,MAX_BYTES=8*1024*1024,views=new Map(),pdfs=new Map();
+ const allowed=path=>/^\/api\/(workforce\/(dashboard|vehicles|employees|shifts|schedules)(\?|$)|employee\/home(\?|$)|admin\/(employees|schedules|schedule-week|payroll|pay-rules|ordexa-server\/(dashboard|shifts|payroll)|service-documents|alerts|audit|recycle|settings)(\?|$)|native\/(cash(?:\/rules|\/automatic)?|store-financials|payroll-review|health)(\?|$))/.test(path);
+ function partition(user,token=''){if(!user?.id)return '';return JSON.stringify([user.id,user.role,[...(user.permissions||[])].sort(),token]);}
+ const key=(user,path,token)=>partition(user,token)+':'+path;
+ const clone=value=>JSON.parse(JSON.stringify(value));
+ function cleanup(){try{for(let i=localStorage.length-1;i>=0;i--){const name=localStorage.key(i);if(name?.startsWith('fleet-view-cache-v1:')||name?.startsWith('fleet-shared-read-v1:')&&!name.endsWith(':generation'))localStorage.removeItem(name);}}catch{}try{root.indexedDB?.deleteDatabase?.('fleet-recent-pdfs');}catch{}}
+ function read(user,path,token){if(!user||!allowed(path))return null;const item=views.get(key(user,path,token));if(!item||Date.now()-item.at>AGE)return null;return clone(item);}
+ function save(user,path,data,token){try{if(!user||!allowed(path))return false;const item={at:Date.now(),data:clone(data)},text=JSON.stringify(item);if(text.length>1500000)return false;views.set(key(user,path,token),item);let bytes=0;for(const [name,row]of [...views].reverse()){bytes+=JSON.stringify(row).length*2;if(bytes>MAX_BYTES||Date.now()-row.at>AGE)views.delete(name);}return true;}catch{return false;}}
+ function invalidate(){views.clear();pdfs.clear();cleanup();}
+ function clear(){invalidate();root.FleetSharedReads?.clear();}
+ root.FleetViewCache={read,save,clear,invalidate};
+ root.FleetPdfCache={async get(user,path,token){const item=user&&pdfs.get(key(user,path,token));return item&&Date.now()-item.at<AGE?item.blob:null;},async put(user,path,blob,token){if(!user?.id||blob.size>15*1024*1024)return;pdfs.delete(key(user,path,token));pdfs.set(key(user,path,token),{at:Date.now(),blob});let bytes=0,count=0;for(const [name,row]of [...pdfs].reverse()){bytes+=row.blob.size;if(++count>4||bytes>16*1024*1024||Date.now()-row.at>AGE)pdfs.delete(name);}},async clear(){pdfs.clear();cleanup();}};
+ cleanup();
+})(window);

@@ -8,6 +8,7 @@ node scripts/code-map.mjs --check
 node scripts/test-backend-mode.mjs
 node scripts/test-direct-web-speed.mjs
 node scripts/test-independent-work-queue.mjs
+node scripts/test-independent-readmodels.mjs
 node scripts/test-backend-mode-native.mjs
 node scripts/test-large-release.mjs
 node scripts/test-d1-source-inventory.mjs

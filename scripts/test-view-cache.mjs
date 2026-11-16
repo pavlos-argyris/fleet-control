@@ -36,12 +36,14 @@ assert.equal(
   null,
   "permission changes invalidate cache identity",
 );
+cache.save(user,path,{documents:[{id:"session-private"}]},"one-session");assert.equal(cache.read(user,path,"another-session"),null,"new login cannot reuse an earlier session snapshot");
 assert.equal(cache.save(user, "/api/auth/me", { token: "never" }), false);
 assert.equal(
   cache.save(user, "/api/workforce/payroll", { secret: "never" }),
   false,
 );
-now += 8 * 86400000;
+assert.equal(values.size,0,"private snapshots never enter persistent browser storage");
+now += 300001;
 assert.equal(
   cache.read(user, path),
   null,
@@ -91,7 +93,7 @@ await assert.rejects(
 console.log(
   "OK view cache: account/permission isolation, whitelist, expiry, clearing, coalesced reads and read-only cached preview.",
 );
-// Execute the shipped PDF cache against asynchronous IndexedDB request semantics.
+// Private PDF copies remain short-lived RAM, across roles and browser reloads.
 const pdfRows = new Map();
 function success(value) {
   const result = {};
@@ -112,7 +114,7 @@ const fakeDb = {
   transaction: () => ({ objectStore: () => store }),
   createObjectStore() {},
 };
-const indexedDB = { open: () => success(fakeDb) };
+let databaseOpens=0;const indexedDB = { open: () => {databaseOpens++;return success(fakeDb);} };
 const pdfContext = vm.createContext({
   window: { indexedDB },
   indexedDB,
@@ -127,11 +129,13 @@ vm.runInContext(
 const pdfCache = pdfContext.window.FleetPdfCache;
 for (let i = 0; i < 13; i++)
   await pdfCache.put(user, "key-" + i, new Blob(["%PDF-" + i]));
-assert.ok(pdfRows.size <= 10);
+assert.equal(databaseOpens,0,"private PDFs never open persistent IndexedDB storage");
+assert.equal(await pdfCache.get(user,"key-0"),null,"RAM cache evicts old PDFs beyond four files");
+assert.equal(await pdfCache.get({...user,permissions:[]},"key-12"),null,"PDF permission partition");
 assert.equal(await pdfCache.get({ ...user, id: "other" }, "key-12"), null);
 assert.equal(await (await pdfCache.get(user, "key-12")).text(), "%PDF-12");
 await pdfCache.clear();
 assert.equal(pdfRows.size, 0);
 console.log(
-  "OK bounded recent PDF cache: at most 10 files, account isolation, real Blob preservation and logout clearing.",
+  "OK bounded recent PDF cache: at most 4 RAM files, no persistent browser storage, account isolation, real Blob preservation and logout clearing.",
 );

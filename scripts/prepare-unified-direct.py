@@ -161,7 +161,8 @@ for name,p in sources.items():
         # The only production switch is in the existing Server settings.
         value=re.sub(r'        button\("Ενεργοποίηση Android ως κύριου Server".*?(?=\n)', '', value)
     if name=='IndependentRuntime.java':
-        value=change(value,'.put("server","independent-1")','.put("server",ServerConfig.SERVER_VERSION)')
+        if '.put("server","independent-1")' in value:value=change(value,'.put("server","independent-1")','.put("server",ServerConfig.SERVER_VERSION)')
+        elif value.count('.put("server",ServerConfig.SERVER_VERSION)')!=1:raise RuntimeError('Missing actual Direct Server version')
         value=change(value,'    JSONObject localLogin(', '    void barrier()throws Exception{serialized(()->null);}\n    JSONObject localLogin(')
         value=change(value,'        URI uri=new URI(address);if(!address.startsWith(','''        final long uploadRevision=input==null?-1:BackendMode.read(context).getLong("revision");
         if(input!=null&&(!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context)))throw new IOException("Η λειτουργία άλλαξε ή ο Server δεν είναι έτοιμος. Το αρχείο δεν αποθηκεύτηκε.");
@@ -184,8 +185,7 @@ for name,p in sources.items():
         return new JSONObject().put("ready",ready);
     });}
     JSONObject localLogin(''')
-        value=change(value,'JSONObject result=engine.request(request,internal,30000);','''JSONObject result;
-        try(BackendMode.Guard ignored=BackendMode.guard(context)){
+        value=change(value,'    private JSONObject dispatch(','''    private JSONObject directReadGate(JSONObject request,boolean internal)throws Exception{
             String path=new URI(request.getString("url")).getPath();
             boolean preflight=path.startsWith("/api/auth/")||path.startsWith("/api/independent/");
             if(!preflight&&!BackendMode.direct(context)&&!(internal&&path.equals("/api/status")))return IndependentHttps.error(409,"Επιλεγμένο Cloudflare. Δεν έγινε εγγραφή στη βάση Direct.");
@@ -194,8 +194,22 @@ for name,p in sources.items():
             String epoch=request.getJSONObject("headers").optString("x-fleet-backend-revision",request.getJSONObject("headers").optString("X-Fleet-Backend-Revision"));
             if(!internal&&!preflight&&!epoch.equals(String.valueOf(BackendMode.read(context).getLong("revision"))))return IndependentHttps.error(409,"Η λειτουργία άλλαξε. Ανανέωσε πριν αποθηκεύσεις.");
             if(path.equals("/api/independent/activate"))return IndependentHttps.error(403,"Ολοκλήρωσε τον εξωτερικό έλεγχο HTTPS για την προεπιλεγμένη σύνδεση μέσω Server.");
+            return null;
+    }
+    private JSONObject dispatch(''')
+        value=change(value,'try{result=engine.request(request,internal,30000);}','''try{
+        try(BackendMode.Guard ignored=BackendMode.guard(context)){
+            JSONObject gate=directReadGate(request,internal);if(gate!=null)return gate;
             result=engine.request(request,internal,30000);
+        }
         }''')
+        value=change(value,'private JSONObject readSnapshot(JSONObject request)throws Exception{checkAuthority();return readModels==null?null:readModels.get(request);}','''private JSONObject readSnapshot(JSONObject request)throws Exception{
+        try(BackendMode.Guard ignored=BackendMode.guard(context)){
+            JSONObject gate=directReadGate(request,false);if(gate!=null)return gate;
+            checkAuthority();return readModels==null?null:readModels.get(request);
+        }
+    }''')
+        value=change(value,'JSONObject headers=new JSONObject().put("Authorization","Bearer "+token);','JSONObject headers=new JSONObject().put("Authorization","Bearer "+token).put("X-Fleet-Backend-Revision",String.valueOf(BackendMode.read(context).getLong("revision")));')
         value=change(value,'private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{return response;}', '''private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{
         // The writer and read fence have returned before acquiring the mode
         // write lock. A public owner probe never upgrades a held read lock.

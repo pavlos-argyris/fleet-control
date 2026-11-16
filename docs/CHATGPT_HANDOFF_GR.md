@@ -1,3 +1,7 @@
+## #107 — Έτοιμες προβολές / private RAM / SQL timing,16/11/2026
+
+Branch `codex/issue-107-readmodels`, συνέχεια PR114. Actual Java/SQLite WAL, auth/session/role/rollback,32-client single-flight, bounded priorities και private RAM UI tests PASS. Μηνιαίο συνθετικό40×31 report έδωσε ίδιο ποσό cold/hot. Read models δεν παρακάμπτουν normal-APK readiness/epoch. Profiling χωρίς SQL/ιδιωτικές τιμές. Λεπτομέρειες/όρια `ISSUE_107_READ_MODELS_GR.md`. Τα νέα exact-head Full/Fast CI των PR113/114 πέρασαν μετά τη διόρθωση παλιών screenshot ονομάτων. Καμία συγχώνευση ή δημοσίευση ακόμη. Συνεχίζονται Direct redirect/release pipeline, κοινή canonical επαναχρησιμοποίηση και τελικές πύλες· φυσικό APK/δίκτυα/backup παραμένουν ανεπιβεβαίωτα.
+
 ## #107 — HTTPS keep-alive / bounded writer priorities, 16/11/2026
 
 Branch `codex/issue-107-performance`, συνέχεια PR113. Πραγματικά TLS/queue regressions και synthetic1/8/32-client before/after ολοκληρώθηκαν. Διατηρούνται per-request auth, private/no-store και μοναδικός transactional writer. Λεπτομέρειες/όρια `docs/ISSUE_107_TRANSPORT_GR.md`. Δεν δημοσιεύτηκε update· read models/profiling/Direct redirect και τελικές πύλες107 συνεχίζονται.
