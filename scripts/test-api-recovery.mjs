@@ -7,7 +7,7 @@ const api=source.slice(source.indexOf('  async function api('),source.indexOf(' 
 const state={token:'fixture-token',invoiceDocuments:[{id:'already-loaded'}]};
 let replies=[],calls=0,cleared=0;
 const context={state,window:{},navigator:{onLine:true},apiBase:'https://fixture.invalid',Headers,performance,
-  renderCacheStatus(){},recordApiTiming(){},clearSession(){cleared++;},showAuth(){},setTimeout(fn){fn();},
+  recordApiTiming(){},renderCacheStatus(){},clearSession(){cleared++;},showAuth(){},setTimeout(fn){fn();},
   async fetch(url,options){calls++;const next=replies.shift();if(next instanceof Error)throw next;return next;}};
 vm.createContext(context);vm.runInContext(api+'\nglobalThis.invoke=api;',context);
 const response=(status,data)=>new Response(typeof data==='string'?data:JSON.stringify(data),{status,headers:{'CF-Ray':'fixture-ATH'}});
@@ -38,7 +38,7 @@ const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),rem
 const bike1={id:'one',name:'Fixture one',currentKm:10,history:[]},bike2={id:'two',name:'Fixture two',currentKm:20,history:[]};
 let seen=[];let editDuringUpload=false;let failPost=false;
 const loading=[];
-const syncContext={window:{FleetServiceModel:globalThis.FleetServiceModel},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,fleetLoaded:false,fleetLoading:(message,failed)=>loading.push({message,failed}),
+const syncContext={config:{independent:true},lastReadBikes:new Map([bike1,bike2].map(bike=>[String(bike.id),JSON.stringify(bike)])),window:{FleetServiceModel:globalThis.FleetServiceModel},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,fleetLoaded:false,fleetLoading:(message,failed)=>loading.push({message,failed}),
  webToken:'fixture-token',apiBase:'https://fixture.invalid',navigator:{onLine:true},activeBikeId:null,localStorage:storage,
  STORAGE_KEY:'bikes',DIRTY_KEY:'dirty',DIRTY_BIKE_KEY:'dirty-ids',setSyncState(){},scheduleSync(){},renderHome(){},renderDetail(){},
  requestHeaders(){return {'Authorization':'Bearer fixture-token','Content-Type':'application/json'};},
