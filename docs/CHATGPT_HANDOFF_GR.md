@@ -1,3 +1,11 @@
+## 16/11/2026 — #107 καταστήματα/PDF και πραγματική ανάγνωση Direct
+
+- Branch codex/issue-107-stores μετά το payroll PR111 και τη διόρθωση advisory/day-version fixture. Invoice PR110 exact full43891094632 και Fast43891094378 SUCCESS, περιλαμβανομένου normal APK Android. Η πρώτη payroll CI αποτυχία αφορούσε το νέο generic schedule notice ως blocker και παλιό fixture version3· διορθώθηκαν χωρίς κατάργηση πραγματικών blockers ή assertions οικονομικών ποσών.
+- Καταστήματα: πρώτη price-only αποθήκευση με ασφαλή προαιρετικά defaults, υποστηριζόμενοι ιστορικοί όροι διατηρούνται στα partial patches, single-store typing επιλέγει μόνο το αντίστοιχο πεδίο. PASS API/CAS και DOM tests.
+- PDF: ελεγμένο A4 landscape,4KPI, όλοι οι πίνακες/εγγραφές,40×31 σε4σελίδες, Greek font, repeated headers, unknown-safe totals και revision match. Ανεξάρτητο negative control αναπαρήγαγε IOException χωρίς PDFBox init· η ίδια πραγματική native παραγωγή με init πέρασε. Οπτική παραλαβή σελίδων1/3 PASS. Οδηγός docs/ISSUE_107_STORE_EXPORT_GR.md. Δεν αποδεικνύεται εγκατάσταση του νέου κώδικα στον φυσικό Server από το desktop test.
+- Πραγματικό read-only browser Direct: μετά αρχικό navigation timeout φορτώθηκε ήδη υπάρχουσα owner συνεδρία. Η σημερινή προβολή ταμείου εμφάνισε αρχικά source backoff και έπειτα unmapped ημέρα. Επιβεβαιώθηκε εκκρεμής αντιστοίχιση rider που εμφανίζεται στο issue της ημέρας. Δεν έγιναν επιλογή/αποθήκευση αντιστοίχισης, παραλαβή χρημάτων, Ordexa writes ή άλλη οικονομική μεταβολή. Προσωπικά ονόματα/ποσά/source IDs δεν καταχωρίζονται στο public repo. Η ενεργή πηγή επιβεβαίωσε ότι η συνολική ημέρα μπορεί να κρατιέται πίσω από ένα unmapped group· ακολουθεί χωριστό regression/διόρθωση με truthful partial state.
+- Καμία νέα παραγωγική δημοσίευση ή merge. Το #107 παραμένει ανοιχτό: καθημερινό read-only UI, απομόνωση unmapped orders, καθολική απόδοση/Direct redirect και τελικές πύλες παραμένουν ενεργές. Η υπάρχουσα εξουσιοδότηση αυτόματης δημοσίευσης δεν χρειάζεται επανάληψη.
+
 ## 16/11/2026 — #107 νυχτερινά χωρίς δημοσιευμένο πρόγραμμα
 
 - Branch codex/issue-107-payroll μετά το θεματικό invoice PR110. Πραγματική pure Java αναπαραγωγή: 18:00–00:50 χωρίς πρόγραμμα έδινε4200c αντί4600c. Διορθώθηκε στο OrdexaPayrollEngine, όχι σε ανενεργό cloud-only helper.

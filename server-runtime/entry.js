@@ -54,5 +54,5 @@ globalThis.__fleetRequest=function(serialized){
       else output.body=body;
     }
     globalThis.__fleetResult=JSON.stringify(output);
-  }).catch(()=>{globalThis.__fleetResult=JSON.stringify({status:500,headers:{'content-type':'application/json'},body:JSON.stringify({error:'Η τοπική εργασία δεν ολοκληρώθηκε.'})});});
+  }).catch(error=>{const messages={EXPORT_PDF_ASSET:'Δεν φορτώθηκαν οι πόροι PDF ή η ελληνική γραμματοσειρά.',EXPORT_GENERATION:'Δεν ολοκληρώθηκε η δημιουργία της αναφοράς.',EXPORT_FILE:'Δεν ολοκληρώθηκε η αποθήκευση ή μεταφορά του αρχείου.',EXPORT_TIMEOUT:'Η εξαγωγή ξεπέρασε το χρονικό όριο.',EXPORT_SOURCE:'Δεν επιβεβαιώθηκε η πηγή της αναφοράς.'},code=Object.prototype.hasOwnProperty.call(messages,error?.code)?error.code:'LOCAL_OPERATION_FAILED';globalThis.__fleetResult=JSON.stringify({status:500,headers:{'content-type':'application/json'},body:JSON.stringify({error:(messages[code]||'Η τοπική εργασία δεν ολοκληρώθηκε.')+' ('+code+')',code})});});
 };

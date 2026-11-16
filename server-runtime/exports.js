@@ -19,6 +19,21 @@ export function storeExportSpec(result){
   const notes={name:'Στοιχεία αναφοράς',columns:[col('Στοιχείο','text',220),col('Τιμή','text',550)],rows:[['Από',result.from],['Έως',result.to],['Ημέρα','05:00-05:00 Europe/Athens'],['Κάλυψη',coverage(result.coverageVerified)],['Παρατήρηση','Η απουσία δεδομένων εμφανίζεται ως Άγνωστο. Οι αποθηκευμένες ιστορικές τιμές δεν αντικαθίστανται.'],['Χρόνος αναφοράς',result.observedAt]]};
   return{title:'Οικονομικά καταστημάτων',subtitle:result.from+' έως '+result.to+' | Ημέρα 05:00-05:00 Europe/Athens | '+coverage(result.coverageVerified)+' | '+result.observedAt,tables:[groups,daily,notes]};
 }
+export function storeSummaryExportSpec(result){
+  const fields=['orderCount','orderChargeCents','minimumTopUpCents','totalChargeCents'],stores=new Map(),days=new Map();
+  const add=(map,key,name,row)=>{
+    if(!map.has(key))map.set(key,{name,complete:true,values:[0,0,0,0]});const group=map.get(key);
+    for(let i=0;i<fields.length;i++){const value=row[fields[i]];if(row.coverageVerified!==true||!Number.isSafeInteger(value)){group.complete=false;continue;}group.values[i]+=value;if(!Number.isSafeInteger(group.values[i]))throw new NativeError(413,'Η αναφορά υπερβαίνει το όριο ακριβών ποσών.','EXPORT_SOURCE');}
+  };
+  const names=new Map((result.stores||[]).map(s=>[s.id,s.name]));
+  for(const r of result.daily||[]){const id=r.canonicalStoreId||r.storeId;add(stores,id,names.get(id)||r.storeName,r);add(days,r.day,r.day,r);}
+  // The detailed result may already be grouped; this fallback also supports archived report inputs.
+  if(!stores.size)for(const r of result.groups||[])add(stores,r.storeId||r.storeName,r.storeName,r);
+  const total={name:'ΣΥΝΟΛΟ',complete:result.coverageVerified===true,values:[0,0,0,0]};
+  for(const r of stores.values()){total.complete=total.complete&&r.complete;for(let i=0;i<4;i++){total.values[i]+=r.values[i];if(!Number.isSafeInteger(total.values[i]))throw new NativeError(413,'Η αναφορά υπερβαίνει το όριο ακριβών ποσών.','EXPORT_SOURCE');}}
+  const values=r=>[r.name,...(r.complete?r.values:[null,null,null,null])],columns=[col('Κατάστημα','text',240),col('Παραγγελίες','integer',90),col('Χρέωση παραγγελιών','money',150),col('Συμπλήρωμα παγίου','money',150),col('Σύνολο','money',120)];
+  return{title:'FLEET CONTROL - ΣΥΝΟΠΤΙΚΗ ΑΝΑΦΟΡΑ ΚΑΤΑΣΤΗΜΑΤΩΝ',subtitle:result.from+' έως '+result.to+' | Επιχειρησιακή ημέρα 05:00-05:00 Europe/Athens',compact:true,metrics:['Σύνολο παραγγελιών','Χρέωση παραγγελιών','Συμπλήρωμα παγίου','Συνολική χρέωση περιόδου'].map((label,i)=>({label,type:i?'money':'integer',value:total.complete?total.values[i]:null})),footnote:coverage(total.complete)+' | Δημιουργία '+result.observedAt+' | Άγνωστο: μη επαληθευμένα στοιχεία.',tables:[{name:'Σύνολα ανά κατάστημα',columns,rows:[...[...stores.values()].sort((a,b)=>a.name.localeCompare(b.name,'el')).map(values),values(total)]},{name:'Ημερήσια συγκεντρωτικά',columns:[col('Ημέρα','text',240),...columns.slice(1)],rows:[...[...days.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([,r])=>values(r)),values(total)]}]};
+}
 export async function routeExports(request,env){
   const url=new URL(request.url);if(!['/api/native/cash/export','/api/native/store-financials/export'].includes(url.pathname))return null;
   if(request.method!=='GET')throw new NativeError(405,'Η εξαγωγή γίνεται από την αντίστοιχη αναφορά.');
@@ -26,8 +41,9 @@ export async function routeExports(request,env){
   const format=url.searchParams.get('format');if(!['xlsx','pdf'].includes(format))throw new NativeError(400,'Επίλεξε Excel ή PDF.');
   let spec;
   if(cash){const table=url.searchParams.get('table'),result=await cashProjection(env,from,to,text(url.searchParams.get('courierId'),100),{eventLimit:table==='events'?5001:0});if(table==='events'&&result.eventCount>5000)throw new NativeError(413,'Για αναλυτικές κινήσεις επίλεξε έως 5.000 εγγραφές ανά εξαγωγή. Η συγκεντρωτική αναφορά καλύπτει όλο το διάστημα.');spec=cashExportSpec(result,table);}
-  else{const scope=businessContext(env);if(!scope.configured)throw new NativeError(503,'Χρειάζεται ρύθμιση καταστημάτων στον Server.');if(url.searchParams.has('scope')&&url.searchParams.get('scope')!==scope.scope)throw new NativeError(409,'Άλλαξε η πηγή της αναφοράς.');spec=storeExportSpec(await storeReport(env,{from,to,period:url.searchParams.get('period')||'day',scope:scope.scope,storeId:text(url.searchParams.get('storeId'),200)}));}
+  else{const scope=businessContext(env);if(!scope.configured)throw new NativeError(503,'Χρειάζεται ρύθμιση καταστημάτων στον Server.');if(url.searchParams.has('scope')&&url.searchParams.get('scope')!==scope.scope)throw new NativeError(409,'Άλλαξε η πηγή της αναφοράς.');const report=await storeReport(env,{from,to,period:url.searchParams.get('period')||'day',scope:scope.scope,storeId:text(url.searchParams.get('storeId'),200)});if(url.searchParams.has('revision')&&url.searchParams.get('revision')!==report.revision)throw new NativeError(409,'Η αναφορά άλλαξε. Ανανέωσε την οθόνη πριν από την εξαγωγή.','EXPORT_SOURCE');spec=format==='pdf'?storeSummaryExportSpec(report):storeExportSpec(report);}
   const exported=await businessPort(env,'reports.export',{format,spec});
+  if(exported?.failed)throw new NativeError(500,'Η εξαγωγή δεν ολοκληρώθηκε ('+exported.errorCode+').',exported.errorCode);
   const file=env.BUSINESS_PORT?exported:new File(exported);
   return new Response(file,{headers:{'Content-Type':format==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="Fleet_'+(cash?'Cash':'Stores')+'_'+from+'_'+to+'.'+format+'"','Cache-Control':'private, no-store'}});
 }

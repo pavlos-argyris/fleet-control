@@ -46,4 +46,12 @@ try{
  list=ok(await call('/api/admin/store-billing?from=2026-10-26&to=2026-10-28',{token}));assert.equal(list.totals.totalChargeCents,1800);assert.ok(list.rows.some(r=>r.pendingDays>0));assert.ok(list.operations.every(r=>!r.lease),"viewers never receive a Server job lease");
  assert.equal(storeBusinessDay('2026-10-26T04:59:59+02:00'),'2026-10-25');assert.equal(storeBusinessDay('2026-10-26T05:00:00+02:00'),'2026-10-26');
  console.log('PASS Worker/SQLite stores:57 stores, paged inputs/results, bootstrap, explicit default-off retention, atomic partial-field price changes/replay/CAS, immutable price history, new-store alert state, staged publication and stale readable results.');
+ // #107: a first price-only patch completes terms with safe optional defaults.
+ const initialTermsStore='store:107';db.sqlite.prepare("INSERT INTO store_billing_records(id,scope,kind,store_id,day,revision,data,updated_at) VALUES(?,'synthetic-source','store','','',1,?,?)").run(initialTermsStore,JSON.stringify({id:initialTermsStore,name:'First terms fixture',sourceShopId:'107',pricingState:'needs_terms'}),new Date().toISOString());
+ const firstTerms={operationId:'first-price-only-107',effectiveDay:storeBusinessDay(),stores:[{id:initialTermsStore,revision:1}],patch:{unitPriceCents:250}};ok(await admin('bulk',firstTerms));
+ let savedTerms=ok(await call('/api/admin/store-billing/terms?storeId='+initialTermsStore,{token})).rows.at(-1);assert.equal(savedTerms.unitPriceCents,250);assert.equal(savedTerms.dailyMinimumCents,0);assert.equal(savedTerms.chargeOnZero,false);
+ ok(await admin('bulk',{operationId:'only-minimum-107',effectiveDay:storeBusinessDay(),stores:[{id:initialTermsStore,revision:2}],patch:{dailyMinimumCents:500}}));
+ savedTerms=ok(await call('/api/admin/store-billing/terms?storeId='+initialTermsStore,{token})).rows.at(-1);assert.equal(savedTerms.unitPriceCents,250);assert.equal(savedTerms.dailyMinimumCents,500);
+ ok(await admin('bulk',{operationId:'stale-minimum-107',effectiveDay:storeBusinessDay(),stores:[{id:initialTermsStore,revision:2}],patch:{dailyMinimumCents:600}}),409);
+ console.log('PASS107 first price-only terms default optional minimum/zero policy; minimum-only update preserves price and rejects stale CAS.');
 }finally{db.sqlite.close();}

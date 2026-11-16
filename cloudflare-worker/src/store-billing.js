@@ -183,10 +183,11 @@ async function bulk(request,env,b,actor,D){
  if(stores.length!==b.stores.length)invalid(D,'Κάποιο κατάστημα δεν είναι διαθέσιμο.',409);
  const at=now();
  const terms=pricing?stores.flatMap(s=>{
-  const current=s.terms?JSON.parse(s.terms):{},changed=Object.keys(pricePatch).filter(k=>current[k]!==pricePatch[k]);
+  const current=s.terms?JSON.parse(s.terms):{},changed=Object.keys(pricePatch).filter(k=>current.supported!==true||current[k]!==pricePatch[k]);
   if(!changed.length)return [];
-  const t={...current,...pricePatch,id:'terms:'+crypto.randomUUID(),storeId:s.id,effectiveDay:b.effectiveDay,origin:'fleet',version:s.revision+1,supported:true,updatedBy:actor.user_id,updatedAt:at};
-  if(!Number.isSafeInteger(t.unitPriceCents)||!Number.isSafeInteger(t.dailyMinimumCents)||typeof t.chargeOnZero!=='boolean')invalid(D,'Όρισε τιμή και προαιρετικό ελάχιστο για νέο κατάστημα.');
+  const t={dailyMinimumCents:0,chargeOnZero:false,...(current.supported===true?current:{}),...pricePatch,id:'terms:'+crypto.randomUUID(),storeId:s.id,effectiveDay:b.effectiveDay,origin:'fleet',version:s.revision+1,supported:true,updatedBy:actor.user_id,updatedAt:at};
+  if(!Number.isSafeInteger(t.dailyMinimumCents))t.dailyMinimumCents=0;if(typeof t.chargeOnZero!=='boolean')t.chargeOnZero=false;
+  if(!Number.isSafeInteger(t.unitPriceCents))invalid(D,'Όρισε πρώτα έγκυρη τιμή ανά παραγγελία. Το ημερήσιο ελάχιστο είναι προαιρετικό και αρχικά 0 €.');number(t.unitPriceCents,D);number(t.dailyMinimumCents,D);
   // Append audit to the authoritative immutable terms record; no second ledger.
   t.audit={schema:1,operationId:b.operationId,recordedAt:at,effectiveDay:b.effectiveDay,actor:{id:actor.user_id,name:actor.full_name||actor.user_id,role:actor.role},previousTermsId:current.id||null,changes:changed.map(field=>({field,oldValue:current.supported===false?null:(current[field]??null),newValue:pricePatch[field]}))};
   return [t];

@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.zip.*;
 import com.tom_roush.pdfbox.pdmodel.*;
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle;
 import com.tom_roush.pdfbox.pdmodel.font.PDType0Font;
 
@@ -83,30 +84,41 @@ public final class FinancialExport {
         return lines;
     }
     private static void text(PDPageContentStream content,PDType0Font font,float size,float x,float y,String value)throws Exception{content.beginText();content.setFont(font,size);content.newLineAtOffset(x,y);content.showText(value);content.endText();}
+    public static synchronized void initializePdf(android.content.Context context){PDFBoxResourceLoader.init(context.getApplicationContext());}
     public static void writePdf(File target,JSONObject spec,InputStream fontStream)throws Exception{
-        validate(spec);JSONObject table=spec.getJSONArray("tables").getJSONObject(0);JSONArray columns=table.getJSONArray("columns"),rows=table.getJSONArray("rows");if(rows.length()>3000)throw new IOException("Για PDF επίλεξε έως 3.000 γραμμές. Το Excel καλύπτει μεγαλύτερο διάστημα.");
+        validate(spec);JSONArray tables=spec.getJSONArray("tables");int totalRows=0;for(int t=0;t<tables.length();t++)totalRows+=tables.getJSONObject(t).getJSONArray("rows").length();if(totalRows>15000)throw new IOException("Για PDF επίλεξε έως 15.000 γραμμές.");
         try(PDDocument document=new PDDocument()){
-            PDType0Font font;try{font=PDType0Font.load(document,fontStream,true);}finally{fontStream.close();}
-            float total=0;for(int c=0;c<columns.length();c++)total+=columns.getJSONObject(c).optInt("width",100);float[] widths=new float[columns.length()];for(int c=0;c<widths.length;c++)widths[c]=778f*columns.getJSONObject(c).optInt("width",100)/total;
-            int row=0,lineOffset=0,pageNumber=0;List<List<String>> cells=null;boolean first=true;
-            while(first||row<rows.length()){
-                first=false;pageNumber++;PDPage page=new PDPage(new PDRectangle(842,595));document.addPage(page);
-                try(PDPageContentStream content=new PDPageContentStream(document,page)){
-                    content.setNonStrokingColor(21,59,54);text(content,font,16,32,558,supported(font,spec.getString("title")));
-                    String subtitle=spec.optString("subtitle","");List<String> notes=wrap(font,supported(font,subtitle),778,9);float y=538;
-                    for(String note:notes){text(content,font,9,32,y,note);y-=12;}y-=6;
-                    float headerHeight=36;content.setNonStrokingColor(18,104,88);content.addRect(32,y-headerHeight,778,headerHeight);content.fill();content.setNonStrokingColor(255,255,255);float x=32;
-                    for(int c=0;c<columns.length();c++){List<String> labels=wrap(font,supported(font,columns.getJSONObject(c).getString("label")),widths[c]-12,9);for(int l=0;l<labels.size();l++)text(content,font,9,x+6,y-13-l*11,labels.get(l));x+=widths[c];}y-=headerHeight;
-                    while(row<rows.length()&&y>65){
-                        if(cells==null){cells=new ArrayList<List<String>>();for(int c=0;c<columns.length();c++)cells.add(wrap(font,supported(font,display(rows.getJSONArray(row).get(c),columns.getJSONObject(c).optString("type","text"))),widths[c]-12,9));}
-                        int lines=0;for(List<String> cell:cells)lines=Math.max(lines,cell.size());int available=(int)((y-48-12)/12),shown=Math.min(lines-lineOffset,available);if(shown<1)break;float height=shown*12+12;
-                        if(row%2==0){content.setNonStrokingColor(239,247,243);content.addRect(32,y-height,778,height);content.fill();}content.setNonStrokingColor(21,59,54);x=32;
-                        for(int c=0;c<columns.length();c++){List<String> cell=cells.get(c);for(int l=0;l<shown;l++){int at=lineOffset+l;if(at>=cell.size())continue;String value=cell.get(at);boolean number=columns.getJSONObject(c).optString("type").matches("money|integer");float left=number?x+widths[c]-6-font.getStringWidth(value)/1000*9:x+6;text(content,font,9,left,y-14-l*12,value);}x+=widths[c];}
-                        y-=height;lineOffset+=shown;if(lineOffset>=lines){row++;lineOffset=0;cells=null;}
+            PDType0Font font;try{font=PDType0Font.load(document,fontStream,true);}finally{fontStream.close();}int pageNumber=0;
+            for(int tableIndex=0;tableIndex<tables.length();tableIndex++){
+                JSONObject table=tables.getJSONObject(tableIndex);JSONArray columns=table.getJSONArray("columns"),rows=table.getJSONArray("rows");
+                float total=0;for(int c=0;c<columns.length();c++)total+=columns.getJSONObject(c).optInt("width",100);if(total<=0)throw new IOException("Invalid PDF columns");float[] widths=new float[columns.length()];for(int c=0;c<widths.length;c++)widths[c]=778f*columns.getJSONObject(c).optInt("width",100)/total;
+                int row=0,lineOffset=0;List<List<String>> cells=null;boolean first=true;
+                while(first||row<rows.length()){
+                    if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("PDF cancelled");first=false;pageNumber++;if(pageNumber>1000)throw new IOException("Διάλεξε μικρότερο διάστημα PDF.");
+                    PDPage page=new PDPage(PDRectangle.A4.getWidth()>PDRectangle.A4.getHeight()?PDRectangle.A4:new PDRectangle(PDRectangle.A4.getHeight(),PDRectangle.A4.getWidth()));document.addPage(page);
+                    try(PDPageContentStream content=new PDPageContentStream(document,page)){
+                        float y=558;content.setNonStrokingColor(23,39,65);
+                        for(String title:wrap(font,supported(font,spec.getString("title")),778,12)){text(content,font,12,32,y,title);y-=16;}
+                        for(String note:wrap(font,supported(font,spec.optString("subtitle","")),778,9)){text(content,font,9,32,y,note);y-=12;}y-=8;
+                        JSONArray metrics=spec.optJSONArray("metrics");if(pageNumber==1&&metrics!=null&&metrics.length()>0){
+                            if(metrics.length()>6)throw new IOException("Invalid report metrics");float width=(778f-12*(metrics.length()-1))/metrics.length();
+                            for(int m=0;m<metrics.length();m++){JSONObject metric=metrics.getJSONObject(m);float x=32+m*(width+12);content.setNonStrokingColor(243,245,248);content.addRect(x,y-47,width,47);content.fill();content.setNonStrokingColor(75,85,99);text(content,font,8,x+9,y-13,supported(font,metric.getString("label")));content.setNonStrokingColor(23,39,65);text(content,font,15,x+9,y-35,supported(font,display(metric.opt("value"),metric.optString("type","text"))));}y-=59;
+                        }
+                        content.setNonStrokingColor(23,39,65);for(String section:wrap(font,supported(font,table.getString("name")),778,10)){text(content,font,10,32,y,section);y-=13;}y-=5;
+                        List<List<String>> labels=new ArrayList<List<String>>();int labelLines=1;for(int c=0;c<columns.length();c++){List<String> lines=wrap(font,supported(font,columns.getJSONObject(c).getString("label")),widths[c]-12,9);labels.add(lines);labelLines=Math.max(labelLines,lines.size());}
+                        float headerHeight=labelLines*11+14;content.setNonStrokingColor(23,39,65);content.addRect(32,y-headerHeight,778,headerHeight);content.fill();content.setNonStrokingColor(255,255,255);float x=32;
+                        for(int c=0;c<columns.length();c++){for(int l=0;l<labels.get(c).size();l++)text(content,font,9,x+6,y-13-l*11,labels.get(c).get(l));x+=widths[c];}y-=headerHeight;
+                        while(row<rows.length()&&y>65){
+                            if(cells==null){cells=new ArrayList<List<String>>();for(int c=0;c<columns.length();c++)cells.add(wrap(font,supported(font,display(rows.getJSONArray(row).get(c),columns.getJSONObject(c).optString("type","text"))),widths[c]-12,9));}
+                            int lines=0;for(List<String> cell:cells)lines=Math.max(lines,cell.size());int available=(int)((y-65-8)/10),shown=Math.min(lines-lineOffset,available);if(shown<1)break;float height=shown*10+8;
+                            boolean totals=rows.getJSONArray(row).optString(0).equals("ΣΥΝΟΛΟ");if(totals||row%2==0){content.setNonStrokingColor(totals?226:246,totals?233:247,totals?242:249);content.addRect(32,y-height,778,height);content.fill();}content.setNonStrokingColor(27,38,51);x=32;
+                            for(int c=0;c<columns.length();c++){List<String> cell=cells.get(c);for(int l=0;l<shown;l++){int at=lineOffset+l;if(at>=cell.size())continue;String value=cell.get(at);boolean number=columns.getJSONObject(c).optString("type").matches("money|integer");float left=number?x+widths[c]-6-font.getStringWidth(value)/1000*9:x+6;text(content,font,9,left,y-12-l*10,value);}x+=widths[c];}
+                            y-=height;lineOffset+=shown;if(lineOffset>=lines){row++;lineOffset=0;cells=null;}
+                        }
+                        content.setNonStrokingColor(90,100,115);float footerY=46;for(String note:wrap(font,supported(font,spec.optString("footnote","")),778,7)){if(footerY<31)break;text(content,font,7,32,footerY,note);footerY-=9;}
+                        text(content,font,8,32,23,"Fleet Control - "+supported(font,table.getString("name")));text(content,font,8,727,23,supported(font,"Σελίδα ")+pageNumber);
                     }
-                    content.setNonStrokingColor(90,110,103);text(content,font,8,32,25,"Fleet Control - "+supported(font,table.getString("name")));text(content,font,8,733,25,"Page "+pageNumber);
                 }
-                if(pageNumber>1000)throw new IOException("Διάλεξε μικρότερο διάστημα PDF.");
             }
             document.save(target);
         }
