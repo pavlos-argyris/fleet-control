@@ -1,0 +1,35 @@
+# Issue #107 — έλεγχος βάσης και πύλες υλοποίησης
+
+16/11/2026. Βάση `bad379bb153ce0ba547d083b79d6055370e32bed` (Fleet 5.66.1 / Server 2.15.1). Νεότερη εντολή ιδιοκτήτη: έναρξη υλοποίησης και αυτόματη δημοσίευση μετά την ολοκλήρωση/επιτυχία των ελέγχων. Δεν χρειάζεται δεύτερη έγκριση για source upload/merge/publish.
+
+| Πεδίο | Υπάρχει | Πραγματικό κενό / επόμενη απόδειξη |
+|---|---|---|
+| A — Direct authority | SQLite, single writer, operation receipts, auth/roles/revocation, TLS, WAL, backup restore tests | Φυσικό Note 10+, απώλεια δικτύου/επανεκκίνηση και απομονωμένο restore δεν αποδεικνύονται από CI |
+| B — Εισαγωγή καταστημάτων | StoreBillingSync, δύο συγκρινόμενες αναγνώσεις, ακυρώσεις μόνο μετά πλήρη κάλυψη, persistent requests | Profiling πραγματικής εισαγωγής και ασφαλής επαναχρησιμοποίηση επικαλυπτόμενων ημερών· όχι αντικατάσταση του υπάρχοντος reader |
+| C — Direct διάγνωση | DeviceHealth, native health, readiness, pinned HTTPS, Direct-only default | Το παλιό δημόσιο Worker εξακολουθεί να εξυπηρετεί HTML 200 αντί redirect. Χρειάζεται ξεχωριστός ασφαλής redirect και συμβατή διανομή OTA assets |
+| D — Καταστήματα | Τοπικές ημερήσιες προβολές, coverage, ιστορικά, κοινή πηγή Excel/PDF | Partial patches χωρίς αρχικούς πλήρεις όρους απορρίπτονται. IndependentRuntime δεν αρχικοποιεί PDFBox. FinancialExport PDF διαβάζει μόνο tables[0], άρα αποκρύπτει επόμενους πίνακες |
+| E — Μισθοδοσία | Pure Java engine, immutable paid rows, source fingerprints, manual decisions, operating cutoff 02:00 | Draft schedules γίνονται υποψήφιο πρόγραμμα. Χωρίς πρόγραμμα special() επιστρέφει false: νύχτα χρεώνεται 6€ αντί 10€/15€. Λείπει αυτόματη επίλυση σαφών capacity cutoffs |
+| F — Τιμολόγια | LocalWorkQueue persistence, single-flight OCR, local PDF reader, bulk retry, confirmations | IndependentInvoices έχει ready[0], window=1, retry +60s χωρίς max. Μετρητής QR και followup documents χρησιμοποιούν διαφορετική ταξινόμηση. Χρειάζεται κοινή ταυτότητα και bounded retry |
+| G — Ταμείο | CashSync ανά60s, backfill, post05 verification, scoped IDs, pinned historical rates, immutable ledger | Read-only καθημερινό UI και ασφαλές diagnostics συμπεριλαμβανομένων/excluded orders. Η πραγματική υποεκτίμηση χρειάζεται επαληθευμένο ιδιωτικό παράδειγμα· δεν δηλώνεται συνθετικό test ως παραγωγικό root cause |
+| H — Απόδοση | gzip/static cache, πλήρεις canonical Fleet σελίδες, auth-scoped transfers, live revisions, WAL/busy timeout | Serialized runtime και Connection:close. Χρειάζονται μετρήσεις, συνεκτικά server read models, post-commit invalidation και ασφαλές keep-alive |
+
+## Overlap και όρια αλλαγών
+
+Ελέγχθηκαν τα ανοιχτά PR #54, #66–#72, #88, #89. Τα #67/#69/#70/#71 είναι παλαιοί ανεξάρτητοι draft cores, δεν αποτελούν ενσωματωμένη ολοκλήρωση. Δεν συγχωνεύονται τυφλά: η πραγματική πηγή έχει εξελιχθεί. Το #89 αφορά παλιό cloud budget, όχι την παρούσα Direct-only αρχιτεκτονική. Τα #8/#61 παραμένουν ανεξάρτητα. Καμία αλλαγή σε ξένο branch.
+
+Θεματική σειρά PR: audit → ταμείο/διαγνωστικά → τιμολόγια → μισθοδοσία → Direct read/δίκτυο → καταστήματα/PDF/UI → τελική ενοποίηση και release. Κάθε PR διατηρεί το #107 ανοικτό.
+
+## Baseline και οικονομική ακεραιότητα
+
+Τα `test-cash-auto-sqlite.mjs` και `test-ordexa-pay.mjs` πέρασαν στο αρχικό source. Το πρώτο ελέγχει 0/1/50/51/1055 παραγγελίες, διατήρηση κατά partial fetch, cancellations, αλλαγές rider/store/day, pinned rates και rollback. Το δεύτερο ελέγχει την παλιά JS διαδρομή: δεν αποδεικνύει τους ελλείποντες κανόνες της πραγματικής Java Direct μισθοδοσίας.
+
+Δεν λήφθηκαν παραγωγικά οικονομικά δεδομένα, source orders, πρόσφατο φυσικό backup, signing private keys ή διαπιστευτήρια Ordexa. Δημόσιος Direct έλεγχος `/api/status` από το περιβάλλον ανάπτυξης απέτυχε με upstream timeout· δεν αποδεικνύει ότι η υπηρεσία είναι εκτός λειτουργίας σε άλλα δίκτυα. Το cloud URL επέστρεψε HTTP200 HTML. Κανένας επαληθευμένος production benchmark δεν είναι διαθέσιμος. Συνθετικές μετρήσεις θα δηλώνονται χωριστά με ακριβές dataset/περιβάλλον.
+
+## Μη παρακάμψιμες πύλες
+
+- Ordexa μόνο allowlisted authentication/read operations. Καμία εγγραφή επιχειρησιακών στοιχείων στον πάροχο.
+- Η εισαγόμενη SQLite παραμένει μοναδική business authority. Δεν διαγράφονται cloud δεδομένα, αρχικά αρχεία, ιστορικά/manual/locked ποσά ή confirmations.
+- Δεν γίνεται σιωπηλή μαζική επανατιμολόγηση παλιών πληρωμών. Οι αλλαγές κανόνων απαιτούν σαφή ισχύ, revision/CAS/audit.
+- Κάθε financial mutation παραμένει atomic μαζί με audit/receipt. Auth επανελέγχεται σε κάθε request, ακόμη και σε cached projection.
+- Full exact-source PR/main CI, πραγματικές browser/native δοκιμές και αρχική υπογραφή πριν δημοσίευση. Καμία δήλωση φυσικής εγκατάστασης/backup/restore/αποκατάστασης υποεκτίμησης χωρίς απόδειξη.
+- Η ολοκλήρωση και δημοσίευση του συνολικού #107 απαιτεί και τις ελλείπουσες φυσικές/ιδιωτικές αποδείξεις του issue. Δεν δημοσιεύεται ημιτελές συνολικό update ως ολοκλήρωση.
