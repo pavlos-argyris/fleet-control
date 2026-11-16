@@ -49,6 +49,22 @@ export async function cashAutomaticPreview(env,date){
   const source=requireSource(env);return publicPlan(await plan(env,source,day(date)));
 }
 function publicPlan(p){return{day:p.day,scope:p.scope,state:p.state,proof:p.proof||null,issues:p.issues,manualEvents:p.manual||[],forecast:p.forecast||[],sourceCompleteAt:p.coverage?.lastCompleteAt||null};}
+/** Management-only explanation of retained source orders. Never recomputes or mutates money. */
+export async function cashOrderAudit(env,date,{after='',revision=''}={}){
+  const source=requireSource(env),p=await plan(env,source,day(date)),cfg=p.cfg||await configuration(env,source.scope,date);
+  const financialRows=list(await env.DB.prepare('SELECT order_id,revision,financial_fingerprint,event_id,business_day FROM native_cash_auto_orders WHERE scope=? AND business_day=? ORDER BY order_id').bind(source.scope,date).all());
+  const currentRevision=await hash({scope:source.scope,day:date,source:p.coverage||null,proof:p.proof||null,rules:cfg.rules,links:cfg.links,exclusions:cfg.exclusions,financialRows});
+  if(revision&&revision!==currentRevision)throw new NativeError(409,'Η πηγή ή οι κανόνες άλλαξαν. Άνοιξε τον έλεγχο από την αρχή.','cash_audit_revision');
+  const ids=list(await env.DB.prepare("SELECT order_id FROM (SELECT json_extract(data,'$.sourceOrderId') order_id FROM store_billing_local WHERE scope=? AND kind='cash_snapshot_order' AND day=? AND json_extract(data,'$.runId')=? UNION SELECT order_id FROM native_cash_auto_orders WHERE scope=? AND business_day=?) WHERE order_id>? ORDER BY order_id LIMIT 201").bind(source.scope,date,p.coverage?.runId||'',source.scope,date,after).all()).map(r=>r.order_id),page=ids.slice(0,200);
+  const rows=list(await env.DB.prepare("SELECT json_extract(data,'$.sourceOrderId') order_id,store_id,data FROM store_billing_local WHERE scope=? AND kind='cash_snapshot_order' AND day=? AND json_extract(data,'$.runId')=? AND json_extract(data,'$.sourceOrderId') IN(SELECT value FROM json_each(?))").bind(source.scope,date,p.coverage?.runId||'',JSON.stringify(page)).all()),bySource=new Map(rows.map(r=>[r.order_id,r]));
+  const states=list(await env.DB.prepare('SELECT s.*,e.amount_cents,EXISTS(SELECT 1 FROM native_cash_events r WHERE r.reverses_id=e.id) reversed FROM native_cash_auto_orders s LEFT JOIN native_cash_events e ON e.id=s.event_id WHERE s.scope=? AND s.order_id IN(SELECT value FROM json_each(?))').bind(source.scope,JSON.stringify(page)).all()),byState=new Map(states.map(r=>[r.order_id,r]));
+  const orders=page.map(id=>{
+    const raw=bySource.get(id),value=raw?decode(raw.data):null,state=byState.get(id),saved=state?decode(state.data):{},store=raw?.store_id||state?.store_id||'',pin=saved.pinnedDay===date&&saved.pinnedRule?.store_id===store&&(saved.pinFinal===true||saved.pinProof===p.inputProof)?saved.pinnedRule:null,rule=selectRule(cfg,store,pin),link=value?cfg.byRider.get(value.sourceRiderId):null;
+    const reason=!complete(p.coverage)?'source-incomplete':!value?'absent-after-complete-read':cfg.excluded.has(id)?'manual-exclusion':!cfg.byStore.has(store)&&!pin?'store-not-selected':!rule?'ambiguous-category':!link?.employee_id||!link.current_name?'unmapped-rider':!state?.event_id||state.reversed||state.business_day!==date?'awaiting-financial-apply':'included';
+    return{sourceOrderId:id,sourceRiderId:value?.sourceRiderId||null,nickname:value?.nickname||null,at:value?.at||null,businessDay:date,storeId:store,courierId:link?.employee_id||state?.employee_id||null,ruleId:rule?.id||null,effectiveDay:rule?.effective_day||null,rateCents:Number.isSafeInteger(rule?.rate_cents)?rule.rate_cents:null,appliedCents:state?.event_id&&!state.reversed&&state.business_day===date?state.amount_cents:0,reason,included:reason==='included'};
+  });
+  return{day:date,scope:source.scope,revision:currentRevision,state:p.state,coverageVerified:complete(p.coverage),sourceSyncedAt:p.coverage?.lastCompleteAt||null,orders,hasMore:ids.length>200,nextAfter:ids.length>200?page[page.length-1]:null,issues:p.issues,forecast:p.forecast||[],observedAt:stamp()};
+}
 async function plan(env,source,date){
   const coverage=await sourceCoverage(env,source.scope,date),base={scope:source.scope,day:date,coverage,state:'partial',issues:[]};
   if(!complete(coverage))return{...base,issues:[{code:'source-incomplete',message:'Χρειάζεται νέα πλήρης συνεπής λήψη παραγγελιών.'}]};
