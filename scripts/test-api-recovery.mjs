@@ -7,7 +7,7 @@ const api=source.slice(source.indexOf('  async function api('),source.indexOf(' 
 const state={token:'fixture-token',invoiceDocuments:[{id:'already-loaded'}]};
 let replies=[],calls=0,cleared=0;
 const context={state,window:{},navigator:{onLine:true},apiBase:'https://fixture.invalid',Headers,performance,
-  recordApiTiming(){},clearSession(){cleared++;},showAuth(){},setTimeout(fn){fn();},
+  renderCacheStatus(){},recordApiTiming(){},clearSession(){cleared++;},showAuth(){},setTimeout(fn){fn();},
   async fetch(url,options){calls++;const next=replies.shift();if(next instanceof Error)throw next;return next;}};
 vm.createContext(context);vm.runInContext(api+'\nglobalThis.invoke=api;',context);
 const response=(status,data)=>new Response(typeof data==='string'?data:JSON.stringify(data),{status,headers:{'CF-Ray':'fixture-ATH'}});
