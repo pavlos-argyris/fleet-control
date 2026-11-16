@@ -196,8 +196,7 @@ for name,p in sources.items():
             if(path.equals("/api/independent/activate"))return IndependentHttps.error(403,"Ολοκλήρωσε τον εξωτερικό έλεγχο HTTPS για την προεπιλεγμένη σύνδεση μέσω Server.");
             result=engine.request(request,internal,30000);
         }''')
-        value=change(value,'JSONObject external(final JSONObject request)throws Exception{return serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}});}', '''JSONObject external(final JSONObject request)throws Exception{
-        JSONObject response=serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}});
+        value=change(value,'private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{return response;}', '''private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{
         // The writer and read fence have returned before acquiring the mode
         // write lock. A public owner probe never upgrades a held read lock.
         if(gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY&&response.optInt("status")==200&&new URI(request.getString("url")).getPath().equals("/api/independent/probe")){

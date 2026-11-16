@@ -64,7 +64,8 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
         JSONArray pending=engine.pendingSignals();if(pending.length()>0){for(int i=0;i<pending.length();i++)engine.acknowledgeSignal(pending.getJSONObject(i).getString("id"));synchronized(changes){revision++;changes.notifyAll();}}
         return result;
     }
-    JSONObject external(final JSONObject request)throws Exception{return serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}},request.optString("method").equals("GET")?1:0);}
+    JSONObject external(final JSONObject request)throws Exception{JSONObject response=serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}},request.optString("method").equals("GET")?1:0);return afterExternal(request,response);}
+    private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{return response;}
     JSONObject localLogin(String username,String password)throws Exception{return external(new JSONObject().put("url",IndependentConfig.realm(config)+"/api/auth/user-login").put("method","POST").put("headers",new JSONObject().put("Content-Type","application/json")).put("body",new JSONObject().put("username",username).put("password",password).put("deviceName","Independent owner console").toString()));}
     JSONObject localProbe(String token)throws Exception{return external(new JSONObject().put("url",IndependentConfig.realm(config)+"/api/independent/probe").put("method","POST").put("headers",new JSONObject().put("Authorization","Bearer "+token).put("X-Fleet-Operation",UUID.randomUUID().toString())).put("body","{}"));}
     private JSONObject materialize(JSONObject request,JSONObject response)throws Exception{
