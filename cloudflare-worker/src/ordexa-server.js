@@ -3,7 +3,7 @@ import {addCalendarDays,localDate,zonedLocalToUtc} from './workforce-core.js';
 import {editContextCte,editSourceGuard,editContextArgs} from './ordexa-edit-guard.js';
 import {captureShift,directContextCte,directSourceGuard,directContextArgs} from './ordexa-shift-editor.js';
 
-export const ORDEXA_SERVER_VERSION=3;
+export const ORDEXA_SERVER_VERSION=4;
 // Two normal five-minute cycles plus one minute of transport/scheduler margin.
 export const ORDEXA_FRESH_MS=660000;
 export const ORDEXA_SERVER_SCHEMA=`

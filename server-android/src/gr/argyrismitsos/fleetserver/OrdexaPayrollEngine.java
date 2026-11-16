@@ -8,7 +8,7 @@ import java.util.*;
 
 /** Pure, deterministic payroll computation. No network, database or provider writes. */
 public final class OrdexaPayrollEngine {
-    public static final int VERSION=3;
+    public static final int VERSION=4;
     private static final long MINUTE=60000L, HALF=30*MINUTE, DAY=24*60*MINUTE;
     private static final Map<String,Long> TIMES=new LinkedHashMap<String,Long>(256,0.75f,true){protected boolean removeEldestEntry(Map.Entry<String,Long> entry){return size()>8192;}};
     private final SimpleDateFormat dayFormat=new SimpleDateFormat("yyyy-MM-dd",Locale.US);
@@ -23,15 +23,16 @@ public final class OrdexaPayrollEngine {
     private final Map<String,JSONObject> edits=new HashMap<String,JSONObject>();
     private final Map<String,List<JSONObject>> plans=new HashMap<String,List<JSONObject>>();
     private final List<Group> groups=new ArrayList<Group>();
+    private final Set<String> publishedDays=new HashSet<String>();
     private final JSONObject settings=new JSONObject();
-    private int gap=0,startCutoff=15,endMiddle=21,endNext=47,lateMinutes=20,earlyMinutes=15,endDeviation=30;
+    private int gap=0,startCutoff=15,endMiddle=21,endNext=46,lateMinutes=20,earlyMinutes=15,endDeviation=30;
     private String lateMode="up";
     private boolean gapConfigured=false;
 
     private static final class Group {
         String id,employeeId,name,workDate,fingerprint,startFingerprint,endFingerprint;
         long start,end,paidStart,paidEnd,operatingStart,operatingEnd,normalMinutes,specialMinutes,baseCents,specialCents;
-        boolean open,active,sourcePending,midnightCap,oneAmCap,twoAmCap,locked,skip,excluded,adjusted,accepted,startApproved,endApproved;
+        boolean publishedDay,autoNight0,autoNight1,automaticNightCutoff,open,active,sourcePending,midnightCap,oneAmCap,twoAmCap,locked,skip,excluded,adjusted,accepted,startApproved,endApproved;
         JSONObject plan,edit,publicRow,frozenSource;
         int editRevision;
         final JSONArray legacy=new JSONArray();
@@ -45,10 +46,10 @@ public final class OrdexaPayrollEngine {
         zone=TimeZone.getTimeZone(input.optString("timeZone","Europe/Athens"));dayFormat.setTimeZone(zone);dayFormat.setLenient(false);endDate=addDays(week,6);
         JSONArray values=array("settings");for(int i=0;i<values.length();i++){JSONObject r=values.getJSONObject(i);settings.put(r.getString("key"),r.optString("value"));}
         try{JSONObject p=new JSONObject(settings.optString("ordexa_policy","{}"));if(p.has("gapMinutes")){gap=Math.max(0,Math.min(240,p.getInt("gapMinutes")));gapConfigured=true;}}catch(Exception ignored){}
-        try{JSONObject p=new JSONObject(settings.optString("ordexa_pay_policy","{}"));startCutoff=bounded(p.optInt("startCutoff",15),1,29);endMiddle=bounded(p.optInt("endMiddleFrom",21),1,29);endNext=bounded(p.optInt("endNextFrom",47),31,59);lateMinutes=bounded(p.optInt("lateStartMinutes",20),1,120);earlyMinutes=bounded(p.optInt("earlyStartMinutes",15),1,120);endDeviation=bounded(p.optInt("endDeviationMinutes",30),1,240);lateMode=p.optString("lateStartMode","up");}catch(Exception ignored){}
+        try{JSONObject p=new JSONObject(settings.optString("ordexa_pay_policy","{}"));startCutoff=bounded(p.optInt("startCutoff",15),1,29);endMiddle=bounded(p.optInt("endMiddleFrom",21),1,29);endNext=bounded(p.optInt("endNextFrom",46),31,59);lateMinutes=bounded(p.optInt("lateStartMinutes",20),1,120);earlyMinutes=bounded(p.optInt("earlyStartMinutes",15),1,120);endDeviation=bounded(p.optInt("endDeviationMinutes",30),1,240);lateMode=p.optString("lateStartMode","up");}catch(Exception ignored){}
         index(array("employees"),people,"id");index(array("vehicles"),vehicles,"bike_id");index(array("adjustments"),edits,"id");index(array("legacyDecisions"),legacyDecisions,"id");
         JSONArray links=array("riders");for(int i=0;i<links.length();i++){JSONObject r=links.getJSONObject(i);riders.put(r.optString("city_id")+"\n"+r.optString("rider_id"),r);}
-        JSONArray schedule=array("schedules");for(int i=0;i<schedule.length();i++){JSONObject p=schedule.getJSONObject(i);if("cancelled".equals(p.optString("status")))continue;String id=p.optString("employee_id");if(!plans.containsKey(id))plans.put(id,new ArrayList<JSONObject>());plans.get(id).add(p);}
+        JSONArray schedule=array("schedules");for(int i=0;i<schedule.length();i++){JSONObject p=schedule.getJSONObject(i);if(!Arrays.asList("planned","published").contains(p.optString("status")))continue;publishedDays.add(operatingDate(time(p.optString("start_at"))));String id=p.optString("employee_id");if(!plans.containsKey(id))plans.put(id,new ArrayList<JSONObject>());plans.get(id).add(p);}
     }
     private static int bounded(int value,int min,int max){return Math.max(min,Math.min(max,value));}
     private JSONArray array(String key){JSONArray a=input.optJSONArray(key);return a==null?new JSONArray():a;}
@@ -105,7 +106,7 @@ public final class OrdexaPayrollEngine {
         return "direct-v1:"+hash(value.append('\n').append(zone.getID()).toString());
     }
     private void resolve(Group g)throws Exception{
-        selectPlan(g);g.workDate=day(g.start);g.fingerprint=fingerprint(g);g.startFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.start+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("start_at"))+"|"+startCutoff+"|"+zone.getID());g.endFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.end+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("end_at"))+"|"+endMiddle+"|"+endNext+"|"+zone.getID());g.edit=edits.get(g.id);g.editRevision=g.edit==null?0:g.edit.optInt("revision",0);if(g.edit!=null&&!g.employeeId.equals(g.edit.optString("employee_id"))){g.reason("Άλλαξε η αντιστοίχιση εργαζομένου · η προηγούμενη διόρθωση δεν μεταφέρεται");g.edit=null;}g.paidStart=round(g.start,true);
+        selectPlan(g);g.publishedDay=publishedDays.contains(operatingDate(g.start));g.workDate=day(g.start);g.fingerprint=fingerprint(g);g.startFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.start+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("start_at"))+"|"+startCutoff+"|"+zone.getID());g.endFingerprint=hash(g.id+"|"+g.employeeId+"|"+g.end+"|"+(g.plan==null?"":g.plan.optString("id")+g.plan.optString("end_at"))+"|"+endMiddle+"|"+endNext+"|"+zone.getID());g.edit=edits.get(g.id);g.editRevision=g.edit==null?0:g.edit.optInt("revision",0);if(g.edit!=null&&!g.employeeId.equals(g.edit.optString("employee_id"))){g.reason("Άλλαξε η αντιστοίχιση εργαζομένου · η προηγούμενη διόρθωση δεν μεταφέρεται");g.edit=null;}g.paidStart=round(g.start,true);
         // A working day is open 08:00 through 02:00 the following morning.
         // A source beginning before 02:00 belongs to the preceding open window.
         String operatingDate=operatingDate(g.start);Calendar opening=calendar(localMidnight(operatingDate));opening.set(Calendar.HOUR_OF_DAY,8);g.operatingStart=opening.getTimeInMillis();Calendar closing=calendar(localMidnight(addDays(operatingDate,1)));closing.set(Calendar.HOUR_OF_DAY,2);g.operatingEnd=closing.getTimeInMillis();
@@ -155,7 +156,36 @@ public final class OrdexaPayrollEngine {
     private boolean special(Group g,int h,long instant)throws Exception{
         String choice=h==0?g.night0:g.night1;if("normal".equals(choice))return false;if("special".equals(choice))return true;
         if(g.accepted&&g.edit!=null&&!g.edit.isNull("paid_end")&&(g.plan==null||g.paidEnd>time(g.plan.optString("end_at"))))return true;
-        if(g.plan==null)return false;long end=time(g.plan.optString("end_at"));int e=hour(end);return minute(end)==0&&(e==1||e==2)&&day(instant).equals(day(end));
+        if(g.plan==null)return !g.publishedDay&&(h==0?g.autoNight0:g.autoNight1);long end=time(g.plan.optString("end_at"));int e=hour(end);return minute(end)==0&&(e==1||e==2)&&day(instant).equals(day(end));
+    }
+    /** Only a complete competing slot can automatically resolve a shorter tail.
+     * Equally complete work remains visible and blocked for a human decision. */
+    private void automaticNights()throws Exception{
+        Map<Long,List<Group>> days=new LinkedHashMap<Long,List<Group>>();
+        for(Group g:groups)if(!g.publishedDay&&!g.skip&&!g.excluded&&!g.employeeId.isEmpty()){
+            Calendar c=calendar(g.operatingEnd);c.set(Calendar.HOUR_OF_DAY,0);long midnight=c.getTimeInMillis();
+            if(!days.containsKey(midnight))days.put(midnight,new ArrayList<Group>());days.get(midnight).add(g);
+        }
+        for(Map.Entry<Long,List<Group>> entry:days.entrySet()){
+            long midnight=entry.getKey();automaticSlot(entry.getValue(),midnight,midnight+60*MINUTE,3,0);
+            automaticSlot(entry.getValue(),midnight+60*MINUTE,midnight+120*MINUTE,2,1);
+        }
+    }
+    private void automaticSlot(List<Group> rows,long start,long end,int limit,int band){
+        Map<String,List<Group>> candidates=new LinkedHashMap<String,List<Group>>();Set<String> full=new HashSet<String>();
+        for(Group g:rows){
+            if(g.paidStart>=end||g.paidEnd<=start||"normal".equals(band==0?g.night0:g.night1))continue;
+            if(band==1&&(!g.autoNight0||g.paidStart>=start))continue;
+            if(!candidates.containsKey(g.employeeId))candidates.put(g.employeeId,new ArrayList<Group>());candidates.get(g.employeeId).add(g);
+            if(g.paidEnd>=end)full.add(g.employeeId);
+            if(band==0)g.autoNight0=true;else g.autoNight1=true;
+        }
+        if(full.size()==limit)for(Map.Entry<String,List<Group>> candidate:candidates.entrySet())if(!full.contains(candidate.getKey()))for(Group g:candidate.getValue()){
+            // Explicit/manual intervals are preserved even when capacity needs review.
+            if(g.edit!=null||"special".equals(band==0?g.night0:g.night1))continue;
+            g.paidEnd=Math.max(g.paidStart,start);g.automaticNightCutoff=true;
+            if(band==0){g.autoNight0=false;g.autoNight1=false;}else g.autoNight1=false;
+        }
     }
     private void price()throws Exception{
         Map<Long,List<Group>> nightSlots=new HashMap<Long,List<Group>>();
@@ -171,9 +201,9 @@ public final class OrdexaPayrollEngine {
     private JSONObject row(Group g)throws Exception{
         JSONArray ids=new JSONArray(),reasons=new JSONArray();for(JSONObject e:g.events)ids.put(e.getString("id"));for(String r:g.reasons)reasons.put(r);
         String vehicleId=g.plan==null?"":g.plan.optString("vehicle_id","");if("null".equals(vehicleId))vehicleId="";JSONObject vehicle=vehicles.get(vehicleId);
-        JSONObject r=new JSONObject().put("id",g.id).put("source","ordexa").put("employeeId",g.employeeId).put("employeeName",g.name).put("workDate",g.workDate).put("actualClockIn",iso(g.start)).put("actualClockOut",g.open?JSONObject.NULL:iso(g.end)).put("payableClockIn",iso(g.paidStart)).put("payableClockOut",iso(g.paidEnd)).put("payableHours",(g.normalMinutes+g.specialMinutes)/60.0).put("payableMinutes",g.normalMinutes+g.specialMinutes).put("normalMinutes",g.normalMinutes).put("specialMinutes",g.specialMinutes).put("basePayCents",g.baseCents).put("specialPayCents",g.specialCents).put("totalPayCents",g.baseCents+g.specialCents).put("sourceSessionIds",ids).put("fingerprint",g.fingerprint).put("startFingerprint",g.startFingerprint).put("endFingerprint",g.endFingerprint).put("adjustmentRevision",g.editRevision).put("adjusted",g.adjusted).put("adjustedBy",g.edit==null?"":g.edit.optString("updated_by_name")).put("adjustedAt",g.edit==null?JSONObject.NULL:g.edit.optString("updated_at")).put("night00Mode",g.night0).put("night01Mode",g.night1).put("reasons",reasons).put("sourcePending",g.sourcePending).put("midnightCap",g.midnightCap).put("oneAmCap",g.oneAmCap).put("excluded",g.excluded).put("missingClockOut",g.open).put("active",g.active).put("payrollLocked",g.locked).put("status",g.active?"active":"completed").put("vehicleId",vehicleId).put("vehicleName",vehicle==null?vehicleId:vehicle.optString("name")).put("schedule",g.plan==null?JSONObject.NULL:g.plan);
+        JSONObject r=new JSONObject().put("id",g.id).put("source","ordexa").put("employeeId",g.employeeId).put("employeeName",g.name).put("workDate",g.workDate).put("actualClockIn",iso(g.start)).put("actualClockOut",g.open?JSONObject.NULL:iso(g.end)).put("payableClockIn",iso(g.paidStart)).put("payableClockOut",iso(g.paidEnd)).put("payableHours",(g.normalMinutes+g.specialMinutes)/60.0).put("payableMinutes",g.normalMinutes+g.specialMinutes).put("normalMinutes",g.normalMinutes).put("specialMinutes",g.specialMinutes).put("basePayCents",g.baseCents).put("specialPayCents",g.specialCents).put("totalPayCents",g.baseCents+g.specialCents).put("sourceSessionIds",ids).put("fingerprint",g.fingerprint).put("startFingerprint",g.startFingerprint).put("endFingerprint",g.endFingerprint).put("adjustmentRevision",g.editRevision).put("adjusted",g.adjusted).put("adjustedBy",g.edit==null?"":g.edit.optString("updated_by_name")).put("adjustedAt",g.edit==null?JSONObject.NULL:g.edit.optString("updated_at")).put("night00Mode",g.night0).put("night01Mode",g.night1).put("reasons",reasons).put("sourcePending",g.sourcePending).put("midnightCap",g.midnightCap).put("oneAmCap",g.oneAmCap).put("publishedScheduleDay",g.publishedDay).put("automaticNightCutoff",g.automaticNightCutoff).put("excluded",g.excluded).put("missingClockOut",g.open).put("active",g.active).put("payrollLocked",g.locked).put("status",g.active?"active":"completed").put("vehicleId",vehicleId).put("vehicleName",vehicle==null?vehicleId:vehicle.optString("name")).put("schedule",g.plan==null?JSONObject.NULL:g.plan);
         if(g.events.size()>1){JSONArray sessions=new JSONArray();for(JSONObject event:g.events)sessions.put(new JSONObject().put("id",event.getString("id")).put("clockIn",event.opt("in_at")).put("clockOut",event.opt("out_at")));r.put("sourceSessions",sessions);}
-        r.put("outOfSchedule",g.plan==null).put("twoAmCap",g.twoAmCap).put("operatingStart",iso(g.operatingStart)).put("operatingEnd",iso(g.operatingEnd));if(g.plan==null)r.put("scheduleNotice","Εκτός προγράμματος · οι παρουσίες είναι πληρωτέες βάσει clock. Ειδικό νυχτερινό ωρομίσθιο με απόφαση στη βάρδια.");
+        r.put("outOfSchedule",g.publishedDay&&g.plan==null).put("twoAmCap",g.twoAmCap).put("operatingStart",iso(g.operatingStart)).put("operatingEnd",iso(g.operatingEnd));if(g.publishedDay&&g.plan==null)r.put("scheduleNotice","Εκτός προγράμματος (δημοσιευμένου) · η πραγματική παρουσία παραμένει πληρωτέα βάσει clock. Ειδικό νυχτερινό ωρομίσθιο με απόφαση στη βάρδια.").put("advisories",new JSONArray().put("outside-published-schedule"));
         if(g.legacy.length()>0)r.put("legacyDecisions",g.legacy);
         if(g.frozenSource!=null){r.put("payableHours",g.frozenSource.has("payableMinutes")?g.frozenSource.optDouble("payableMinutes",0)/60.0:JSONObject.NULL).put("payableMinutes",g.frozenSource.opt("payableMinutes")).put("payableClockIn",g.frozenSource.opt("payableStart")).put("payableClockOut",g.frozenSource.opt("payableEnd"));if(g.frozenSource.has("basePayCents")){r.put("basePayCents",g.frozenSource.optLong("basePayCents")).put("specialPayCents",g.frozenSource.optLong("specialPayCents")).put("totalPayCents",g.frozenSource.optLong("basePayCents")+g.frozenSource.optLong("specialPayCents"));}else{r.put("basePayCents",JSONObject.NULL).put("specialPayCents",JSONObject.NULL).put("totalPayCents",JSONObject.NULL);}}
         if(g.frozenSource!=null)r.put("normalMinutes",g.frozenSource.has("normalMinutes")?g.frozenSource.get("normalMinutes"):JSONObject.NULL).put("specialMinutes",g.frozenSource.has("specialMinutes")?g.frozenSource.get("specialMinutes"):JSONObject.NULL);
@@ -181,7 +211,7 @@ public final class OrdexaPayrollEngine {
     }
     private JSONObject employeeSummary(String id,String name)throws Exception{return new JSONObject().put("employeeId",id).put("employeeName",name).put("shifts",0).put("normalHours",0).put("specialHours",0).put("payableHours",0).put("kilometers",0).put("basePayCents",0).put("specialPayCents",0).put("bonusCents",0).put("deductionCents",0).put("advanceCents",0).put("finalCents",0).put("pendingOvertime",0).put("overtimeApprovals",new JSONArray()).put("sourceRows",new JSONArray()).put("hoursSource","ordexa");}
     private static void plus(JSONObject o,String key,long amount)throws Exception{o.put(key,o.optLong(key,0)+amount);}
-    private JSONObject liveRow(JSONObject r)throws Exception{JSONObject safe=new JSONObject();for(String k:new String[]{"id","employeeId","employeeName","workDate","actualClockIn","actualClockOut","active","sourcePending","midnightCap","missingClockOut","vehicleId","vehicleName","status"})safe.put(k,r.opt(k));safe.put("out_of_schedule",r.isNull("schedule"));return safe;}
+    private JSONObject liveRow(JSONObject r)throws Exception{JSONObject safe=new JSONObject();for(String k:new String[]{"id","employeeId","employeeName","workDate","actualClockIn","actualClockOut","active","sourcePending","midnightCap","missingClockOut","vehicleId","vehicleName","status"})safe.put(k,r.opt(k));safe.put("out_of_schedule",r.optBoolean("publishedScheduleDay")&&r.isNull("schedule"));return safe;}
     private JSONObject reviewRow(JSONObject r)throws Exception{JSONObject safe=new JSONObject();for(String k:new String[]{"id","employeeId","employeeName","workDate","actualClockIn","actualClockOut","payableClockIn","payableClockOut","reasons"})safe.put(k,r.opt(k));return safe;}
     private long localMidnight(String value)throws Exception{SimpleDateFormat f=new SimpleDateFormat("yyyy-MM-dd",Locale.US);f.setTimeZone(zone);return f.parse(value).getTime();}
     private JSONObject coverage()throws Exception{
@@ -216,7 +246,7 @@ public final class OrdexaPayrollEngine {
         return contexts;
     }
     private JSONObject build()throws Exception{
-        group();for(Group g:groups)resolve(g);price();
+        group();for(Group g:groups)resolve(g);automaticNights();price();
         JSONArray shifts=new JSONArray(),reviews=new JSONArray(),blockers=new JSONArray(),active=new JSONArray(),pendingOut=new JSONArray(),missing=new JSONArray(),daily=new JSONArray();
         Map<String,JSONObject> summaries=new LinkedHashMap<String,JSONObject>();Set<String> activeVehicles=new LinkedHashSet<String>(),activePeople=new LinkedHashSet<String>(),seenPlans=new HashSet<String>();
         for(Group g:groups){JSONObject r=row(g);shifts.put(r);if(g.plan!=null&&!g.excluded&&g.start<=now&&(g.open||g.end>time(g.plan.optString("start_at"))))seenPlans.add(g.plan.optString("id"));if(g.open&&(g.midnightCap||g.twoAmCap))pendingOut.put(liveRow(r));

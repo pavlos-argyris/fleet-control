@@ -121,7 +121,8 @@
         "scripts/test-payroll-review-core.mjs",
         "scripts/test-business-runtime-native.mjs",
         "scripts/test-native-management-ui.mjs",
-        "scripts/test-native-management-browser.mjs"
+        "scripts/test-native-management-browser.mjs",
+        "scripts/test-direct-night-pay.mjs"
       ],
       "related": [
         "ordexa-attendance",
