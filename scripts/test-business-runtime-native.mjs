@@ -38,7 +38,6 @@ public class BusinessTest{
    String code=new String(Files.readAllBytes(Paths.get(args[1])),"UTF-8");JSONObject manifest=new JSONObject(new String(Files.readAllBytes(Paths.get(args[2])),"UTF-8"));
    final android.content.Context appContext=new android.content.Context(new File(new File(args[0]).getParentFile(),"app").getPath());
    final BusinessObjects objects=new BusinessObjects(db,new File(appContext.getFilesDir(),"service-documents"),new File(appContext.getCacheDir(),"business-files"));
-   com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(new android.content.Context(args[3]));
    primaryGuard=new NativePrimaryGuard(db,lease,"https://fleet.fixture.invalid",GEN);
    runtime=new NativeBusinessEngine(db,new File(appContext.getFilesDir(),"service-documents"),new File(appContext.getCacheDir(),"business-files"),new JSONObject().put("realm","https://fleet.fixture.invalid").put("generation",GEN).put("serverKey","fixture-server-key-at-least-32-bytes").put("authPepper",PEPPER).put("eventSigningKey","native-event-fixture-at-least-32-bytes"),code,manifest.getString("bundleSha256"),new NativeBusinessEngine.Authority(){
     public void beforeRequest(JSONObject request,boolean internal)throws Exception{if(primaryChecks){primaryGuard.begin(primaryEpoch,false);primaryGuard.beforeRequest(request,internal);}}
@@ -50,7 +49,7 @@ public class BusinessTest{
        else if(command.equals("health.snapshot"))value=BusinessFeatureChecks.health;
        else if(command.equals("reports.export")){
         String format=data.getString("format");File target=objects.exportTarget(format);
-        if(format.equals("xlsx"))FinancialExport.writeXlsx(target,data.getJSONObject("spec"));else FinancialExport.writePdf(target,data.getJSONObject("spec"),new FileInputStream(new File(args[3],"com/tom_roush/pdfbox/resources/ttf/LiberationSans-Regular.ttf")));
+        if(format.equals("xlsx"))FinancialExport.writeXlsx(target,data.getJSONObject("spec"));else{FinancialExport.initializePdf(new android.content.Context(args[3]));FinancialExport.writePdf(target,data.getJSONObject("spec"),new FileInputStream(new File(args[3],"com/tom_roush/pdfbox/resources/ttf/LiberationSans-Regular.ttf")));}
         value=objects.registerExport(target,"fixture-export."+format,format.equals("pdf")?"application/pdf":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
        }else throw new IOException("unsupported fixture capability "+command);
       return value;
