@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import net from 'node:net';import {spawn} from 'node:child_process';
-const root=process.cwd(),temp=path.join(root,'.build','static-routing-test');fs.mkdirSync(temp,{recursive:true});const config=JSON.parse(fs.readFileSync('cloudflare-worker/wrangler.example.jsonc','utf8'));
+const root=process.cwd(),temp=path.join(root,'.build','static-routing-test');fs.mkdirSync(temp,{recursive:true});const config=JSON.parse(fs.readFileSync('cloudflare-worker/wrangler.business.example.jsonc','utf8'));
 config.name='fleet-static-routing-fixture';config.main=path.join(root,'cloudflare-worker/src/worker.js');config.assets.directory=path.join(root,'cloudflare-worker/public');delete config.ai;delete config.triggers;config.observability={enabled:false};config.d1_databases[0].database_id='00000000-0000-0000-0000-000000000001';config.vars={SERVER_KEY:'static-fixture-key',PIN_PEPPER:'static-fixture-pepper'};
 fs.writeFileSync(path.join(temp,'wrangler.jsonc'),JSON.stringify(config));
 const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));

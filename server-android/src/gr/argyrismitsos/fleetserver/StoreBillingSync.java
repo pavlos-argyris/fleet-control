@@ -13,7 +13,7 @@ public final class StoreBillingSync {
     private static volatile long next=0, publishNext=0;
     private static JSONObject state(StoreBillingStore s)throws Exception{JSONObject r=s.get(META);return r==null?new JSONObject():r;}
     private static void save(StoreBillingStore s,JSONObject r)throws Exception{s.put(META,"meta","","","",r,false);}
-    public static JSONObject status(FleetDataStore fleet)throws Exception{JSONObject s=state(new StoreBillingStore(fleet));return new JSONObject().put("busy",s.has("job")).put("stage",s.optString("stage","Δεν έχει γίνει λήψη καταστημάτων")).put("lastSuccess",s.optString("lastSuccess","")).put("nextDue",s.optLong("nextDue",0)).put("error",s.optString("error","")).put("syncIntervalMs",3600000).put("cutoffHour",5).put("pendingDays",new StoreBillingStore(fleet).pendingCount()).put("cloudError",s.optString("cloudError",""));}
+    public static JSONObject status(FleetDataStore fleet)throws Exception{JSONObject s=state(new StoreBillingStore(fleet));return new JSONObject().put("busy",s.has("job")).put("stage",s.optString("stage","Δεν έχει γίνει λήψη καταστημάτων")).put("lastSuccess",s.optString("lastSuccess","")).put("nextDue",s.optLong("nextDue",0)).put("error",s.optString("error","")).put("syncIntervalMs",3600000).put("cutoffHour",5).put("pendingDays",new StoreBillingStore(fleet).pendingCount()).put("cloudError",s.optString("cloudError","")).put("progress",s.optJSONObject("job")==null?s.opt("lastImportProgress"):importProgress(s.getJSONObject("job"),false));}
     public static void wake(FleetDataStore fleet)throws Exception{StoreBillingStore s=new StoreBillingStore(fleet);s.put("meta:store-billing-wake","meta","","","",new JSONObject().put("at",System.currentTimeMillis()),false);next=0;}
     public static JSONObject request(Context c,FleetDataStore fleet,String from,String to)throws Exception{
         OrdexaClient.day(from);OrdexaClient.day(to);if(to.compareTo(from)<0||to.compareTo(StoreBillingEngine.addDay(from,30))>0)throw new IllegalArgumentException("Επίλεξε περίοδο καταστημάτων έως31 ημέρες.");JSONObject source=OrdexaSync.storesContext(c);if(!source.getBoolean("configured"))throw new IllegalArgumentException("Συνδέσου πρώτα στο Ordexa και επίλεξε πόλη.");
@@ -21,6 +21,15 @@ public final class StoreBillingSync {
         m.put("localRequest",new JSONObject().put("from",from).put("to",to));save(store,m);wake(fleet);return new JSONObject().put("queued",true).put("local",true);
 
     }
+    private static JSONObject importProgress(JSONObject job,boolean failed)throws Exception{
+        String from=job.getString("from"),to=job.getString("to"),current=job.optString("day","");
+        TreeSet<String> completed=new TreeSet<String>();JSONArray dates=job.optJSONArray("completedDates");
+        if(dates!=null)for(int i=0;i<Math.min(31,dates.length());i++){String value=dates.optString(i);if(value.compareTo(from)>=0&&value.compareTo(to)<=0)completed.add(value);}
+        int total=0;for(String day=from;day.compareTo(to)<=0&&total<31;day=StoreBillingEngine.addDay(day,1))total++;
+        boolean failedDay=failed&&current.compareTo(from)>=0&&current.compareTo(to)<=0&&!completed.contains(current);
+        return new JSONObject().put("from",from).put("to",to).put("currentDay",current).put("totalDays",total).put("completedDays",completed.size()).put("failedDays",failedDay?1:0).put("pendingDays",Math.max(0,total-completed.size()-(failedDay?1:0))).put("state",failed?"retry":job.optString("phase").equals("done")?"completed":"running").put("completedDates",new JSONArray(completed)).put("measuredFetchCalls",job.optInt("measuredFetchCalls")).put("fetchMs",job.optInt("measuredFetchCalls")>0?job.optDouble("fetchMs",0):JSONObject.NULL).put("countReadMs",job.optDouble("countReadMs",0)).put("mathMs",job.optDouble("mathMs",0)).put("localCommitMs",job.optDouble("localCommitMs",0)).put("stepMs",job.optDouble("stepMs",0));
+    }
+    private static void rememberProgress(JSONObject meta,JSONObject job,boolean failed)throws Exception{if(job!=null&&job.has("from")&&job.has("to"))meta.put("lastImportProgress",importProgress(job,failed));}
     private static void refreshClaim(JSONObject job,JSONObject requested)throws Exception{
         if(requested!=null&&requested.has("cashRefreshId")&&job.getString("from").equals(requested.getString("from"))&&job.getString("to").equals(requested.getString("to"))&&job.getString("type").equals("sync"))job.put("cashRefreshId",requested.getString("cashRefreshId")).put("cashRefreshValue",requested.getString("cashRefreshValue"));
     }
@@ -64,7 +73,7 @@ public final class StoreBillingSync {
     private static String step(Context c,StoreBillingStore s,JSONObject j)throws Exception{
         String scope=j.getString("scope"),op=j.getString("operationId"),phase=j.getString("phase");same(c,j);
         if(phase.equals("localSetup")){
-            JSONArray shops=StoreBillingProtocol.setup(OrdexaSync.storesRead(c,j,true,"","",1,null));s.localCatalogue(scope,shops);dayStart(j,j.getString("from"));return "Τοπική εισαγωγή · το Cloudflare δεν είναι διαθέσιμο";
+            JSONArray shops=StoreBillingProtocol.setup(OrdexaSync.storesRead(c,j,true,"","",1,null));s.localCatalogue(scope,shops);dayStart(j,j.getString("from"));return "Τοπική εισαγωγή · επαλήθευση της πηγής";
         }
         if(phase.equals("future")){progress(c,j,"Αποθηκεύτηκαν οι όροι για μελλοντική ημερομηνία","completed");j.put("phase","done");return "Η μελλοντική τιμή θα χρησιμοποιηθεί από την ημερομηνία ισχύος";}
         if(phase.equals("setup")){
@@ -96,6 +105,7 @@ public final class StoreBillingSync {
             JSONArray shops=stores(s,j);if(shops.length()==0){j.put("phase","archive");j.put("finalPass",pass(j));return "Δεν υπάρχουν καταστήματα στην πηγή";}
             String selected=j.getString("mode").equals("filtered")?shops.getJSONObject(j.getInt("shopIndex")).getString("sourceShopId"):null;
             String day=j.getString("day");int page=j.getInt("page");JSONObject source=OrdexaSync.storesRead(c,j,false,StoreBillingEngine.addDay(day,-1),StoreBillingEngine.addDay(day,1),page,selected);
+            JSONObject observed=j.optJSONObject("_ordersHttpObservation");if(observed!=null&&observed.optBoolean("transportObserved")&&observed.has("durationMs"))j.put("fetchMs",j.optDouble("fetchMs",0)+Math.max(0,observed.optDouble("durationMs",0))).put("measuredFetchCalls",j.optInt("measuredFetchCalls")+1);
             // Observe first pages of the existing two-pass reader only. No extra
             // provider request, guessed courier field, dirty cloud row or charge.
             if(page==1)try{s.captureOrderProtocol(j,source,page,selected!=null);}catch(Exception diagnosticFailure){j.put("ordersEvidenceUnavailable",true);}
@@ -135,17 +145,17 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
             JSONArray shops=stores(s,j),terms=s.rows(scope,"terms"),output=new JSONArray();int cursor=j.getInt("stageCursor"),end=Math.min(shops.length(),cursor+32);String day=j.getString("day");
             for(int i=cursor;i<end;i++){
                 JSONObject shop=shops.getJSONObject(i);String id=shop.getString("id");JSONArray own=new JSONArray();for(int n=0;n<terms.length();n++)if(id.equals(terms.getJSONObject(n).getString("storeId")))own.put(terms.getJSONObject(n));
-                JSONObject counts=s.counts(scope,day,id,j.getString("finalPass")),row=StoreBillingEngine.day(id,day,counts.getLong("count"),StoreBillingEngine.termsFor(own,day),j.getString("sourceAt"),counts.getInt("retained"),counts.getInt("reviews"));row.put("storeRevision",shop.getLong("revision")).put("retentionUsed",shop.optBoolean("retainOrders",false));output.put(row);
+                long countAt=System.nanoTime();JSONObject counts=s.counts(scope,day,id,j.getString("finalPass"));j.put("countReadMs",j.optDouble("countReadMs",0)+(System.nanoTime()-countAt)/1000000.0);JSONObject row;long mathAt=System.nanoTime();row=StoreBillingEngine.day(id,day,counts.getLong("count"),StoreBillingEngine.termsFor(own,day),j.getString("sourceAt"),counts.getInt("retained"),counts.getInt("reviews"));j.put("mathMs",j.optDouble("mathMs",0)+(System.nanoTime()-mathAt)/1000000.0);row.put("storeRevision",shop.getLong("revision")).put("retentionUsed",shop.optBoolean("retainOrders",false));output.put(row);
             }
             for(int i=0;i<output.length();i++){JSONObject row=output.getJSONObject(i);s.put("computed:"+j.getString("runId")+":"+row.getString("storeId"),"computed",scope,row.getString("storeId"),day,row,false);}
             j.put("stageCursor",end).put("resultCount",shops.length());if(end==shops.length())j.put("phase","localCommit");return "Τοπικός υπολογισμός χρεώσεων · "+day+" · "+end+"/"+shops.length();
         }
         if(phase.equals("localCommit")){
-            s.completeDay(j);j.put("phase","next");return "Η ημέρα "+j.getString("day")+" αποθηκεύτηκε στη SQLite · αναμονή cloud";
+            long commitAt=System.nanoTime();s.completeDay(j);j.put("localCommitMs",j.optDouble("localCommitMs",0)+(System.nanoTime()-commitAt)/1000000.0);JSONArray completed=j.optJSONArray("completedDates");if(completed==null)completed=new JSONArray();boolean exists=false;for(int i=0;i<completed.length();i++)if(completed.optString(i).equals(j.getString("day")))exists=true;if(!exists&&completed.length()<31)completed.put(j.getString("day"));j.put("completedDates",completed);j.put("phase","next");return "Η ημέρα "+j.getString("day")+" αποθηκεύτηκε στη SQLite · επαλήθευση αποτελεσμάτων";
         }
         if(phase.equals("next")){
             if(j.getString("day").compareTo(j.getString("to"))<0){dayStart(j,StoreBillingEngine.addDay(j.getString("day"),1));return "Επόμενη ημέρα · "+j.getString("day");}
-            progress(c,j,"Η εισαγωγή ολοκληρώθηκε τοπικά · εκκρεμεί δημοσίευση συγκεντρωτικών","completed");j.put("phase","done");s.cleanupTemporary(scope);return "Ολοκληρώθηκε ο συγχρονισμός καταστημάτων";
+            progress(c,j,"Η εισαγωγή ολοκληρώθηκε τοπικά · προετοιμασία επαληθευμένων αποτελεσμάτων","completed");j.put("phase","done");s.cleanupTemporary(scope);return "Ολοκληρώθηκε ο συγχρονισμός καταστημάτων";
         }
         throw new Exception("Άγνωστο στάδιο καταστημάτων· επανάλαβε τη διαδικασία.");
     }
@@ -170,7 +180,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
         try{
             if(OtaManager.shouldYieldForUpdate(c)){next=time+5000;return;}
             s=new StoreBillingStore(fleet);m=state(s);
-            if(time>=publishNext){publishNext=time+300000;try{long deadline=System.currentTimeMillis()+5000;for(int days=0;days<32&&System.currentTimeMillis()<deadline;days++)if(!flush(c,s))break;m=state(s);m.remove("cloudError");}catch(Exception cloud){m=state(s);m.put("cloudError","Εκκρεμεί δημοσίευση συγκεντρωτικών · ασφαλής επανάληψη");}save(s,m);}JSONObject source=OrdexaSync.storesContext(c);j=m.optJSONObject("job");
+            if(time>=publishNext){publishNext=time+300000;try{long deadline=System.currentTimeMillis()+5000;for(int days=0;days<32&&System.currentTimeMillis()<deadline;days++)if(!flush(c,s))break;m=state(s);m.remove("cloudError");}catch(Exception cloud){m=state(s);m.put("cloudError","Εκκρεμεί ολοκλήρωση επαληθευμένων αποτελεσμάτων · ασφαλής επανάληψη");}save(s,m);}JSONObject source=OrdexaSync.storesContext(c);j=m.optJSONObject("job");
             JSONObject oldControl=m.optJSONObject("control");String oldScope=m.optString("activeScope",oldControl==null?source.getString("scope"):oldControl.optString("scope",source.getString("scope"))),oldGeneration=m.optString("activeGeneration",oldControl==null?source.getString("generation"):oldControl.optString("generation",source.getString("generation")));
             if(!source.getString("scope").equals(oldScope)||!source.getString("generation").equals(oldGeneration))m.put("error","").put("failures",0).put("nextDue",0);
             m.put("activeScope",source.getString("scope")).put("activeGeneration",source.getString("generation"));
@@ -183,7 +193,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
             if(j!=null&&(!j.getString("scope").equals(source.getString("scope"))||!j.getString("generation").equals(source.getString("generation")))){m.remove("job");j=null;}
             if(!ServerWorkTracker.begin(c,"stores","Καταστήματα Ordexa","Μικρή παρτίδα συγχρονισμού")){next=time+5000;return;}tracked=true;
             if(j==null){if(!m.optBoolean("wake")&&m.optString("historyPending","").length()==0)m.put("autoCycle",true);start(c,s,m,source);m.put("lastWakeHandled",wakeAt);if(!m.has("job")){save(s,m);next=time+100;return;}j=m.getJSONObject("job");}else{
-                String stage=step(c,s,j);m.put("stage",stage).put("error","");ServerWorkTracker.stage("stores","Καταστήματα Ordexa",stage);
+                long stepAt=System.nanoTime();String stage=step(c,s,j);j.put("stepMs",j.optDouble("stepMs",0)+(System.nanoTime()-stepAt)/1000000.0);rememberProgress(m,j,false);m.put("stage",stage).put("error","");ServerWorkTracker.stage("stores","Καταστήματα Ordexa",stage);
                 if(j.optBoolean("hydrated"))m.put("archiveEpoch",j.getString("scope")+":"+j.getString("epoch")+":"+j.getString("generation"));
                 if(j.getString("phase").equals("done")){
                     new OrdexaCashSourceStore(s).acknowledge(j);m.remove("job");if(m.optString("cloudError","").isEmpty())publishNext=Math.min(publishNext,time+1000);m.put("lastSuccess",OrdexaClient.isoNow()).put("nextDue",time+3600000).put("failures",0).put("error","").put("wake",j.optBoolean("hasPending"));
@@ -200,7 +210,7 @@ j.put("stageCursor",0).put("phase","stage");return "Αποθηκεύτηκε τ�
             try{String message=e.getMessage()==null?"Η λήψη καταστημάτων απέτυχε.":e.getMessage();
                 if(message.contains("ήδη ενέργεια Ordexa")){if(m!=null){m.put("stage","Αναμονή ολοκλήρωσης της ανάγνωσης βαρδιών Ordexa");save(s,m);}next=time+2000;return;}
                 String safe=(message.contains("Ordexa")||message.contains("καταστημ")||message.contains("παραγγελί")||message.contains("όρο")||message.contains("Οι "))?message.substring(0,Math.min(300,message.length())):"Δεν ολοκληρώθηκε η επικοινωνία καταστημάτων. Τα προηγούμενα αποτελέσματα διατηρούνται· δοκίμασε Ανανέωση.";
-                if(m!=null){int failures=m.optInt("failures",0)+1;m.put("failures",failures).put("error",safe).put("stage",safe).put("nextDue",time+Math.min(3600000L,60000L*(1L<<Math.min(5,failures-1))));
+                if(m!=null){rememberProgress(m,j,true);int failures=m.optInt("failures",0)+1;m.put("failures",failures).put("error",safe).put("stage",safe).put("nextDue",time+Math.min(3600000L,60000L*(1L<<Math.min(5,failures-1))));
                     boolean definite=e instanceof FleetHttp.HttpStatusException&&((FleetHttp.HttpStatusException)e).statusCode>=400&&((FleetHttp.HttpStatusException)e).statusCode<500&&((FleetHttp.HttpStatusException)e).statusCode!=408&&((FleetHttp.HttpStatusException)e).statusCode!=429;
                     boolean uncertainPublish=j!=null&&"publish".equals(j.optString("phase"))&&!definite&&!message.contains("άδεια εργασίας")&&!message.contains("άλλαξ");
                     if(!uncertainPublish){if(j!=null){try{same(c,j);if("sync".equals(j.getString("type"))&&Arrays.asList("catalogue","inputs","hydrate").contains(j.optString("phase")))m.put("localRequest",new JSONObject().put("from",j.getString("from")).put("to",j.getString("to")));}catch(Exception ignored){}try{progress(c,j,safe,"failed");}catch(Exception ignored){}}m.remove("job");}

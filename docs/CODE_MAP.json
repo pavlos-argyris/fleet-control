@@ -47,7 +47,11 @@
         "scripts/cloud-return-preflight.py",
         "server-runtime/ports.js",
         "cloudflare-worker/src/cloud-business-db.js",
-        "cloudflare-worker/src/cloud-business.js"
+        "cloudflare-worker/src/cloud-business.js",
+        "cloudflare-worker/src/redirect.js",
+        "cloudflare-worker/wrangler.business.example.jsonc",
+        "scripts/publish-direct-release.mjs",
+        "scripts/verify-direct-publication.mjs"
       ],
       "tests": [
         "scripts/test-worker-model.mjs",
@@ -61,7 +65,9 @@
         "scripts/test-worker-snapshot-load.mjs",
         "scripts/test-direct-web-speed.mjs",
         "scripts/test-independent-business.mjs",
-        "scripts/test-direct-unified-browser.mjs"
+        "scripts/test-direct-unified-browser.mjs",
+        "scripts/test-redirect-worker.mjs",
+        "scripts/test-direct-publication.mjs"
       ],
       "related": [
         "server-foundation",
@@ -71,7 +77,8 @@
       "docs": [
         "docs/REQUEST_REDUCTION_5.48.0_GR.md",
         "docs/CLOUD_PRIMARY_RETURN_GR.md",
-        "docs/FLEET_CANONICAL_READ_5.66.1_GR.md"
+        "docs/FLEET_CANONICAL_READ_5.66.1_GR.md",
+        "docs/ISSUE_107_DIRECT_PUBLICATION_GR.md"
       ]
     },
     {
@@ -181,7 +188,8 @@
         "docs/STORES_WEEKLY_5.60.1_GR.md",
         "docs/NATIVE_MANAGEMENT_5.61_GR.md",
         "docs/ISSUE_107_STORE_EXPORT_GR.md",
-        "docs/ISSUE_107_SHARED_COMPUTATIONS_GR.md"
+        "docs/ISSUE_107_SHARED_COMPUTATIONS_GR.md",
+        "docs/ISSUE_107_DIRECT_PUBLICATION_GR.md"
       ]
     },
     {
@@ -398,7 +406,11 @@
         "scripts/probe-primary-policy.mjs",
         "scripts/tail-server-mirror.mjs",
         "scripts/tail-error-safety.mjs",
-        "scripts/measure-cloud-write-cost.mjs"
+        "scripts/measure-cloud-write-cost.mjs",
+        "cloudflare-worker/src/redirect.js",
+        "cloudflare-worker/wrangler.business.example.jsonc",
+        "scripts/publish-direct-release.mjs",
+        "scripts/verify-direct-publication.mjs"
       ],
       "tests": [
         "scripts/test-publish-request.mjs",
@@ -408,7 +420,9 @@
         "scripts/test-business-runtime-resources.mjs",
         "scripts/test-apk-payload.py",
         "scripts/test-probe-primary-policy.mjs",
-        "scripts/test-tail-error-safety.mjs"
+        "scripts/test-tail-error-safety.mjs",
+        "scripts/test-redirect-worker.mjs",
+        "scripts/test-direct-publication.mjs"
       ],
       "related": [
         "android-client",
@@ -418,7 +432,8 @@
       "docs": [
         "docs/CI_SPEED_SECURITY_GR.md",
         "docs/AUTOMATIC_PUBLISH_GR.md",
-        "docs/SERVER_RUNTIME_RESOURCES_5.61.1_GR.md"
+        "docs/SERVER_RUNTIME_RESOURCES_5.61.1_GR.md",
+        "docs/ISSUE_107_DIRECT_PUBLICATION_GR.md"
       ]
     },
     {
@@ -580,7 +595,8 @@
       "docs": [
         "docs/ISSUE_64_PARALLEL_START_GR.md",
         "docs/NATIVE_MANAGEMENT_5.61_GR.md",
-        "docs/ISSUE_107_READ_MODELS_GR.md"
+        "docs/ISSUE_107_READ_MODELS_GR.md",
+        "docs/ISSUE_107_DIRECT_PUBLICATION_GR.md"
       ]
     },
     {
@@ -713,7 +729,8 @@
         "docs/ISSUE_90_INDEPENDENT_ANDROID_GR.md",
         "docs/ISSUE_107_TRANSPORT_GR.md",
         "docs/ISSUE_107_READ_MODELS_GR.md",
-        "docs/ISSUE_107_SHARED_COMPUTATIONS_GR.md"
+        "docs/ISSUE_107_SHARED_COMPUTATIONS_GR.md",
+        "docs/ISSUE_107_DIRECT_PUBLICATION_GR.md"
       ]
     },
     {

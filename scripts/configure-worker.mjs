@@ -1,10 +1,7 @@
 import fs from 'node:fs';
-const example = JSON.parse(fs.readFileSync('cloudflare-worker/wrangler.example.jsonc', 'utf8'));
-const id = process.env.FLEET_D1_DATABASE_ID;
-if (!id || !/^[a-f0-9-]{36}$/i.test(id)) throw new Error('Set FLEET_D1_DATABASE_ID to the existing production D1 ID.');
-example.d1_databases[0].database_id = id;
-example.name = process.env.FLEET_WORKER_NAME || example.name;
-example.r2_buckets.find(b => b.binding === 'RELEASES').bucket_name = process.env.FLEET_RELEASES_BUCKET || 'fleet-control-releases';
-example.r2_buckets.find(b => b.binding === 'SERVICE_DOCS').bucket_name = process.env.FLEET_DOCUMENTS_BUCKET || 'fleet-control-service-documents';
-fs.writeFileSync('cloudflare-worker/wrangler.jsonc', JSON.stringify(example, null, 2) + '\n');
-console.log('Worker configured for the existing database and buckets.');
+const example=JSON.parse(fs.readFileSync('cloudflare-worker/wrangler.example.jsonc','utf8'));
+if(example.main!=='src/redirect.js'||['d1_databases','r2_buckets','durable_objects','ai','assets'].some(k=>k in example)||JSON.stringify(example.triggers)!==JSON.stringify({crons:[]})||example.migrations.some(m=>Object.keys(m).some(k=>k!=='tag'&&k!=='new_sqlite_classes')))throw Error('Expected redirect-only configuration with preserved historical migration and no scheduled jobs');
+example.name=process.env.FLEET_WORKER_NAME||example.name;
+if(!/^[a-z0-9][a-z0-9-]{0,62}$/.test(example.name))throw Error('Unexpected Worker name');
+fs.writeFileSync('cloudflare-worker/wrangler.jsonc',JSON.stringify(example,null,2)+'\n');
+console.log('Configured the redirect-only Worker; historical storage remains without active bindings.');

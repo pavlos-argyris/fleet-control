@@ -74,3 +74,7 @@
 ## Έτοιμες Direct προβολές #107
 
 `IndependentReadModels` προσθέτει allowlisted authorized JSON snapshots στη RAM, read-only WAL και commit-only scoped invalidation. `BusinessSqlite` παρέχει privacy-safe stage timings. `portal.js`, `local-view-cache.js` και `primary-storage.js` κρατούν private view/PDF αποτελέσματα μόνο σε bounded session RAM και διατηρούν πραγματικά unsent drafts. `prepare-unified-direct.py` εφαρμόζει τα ίδια readiness/backend guards και στα hot reads. Οδηγός `ISSUE_107_READ_MODELS_GR.md`, regressions `test-independent-readmodels.mjs`, `test-view-cache.mjs`, `test-primary-transport-unit.mjs` και actual normal-APK Android.
+
+## Direct-only δημοσίευση107
+
+Το ενεργό Worker entrypoint είναι το redirect.js, χωρίς business bindings/assets/cron. Η παλιά business example config διατηρείται μόνο για ιστορικούς ελέγχους. Η release.yml καλεί publish-direct-release/verify-direct-publication, ενώ το GitHub manifest τροφοδοτεί την υπάρχουσα Direct OTA διαδρομή. StoreBillingSync κρατά durable ημέρες προόδου και privacy-safe stage timings. Οδηγός ISSUE_107_DIRECT_PUBLICATION_GR.md· υποχρεωτικά redirect/publication tests, store pipeline, πλήρες source CI και physical gates.

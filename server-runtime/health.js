@@ -22,8 +22,11 @@ function safeSnapshot(raw){
 export async function healthSnapshot(env){
   const raw=await businessPort(env,'health.snapshot'),result=projectFleetHealth(safeSnapshot(raw)),now=Date.parse(result.observedAt);
   if(env.STANDALONE){result.d1={status:'inactive',writes:null,limit:null,observedAt:result.observedAt};result.alerts=result.alerts.filter(a=>!a.code.startsWith('d1-'));}
+  if(raw.storesImport&&['totalDays','completedDays','pendingDays','failedDays'].every(k=>Number.isSafeInteger(raw.storesImport[k])&&raw.storesImport[k]>=0&&raw.storesImport[k]<=31)){result.storesImport={};for(const key of ['totalDays','completedDays','pendingDays','failedDays','measuredFetchCalls','fetchMs','mathMs','localCommitMs','stepMs'])result.storesImport[key]=Number.isFinite(raw.storesImport[key])&&raw.storesImport[key]>=0?raw.storesImport[key]:null;result.storesImport.state=['running','completed','retry'].includes(raw.storesImport.state)?raw.storesImport.state:'unknown';}
   result.readModels=Object.fromEntries(['models','bytes','pending','hits','misses','refreshes'].map(key=>[key,Number.isSafeInteger(raw.readModels?.[key])&&raw.readModels[key]>=0?raw.readModels[key]:null]));
   result.sqlProfile={};for(const stage of ['sql.query','sql.raw','sql.run','sql.batch','sql.exec','sql.request.begin','sql.request.end','queue.wait','business.request','export.pdf','export.xlsx','files.materialize']){const row=raw.sqlProfile?.[stage];if(row&&['count','totalMs','maxMs','meanMs','over100ms'].every(key=>Number.isFinite(row[key])&&row[key]>=0))result.sqlProfile[stage]=Object.fromEntries(['count','totalMs','maxMs','meanMs','over100ms'].map(key=>[key,row[key]]));}
+  const progress=raw.storesImport;if(progress&&['totalDays','completedDays','pendingDays','failedDays'].every(k=>Number.isSafeInteger(progress[k])&&progress[k]>=0&&progress[k]<=31)&&progress.completedDays+progress.pendingDays+progress.failedDays===progress.totalDays)result.storesImport=Object.fromEntries(['totalDays','completedDays','pendingDays','failedDays'].map(k=>[k,progress[k]]));
+  if(result.storesImport)for(const key of ['measuredFetchCalls','fetchMs','countReadMs','mathMs','localCommitMs','stepMs'])result.storesImport[key]=Number.isFinite(progress[key])&&progress[key]>=0?progress[key]:null;
   const storesAt=Date.parse(raw.storesLastSuccessAt);result.stores={status:!Number.isFinite(storesAt)||storesAt>now?'unknown':now-storesAt>2*3600000?'stale':'healthy',observedAt:Number.isFinite(storesAt)?raw.storesLastSuccessAt:null};
   result.space={status:Number.isSafeInteger(raw.freeBytes)&&raw.freeBytes>=0?(raw.freeBytes<256*1024*1024?'low':'healthy'):'unknown',freeBytes:Number.isSafeInteger(raw.freeBytes)&&raw.freeBytes>=0?raw.freeBytes:null};
   const verifiedAt=Date.parse(raw.backupFileVerifiedAt);result.backupFile={status:Number.isFinite(verifiedAt)&&verifiedAt<=now?'readable':'unknown',observedAt:Number.isFinite(verifiedAt)&&verifiedAt<=now?raw.backupFileVerifiedAt:null};
@@ -43,7 +46,7 @@ export async function healthSnapshot(env){
   }
   const incidents=list(await env.DB.prepare('SELECT * FROM native_health_incidents ORDER BY resolved_at IS NULL DESC,last_at DESC LIMIT 200').all()).map(i=>({...i,...labels[i.code],acknowledged:!!i.ack_at,resolved:!!i.resolved_at}));
   if(changed)await publishChanges(env,['status','workforce']);
-  return{...result,incidents,versions:raw.versions&&typeof raw.versions==='object'?{server:text(raw.versions.server,32),business:text(raw.versions.business,32)}:null};
+  return{...result,incidents:env.STANDALONE?incidents.filter(i=>!i.code.startsWith('d1-')):incidents,versions:raw.versions&&typeof raw.versions==='object'?{server:text(raw.versions.server,32),business:text(raw.versions.business,32)}:null};
 }
 export async function routeHealth(request,env){
   const url=new URL(request.url);if(!url.pathname.startsWith('/api/native/health'))return null;
@@ -74,7 +77,7 @@ export async function routeHealth(request,env){
   }
   if(request.method==='GET'&&['/api/native/health','/api/native/health/diagnostic'].includes(url.pathname)){
     const snapshot=await healthSnapshot(env);
-    if(url.pathname.endsWith('/diagnostic'))return reply({schemaVersion:1,observedAt:snapshot.observedAt,versions:snapshot.versions,performance:{readModels:snapshot.readModels,stages:snapshot.sqlProfile},signals:Object.fromEntries(['server','ordexa','stores','outbox','backupFile','backupRestoreProof','space','d1'].map(k=>[k,snapshot[k]])),incidents:snapshot.incidents.map(i=>({code:i.code,generation:i.generation,severity:i.severity,firstAt:i.first_at,lastAt:i.last_at,resolvedAt:i.resolved_at,acknowledged:i.acknowledged}))});
+    if(url.pathname.endsWith('/diagnostic'))return reply({schemaVersion:1,observedAt:snapshot.observedAt,versions:snapshot.versions,performance:{readModels:snapshot.readModels,stages:snapshot.sqlProfile,storesImport:snapshot.storesImport||null},signals:Object.fromEntries(['server','ordexa','stores','outbox','backupFile','backupRestoreProof','space','d1'].map(k=>[k,snapshot[k]])),incidents:snapshot.incidents.map(i=>({code:i.code,generation:i.generation,severity:i.severity,firstAt:i.first_at,lastAt:i.last_at,resolvedAt:i.resolved_at,acknowledged:i.acknowledged}))});
     return reply(snapshot);
   }
   throw new NativeError(405,'Η ενέργεια διάγνωσης δεν υποστηρίζεται.');
