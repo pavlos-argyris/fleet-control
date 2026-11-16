@@ -134,8 +134,8 @@ for (const mode of ['candidate', 'publish']) test(mode + ' still requires succes
 test('candidate workflow cannot publish, deploy, activate or probe production', () => {
   const workflow = fs.readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
   assert.match(workflow, /build_candidate:.*steps\.request\.outputs\.build_candidate/);
-  for (const step of ['Save full source and signed files as a GitHub release', 'Set publishing credential and deploy compatible Worker',
-    'Upload and activate verified Server, Client and Web together', 'Verify live signed APK bytes and personnel mirror reads']) {
+  for (const step of ['Save full source and signed files as a GitHub release', 'Deploy redirect-only former cloud origin',
+    'Validate Direct GitHub release artifacts', 'Verify public APK/source bytes and redirect-only behavior']) {
     const start = workflow.indexOf('      - name: ' + step);
     assert.ok(start >= 0, step);
     const block = workflow.slice(start, workflow.indexOf('\n      - ', start + 10));

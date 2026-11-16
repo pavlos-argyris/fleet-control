@@ -24,6 +24,7 @@ echo "::endgroup::"
 echo "::group::Lightweight release and transport contracts"
 node scripts/check-release-capacity.mjs
 node --test scripts/test-publish-request.mjs
+node scripts/test-redirect-worker.mjs
 node scripts/test-release-transport.mjs
 echo "::endgroup::"
 

@@ -8,7 +8,7 @@ const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).
 if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('A saved Git commit is required');
 if (execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim()) throw new Error('Commit all source changes before creating the release.');
 fs.mkdirSync('dist', { recursive: true });
-const manifest = { releaseId: `v${config.releaseVersion}-${commit.slice(0, 12)}`, sourceCommit: commit, notes: config.notes };
+const manifest = { releaseId: `v${config.releaseVersion}-${commit.slice(0, 12)}`, sourceCommit: commit, notes: config.notes, publication: {mode:config.backendMode==='direct'?'direct-github':'cloud-legacy',directOrigin:config.directOrigin||null} };
 const checksum = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 for (const kind of ['client', 'server']) {
   const xml = fs.readFileSync(`${kind}-android/AndroidManifest.xml`, 'utf8');

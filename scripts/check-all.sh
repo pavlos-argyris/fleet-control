@@ -68,6 +68,8 @@ node scripts/test-server-reconnect-ui.mjs
 node scripts/test-client-ota-ui.mjs
 node scripts/test-client-landscape.mjs
 node scripts/test-ota-setup.mjs
+node scripts/test-redirect-worker.mjs
+node scripts/test-direct-publication.mjs
 node --test scripts/test-publish-request.mjs
 node scripts/test-ota-releases.mjs
 node scripts/test-release-transport.mjs
