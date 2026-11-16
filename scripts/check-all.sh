@@ -87,6 +87,7 @@ node scripts/test-ordexa-shifts.mjs
 node scripts/test-ordexa-pay.mjs
 node scripts/test-ordexa-pay-ui.mjs
 node scripts/test-ordexa-server-engine.mjs
+node scripts/test-direct-night-pay.mjs
 node scripts/test-ordexa-server-api.mjs
 node scripts/test-ordexa-day-fixes.mjs
 node scripts/test-ordexa-edit-anytime.mjs
