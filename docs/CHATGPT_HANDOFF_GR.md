@@ -1,3 +1,7 @@
+## #107 — Ταμείο μόνο ανάγνωση / απομόνωση εκκρεμοτήτων, 16/11/2026
+
+Θεματικό branch `codex/issue-107-cash-view`, συνέχεια PR112. Διορθώνει day-wide αποκλεισμό από έναν άγνωστο rider και προβάλλει ποσό παραδόσεων με read-only popup/Πίσω. Manual/coverage/history παραμένουν πύλες. Πλήρεις λεπτομέρειες/όρια στο `docs/ISSUE_107_CASH_READONLY_GR.md`. Δεν έγινε παραγωγική οικονομική μεταβολή ή δημοσίευση. Συνεχίζονται οι εκκρεμείς επιδόσεις/Direct-only/τελική πιστοποίηση του107.
+
 ## 16/11/2026 — #107 καταστήματα/PDF και πραγματική ανάγνωση Direct
 
 - Branch codex/issue-107-stores μετά το payroll PR111 και τη διόρθωση advisory/day-version fixture. Invoice PR110 exact full43891094632 και Fast43891094378 SUCCESS, περιλαμβανομένου normal APK Android. Η πρώτη payroll CI αποτυχία αφορούσε το νέο generic schedule notice ως blocker και παλιό fixture version3· διορθώθηκαν χωρίς κατάργηση πραγματικών blockers ή assertions οικονομικών ποσών.
