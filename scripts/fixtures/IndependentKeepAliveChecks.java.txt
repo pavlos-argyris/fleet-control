@@ -1,0 +1,40 @@
+ static SSLSocket connect()throws Exception{
+  Socket tcp=new Socket("127.0.0.1",port);SSLSocket socket=(SSLSocket)tls.getSocketFactory().createSocket(tcp,host,port,true);socket.setSoTimeout(15000);SSLParameters p=socket.getSSLParameters();p.setEndpointIdentificationAlgorithm("HTTPS");socket.setSSLParameters(p);socket.startHandshake();return socket;
+ }
+ static String exchange(SSLSocket socket,String request,boolean head)throws Exception{
+  OutputStream out=socket.getOutputStream();out.write(request.getBytes("UTF-8"));out.flush();InputStream in=socket.getInputStream();StringBuilder h=new StringBuilder();String row=IndependentHttps.line(in,8192);h.append(row).append("\r\n");int length=-1;
+  while(!(row=IndependentHttps.line(in,8192)).isEmpty()){h.append(row).append("\r\n");if(row.toLowerCase(Locale.US).startsWith("content-length:"))length=Integer.parseInt(row.substring(row.indexOf(':')+1).trim());}
+  check(length>=0,"persistent response is explicitly framed");ByteArrayOutputStream body=new ByteArrayOutputStream();if(!head)for(int at=0;at<length;at++){int b=in.read();check(b>=0,"exact frame is complete");body.write(b);}return h+"\r\n"+new String(body.toByteArray(),"UTF-8");
+ }
+ static String readRequest(String path,boolean close){return "GET "+path+" HTTP/1.1\r\nHost: "+host+"\r\n"+(close?"Connection: close\r\n":"")+"\r\n";}
+ static void keepAliveChecks()throws Exception{
+  try(SSLSocket socket=connect()){
+   check(exchange(socket,readRequest("/api/status",false),false).contains("Connection: keep-alive"),"one TLS session supports repeated validated reads");
+   String revoked=exchange(socket,"GET /api/status HTTP/1.1\r\nHost: "+host+"\r\nAuthorization: Bearer fixture-revoked\r\n\r\n",false);check(revoked.startsWith("HTTP/1.1 401"),"handler reauthorizes each request on the same TLS connection");
+   check(exchange(socket,readRequest("/health",true),false).contains("Connection: close"),"client close is respected");check(socket.getInputStream().read()==-1,"connection really closes");
+  }
+  try(SSLSocket socket=connect()){
+   for(int i=0;i<32;i++){String response=exchange(socket,readRequest("/health",false),false);check(response.contains(i==31?"Connection: close":"Connection: keep-alive"),"bounded request count "+i);}check(socket.getInputStream().read()==-1,"32 requests release the reader slot");
+  }
+  try(SSLSocket socket=connect()){
+   exchange(socket,readRequest("/health",false),false);socket.getOutputStream().write("GET /api/status HTTP/1.1\r\nHost: wrong.invalid\r\n\r\n".getBytes("UTF-8"));socket.getOutputStream().flush();check(socket.getInputStream().read()==-1,"later wrong Host is rejected before business handler");
+  }
+  try(SSLSocket socket=connect()){
+   exchange(socket,readRequest("/health",false),false);String write=exchange(socket,"POST /api/status HTTP/1.1\r\nHost: "+host+"\r\nOrigin: https://"+host+"\r\nContent-Length: 0\r\n\r\n",false);check(write.contains("Connection: close"),"write closes after a prior keep-alive read");check(socket.getInputStream().read()==-1,"mutation response has no next request");
+  }
+  try(SSLSocket socket=connect()){
+   String head=exchange(socket,"HEAD /assets/v1.0.0/large.js HTTP/1.1\r\nHost: "+host+"\r\n\r\n",true);check(head.contains("Connection: keep-alive"),"HEAD framing keeps the session usable");String tag=head.toLowerCase(Locale.US).split("etag: ")[1].split("\r\n")[0];String notModified=exchange(socket,"GET /assets/v1.0.0/large.js HTTP/1.1\r\nHost: "+host+"\r\nIf-None-Match: "+tag+"\r\n\r\n",false);check(notModified.startsWith("HTTP/1.1 304"),"304 is safely framed without a body");check(exchange(socket,readRequest("/health",true),false).startsWith("HTTP/1.1 200"),"next frame is unambiguous after HEAD/304");
+  }
+  try(SSLSocket socket=connect()){exchange(socket,readRequest("/health",false),false);long start=System.nanoTime();check(socket.getInputStream().read()==-1,"idle connections release reader slots");check(System.nanoTime()-start<TimeUnit.SECONDS.toNanos(6),"idle budget is bounded");}
+  System.out.println("PASS actual TLS keep-alive: per-request handler authorization, later Host rejection, exact HEAD/304 frames, explicit close, write close, 32-request cap and idle timeout");
+ }
+ static JSONObject transportBench(int clients,boolean reuse)throws Exception{
+  List<Long> times=Collections.synchronizedList(new ArrayList<Long>());ExecutorService pool=Executors.newFixedThreadPool(clients);long all=System.nanoTime();
+  try{List<Future<?>> tasks=new ArrayList<Future<?>>();for(int i=0;i<clients;i++)tasks.add(pool.submit(()->{try{
+   SSLSocket shared=null;try{for(int j=0;j<4;j++){long start=System.nanoTime();SSLSocket socket=shared;if(socket==null)socket=connect();String r=exchange(socket,readRequest("/health",!reuse||j==3),false);check(r.startsWith("HTTP/1.1 200"),"benchmark response exact");times.add(System.nanoTime()-start);if(!reuse||j==3)socket.close();else shared=socket;}}finally{if(shared!=null)shared.close();}
+  }catch(Exception e){throw new RuntimeException(e);}}));for(Future<?> task:tasks)task.get(40,TimeUnit.SECONDS);}finally{pool.shutdownNow();}
+  List<Long> sorted=new ArrayList<Long>(times);Collections.sort(sorted);JSONObject result=new JSONObject().put("clients",clients).put("requests",times.size()).put("reuse",reuse).put("elapsedMs",(System.nanoTime()-all)/1000000.0);for(int n:new int[]{50,95,99})result.put("p"+n+"Ms",sorted.get(Math.min(sorted.size()-1,(int)Math.ceil(sorted.size()*n/100.0)-1))/1000000.0);return result;
+ }
+ static void transportBenchmarks(String directory)throws Exception{
+  JSONArray values=new JSONArray();for(int clients:new int[]{1,8,32})for(boolean reuse:new boolean[]{false,true})values.put(transportBench(clients,reuse));JSONObject result=new JSONObject().put("synthetic",true).put("physicalAndroid",false).put("dataset","4 exact health JSON reads per client, real local TLS, close versus reused session").put("measurements",values);Files.write(Paths.get(directory,"transport-benchmark.json"),result.toString(2).getBytes("UTF-8"));System.out.println("SYNTHETIC TLS BENCHMARK "+result);
+ }

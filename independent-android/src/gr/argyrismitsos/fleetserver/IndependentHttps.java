@@ -14,6 +14,8 @@ public final class IndependentHttps implements AutoCloseable {
     }
     private final SSLServerSocket listener;private final Handler handler;private final String realm,host;
     private final ThreadPoolExecutor readers=new ThreadPoolExecutor(0,48,30,TimeUnit.SECONDS,new SynchronousQueue<Runnable>());
+    private static final ThreadLocal<Boolean> persistent=new ThreadLocal<Boolean>();
+    private final Semaphore eventSlots=new Semaphore(8);
     private final Set<Socket> sockets=Collections.synchronizedSet(new HashSet<Socket>());private volatile boolean closed;
     private final LinkedHashMap<String,StaticAsset> assets=new LinkedHashMap<String,StaticAsset>(16,0.75f,true);
     private long assetBytes;
@@ -52,8 +54,17 @@ public final class IndependentHttps implements AutoCloseable {
     public void start(){Thread thread=new Thread(new Runnable(){public void run(){while(!closed)try{final SSLSocket socket=(SSLSocket)listener.accept();sockets.add(socket);try{readers.execute(new Runnable(){public void run(){serve(socket);}});}catch(RejectedExecutionException full){sockets.remove(socket);socket.close();}}catch(IOException error){if(closed)return;}}},"fleet-independent-https");thread.setDaemon(true);thread.start();}
     static String line(InputStream input,int maximum)throws Exception{ByteArrayOutputStream bytes=new ByteArrayOutputStream();for(;;){int b=input.read();if(b<0)throw new EOFException();if(b==10){byte[] raw=bytes.toByteArray();if(raw.length==0||raw[raw.length-1]!=13)throw new IOException("Invalid HTTP line");return new String(raw,0,raw.length-1,"ISO-8859-1");}if(b==0||bytes.size()>=maximum)throw new IOException("Oversized HTTP line");bytes.write(b);}}
     private void serve(SSLSocket socket){
-        try(SSLSocket connection=socket){connection.setSoTimeout(10000);connection.startHandshake();InputStream input=new BufferedInputStream(connection.getInputStream());OutputStream output=new BufferedOutputStream(connection.getOutputStream());
+        try(SSLSocket connection=socket){connection.setSoTimeout(10000);connection.startHandshake();InputStream input=new BufferedInputStream(connection.getInputStream());OutputStream output=new BufferedOutputStream(connection.getOutputStream());long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(60);
+            for(int count=0;count<32&&!closed;count++){
+                persistent.set(false);connection.setSoTimeout(count==0?10000:3000);
+                serveOne(connection,input,output,count<31&&System.nanoTime()<until);
+                if(!Boolean.TRUE.equals(persistent.get()))break;
+            }
+        }catch(Exception rejected){/* Bounded fail-closed connection. Never emit request values or credentials. */}finally{persistent.remove();sockets.remove(socket);}
+    }
+    private void serveOne(SSLSocket socket,InputStream input,OutputStream output,boolean mayReuse)throws Exception{
             String[] start=line(input,8192).split(" ",-1);if(start.length!=3||!start[2].equals("HTTP/1.1")||!Arrays.asList("GET","HEAD","POST","PUT","PATCH","DELETE","OPTIONS").contains(start[0])||!start[1].startsWith("/")||start[1].startsWith("//"))throw new IOException("Invalid request line");
+            socket.setSoTimeout(10000);
             Map<String,String> headers=new HashMap<String,String>();int total=0;for(int count=0;;count++){String row=line(input,8192);total+=row.length();if(row.isEmpty())break;if(count>=64||total>32768)throw new IOException("Oversized headers");int colon=row.indexOf(':');if(colon<1)throw new IOException("Invalid header");String name=row.substring(0,colon).toLowerCase(Locale.US);if(!name.matches("[a-z0-9!#$%&'*+.^_`|~-]+")||headers.containsKey(name))throw new IOException("Duplicate/invalid header");String value=row.substring(colon+1).trim();if(value.indexOf('\r')>=0||value.indexOf('\n')>=0)throw new IOException("Invalid header value");headers.put(name,value);}
             if(!host.equalsIgnoreCase(headers.get("host"))&&!(host+":443").equalsIgnoreCase(headers.get("host")))throw new IOException("Wrong Host");
             // Only this public, credential-free discovery document permits cross-origin reads.
@@ -65,6 +76,9 @@ public final class IndependentHttps implements AutoCloseable {
             IndependentPolicy.headers(start[0],headers,realm);if(headers.containsKey("transfer-encoding")||headers.containsKey("expect"))throw new IOException("Unsupported body encoding");
             String length=headers.get("content-length");if(length!=null&&!length.matches("[0-9]{1,8}"))throw new IOException("Invalid body length");int size=length==null?0:Integer.parseInt(length);if(size>2*1024*1024)throw new IOException("Oversized body");byte[] body=new byte[size];for(int at=0;at<size;){int n=input.read(body,at,size-at);if(n<0)throw new EOFException();at+=n;}
             URI uri=new URI(realm+start[1]);if(!realm.equals("https://"+uri.getRawAuthority())||uri.getRawFragment()!=null)throw new IOException("Invalid target");String path=uri.getPath();
+            // Reuse only fully consumed, validated reads. Every next request is
+            // parsed and authorized independently; writes and unframed streams close.
+            persistent.set(mayReuse&&Arrays.asList("GET","HEAD").contains(start[0])&&!Arrays.asList(headers.getOrDefault("connection","").toLowerCase(Locale.US).split("\\s*,\\s*")).contains("close"));
             if(path.equals("/health")&&start[0].equals("GET")){respond(output,new JSONObject().put("status",200).put("body","{\"server\":\"independent\",\"online\":true}"),false);return;}
             if(path.equals("/api/client-update")&&start[0].equals("GET")){JSONObject update=handler.update();if(update!=null){respond(output,new JSONObject().put("status",200).put("body",update.toString()),false);return;}}
             if(path.startsWith("/api/")){
@@ -72,7 +86,7 @@ public final class IndependentHttps implements AutoCloseable {
                 Map<String,String> accepted=IndependentPolicy.safeHeaders(headers);accepted.put("CF-Connecting-IP",socket.getInetAddress().getHostAddress());
                 JSONObject request=new JSONObject().put("url",realm+start[1]).put("method",start[0]).put("headers",new JSONObject(accepted)).put("independentPeer",socket.getInetAddress().getHostAddress()).put("independentExternal",IndependentPolicy.publicPeer(socket.getInetAddress()));
                 if(size>0){String value=new String(body,"UTF-8");if(headers.getOrDefault("content-type","").equals("application/vnd.fleet-form+json")){request.put("form",new JSONObject(value).getJSONObject("form"));request.getJSONObject("headers").put("content-type","multipart/form-data");}else request.put("body",value);}
-                if(path.equals("/api/independent/events")&&start[0].equals("GET")){events(output,request);return;}
+                if(path.equals("/api/independent/events")&&start[0].equals("GET")){persistent.set(false);if(!eventSlots.tryAcquire()){respond(output,error(503,"Οι ζωντανές συνδέσεις είναι πλήρεις. Θα επαναληφθεί η σύνδεση."),false);return;}try{events(output,request);}finally{eventSlots.release();}return;}
                 respond(output,handler.api(request),start[0].equals("HEAD"));return;
             }
             if(!Arrays.asList("GET","HEAD").contains(start[0])){respond(output,error(405,"Μη επιτρεπτή μέθοδος."),false);return;}
@@ -83,10 +97,9 @@ public final class IndependentHttps implements AutoCloseable {
                 StaticAsset value=asset(asset);boolean compressed=value.gzip!=null&&acceptsGzip(headers.get("accept-encoding"));byte[] bytes=compressed?value.gzip:value.bytes;
                 String etag="\""+value.hash+(compressed?"-gzip":"-identity")+"\"";
                 JSONObject metadata=new JSONObject().put("Content-Type",mime(asset)).put("ETag",etag).put("Vary","Accept-Encoding").put("Cache-Control",handler.immutable(asset)?"public, max-age=31536000, immutable":"public, no-cache");if(compressed)metadata.put("Content-Encoding","gzip");
-                if(matches(headers.get("if-none-match"),etag)){publicHead(output,304,-1,metadata);output.flush();return;}
+                if(matches(headers.get("if-none-match"),etag)){publicHead(output,304,0,metadata);output.flush();return;}
                 publicHead(output,200,bytes.length,metadata);if(!start[0].equals("HEAD"))output.write(bytes);output.flush();
             }catch(FileNotFoundException missing){respond(output,error(404,"Δεν βρέθηκε."),false);}
-        }catch(Exception rejected){/* Bounded fail-closed connection. Never emit request values or credentials. */}finally{sockets.remove(socket);}
     }
     private void events(OutputStream out,JSONObject request)throws Exception{
         JSONObject auth=new JSONObject(request.toString()).put("url",realm+"/api/auth/me");JSONObject response=handler.api(auth);if(response.getInt("status")!=200){respond(out,response,false);return;}
@@ -103,7 +116,8 @@ public final class IndependentHttps implements AutoCloseable {
         // Public cache/encoding headers can only originate in the static asset
         // encoder above. Business/private responses cannot opt into this cache.
         if(!publicAsset){supplied=new JSONObject(supplied.toString());List<String> discard=new ArrayList<String>();Iterator<String> names=supplied.keys();while(names.hasNext()){String name=names.next();if(name.equalsIgnoreCase("cache-control")||name.equalsIgnoreCase("content-encoding"))discard.add(name);}for(String name:discard)supplied.remove(name);supplied.put("Cache-Control","private, no-store");}
-        StringBuilder headers=new StringBuilder("HTTP/1.1 "+status+" Response\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000\r\nContent-Security-Policy: default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'\r\n");
+        boolean reuse=length>=0&&Boolean.TRUE.equals(persistent.get());if(!reuse)persistent.set(false);
+        StringBuilder headers=new StringBuilder("HTTP/1.1 "+status+" Response\r\nConnection: "+(reuse?"keep-alive\r\nKeep-Alive: timeout=3, max=32":"close")+"\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000\r\nContent-Security-Policy: default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'\r\n");
         if(!supplied.has("Cache-Control")&&!supplied.has("cache-control"))headers.append("Cache-Control: private, no-store\r\n");
         if(discovery)headers.append("Access-Control-Allow-Origin: *\r\n");
         if(length>=0)headers.append("Content-Length: ").append(length).append("\r\n");

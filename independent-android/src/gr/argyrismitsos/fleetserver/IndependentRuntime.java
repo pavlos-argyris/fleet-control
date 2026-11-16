@@ -6,7 +6,7 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
     private static IndependentRuntime instance;
     static synchronized IndependentRuntime get(Context c)throws Exception{IndependentConfig.require(c);IndependentSqlite.requireReady();if(instance==null)instance=new IndependentRuntime(c.getApplicationContext());return instance;}
     private final Context context;private FleetDataStore store;private SQLiteDatabase db;private NativeBusinessEngine engine;private final JSONObject config;
-    private final ThreadPoolExecutor executor=new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<Runnable>(32));
+    private final IndependentWorkQueue executor=new IndependentWorkQueue();
     private final RandomAccessFile lockFile;private java.nio.channels.FileLock processLock;
     private long housekeepingAt;private volatile Thread writer;private volatile boolean closed;private long revision=0;private final Object changes=new Object();
     static String asset(Context c,String name)throws Exception{try(InputStream input=c.getAssets().open(name);ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] bytes=new byte[65536];int n;while((n=input.read(bytes))!=-1){if(out.size()+n>8*1024*1024)throw new IOException("Oversized bundled asset");out.write(bytes,0,n);}return new String(out.toByteArray(),"UTF-8");}}
@@ -30,9 +30,10 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
         c.getSharedPreferences(BackupManager.PREFS,Context.MODE_PRIVATE).edit().putString("worker_url",IndependentConfig.realm(config)).putString("independent_source_realm",config.optString("sourceScopeRealm",IndependentConfig.realm(config))).commit();
         }catch(Exception failure){closed=true;executor.shutdownNow();try{if(engine!=null)engine.close();}finally{try{if(store!=null)store.close();}finally{try{if(processLock!=null&&processLock.isValid())processLock.release();}finally{lockFile.close();}}}throw failure;}
     }
-    <T>T serialized(final Callable<T> call)throws Exception{
+    <T>T serialized(final Callable<T> call)throws Exception{return serialized(call,0);}
+    <T>T serialized(final Callable<T> call,int priority)throws Exception{
         if(Thread.currentThread()==writer)return call.call();Future<T> future;
-        try{future=executor.submit(new Callable<T>(){public T call()throws Exception{writer=Thread.currentThread();try{return call.call();}finally{Thread.interrupted();}}});}catch(RejectedExecutionException busy){throw new IOException("Ο Server εξυπηρετεί άλλες εργασίες. Δοκίμασε ξανά.");}
+        try{future=executor.submit(new Callable<T>(){public T call()throws Exception{writer=Thread.currentThread();try{return call.call();}finally{Thread.interrupted();}}},priority);}catch(RejectedExecutionException busy){throw new IOException("Ο Server εξυπηρετεί άλλες εργασίες. Δοκίμασε ξανά.");}
         try{return future.get(60,TimeUnit.SECONDS);}catch(ExecutionException error){Throwable cause=error.getCause();if(cause instanceof Exception)throw(Exception)cause;throw new IOException("Η τοπική εργασία απέτυχε.");}catch(TimeoutException error){future.cancel(true);throw new IOException("Δεν επιβεβαιώθηκε η εργασία. Έλεγξε πριν επαναλάβεις.");}
     }
     private JSONObject port(String command,JSONObject value,BusinessObjects objects)throws Exception{
@@ -63,7 +64,8 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
         JSONArray pending=engine.pendingSignals();if(pending.length()>0){for(int i=0;i<pending.length();i++)engine.acknowledgeSignal(pending.getJSONObject(i).getString("id"));synchronized(changes){revision++;changes.notifyAll();}}
         return result;
     }
-    JSONObject external(final JSONObject request)throws Exception{return serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}});}
+    JSONObject external(final JSONObject request)throws Exception{JSONObject response=serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{return materialize(request,dispatch(request,false));}},request.optString("method").equals("GET")?1:0);return afterExternal(request,response);}
+    private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{return response;}
     JSONObject localLogin(String username,String password)throws Exception{return external(new JSONObject().put("url",IndependentConfig.realm(config)+"/api/auth/user-login").put("method","POST").put("headers",new JSONObject().put("Content-Type","application/json")).put("body",new JSONObject().put("username",username).put("password",password).put("deviceName","Independent owner console").toString()));}
     JSONObject localProbe(String token)throws Exception{return external(new JSONObject().put("url",IndependentConfig.realm(config)+"/api/independent/probe").put("method","POST").put("headers",new JSONObject().put("Authorization","Bearer "+token).put("X-Fleet-Operation",UUID.randomUUID().toString())).put("body","{}"));}
     private JSONObject materialize(JSONObject request,JSONObject response)throws Exception{
@@ -75,7 +77,7 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
             if(!BusinessPrimitives.hex(hash.digest()).equals(file.getString("sha256")))throw new IOException("Private response digest mismatch");output.getFD().sync();response.put("localFile",target.getPath());ok=true;return response;
         }finally{if(!ok)target.delete();}
     }
-    JSONObject internal(final String path,final String method,final JSONObject body)throws Exception{return serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{JSONObject request=new JSONObject().put("url",IndependentConfig.realm(config)+path).put("method",method).put("headers",new JSONObject().put("X-Fleet-Server-Key",config.getString("serverKey")));if(body!=null)request.put("body",body.toString());return checked(dispatch(request,true));}});}
+    JSONObject internal(final String path,final String method,final JSONObject body)throws Exception{return serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{JSONObject request=new JSONObject().put("url",IndependentConfig.realm(config)+path).put("method",method).put("headers",new JSONObject().put("X-Fleet-Server-Key",config.getString("serverKey")));if(body!=null)request.put("body",body.toString());return checked(dispatch(request,true));}},2);}
     private static JSONObject checked(JSONObject response)throws Exception{int status=response.getInt("status");JSONObject value;try{value=new JSONObject(response.optString("body","{}"));}catch(Exception e){throw new IOException("Η τοπική απάντηση δεν είναι έγκυρη.");}if(status<200||status>=300)throw new FleetHttp.HttpStatusException(status,value.optString("error","Η τοπική ενέργεια απέτυχε."));return value;}
     @Override public JSONObject request(final String address,final String method,final JSONObject body,final Map<String,String> headers,InputStream input,long length,String type,JSONObject form,String field)throws Exception{
         URI uri=new URI(address);if(!address.startsWith(IndependentConfig.realm(config)+"/api/")||!uri.getScheme().equals("https"))throw new IOException("Αποκλείστηκε εξωτερική/Cloudflare κλήση από τον ανεξάρτητο Server.");
