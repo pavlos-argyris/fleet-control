@@ -82,8 +82,12 @@ async function plan(env,source,date){
   }
   const manual=list(await env.DB.prepare("SELECT e.* FROM native_cash_events e WHERE e.business_day=? AND e.kind='assessment' AND (e.source_key IS NULL OR e.source_key NOT LIKE 'ordexa:%') AND e.store_id IN(SELECT value FROM json_each(?)) AND NOT EXISTS(SELECT 1 FROM native_cash_events r WHERE r.reverses_id=e.id) ORDER BY e.id").bind(date,JSON.stringify([...participating])).all());
   const proof=await hash({inputProof,manual:manual.map(r=>r.id)});
-  return{...base,cfg,inputProof,proof,manual,forecast,issues:issues.slice(0,40),state:issues.length?(issues.some(i=>i.code==='unmapped')?'unmapped':'review'):manual.length?'manual-review':'ready'};
+  return{...base,cfg,inputProof,proof,manual,forecast,issues:issues.slice(0,40),state:manual.length?'manual-review':issues.length?(issues.some(i=>i.code==='unmapped')?'unmapped':'review'):'ready'};
 }
+// Configuration gaps isolate the affected orders. Full source proof and manual
+// reconciliation remain day-wide gates; an unresolved identity is never guessed.
+function canApplyKnown(p){return complete(p.coverage)&&p.cfg&&p.proof&&!p.manual?.length&&['ready','unmapped','review'].includes(p.state)&&p.issues.every(i=>['unmapped','ambiguous-category','invalid-tariff'].includes(i.code));}
+async function partialKey(p){return 'cash-partial:'+await hash({scope:p.scope,id:p.day});}
 async function reverse(env,original,sourceKey,actor,notes){
   if(await env.DB.prepare('SELECT 1 found FROM native_cash_events WHERE reverses_id=?').bind(original.id).first())return false;
   await env.DB.prepare(EVENT_INSERT).bind(crypto.randomUUID(),'reversal',original.business_day,original.courier_id,original.courier_name,original.store_id,original.category,original.quantity,original.rate_cents,original.amount_cents,original.rule_id,original.id,sourceKey,notes,actor.user_id,actor.full_name||actor.username,stamp()).run();return true;
@@ -121,24 +125,31 @@ async function askSourceRefresh(env,source,date){
 export async function applyAutomaticCashBatch(env){
   const source=requireSource(env),request=await env.DB.prepare("SELECT id,day,data FROM store_billing_local WHERE scope=? AND kind='cash_apply_request' ORDER BY day DESC LIMIT 1").bind(source.scope).first();
   if(!request)return{changed:false,idle:true};const p=await plan(env,source,request.day);
-  if(p.state!=='ready'){const changed=await saveDay(env,p,p.state,'',p.issues);await acknowledge(env,request);return{changed,state:p.state,day:p.day};}
+  if(!canApplyKnown(p)){const changed=await saveDay(env,p,p.state,'',p.issues);await acknowledge(env,request);return{changed,state:p.state,day:p.day};}
   const before=await env.DB.prepare('SELECT * FROM native_cash_auto_days WHERE scope=? AND day=?').bind(source.scope,p.day).first();
+  if(before?.state===p.state&&before.proof===p.proof&&p.state!=='ready'){
+    const applied=await env.DB.prepare("SELECT data FROM store_billing_local WHERE id=? AND kind='cash_partial_applied'").bind(await partialKey(p)).first();
+    if(applied&&decode(applied.data).proof===p.proof){await acknowledge(env,request);return{changed:false,state:p.state,day:p.day};}
+  }
   if(before?.state==='ready'&&before.proof===p.proof){const changed=await saveDay(env,p,'ready','');await acknowledge(env,request);return{changed,state:'ready',day:p.day};}
   const cursor=before?.proof===p.proof&&before.state==='applying'?before.cursor:'',ids=list(await env.DB.prepare("SELECT order_id FROM(SELECT json_extract(data,'$.sourceOrderId') order_id FROM store_billing_local WHERE scope=? AND kind='cash_snapshot_order' AND day=? AND json_extract(data,'$.runId')=? AND (store_id IN(SELECT value FROM json_each(?)) OR EXISTS(SELECT 1 FROM native_cash_auto_orders s WHERE s.scope=store_billing_local.scope AND s.order_id=json_extract(store_billing_local.data,'$.sourceOrderId'))) UNION SELECT order_id FROM native_cash_auto_orders WHERE scope=? AND business_day=?) WHERE order_id>? ORDER BY order_id LIMIT 200").bind(source.scope,p.day,p.coverage.runId,JSON.stringify([...p.cfg.byStore.keys()]),source.scope,p.day,cursor).all()).map(row=>row.order_id);
   const rows=await latestSourceRows(env,source.scope,ids),grouped=new Map();for(const row of rows){const data=decode(row.data),id=data.sourceOrderId;if(!grouped.has(id))grouped.set(id,[]);grouped.get(id).push({...row,value:data});}
-  const states=list(await env.DB.prepare('SELECT * FROM native_cash_auto_orders WHERE scope=? AND order_id IN(SELECT value FROM json_each(?))').bind(source.scope,JSON.stringify(ids)).all()),stateById=new Map(states.map(row=>[row.order_id,row])),plans=new Map([[p.day,p]]);let movements=0;
+  const states=list(await env.DB.prepare('SELECT * FROM native_cash_auto_orders WHERE scope=? AND order_id IN(SELECT value FROM json_each(?))').bind(source.scope,JSON.stringify(ids)).all()),stateById=new Map(states.map(row=>[row.order_id,row])),plans=new Map([[p.day,p]]);let movements=0,heldMove=false;
   for(const id of ids){
     const previous=stateById.get(id),matches=grouped.get(id)||[];
     if(new Set(matches.map(row=>row.value.fingerprint)).size>1){const oldest=[...matches].sort((a,b)=>a.sourceAt.localeCompare(b.sourceAt))[0];await askSourceRefresh(env,source,oldest.day);const changed=await saveDay(env,p,'partial','',[{code:'cross-day-source',orderId:id,message:'Η μεταφορά παραγγελίας μεταξύ ημερών χρειάζεται πλήρη επανέλεγχο.'}]);await acknowledge(env,request);return{changed:changed||movements>0,state:'partial',day:p.day};}
     const candidate=matches[0]||null,sourceAt=candidate?.sourceAt||p.coverage.sourceAt;
     if(previous&&sourceAt<previous.source_at){await askSourceRefresh(env,source,p.day);const changed=await saveDay(env,p,'partial','',[{code:'older-source',message:'Διατηρήθηκε η νεότερη θέση παραγγελίας· εκκρεμεί επανέλεγχος.'}]);await acknowledge(env,request);return{changed:changed||movements>0,state:'partial',day:p.day};}
     const date=candidate?.day||previous?.business_day||p.day,store=candidate?.store_id||previous?.store_id||'';if(!plans.has(date))plans.set(date,await plan(env,source,date));const targetPlan=plans.get(date);
-    if(candidate&&!['ready','not-configured'].includes(targetPlan.state)){await queueAutomaticDay(env,source.scope,date,'other-day-review');const changed=await saveDay(env,p,'partial','',[{code:'other-day-review',day:date,message:'Χρειάζεται έλεγχος στην ημέρα '+date+' πριν μεταφερθεί η χρέωση.'}]);await acknowledge(env,request);return{changed:changed||movements>0,state:'partial',day:p.day};}
+    if(candidate&&targetPlan.state!=='not-configured'&&!canApplyKnown(targetPlan)){await queueAutomaticDay(env,source.scope,date,'other-day-review');const changed=await saveDay(env,p,'partial','',[{code:'other-day-review',day:date,message:'Χρειάζεται έλεγχος στην ημέρα '+date+' πριν μεταφερθεί η χρέωση.'}]);await acknowledge(env,request);return{changed:changed||movements>0,state:'partial',day:p.day};}
     const cfg=targetPlan.cfg||p.cfg,oldData=previous?decode(previous.data):{},pin=oldData.pinnedDay===date&&oldData.pinnedRule?.store_id===store&&(oldData.pinFinal===true||oldData.pinProof===targetPlan.inputProof)?oldData.pinnedRule:null;
     const rule=candidate?selectRule(cfg,store,pin):null,participates=!!candidate&&(!!pin||cfg.byStore.has(store)),link=candidate?cfg.byRider.get(candidate.value.sourceRiderId):null,excluded=cfg.excluded.has(id);
     if(!previous&&!participates)continue;
     if(participates&&!excluded&&(!rule||!Number.isSafeInteger(rule.rate_cents)||rule.rate_cents<1||rule.rate_cents>100000000||!link?.employee_id||!link.current_name)){
-      const changed=await saveDay(env,p,'unmapped','',[{code:rule?'unmapped':'ambiguous-category',orderId:id,riderId:candidate.value.sourceRiderId,message:'Χρειάζεται αντιστοίχιση ή επιλογή μοναδικής κατηγορίας.'}]);await acknowledge(env,request);return{changed:changed||movements>0,state:'unmapped',day:p.day};
+      // Preserve any earlier charge while the new identity/category is uncertain.
+      // Advance past this source ID so unrelated mapped deliveries can be applied.
+      if(date!==p.day){heldMove=true;await queueAutomaticDay(env,source.scope,date,'other-day-configuration');}
+      continue;
     }
     const target=participates&&!excluded?{day:date,storeId:store,employeeId:link.employee_id,employeeName:link.current_name,rule}:null;
     const fingerprint=await hash(target?{day:date,storeId:store,employeeId:target.employeeId,category:rule.category,rateCents:rule.rate_cents,ruleId:rule.id}:{state:excluded?'excluded':'absent'});
@@ -150,9 +161,13 @@ export async function applyAutomaticCashBatch(env){
     await persistOrder(env,previous,{scope:source.scope,orderId:id,day:date,storeId:store,employeeId:target?.employeeId||previous?.employee_id||null,eventId,fingerprint,sourceAt,data:{pinnedRule:target?.rule||pin||oldData.pinnedRule||null,pinnedDay:target?date:oldData.pinnedDay||previous?.business_day||null,pinProof:target?targetPlan.inputProof:oldData.pinProof||null,pinFinal:target?!!pin&&oldData.pinFinal===true:oldData.pinFinal===true,sourceFingerprint:candidate?.value.fingerprint||null,excluded,reason:target?'delivered':excluded?'manual-exclusion':'absent'}});
     for(const movedDay of new Set([previous?.business_day,date]))if(movedDay&&movedDay!==p.day)await queueAutomaticDay(env,source.scope,movedDay,'order-moved');
   }
-  const done=ids.length<200;if(done)await env.DB.prepare("UPDATE native_cash_auto_orders SET data=json_set(data,'$.pinFinal',json('true')) WHERE scope=? AND business_day=? AND json_extract(data,'$.pinProof')=? AND COALESCE(json_extract(data,'$.pinFinal'),0)=0").bind(source.scope,p.day,p.inputProof).run();const changed=await saveDay(env,p,done?'ready':'applying',done?'':ids[ids.length-1]);if(done)await acknowledge(env,request);
+  const done=ids.length<200;if(done)await env.DB.prepare("UPDATE native_cash_auto_orders SET data=json_set(data,'$.pinFinal',json('true')) WHERE scope=? AND business_day=? AND json_extract(data,'$.pinProof')=? AND COALESCE(json_extract(data,'$.pinFinal'),0)=0").bind(source.scope,p.day,p.inputProof).run();const held=heldMove||before?.proof===p.proof&&decode(before.issues).some(i=>i.code==='held-day-move'),issues=held?[...p.issues,{code:'held-day-move',message:'Διατηρήθηκε η προηγούμενη χρέωση ώσπου να αντιστοιχιστεί μεταφερόμενη παραγγελία.'}]:p.issues,finalState=done?(held?'partial':p.state):'applying',changed=await saveDay(env,p,finalState,done?'':ids[ids.length-1],issues);
+  if(done){
+    if(p.state!=='ready')await env.DB.prepare("INSERT INTO store_billing_local(id,kind,scope,store_id,day,data,dirty) VALUES(?,'cash_partial_applied',?,'',?,?,0) ON CONFLICT(id) DO UPDATE SET data=excluded.data").bind(await partialKey(p),p.scope,p.day,JSON.stringify({proof:p.proof})).run();
+    await acknowledge(env,request);
+  }
   if(movements||done&&changed)await audit(env,new Request((source.worker||'https://native.invalid')+'/api/server/cash/apply'),SYSTEM,'cash_ordexa_apply','cash_day',p.day,null,{scope:source.scope,proof:p.proof,movements,done},'Αυτόματη εφαρμογή επαληθευμένων παραδόσεων, χωρίς μισθοδοσία.');
-  return{changed:changed||movements>0,state:done?'ready':'applying',day:p.day,processed:ids.length,movements};
+  return{changed:changed||movements>0,state:finalState,day:p.day,processed:ids.length,movements};
 }
 export async function preserveAutomaticReversal(env,original,user,notes){
   const state=await env.DB.prepare('SELECT * FROM native_cash_auto_orders WHERE event_id=?').bind(original.id).first();if(!state)return;

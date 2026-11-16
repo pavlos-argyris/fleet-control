@@ -91,3 +91,38 @@ console.log('PASS actual SQLite auto cash:0/1/50/51/1055, bounded/repeat/dedupe,
  }finally{f.db.sqlite.close();}
 }
 console.log('PASS read-only cash order explanation: included/not-selected/cancellation/partial, stable source IDs and employee/rate, exact applied cents and stale-page rejection.');
+
+{
+ const f=await fixture();try{
+  let rows=[{id:1},{id:2,rider:99}];await source(f,rows);await drain(f);
+  assert.equal(ledger(f).due,250,'an unresolved rider cannot block known deliveries');
+  assert.equal((await cashAutomaticPreview(f.env,date)).state,'unmapped');
+  assert.equal((await automaticCashStatus(f.env,{pendingDays:0},date,date)).coverageVerified,false);
+  assert.equal(count(f,'native_cash_auto_orders'),1,'unknown identities have no invented financial owner');
+  assert.equal(f.db.sqlite.prepare("SELECT COUNT(*) n FROM store_billing_local WHERE kind='cash_day_closed'").get().n,0,'partial day cannot be finalized at 05:00');
+  const history=count(f,'native_cash_auto_history');await queueAutomaticDay(f.env,scope,date);const same=await drain(f);assert.equal(same[0].processed,undefined,'unchanged partial proof does not rescan every order');assert.equal(count(f,'native_cash_auto_history'),history);
+  rows.push({id:3});await source(f,rows);await drain(f);assert.equal(ledger(f).due,500);
+  rows=rows.filter(r=>r.id!==1);await source(f,rows);await drain(f);assert.equal(ledger(f).due,250,'complete source absence reverses known charges even while another rider is unresolved');
+  f.db.sqlite.prepare("INSERT INTO native_cash_rider_links VALUES('link-99',?, '99','2026-01-01',1,'employee-b','employee-b',?,'owner')").run(scope,new Date().toISOString());await queueAutomaticDay(f.env,scope,date);await drain(f);assert.equal(ledger(f).due,500);assert.equal((await cashAutomaticPreview(f.env,date)).state,'ready');
+  const events=count(f,'native_cash_events');await queueAutomaticDay(f.env,scope,date);await drain(f);assert.equal(count(f,'native_cash_events'),events,'explicit mapping resolves only the pending identity without duplicate charges');
+ }finally{f.db.sqlite.close();}
+}
+{
+ const f=await fixture();try{
+  event(f,{quantity:4});await source(f,[{id:1},{id:2,rider:99}]);await drain(f);assert.equal(ledger(f).due,1000,'mixed manual and unmapped sources never bypass reconciliation');assert.equal((await cashAutomaticPreview(f.env,date)).state,'manual-review');assert.equal(count(f,'native_cash_auto_orders'),0);
+ }finally{f.db.sqlite.close();}
+}
+{
+ const f=await fixture();try{
+  const rows=Array.from({length:451},(_,id)=>({id:String(id).padStart(4,'0'),rider:id%3===0?99:17}));await source(f,rows);
+  const first=await transaction(f,()=>applyAutomaticCashBatch(f.env));assert.equal(first.state,'applying');assert.equal(first.processed,200);await drain(f);assert.equal(ledger(f).orders,300,'persisted cursor resumes beyond unresolved orders across bounded batches');assert.equal((await cashAutomaticPreview(f.env,date)).state,'unmapped');
+  // A previously applied identity becoming unresolved keeps its earlier charge.
+  rows[1].rider=99;await source(f,rows);await drain(f);assert.equal(ledger(f).orders,300);assert.equal((await cashOrderAudit(f.env,date)).orders.find(r=>r.sourceOrderId==='0001').reason,'unmapped-rider');
+ }finally{f.db.sqlite.close();}
+}
+console.log('PASS partial cash isolation: mapped orders progress, unknown identities remain explicit, no final snapshot, repeat proof/no duplicates, cancellation, explicit mapping, manual guard and 451-order cursor recovery.');
+{
+ const f=await fixture();try{
+  await source(f,[{id:1}]);await drain(f);const past='2026-11-06';await source(f,[]);await source(f,[{id:1,rider:99}],past);await drain(f);assert.equal(ledger(f).due,250,'an uncertain cross-day identity retains the earlier charge');assert.equal((await automaticCashStatus(f.env,{pendingDays:0},date,date)).coverageVerified,false,'retained charge cannot falsely finalize its original day');
+ }finally{f.db.sqlite.close();}
+}
