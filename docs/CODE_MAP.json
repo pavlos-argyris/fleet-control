@@ -669,7 +669,9 @@
         "third-party/independent-sqlite/**",
         "scripts/prepare-independent-sqlite.py",
         "scripts/build-independent-android-test.py",
-        "scripts/fixtures/android-sqlite/**"
+        "scripts/fixtures/android-sqlite/**",
+        "independent-android/src/gr/argyrismitsos/fleetserver/IndependentWorkQueue.java",
+        "scripts/fixtures/IndependentKeepAliveChecks.java.txt"
       ],
       "tests": [
         "scripts/test-independent-business.mjs",
@@ -678,7 +680,8 @@
         "scripts/test-cash-pilot-native.mjs",
         "scripts/test-independent-web.mjs",
         "scripts/test-independent-browser.mjs",
-        "scripts/test-independent-android.sh"
+        "scripts/test-independent-android.sh",
+        "scripts/test-independent-work-queue.mjs"
       ],
       "related": [
         "server-foundation",
@@ -686,7 +689,8 @@
         "worker-core"
       ],
       "docs": [
-        "docs/ISSUE_90_INDEPENDENT_ANDROID_GR.md"
+        "docs/ISSUE_90_INDEPENDENT_ANDROID_GR.md",
+        "docs/ISSUE_107_TRANSPORT_GR.md"
       ]
     },
     {

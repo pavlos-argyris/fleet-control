@@ -1,3 +1,7 @@
+## #107 — HTTPS keep-alive / bounded writer priorities, 16/11/2026
+
+Branch `codex/issue-107-performance`, συνέχεια PR113. Πραγματικά TLS/queue regressions και synthetic1/8/32-client before/after ολοκληρώθηκαν. Διατηρούνται per-request auth, private/no-store και μοναδικός transactional writer. Λεπτομέρειες/όρια `docs/ISSUE_107_TRANSPORT_GR.md`. Δεν δημοσιεύτηκε update· read models/profiling/Direct redirect και τελικές πύλες107 συνεχίζονται.
+
 ## #107 — Ταμείο μόνο ανάγνωση / απομόνωση εκκρεμοτήτων, 16/11/2026
 
 Θεματικό branch `codex/issue-107-cash-view`, συνέχεια PR112. Διορθώνει day-wide αποκλεισμό από έναν άγνωστο rider και προβάλλει ποσό παραδόσεων με read-only popup/Πίσω. Manual/coverage/history παραμένουν πύλες. Πλήρεις λεπτομέρειες/όρια στο `docs/ISSUE_107_CASH_READONLY_GR.md`. Δεν έγινε παραγωγική οικονομική μεταβολή ή δημοσίευση. Συνεχίζονται οι εκκρεμείς επιδόσεις/Direct-only/τελική πιστοποίηση του107.
