@@ -13,7 +13,7 @@ try{
  write('IndependentBusinessTest.java',String.raw`package gr.argyrismitsos.fleetserver;
 import org.json.*;import android.database.sqlite.*;import java.io.*;import java.nio.file.*;
 public class IndependentBusinessTest {
- static SQLiteDatabase db;static BusinessSqlite sql;static NativeBusinessEngine engine;static int network;static boolean storeReady;static boolean trusted=true;static String instance="fixture-instance";static final String realm="https://fixture.duckdns.org";
+ static SQLiteDatabase db;static BusinessSqlite sql;static NativeBusinessEngine engine;static int network;static boolean storeReady,rejectReportCommit;static String uncommittedStoreRow;static boolean trusted=true;static String instance="fixture-instance";static final String realm="https://fixture.duckdns.org";
  static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
  static JSONObject call(String path,String method,JSONObject body,String token,boolean internal,String operation,boolean external)throws Exception{
   JSONObject headers=new JSONObject().put("Content-Type","application/json");if(token!=null)headers.put("Authorization","Bearer "+token);if(internal)headers.put("X-Fleet-Server-Key","fixture-independent-server-key-123456");if(operation!=null)headers.put("X-Fleet-Operation",operation);
@@ -36,7 +36,7 @@ public class IndependentBusinessTest {
   IndependentDatabase.configure(db);db.execSQL("INSERT INTO independent_instance VALUES(1,'fixture-instance','test',NULL,NULL)");
   check(sql.call("sql.query",new JSONObject().put("sql","PRAGMA synchronous")).getJSONArray("results").getJSONObject(0).getInt("synchronous")==2,"independent writer uses FULL SQLite durability");
   JSONObject configuration=new JSONObject().put("standalone",true).put("realm",realm).put("generation","00000000-0000-4000-8000-000000000001").put("serverKey","fixture-independent-server-key-123456").put("authPepper","fixture-independent-pepper").put("eventSigningKey","fixture-independent-events-123456789");
-  engine=new NativeBusinessEngine(db,new File(args[3],"documents"),new File(args[3],"temporary"),configuration,code,manifest.getString("bundleSha256"),new NativeBusinessEngine.Authority(){public void beforeRequest(JSONObject r,boolean internal){}public void beforeCommit(JSONObject r,boolean internal){}},new NativeBusinessEngine.Ports(){public JSONObject call(String command,JSONObject value,BusinessObjects objects)throws Exception{
+  engine=new NativeBusinessEngine(db,new File(args[3],"documents"),new File(args[3],"temporary"),configuration,code,manifest.getString("bundleSha256"),new NativeBusinessEngine.Authority(){public void beforeRequest(JSONObject r,boolean internal)throws Exception{if(rejectReportCommit&&r.getString("url").contains("/api/native/store-financials"))db.execSQL("UPDATE store_billing_local SET data=? WHERE id='daily:fixture-store-0:2026-10-01'",new Object[]{uncommittedStoreRow});}public void beforeCommit(JSONObject r,boolean internal)throws Exception{if(rejectReportCommit)throw new IOException("fixture report commit rejected");}},new NativeBusinessEngine.Ports(){public JSONObject call(String command,JSONObject value,BusinessObjects objects)throws Exception{
    if(command.equals("store.context"))return new JSONObject().put("configured",storeReady).put("scope","readmodel-stores").put("generation","fixture-source-generation");
    if(command.equals("health.snapshot"))return new JSONObject();
    if(command.equals("independent.status"))return new JSONObject().put("instanceId",instance).put("mode",mode());

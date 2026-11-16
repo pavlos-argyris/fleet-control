@@ -19,7 +19,9 @@
         "scripts/test-server-snapshot-sync.mjs",
         "scripts/test-server-system-mirror.mjs",
         "scripts/test-server-http.mjs",
-        "scripts/test-server-offload-native.mjs"
+        "scripts/test-server-offload-native.mjs",
+        "scripts/test-shared-reads.mjs",
+        "scripts/test-independent-business.mjs"
       ],
       "related": [
         "worker-core",
@@ -27,7 +29,8 @@
         "direct-access"
       ],
       "docs": [
-        "docs/SERVER_OFFLOAD_5.47.0_GR.md"
+        "docs/SERVER_OFFLOAD_5.47.0_GR.md",
+        "docs/ISSUE_107_SHARED_COMPUTATIONS_GR.md"
       ]
     },
     {
@@ -149,7 +152,8 @@
         "server-android/src/gr/argyrismitsos/fleetserver/FinancialExport.java",
         "cloudflare-worker/public/store-weekly-report.js",
         "cloudflare-worker/public/store-financial-ui.js",
-        "scripts/fixtures/native-management-browser-data.mjs"
+        "scripts/fixtures/native-management-browser-data.mjs",
+        "server-runtime/shared-reads.js"
       ],
       "tests": [
         "scripts/test-store-billing-*.mjs",
@@ -161,7 +165,9 @@
         "scripts/test-store-weekly-browser.mjs",
         "scripts/test-store-alias-cas-sqlite.mjs",
         "scripts/test-native-management-ui.mjs",
-        "scripts/test-native-management-browser.mjs"
+        "scripts/test-native-management-browser.mjs",
+        "scripts/test-shared-reads.mjs",
+        "scripts/test-independent-business.mjs"
       ],
       "related": [
         "ordexa-attendance",
@@ -174,7 +180,8 @@
         "docs/ISSUE_62_PARALLEL_START_GR.md",
         "docs/STORES_WEEKLY_5.60.1_GR.md",
         "docs/NATIVE_MANAGEMENT_5.61_GR.md",
-        "docs/ISSUE_107_STORE_EXPORT_GR.md"
+        "docs/ISSUE_107_STORE_EXPORT_GR.md",
+        "docs/ISSUE_107_SHARED_COMPUTATIONS_GR.md"
       ]
     },
     {
@@ -694,7 +701,8 @@
         "scripts/test-independent-android.sh",
         "scripts/test-independent-work-queue.mjs",
         "scripts/test-independent-readmodels.mjs",
-        "scripts/test-view-cache.mjs"
+        "scripts/test-view-cache.mjs",
+        "scripts/test-shared-reads.mjs"
       ],
       "related": [
         "server-foundation",
@@ -704,7 +712,8 @@
       "docs": [
         "docs/ISSUE_90_INDEPENDENT_ANDROID_GR.md",
         "docs/ISSUE_107_TRANSPORT_GR.md",
-        "docs/ISSUE_107_READ_MODELS_GR.md"
+        "docs/ISSUE_107_READ_MODELS_GR.md",
+        "docs/ISSUE_107_SHARED_COMPUTATIONS_GR.md"
       ]
     },
     {

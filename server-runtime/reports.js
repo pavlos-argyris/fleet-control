@@ -1,4 +1,5 @@
 import {matchesStoreProof} from './store-proof.js';
+import {sharedStoreRead} from './shared-reads.js';
 import {businessContext} from './ports.js';
 import {aggregateStoreFinancials} from '../cloudflare-worker/src/store-financial-report.js';
 import {list,reply,NativeError,text,day,range,actor,audit,stamp,addDay,integer,hash} from './common.js';
@@ -7,6 +8,9 @@ const periodKey=(d,period,from)=>period==='range'?from:period==='day'?d:period==
 async function scopeFor(url,env){const current=businessContext(env);if(!current.configured||!current.scope)throw new NativeError(503,'Ρύθμισε πρώτα την ανάγνωση καταστημάτων στον Server.');const requested=url.searchParams.get('scope');if(requested&&requested!==current.scope)throw new NativeError(409,'Άλλαξε η ενεργή πηγή καταστημάτων. Άνοιξε ξανά την αναφορά.');return current.scope;}
 export async function storeReport(env,{from,to,period='day',scope,storeId=''}){
   day(from);day(to);if(!['day','week','month','range'].includes(period))throw new NativeError(400,'Επίλεξε ημέρα, εβδομάδα ή μήνα.');
+  return sharedStoreRead(env,{from,to,period,scope,storeId},()=>computeStoreReport(env,{from,to,period,scope,storeId}));
+}
+async function computeStoreReport(env,{from,to,period,scope,storeId}){
   const catalog=list(await env.DB.prepare("SELECT id store_id,data FROM store_billing_local WHERE scope=? AND kind='store' ORDER BY id").bind(scope).all());
   if(!catalog.length)throw new NativeError(409,'Δεν έχει αποθηκευτεί ακόμη κατάλογος καταστημάτων.');
   const names=Object.fromEntries(catalog.map(r=>[r.store_id,JSON.parse(r.data).name||r.store_id]));
