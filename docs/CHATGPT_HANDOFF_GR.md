@@ -1,3 +1,13 @@
+## 16/11/2026 — Ανάληψη συνολικού #107, υλοποίηση και δημοσίευση εξουσιοδοτημένες
+
+- Νεότερη ρητή εντολή ιδιοκτήτη: έναρξη #107 και αυτόματη υλοποίηση/δημοσίευση όταν ολοκληρωθεί. Διατηρούνται οι πύλες ακεραιότητας, CI και αρχικής υπογραφής. Δεν απαιτείται δεύτερη άδεια για το ίδιο scope.
+- Φάση0: βάση main bad379bb153ce0ba547d083b79d6055370e32bed, audit PR108 / codex/issue-107-audit. Matrix στο docs/ISSUE_107_AUDIT_GR.md. Τα παλιά drafts69/70/71/89 δεν συγχωνεύονται τυφλά.
+- Ταμείο: PR109 / codex/issue-107-cash, management-only read-only order-audit, source IDs/ιστορική τιμή/αιτία αποκλεισμού, αυστηρή ισότητα breakdown/total και σαφές deliveryDueCents. PASS actual SQLite και Java/Rhino/SQLite business runtime. Κανένα ledger mutation από diagnosis.
+- Τιμολόγια: branch codex/issue-107-invoices, canonical legacy QR χωρίς παλιό operation row, banner χωρίς αυτόματη μαζική επανεπεξεργασία, ίδια επιλεγμένα entries στη λίστα. Direct bounded6 retry ladder10s/30s/60s/120s/300s, κατάσταση/αποτελέσματα στη durable queue, offline δεν καταναλώνει προσπάθειες, δύο PDF workers, μία OCR, thermal/RAM downgrade. Ρητό canonical known-status reconciliation αποφεύγει διαγραφή jobs λόγω μικρής/φιλτραρισμένης pending σελίδας. Cancelled jobs δεν συνδέουν καθυστερημένα αποτελέσματα.
+- PASS targeted: πραγματικός Direct scheduler με disposable native ports (62jobs,2workers,late cancellation,offline,exhaustion/restart), canonical62 legacy cases, retry/alert tests, παλιοί invoice recovery/review/offload έλεγχοι. Φυσικό Android/Ordexa δεν υποκαθίστανται από αυτά.
+- Υποψήφια μόνο: Client/Web5.67.0/code113, Server2.16.0/code86, Worker5.22.0. Δεν δημοσιεύθηκε, δεν συγχωνεύθηκε, δεν εγκαταστάθηκε. Οι υπόλοιπες φάσεις μισθοδοσίας/καταστημάτων/PDF/UI/απόδοσης παραμένουν ενεργές· το #107 δεν είναι ολοκληρωμένο.
+- Εκκρεμεί επαληθευμένο ιδιωτικό παράδειγμα undercount, φυσικό backup/isolated restore και πραγματικό Note10+/δίκτυα. Η Direct δημόσια ανάγνωση από αυτό το περιβάλλον έληξε σε timeout. Καμία παραγωγική εγγραφή, restore/delete, Ordexa write ή νέα χρέωση.
+
 ## 15/11/2026 — Fleet 5.66.1 / Server 2.15.1 δημοσιεύθηκε και επαληθεύτηκε
 
 - Immutable source **19908d9600bccdb7f961b1b3bfc7a59956d6b6a1**, tree **e454f52877caec82fd8330a17318c7fb9e357f93**. PR #106 πέρασε Full **43653024458** και Fast **43653024454**. Το ακριβές main/source πέρασε Full **43654410000 SUCCESS**, όλα τα 12 jobs. Περιλαμβάνονται πραγματικό Chromium 390/1280 με 29 συνθετικές μηχανές σε 8 canonical σελίδες, normal-APK Android και Java/Rhino/SQLite, backup, native και security έλεγχοι. Οι δοκιμές δεν υποκαθιστούν την επαλήθευση της ιδιωτικής βάσης στη συσκευή.

@@ -18,7 +18,7 @@ public final class LocalWorkQueue {
   if(acknowledged!=null)for(int i=0;i<acknowledged.length();i++)map.remove(acknowledged.getString(i));
   if(incoming!=null)for(int i=0;i<incoming.length();i++){
    JSONObject row=incoming.getJSONObject(i),old=map.get(row.getString("id"));
-   if(old!=null){row.put("localComplete",old.optBoolean("localComplete",false)).put("retryAt",old.optLong("retryAt",0)).put("batchFailures",old.optInt("batchFailures",0));if(old.has("localResult"))row.put("localResult",old.getJSONObject("localResult"));}
+   if(old!=null){row.put("localComplete",old.optBoolean("localComplete",false)).put("retryAt",old.optLong("retryAt",0)).put("batchFailures",old.optInt("batchFailures",0));if(old.has("localResult"))row.put("localResult",old.getJSONObject("localResult"));for(String key:new String[]{"directAttempts","directState","directLastError","directTerminal","directStartedAt"})if(old.has(key))row.put(key,old.get(key));}
    map.put(row.getString("id"),row);
   }
   JSONArray result=new JSONArray();for(JSONObject row:map.values())result.put(row);save(result);
@@ -27,6 +27,7 @@ public final class LocalWorkQueue {
   JSONArray result=new JSONArray(),rows=rows();for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if(!row.optBoolean("localComplete",false)&&row.optLong("retryAt",0)<=now)result.put(row);}return result;
  }
  public synchronized void update(String id,String field,Object value)throws Exception{JSONArray rows=rows();for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if(id.equals(row.optString("id")))row.put(field,value);}save(rows);}
+ public synchronized void patch(String id,JSONObject fields)throws Exception{JSONArray rows=rows();for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if(id.equals(row.optString("id")))for(java.util.Iterator<String> keys=fields.keys();keys.hasNext();){String key=keys.next();row.put(key,fields.get(key));}}save(rows);}
  public synchronized int batchFailed(String id,long now)throws Exception{
   JSONArray rows=rows();int failures=0;
   for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if(id.equals(row.optString("id"))){failures=row.optInt("batchFailures",0)+1;row.put("batchFailures",failures).put("retryAt",failures>=3?Long.MAX_VALUE:now+(60000L<<(failures-1)));}}

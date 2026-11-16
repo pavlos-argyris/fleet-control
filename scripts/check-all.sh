@@ -97,6 +97,7 @@ node scripts/test-invoice-retry-actions.mjs
 node scripts/test-invoice-retry-ui.mjs
 node scripts/test-invoice-retry-d1.mjs
 node scripts/test-invoice-recovery.mjs
+node scripts/test-direct-invoice-policy.mjs
 node scripts/test-invoice-recovery-ui.mjs
 node scripts/test-invoice-recovery-d1.mjs
 node scripts/test-invoice-imports.mjs

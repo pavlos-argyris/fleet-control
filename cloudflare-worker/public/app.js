@@ -2270,7 +2270,7 @@
     const rows=qrAttentionRows(bikes);let banner=document.getElementById('qrAttentionBanner');
     if(!banner){banner=document.createElement('button');banner.id='qrAttentionBanner';banner.type='button';banner.className='secondary-action ui-qr-attention';list.before(banner);}
     banner.hidden=!rows.length;
-    if(rows.length){const first=rows[0];banner.innerHTML='<strong>'+rows.length+' '+(rows.length===1?'τιμολόγιο χρειάζεται έλεγχο':'τιμολόγια χρειάζονται έλεγχο')+'</strong><small>'+escapeHtml(first.bike.name+' · '+formatDate(first.entry.date))+' · Πάτησε για έλεγχο και επανάληψη</small>';banner.onclick=()=>window.FleetFollowup.open('pending',{recover:true,entryIds:rows.map(r=>String(r.bike.id)+':'+String(r.entry.id))});}
+    if(rows.length){const first=rows[0];banner.innerHTML='<strong>'+rows.length+' '+(rows.length===1?'τιμολόγιο χρειάζεται έλεγχο':'τιμολόγια χρειάζονται έλεγχο')+'</strong><small>'+escapeHtml(first.bike.name+' · '+formatDate(first.entry.date))+' · Πάτησε για έλεγχο και επανάληψη</small>';banner.onclick=()=>window.FleetFollowup.open('pending',{entryIds:rows.map(r=>String(r.bike.id)+':'+String(r.entry.id))});}
     notifyQrFailures(rows);
   }
 

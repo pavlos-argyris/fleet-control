@@ -855,9 +855,10 @@ function serviceRenderState(payload, rowStatus, createdAt) {
   const startedAt = safePayload.requestedAt || createdAt || "";
   const startedMs = Date.parse(startedAt);
   const elapsedSeconds = Number.isFinite(startedMs) ? Math.max(0, Math.floor((Date.now() - startedMs) / 1000)) : 0;
-  const attempts = Math.max(0, Number(safePayload.attemptCount || 0));
+  const attempts = Math.max(0, Number(safePayload.directAttemptCount || safePayload.attemptCount || 0));
   const hasError = Boolean(String(safePayload.lastError || "").trim());
   let status = rowStatus === "error" ? "error" : rowStatus === "applied" ? "completed" : (hasError || elapsedSeconds >= Math.round(SERVICE_RENDER_DELAY_MS / 1000) ? "delayed" : "processing");
+  if(rowStatus==="pending"&&safePayload.directRetryState&&["waiting","running","offline"].includes(safePayload.directRetryState))status="processing";
   const progress = status === "completed"
     ? 100
     : cleanInteger(safePayload.progress, 5, 95, 5);
@@ -875,6 +876,7 @@ function serviceRenderState(payload, rowStatus, createdAt) {
     error: String(safePayload.lastError || ""),
     canRetry: status === "error" || status === "delayed",
     createdAt: createdAt || startedAt,
+    retryAt: safePayload.nextAttemptAt || null, retryState:safePayload.directRetryState||null,
     lastAttemptAt: safePayload.lastAttemptAt || ""
   };
 }
@@ -1166,7 +1168,7 @@ async function listAdminServiceDocuments(request, env) {
         FROM json_each(h.value,'$.attachments') a))) AS entry_json
     FROM fleet_snapshot s, json_each(s.data,'$.bikes') b, json_each(b.value,'$.history') h
     WHERE s.id=1 AND json_extract(h.value,'$.type') != 'check'
-    AND (json_array_length(h.value,'$.attachments') > 0 OR json_extract(h.value,'$.invoiceData.qrUrl') IS NOT NULL)
+    AND (json_array_length(h.value,'$.attachments') > 0 OR json_extract(h.value,'$.invoiceData.qrUrl') IS NOT NULL OR json_extract(h.value,'$.invoiceData.qrJobId') IS NOT NULL)
     AND NOT EXISTS (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=json_extract(b.value,'$.id')) ORDER BY b.key,h.key ${paged?'LIMIT ? OFFSET ?':''}`).bind(...(paged?[limit+1,offset]:[])).all();
   if(paged&&invoiceRows.results?.some(row=>Number(row.snapshot_version)!==summary.version))return json({error:'Τα τιμολόγια άλλαξαν κατά την ανάγνωση.',code:'invoice_list_changed'},409);
   const hasMore=paged&&invoiceRows.results.length>limit;
@@ -1190,7 +1192,7 @@ async function listAdminServiceDocuments(request, env) {
         documents.push(adminServiceDocumentRecord(bike, entry, attachment, null, snapshot.data.bikes,true));
       }
       const legacy=ServiceModel.qrDocumentState(entry);
-      if (entry.invoiceData?.qrUrl && !pendingIds.has(entry.invoiceData.qrJobId) && (legacy?.needsVerification || (!(entry.attachments || []).length && !entry.invoiceData.qrJobId))) {
+      if ((entry.invoiceData?.qrUrl||entry.invoiceData?.qrJobId) && !pendingIds.has(entry.invoiceData.qrJobId) && (legacy?.needsVerification || legacy?.attention&&!legacy?.attachment || (!(entry.attachments || []).length && !entry.invoiceData.qrJobId))) {
         documents.push(adminServiceDocumentRecord(bike, entry, null, {
           bikeId: bike.id, bikeName: bike.name, entryId: entry.id,
           serviceDate: entry.date, serviceKm: entry.km,
@@ -1845,6 +1847,7 @@ async function serverInvoiceReprocessBatch(request, env) {
 }
 
 async function extractStoredInvoiceOcr(env, bytes, type, filename, forceAi = false) {
+  if(env.LOCAL_PRIMARY)throw new Error('Η Direct εγκατάσταση χρησιμοποιεί αποκλειστικά τοπική ανάγνωση. Τα αβέβαια στοιχεία χρειάζονται ανθρώπινο έλεγχο.');
   if (type === "application/pdf") {
     if (!env.AI?.toMarkdown) throw new Error("Η ανάγνωση PDF δεν είναι διαθέσιμη στον Worker.");
     const converted = await env.AI.toMarkdown({
@@ -3356,7 +3359,13 @@ async function serverPending(request, env) {
     try { payload = JSON.parse(row.payload); } catch {}
     return { id: row.id, source: row.source, type: row.type, payload, createdAt: row.created_at };
   });
-  return json({ operations, serverTime: new Date().toISOString() });
+  let known;
+  if(env.STANDALONE&&new URL(request.url).searchParams.has('known')){
+    try{const ids=JSON.parse(new URL(request.url).searchParams.get('known'));if(!Array.isArray(ids)||ids.length>200||ids.some(id=>typeof id!=='string'||id.length>120))throw Error();
+      const found=await env.DB.prepare("SELECT id,status FROM fleet_operations WHERE type IN ('service_document_render','service_document_reprocess_batch') AND id IN(SELECT value FROM json_each(?))").bind(JSON.stringify(ids)).all(),byId=new Map((found.results||[]).map(r=>[r.id,r.status]));known=ids.map(id=>({id,status:byId.get(id)||'missing'}));
+    }catch{return json({error:'Μη έγκυρη λίστα εργασιών.'},400);}
+  }
+  return json({ operations,...(known?{known}:{}), serverTime: new Date().toISOString() });
 }
 
 async function serverAck(request, env) {
@@ -3390,6 +3399,7 @@ async function serverOperationProgress(request, env) {
     return json({ok:true,jobId,...failure});
   }
   const progress = cleanInteger(body.progress, 0, 99, 0);
+  if(env.STANDALONE&&body.directAttemptCount){payload.directAttemptCount=cleanInteger(body.directAttemptCount,1,6,1);payload.directRetryState='running';delete payload.nextAttemptAt;}
   payload.progress = progress;
   payload.progressStage = cleanText(body.stage, 160) || payload.progressStage || "Σε επεξεργασία από τον Server";
   payload.lastAttemptAt = new Date().toISOString();
@@ -3428,12 +3438,14 @@ async function serverOperationError(request, env) {
     return json({ok:true,jobId,...failure});
   }
   const transient = body.retryable === true;
-  const attempts = Math.max(0, Number(payload.attemptCount || 0)) + (transient ? 0 : 1);
-  const status = attempts >= SERVICE_RENDER_MAX_ATTEMPTS ? "error" : "pending";
+  const direct=env.STANDALONE===true;
+  const attempts = direct?Math.max(Number(payload.directAttemptCount)||0,cleanInteger(body.directAttemptCount,1,6,1)):Math.max(0, Number(payload.attemptCount || 0)) + (transient ? 0 : 1);
+  const status = direct?(!transient||body.terminal===true||attempts>=6?"error":"pending"):(attempts >= SERVICE_RENDER_MAX_ATTEMPTS ? "error" : "pending");
+  if(direct){payload.directAttemptCount=attempts;payload.directRetryState=status==='error'?'review':'waiting';payload.directLastErrorCode=['invalid-input','retry-exhausted'].includes(body.code)?body.code:'temporary';}
   payload.attemptCount = attempts;
-  if (transient) {
+  if (transient && status!=="error") {
     payload.transientAttemptCount = Math.max(0, Number(payload.transientAttemptCount || 0)) + 1;
-    payload.nextAttemptAt = new Date(Date.now() + Math.min(60000, 1000 * 2 ** Math.min(payload.transientAttemptCount, 6))).toISOString();
+    payload.nextAttemptAt = new Date(Date.now() + (direct?[10000,30000,60000,120000,300000][Math.min(4,Math.max(0,attempts-1))]:Math.min(60000, 1000 * 2 ** Math.min(payload.transientAttemptCount, 6)))).toISOString();
   } else delete payload.nextAttemptAt;
   payload.lastError = errorMessage;
   payload.lastAttemptAt = new Date().toISOString();
@@ -3442,7 +3454,7 @@ async function serverOperationError(request, env) {
     .bind(JSON.stringify(payload), status, jobId).run();
   if(!draft)await updateServiceDocumentProcessingSnapshot(env, payload, {
     jobId,
-    status: status === "error" ? "error" : "delayed",
+    status: status === "error" ? "error" : direct?"retrying":"delayed",
     progress: Math.max(5, Math.min(95, Number(payload.progress || 5))),
     stage: payload.progressStage,
     error: errorMessage,

@@ -205,19 +205,23 @@
         "cloudflare-worker/public/invoice-*.js",
         "server-android/src/gr/argyrismitsos/fleetserver/InvoicePipeline.java",
         "server-android/src/gr/argyrismitsos/fleetserver/LocalInvoiceReader.java",
-        "server-android/src/gr/argyrismitsos/fleetserver/ServiceDocument*.java"
+        "server-android/src/gr/argyrismitsos/fleetserver/ServiceDocument*.java",
+        "independent-android/src/gr/argyrismitsos/fleetserver/IndependentInvoices.java",
+        "independent-android/src/gr/argyrismitsos/fleetserver/DirectInvoiceRetry.java"
       ],
       "tests": [
         "scripts/test-invoice-*.mjs",
         "scripts/test-local-invoice-reader.mjs",
-        "scripts/test-pdf-evidence.mjs"
+        "scripts/test-pdf-evidence.mjs",
+        "scripts/test-direct-invoice-policy.mjs"
       ],
       "related": [
         "vehicle-service",
         "backups"
       ],
       "docs": [
-        "docs/ISSUE_37_INVOICE_RECOVERY_GR.md"
+        "docs/ISSUE_37_INVOICE_RECOVERY_GR.md",
+        "docs/ISSUE_107_AUDIT_GR.md"
       ]
     },
     {
