@@ -290,10 +290,9 @@ jobs:
       matrix:
         image:
           - mobile-390-cash-couriers.png
-          - mobile-390-cash-inline-breakdown.png
+          - mobile-390-cash-breakdown-dialog.png
           - mobile-390-cash-automatic.png
-          - mobile-390-cash-reconciliation.png
-          - mobile-390-cash-resume.png
+          - mobile-390-cash-rule-offline-draft.png
           - mobile-390-stores-financial.png
           - mobile-390-payroll-review.png
           - mobile-390-server-health.png
