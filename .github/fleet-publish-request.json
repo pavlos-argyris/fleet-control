@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "mode": "publish",
-  "requestId": "fleet-7cbe4eaa-0597-4ce4-817c-558db3bb65d2",
-  "sourceCommit": "19908d9600bccdb7f961b1b3bfc7a59956d6b6a1",
-  "releaseVersion": "5.66.1",
-  "requestedAt": "2026-11-14T23:53:14.392Z",
-  "reason": "Ρητή έγκριση χρήστη 15/11/2026: δημοσίευση της διόρθωσης μηχανών Fleet 5.66.1 μετά από πλήρεις ελέγχους."
+  "mode": "candidate",
+  "requestId": "fleet-107-1a1e65fcf72-b0b6c89ead97",
+  "sourceCommit": "b0b6c89ead9751e5fb15a18310a58614c2cd2add",
+  "releaseVersion": "5.67.0",
+  "requestedAt": "2026-11-16T22:07:21.117Z",
+  "reason": "Issue #107: αρχικά υπογεγραμμένη υποψήφια έκδοση για τις υποχρεωτικές φυσικές επαληθεύσεις του issue. Χωρίς παραγωγική δημοσίευση, cloud ενεργοποίηση ή παράκαμψη ελέγχων."
 }
