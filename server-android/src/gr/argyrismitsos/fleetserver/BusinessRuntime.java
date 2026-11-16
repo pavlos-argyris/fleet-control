@@ -94,8 +94,9 @@ public final class BusinessRuntime implements java.io.Closeable {
         String serialized=new JSONObject(request.toString()).put("internal",internal).toString();
         if(serialized.getBytes("UTF-8").length>(internal?64:2)*1024*1024)throw new IOException("Το αίτημα υπερβαίνει το επιτρεπόμενο μέγεθος.");
         deadline=System.nanoTime()+Math.min(30000,Math.max(100,budgetMillis))*1000000L;Context c=contexts.enterContext();
-        boolean transaction=false;
+        boolean transaction=false,committed=false,cacheStarted=false;
         try{
+            cacheStarted=readCacheHook(c,"__fleetReadBegin",false);
             host.beforeRequest(request,internal);
             host.call("sql.request.begin","{}");transaction=true;
             Function dispatch=(Function)scope.get("__fleetRequest",scope);dispatch.call(c,scope,scope,new Object[]{serialized});c.processMicrotasks();
@@ -104,9 +105,16 @@ public final class BusinessRuntime implements java.io.Closeable {
             JSONObject response=new JSONObject(Context.toString(result));
             if(response.optInt("status",500)<500)host.beforeCommit(response,internal);
             try{host.call("sql.request.end",new JSONObject().put("commit",response.optInt("status",500)<500).toString());}finally{transaction=false;}
+            committed=response.optInt("status",500)<500;
+            readCacheHook(c,"__fleetReadFinish",cacheStarted&&committed);
             return response;
         }catch(RhinoException e){throw new IOException("Η τοπική εργασία Server απέτυχε.");}
-        finally{try{if(transaction)host.call("sql.request.end","{\"commit\":false}");}finally{try{host.afterRequest();}finally{Context.exit();}}}
+        finally{try{if(transaction)host.call("sql.request.end","{\"commit\":false}");}finally{try{if(!committed)readCacheHook(c,"__fleetReadFinish",false);host.afterRequest();}finally{Context.exit();}}}
+    }
+    private boolean readCacheHook(Context c,String name,boolean committed){
+        // Optional optimization cannot change an already committed response.
+        // A new begin always discards staged work left by a timeout/rollback.
+        try{Object function=scope.get(name,scope);if(!(function instanceof Function))return false;((Function)function).call(c,scope,scope,new Object[]{committed});return true;}catch(RuntimeException optionalCache){return false;}
     }
     public synchronized JSONObject sandboxStatus()throws Exception {
         deadline=System.nanoTime()+1000000000L;Context c=contexts.enterContext();

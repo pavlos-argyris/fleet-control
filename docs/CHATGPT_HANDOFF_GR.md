@@ -1,3 +1,7 @@
+## #107 — Κοινές canonical αναφορές,16/11/2026
+
+Branch `codex/issue-107-shared`, συνέχεια PR115. Κοινό role-independent store report μετά από ανεξάρτητο auth κάθε λογαριασμού, transaction-bound staged cache μόνο μετά commit. Actual Java/Rhino/SQLite40×31 δύο accounts, permission revocation, same-counter rollback poison negative control και alias invalidation PASS· cold/warm SQL reads10/5. Οδηγός `ISSUE_107_SHARED_COMPUTATIONS_GR.md`. PR115 πρώτο CI βρήκε Android JSONObject.keySet και benchmark32reads χωρίς backpressure· διορθώθηκαν με keys iterator και bounded retry στη δοκιμή, διατηρώντας τα writer reserves. Καμία δημοσίευση/συγχώνευση ακόμη. Direct redirect/release pipeline και φυσικές πύλες συνεχίζονται.
+
 ## #107 — Έτοιμες προβολές / private RAM / SQL timing,16/11/2026
 
 Branch `codex/issue-107-readmodels`, συνέχεια PR114. Actual Java/SQLite WAL, auth/session/role/rollback,32-client single-flight, bounded priorities και private RAM UI tests PASS. Μηνιαίο συνθετικό40×31 report έδωσε ίδιο ποσό cold/hot. Read models δεν παρακάμπτουν normal-APK readiness/epoch. Profiling χωρίς SQL/ιδιωτικές τιμές. Λεπτομέρειες/όρια `ISSUE_107_READ_MODELS_GR.md`. Τα νέα exact-head Full/Fast CI των PR113/114 πέρασαν μετά τη διόρθωση παλιών screenshot ονομάτων. Καμία συγχώνευση ή δημοσίευση ακόμη. Συνεχίζονται Direct redirect/release pipeline, κοινή canonical επαναχρησιμοποίηση και τελικές πύλες· φυσικό APK/δίκτυα/backup παραμένουν ανεπιβεβαίωτα.

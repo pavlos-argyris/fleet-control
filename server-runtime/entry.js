@@ -6,6 +6,7 @@ import {RECEIPT_SCHEMA,beginOperation,finishOperation} from './receipts.js';
 import {FEATURE_SCHEMA,routeFeatures} from './features.js';
 import {bindFileSecurity} from './security.js';
 import {routeStandalone} from './standalone.js';
+import {beginSharedReads,finishSharedReads} from './shared-reads.js';
 const native=globalThis.FleetHost;
 const bucket={
   async put(key,value,metadata={}){return native('objects.put',{key,ref:value?.__file?value.ref:null,hex:value?.__file?null:hex(await new Response(value).arrayBuffer()),metadata});},
@@ -17,6 +18,9 @@ const bucket={
   async delete(key){native('objects.delete',{key});}
 };
 let environment,realm;
+// Called by the signed native host at transaction boundaries, never HTTP.
+globalThis.__fleetReadBegin=beginSharedReads;
+globalThis.__fleetReadFinish=finishSharedReads;
 globalThis.__fleetInit=function(configuration){
   const config=JSON.parse(configuration);realm=new URL(config.realm).origin;
   environment={LOCAL_PRIMARY:true,STANDALONE:config.standalone===true,DB,SERVICE_DOCS:bucket,RELEASES:bucket,SERVER_KEY:config.serverKey,PIN_PEPPER:config.authPepper,EVENT_SIGNING_KEY:config.eventSigningKey,ASSETS:{fetch:()=>new Response('Not available',{status:404})}};
