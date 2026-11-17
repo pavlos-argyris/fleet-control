@@ -30,7 +30,7 @@
    return '<section class="ordexa-day-person" data-employee-id="'+e(key)+'"><header class="ordexa-person-heading"><strong>'+e(shifts[0].employeeName)+'</strong><div><span class="ordexa-day-total">'+e(total)+'</span>'+(shifts.every(r=>r.source==='ordexa'&&r.specialMinutes!=null)?'<small class="ordexa-day-special">'+e(number(special))+' ειδικές ώρες στην ημέρα έναρξης</small>':'')+'<small>'+shifts.length+' '+(shifts.length===1?'βάρδια':'βάρδιες')+'</small></div></header><div class="ordexa-person-shifts">'+shifts.map((row,index)=>shiftRow(row,info,index)).join('')+'</div></section>';
   }).join('');
  }
- function emptyPayroll(info){o.state.payroll=null;$('ordexaPayPolicyButton').classList.toggle('is-hidden',!o.can('payroll.view'));$('ordexaPayPolicyButton').textContent='Ενεργό default Ordexa · 6€ / 10€ / 15€';$('payrollSourceInfo').innerHTML=status(info);$('payrollSummaryCards').innerHTML='<p class="empty-copy">Αναμονή πρώτου επιβεβαιωμένου υπολογισμού από τον Server. Η εβδομάδα μπορεί να παραμένει ανοικτή.</p>';$('payrollTable').replaceChildren();$('ordexaPayReviews').replaceChildren();$('payrollLockButton').disabled=true;}
+ function emptyPayroll(info){o.state.payroll=null;$('ordexaPayPolicyButton').classList.toggle('is-hidden',!o.can('payroll.view'));$('ordexaPayPolicyButton').textContent='Ενεργό default Ordexa · 6€ / 10€ / 15€';$('payrollSourceInfo').innerHTML=status(info);$('payrollSummaryCards').innerHTML='<p class="empty-copy">Αναμονή πρώτου επιβεβαιωμένου υπολογισμού από τον Server. Η εβδομάδα μπορεί να παραμένει ανοικτή.</p>';$('payrollTable').replaceChildren();$('payrollWeeklyTable')?.replaceChildren();$('payrollWeekStatus')?.replaceChildren();$('payrollDetailCards')?.replaceChildren();$('ordexaPayReviews').replaceChildren();$('payrollLockButton').disabled=true;}
  async function payrollData(){
   const id=++sequences.payroll,token=o.state.token,start=week($('payrollStart').value||today());$('payrollStart').value=start;
   try{const r=await o.api('/api/admin/ordexa-server/payroll?week='+start,{forceRead:true});if(!valid(token,id,'payroll')||$('payrollStart').value!==start)return null;if(r.lockedSnapshot)return r;
@@ -46,7 +46,7 @@
  }
  function markPayroll(data){
   $('ordexaPayPolicyButton').textContent='Ενεργό default Ordexa · 6€ / 10€ / 15€';
-  $('payrollSourceInfo').innerHTML=data.lockedSnapshot?'<div><strong>Κλειδωμένη μισθοδοσία</strong><p>Διατηρούνται η πηγή και τα ποσά του αποθηκευμένου στιγμιότυπου.</p></div>':status(data.projection)+'<div><strong>Ordexa · κεντρικός προεπιλεγμένος κανόνας</strong><p>Πραγματικές παρουσίες, πληρωτέα μισάωρα και υπολογισμός στον Server. Τα σύνολα περιλαμβάνουν τις τρέχουσες βάρδιες μέχρι τώρα. Οι εκκρεμείς αποφάσεις επισημαίνονται πριν το κλείδωμα.</p></div>';
+  $('payrollSourceInfo').innerHTML=data.lockedSnapshot?'<div><strong>Κλειδωμένη μισθοδοσία</strong><p>Διατηρούνται η πηγή και τα ποσά του αποθηκευμένου στιγμιότυπου.</p></div>':status(data.projection)+'<div><strong>Ordexa · κεντρικός προεπιλεγμένος κανόνας</strong><p>Πραγματικές παρουσίες, πληρωτέα μισάωρα και υπολογισμός στον Server. Τα σύνολα περιλαμβάνουν τις τρέχουσες βάρδιες μέχρι τώρα. Χωρίς δημοσιευμένο πρόγραμμα οι έγκυρες αντιστοιχισμένες βάρδιες υπολογίζονται κανονικά. Οι πραγματικές εκκρεμότητες επισημαίνονται πριν το κλείδωμα.</p></div>';
   if(data.blockers?.length)$('payrollSourceInfo').insertAdjacentHTML('beforeend','<p class="form-error">'+e([...new Set(data.blockers.map(x=>x.reason))].join(' · '))+'</p>');
   renderReviews(data);
  }

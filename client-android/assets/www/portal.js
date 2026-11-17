@@ -179,7 +179,7 @@
     document.querySelectorAll("dialog[open]").forEach(function (dialog) { dialog.close(); });
     ["dashboardHero", "actionSection", "dashboardMetrics", "realtimeShifts", "dailySchedule",
       "employeeList", "employeeStats", "shiftsTable", "scheduleList", "scheduleSummary",
-      "fleetQuickStats", "fleetStatusList", "payrollSummaryCards", "payrollTable",
+      "fleetQuickStats", "fleetStatusList", "payrollSummaryCards", "payrollTable", "payrollWeeklyTable", "payrollWeekStatus", "payrollDetailCards",
       "reportResult", "alertList", "auditTable", "recycleList", "recycleSummary", "invoiceQueueList", "invoiceQueueSummary",
       "coverageSummary", "coverageDays", "coverageTimeline", "serverHealth", "serverWarnings"].forEach(function (id) {
       const element = $(id);
@@ -495,6 +495,23 @@
     window.FleetMotion?.finish();
     const navigationId = ++navigationSequence;
     const previousView = state.view;
+    const payrollMenuClosed = new Promise(function (resolve) {
+      const menu = $("uiMoreDialog");
+      // Register while the sheet is still open: native close events are queued.
+      if (view === "payroll" && previousView !== view && menu?.open && window.FleetNavigation?.afterClose) window.FleetNavigation.afterClose(menu, resolve);
+      else resolve();
+    });
+    // Closing the mobile More sheet can restore the old scroll after the
+    // initial reset. Finish a new Payroll visit after its content is laid out.
+    const resetPayrollPosition = function () {
+      if (view !== "payroll" || previousView === view) return;
+      const reset = function () {
+        window.requestAnimationFrame(function () {
+          if (navigationId === navigationSequence && state.view === "payroll" && !document.querySelector("dialog[open]")) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+        });
+      };
+      payrollMenuClosed.then(reset);
+    };
     const animateNavigation = previousView !== view && !$("portal").classList.contains("is-hidden");
     state.view = view;renderCacheStatus();
     if($("uiMoreDialog")?.open)$("uiMoreDialog").close();
@@ -521,6 +538,7 @@
       if (view === "cash") window.FleetCashUI.load({opening:true});
       if (view === "invoices") refreshInvoiceReprocessBatch();
       $("portal").classList.remove("view-loading");
+      resetPayrollPosition();
       if(view!=="cash"&&view!=="fleet")revalidateView(view).then(changed=>{if(changed&&state.view===view)refreshLiveView(["fleet","invoices","workforce","schedule","payroll","stores","cash","status"],true);}).catch(()=>{});
       return;
     }
@@ -547,13 +565,13 @@
       if (view === "settings") await loadSettings();
       state.viewLoadedAt[view] = Date.now();(state.viewReady||(state.viewReady={}))[view]=true;
     } catch (error) { if(error.name!=='AbortError'){toast(error.message);if(navigationId===navigationSequence){$("uiViewErrorText").textContent=error.message+". Έλεγξε τη σύνδεση και δοκίμασε ξανά.";$("uiViewError").hidden=false;}} }
-    finally { if (navigationId === navigationSequence) $("portal").classList.remove("view-loading"); }
+    finally { if (navigationId === navigationSequence) { $("portal").classList.remove("view-loading"); resetPayrollPosition(); } }
   }
 
   function renderCacheStatus(){
-    let banner=$('localCacheStatus');if(!banner){banner=document.createElement('div');banner.id='localCacheStatus';banner.className='local-cache-status';$('portal').prepend(banner);}
-    const stale=Object.values(state.viewSnapshots?.[state.view]||{}).some(snapshot=>snapshot.stale===true);banner.classList.toggle('is-hidden',!state.previewSession&&!stale);
-    banner.textContent=state.previewSession?'Αποθηκευμένα δεδομένα · αναμονή επιβεβαίωσης σύνδεσης'+(state.cacheAt?' · '+formatDateTime(state.cacheAt):''):stale?'Προβάλλονται αποθηκευμένα στοιχεία. Η ενημέρωση συνεχίζεται στο παρασκήνιο.':'';
+    // Private snapshots and preview-session write guards remain active.
+    // Freshness/connection details belong to diagnostics, without a global banner.
+    $('localCacheStatus')?.remove();
   }
 
   async function initialize() {
@@ -4029,15 +4047,17 @@
   async function loadPayroll() {
     const sequence=++payrollLoadSequence,token=state.token;
     if (!$("payrollStart").value) $("payrollStart").value = mondayDate();
-    const start = $("payrollStart").value;
-    const end = datePlus(start, 6);
-    window.FleetPayrollReviewUI?.load(start);
+    const requestedStart = $("payrollStart").value;
+    window.FleetPayrollReviewUI?.load(requestedStart);
     ["payRulesButton","specialAssignmentsButton","ruleSimulatorButton"].forEach(id=>$(id).classList.add("is-hidden"));
     $("ordexaPayPolicyButton").classList.toggle("is-hidden",!can("payroll.view"));
     const data = await window.FleetOrdexaServerUI.payrollData();
     if(!data)return;
     if(sequence!==payrollLoadSequence||token!==state.token)return;
     state.payroll = data;
+    // The Server adapter normalizes a selected weekday to its Monday.
+    const start = $("payrollStart").value;
+    const end = datePlus(start, 6);
     $("ordexaPayPolicyButton")?.classList.toggle('is-hidden',!can('payroll.view'));
     const scheduleSource=(data.hoursSource || data.period.hoursSource)==="schedule";
     $("payrollSourceInfo").innerHTML='<div><strong>'+ (scheduleSource?"Υπολογισμός από δημοσιευμένο πρόγραμμα":"Υπολογισμός από πραγματικές καταγραφές")+'</strong><p>'+ (data.lockedSnapshot?"Η πηγή και τα ποσά διατηρούνται όπως ήταν στο κλείδωμα της περιόδου.":scheduleSource?"Μετρούν οι δημοσιευμένες βάρδιες, χωρίς να απαιτείται clock in/out. Τα πρόχειρα δεν υπολογίζονται. Οι διορθώσεις προγράμματος ενημερώνουν αυτή την ανοικτή περίοδο.":"Μετρούν οι ολοκληρωμένες πραγματικές καταγραφές clock in/out. Το πρόγραμμα διατηρείται ανεξάρτητα.")+'</p></div>'+(can("settings.manage")?'<button class="secondary-button" type="button" data-go="settings">Ρύθμιση πηγής</button>':'');
@@ -4048,13 +4068,20 @@
     $("newAdjustmentButton").classList.toggle("is-hidden", !can("payroll.manage"));
 
     $("payrollLockButton").textContent = data.period.status === "locked" ? "Ξεκλείδωμα" : "Κλείδωμα";
+    const lockedPeriod=data.period.status === "locked";
     $("payrollSummaryCards").innerHTML = [
-      metric("Εργαζόμενοι", String(data.totals.employees || 0), start + " – " + end, "♙"),
-      metric("Πληρωτέες ώρες", String(data.totals.payableHours || 0), "Κανονικές + ειδικές", "◷"),
-      metric("Χιλιόμετρα", km(data.totals.kilometers), "Ολοκληρωμένες βάρδιες", "◇"),
-      metric("Υπερωρίες", String(data.totals.pendingOvertime || 0), (data.totals.approvedOvertime || 0) + " εγκεκριμένες", "!", null, data.totals.pendingOvertime ? "warning" : ""),
-      metric("Τελικό ποσό", money(data.totals.finalCents), data.period.status === "locked" ? "Κλειδωμένο snapshot" : "Ανοιχτή περίοδος", "€")
+      metric("Σύνολο ωρών", data.totals.payableHours == null ? "—" : String(data.totals.payableHours), "Πληρωτέες ώρες εβδομάδας", "◷"),
+      metric("Σύνολο μισθοδοσίας", data.totals.finalCents == null ? "—" : money(data.totals.finalCents), lockedPeriod ? "Κλειδωμένο snapshot" : "Προσωρινό ποσό · ανοιχτή εβδομάδα", "€")
     ].join("");
+    $("payrollDetailCards").innerHTML = [
+      metric("Εργαζόμενοι", String(data.totals.employees || 0), start + " – " + end, "♙"),
+      metric("Χιλιόμετρα", km(data.totals.kilometers), "Ολοκληρωμένες βάρδιες", "◇"),
+      metric("Υπερωρίες", String(data.totals.pendingOvertime || 0), (data.totals.approvedOvertime || 0) + " εγκεκριμένες", "!", null, data.totals.pendingOvertime ? "warning" : "")
+    ].join("");
+    $("payrollWeekStatus").textContent=start + " – " + end + " · " + (lockedPeriod ? "Κλειδωμένη περίοδος" : "Προσωρινή σύνοψη από τον διαθέσιμο υπολογισμό Server") + (data.blockers?.length ? " · Εκκρεμούν " + data.blockers.length + " έλεγχοι πριν το κλείδωμα" : "");
+    $("payrollWeeklyTable").innerHTML=data.employees.length ? '<table class="data-table"><thead><tr><th scope="col">Εργαζόμενος</th><th scope="col">Ώρες</th><th scope="col">Ποσό</th></tr></thead><tbody>' + data.employees.map(function(item){
+      return '<tr data-payroll-employee="' + escapeHtml(item.employeeId || "") + '"><th scope="row"><strong>' + escapeHtml(item.employeeName) + '</strong>' + (data.hoursSource === "ordexa" ? '<button class="ghost-button" type="button" data-ordexa-pay-breakdown="' + escapeHtml(item.employeeId) + '">Ανάλυση βαρδιών</button>' : '') + '</th><td>' + escapeHtml(item.payableHours == null ? "—" : hours(item.payableHours)) + '</td><td><strong>' + escapeHtml(item.finalCents == null ? "—" : money(item.finalCents)) + '</strong></td></tr>';
+    }).join("") + '</tbody><tfoot><tr><th scope="row">Σύνολο εβδομάδας</th><td>' + escapeHtml(data.totals.payableHours == null ? "—" : hours(data.totals.payableHours)) + '</td><td><strong>' + escapeHtml(data.totals.finalCents == null ? "—" : money(data.totals.finalCents)) + '</strong></td></tr></tfoot></table>' : '<p class="empty-copy">Δεν υπάρχουν υπολογισμένες βάρδιες σε αυτή την περίοδο.</p>';
     $("payrollTable").innerHTML = data.employees.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Βάρδιες</th><th>Κανονικές ώρες</th><th>Ειδικές ώρες</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Βάση</th><th>Ειδική αμοιβή</th><th>Υπερωρίες / έγκριση</th><th>Bonus</th><th>Κρατήσεις</th><th>Προκαταβολές</th><th>Τελικό</th></tr></thead><tbody>' + data.employees.map(function (item) {
       return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong>'+(data.hoursSource==='ordexa'?'<br><button class="ghost-button" type="button" data-ordexa-pay-breakdown="'+escapeHtml(item.employeeId)+'">Ανάλυση βαρδιών</button>':'')+'</td><td>' + Number(item.shifts || 0) + '</td><td>' + escapeHtml(hours(item.normalHours)) + '</td><td>' + escapeHtml(hours(item.specialHours)) + '</td><td>' + escapeHtml(hours(item.payableHours)) + '</td><td>' + escapeHtml(km(item.kilometers)) + '</td><td>' + escapeHtml(money(item.basePayCents)) + '</td><td>' + escapeHtml(money(item.specialPayCents)) + '</td><td>' + payrollOvertimeCell(item) + '</td><td>' + escapeHtml(money(item.bonusCents)) + '</td><td>' + escapeHtml(money(item.deductionCents)) + '</td><td>' + escapeHtml(money(item.advanceCents)) + '</td><td><strong>' + escapeHtml(money(item.finalCents)) + '</strong></td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν υπάρχουν ολοκληρωμένες βάρδιες σε αυτή την περίοδο.</p>';
