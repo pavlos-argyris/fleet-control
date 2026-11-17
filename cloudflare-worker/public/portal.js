@@ -495,6 +495,12 @@
     window.FleetMotion?.finish();
     const navigationId = ++navigationSequence;
     const previousView = state.view;
+    const payrollMenuClosed = new Promise(function (resolve) {
+      const menu = $("uiMoreDialog");
+      // Register while the sheet is still open: native close events are queued.
+      if (view === "payroll" && previousView !== view && menu?.open && window.FleetNavigation?.afterClose) window.FleetNavigation.afterClose(menu, resolve);
+      else resolve();
+    });
     // Closing the mobile More sheet can restore the old scroll after the
     // initial reset. Finish a new Payroll visit after its content is laid out.
     const resetPayrollPosition = function () {
@@ -504,9 +510,7 @@
           if (navigationId === navigationSequence && state.view === "payroll" && !document.querySelector("dialog[open]")) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
         });
       };
-      const menu = $("uiMoreDialog");
-      if (menu && window.FleetNavigation?.afterClose) window.FleetNavigation.afterClose(menu, reset);
-      else reset();
+      payrollMenuClosed.then(reset);
     };
     const animateNavigation = previousView !== view && !$("portal").classList.contains("is-hidden");
     state.view = view;renderCacheStatus();
