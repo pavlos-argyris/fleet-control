@@ -4047,15 +4047,17 @@
   async function loadPayroll() {
     const sequence=++payrollLoadSequence,token=state.token;
     if (!$("payrollStart").value) $("payrollStart").value = mondayDate();
-    const start = $("payrollStart").value;
-    const end = datePlus(start, 6);
-    window.FleetPayrollReviewUI?.load(start);
+    const requestedStart = $("payrollStart").value;
+    window.FleetPayrollReviewUI?.load(requestedStart);
     ["payRulesButton","specialAssignmentsButton","ruleSimulatorButton"].forEach(id=>$(id).classList.add("is-hidden"));
     $("ordexaPayPolicyButton").classList.toggle("is-hidden",!can("payroll.view"));
     const data = await window.FleetOrdexaServerUI.payrollData();
     if(!data)return;
     if(sequence!==payrollLoadSequence||token!==state.token)return;
     state.payroll = data;
+    // The Server adapter normalizes a selected weekday to its Monday.
+    const start = $("payrollStart").value;
+    const end = datePlus(start, 6);
     $("ordexaPayPolicyButton")?.classList.toggle('is-hidden',!can('payroll.view'));
     const scheduleSource=(data.hoursSource || data.period.hoursSource)==="schedule";
     $("payrollSourceInfo").innerHTML='<div><strong>'+ (scheduleSource?"Υπολογισμός από δημοσιευμένο πρόγραμμα":"Υπολογισμός από πραγματικές καταγραφές")+'</strong><p>'+ (data.lockedSnapshot?"Η πηγή και τα ποσά διατηρούνται όπως ήταν στο κλείδωμα της περιόδου.":scheduleSource?"Μετρούν οι δημοσιευμένες βάρδιες, χωρίς να απαιτείται clock in/out. Τα πρόχειρα δεν υπολογίζονται. Οι διορθώσεις προγράμματος ενημερώνουν αυτή την ανοικτή περίοδο.":"Μετρούν οι ολοκληρωμένες πραγματικές καταγραφές clock in/out. Το πρόγραμμα διατηρείται ανεξάρτητα.")+'</p></div>'+(can("settings.manage")?'<button class="secondary-button" type="button" data-go="settings">Ρύθμιση πηγής</button>':'');

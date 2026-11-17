@@ -39,7 +39,7 @@ const payrollFixture={hoursSource:'ordexa',period:{status:'open'},projection:{fr
  {employeeId:'zero',employeeName:'Χωρίς βάρδιες',shifts:0,payableHours:0,finalCents:0},
  {employeeId:'unknown',employeeName:'Αναμονή στοιχείων',payableHours:null,finalCents:null}
 ]};
-w.FleetOrdexaServerUI.payrollData=async()=>payrollFixture;$('payrollStart').value='2026-11-16';await w.__ui.loadPayroll();
+w.FleetOrdexaServerUI.payrollData=async()=>{$('payrollStart').value='2026-11-16';return payrollFixture;};$('payrollStart').value='2026-11-18';await w.__ui.loadPayroll();assert.match($('payrollWeekStatus').textContent,/2026-11-16 – 2026-11-22/,'selected weekday displays the same Monday-to-Sunday range computed by the Server');
 assert.equal($('payrollSummaryCards').querySelectorAll('.metric-card').length,2);
 assert.match($('payrollSummaryCards').querySelector('.metric-card:first-child>span').textContent,/Σύνολο ωρών/);assert.equal($('payrollSummaryCards').querySelector('.metric-card:first-child>strong').textContent,'13');assert.match($('payrollSummaryCards').querySelector('.metric-card:last-child>span').textContent,/Σύνολο μισθοδοσίας/);assert.match($('payrollSummaryCards').querySelector('.metric-card:last-child>strong').textContent,/80,00/);
 assert.equal($('payrollWeeklyTable').querySelectorAll('tbody tr').length,4);
