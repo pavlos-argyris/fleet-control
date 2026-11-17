@@ -41,7 +41,7 @@ const payrollFixture={hoursSource:'ordexa',period:{status:'open'},projection:{fr
 ]};
 w.FleetOrdexaServerUI.payrollData=async()=>payrollFixture;$('payrollStart').value='2026-11-16';await w.__ui.loadPayroll();
 assert.equal($('payrollSummaryCards').querySelectorAll('.metric-card').length,2);
-assert.match($('payrollSummaryCards').textContent,/Σύνολο ωρών13/);assert.match($('payrollSummaryCards').textContent,/Σύνολο μισθοδοσίας80,00/);
+assert.match($('payrollSummaryCards').querySelector('.metric-card:first-child>span').textContent,/Σύνολο ωρών/);assert.equal($('payrollSummaryCards').querySelector('.metric-card:first-child>strong').textContent,'13');assert.match($('payrollSummaryCards').querySelector('.metric-card:last-child>span').textContent,/Σύνολο μισθοδοσίας/);assert.match($('payrollSummaryCards').querySelector('.metric-card:last-child>strong').textContent,/80,00/);
 assert.equal($('payrollWeeklyTable').querySelectorAll('tbody tr').length,4);
 assert.match($('payrollWeeklyTable').querySelector('[data-payroll-employee=first]').textContent,/10,5 ώρες65,00/);
 assert.equal($('payrollWeeklyTable').querySelector('img'),null,'employee names are escaped');
