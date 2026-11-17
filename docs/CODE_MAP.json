@@ -142,7 +142,8 @@
         "docs/ORDEXA_SERVER_PAYROLL_5.54.0_GR.md",
         "docs/ORDEXA_EDIT_ANYTIME_5.56.1_GR.md",
         "docs/ISSUE_63_PARALLEL_START_GR.md",
-        "docs/NATIVE_MANAGEMENT_5.61_GR.md"
+        "docs/NATIVE_MANAGEMENT_5.61_GR.md",
+        "docs/ISSUE_107_PAYROLL_SUMMARY_GR.md"
       ]
     },
     {
@@ -359,7 +360,8 @@
       ],
       "docs": [
         "docs/UI_SYSTEM_5.51.0_GR.md",
-        "docs/ISSUE_107_READ_MODELS_GR.md"
+        "docs/ISSUE_107_READ_MODELS_GR.md",
+        "docs/ISSUE_107_PAYROLL_SUMMARY_GR.md"
       ]
     },
     {

@@ -446,3 +446,18 @@ html.embedded-mode main{padding:20px 28px 24px}
 .ui-document-viewport.is-panning{cursor:grabbing}
 .ui-document-content{max-width:none;min-width:0}
 .ui-document-content canvas,.ui-document-content .ui-invoice-photo{width:100%;max-width:none;height:auto;pointer-events:none}
+
+/* Weekly payroll stays readable before review queues on phones and desktop. */
+#payrollSummaryCards.payroll-summary-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+.payroll-weekly-panel{min-width:0}
+.payroll-weekly-table table{width:100%;min-width:0;table-layout:fixed}
+.payroll-weekly-table th:first-child{width:50%}
+.payroll-weekly-table th,.payroll-weekly-table td{white-space:normal;overflow-wrap:anywhere;vertical-align:top}
+.payroll-weekly-table th:not(:first-child),.payroll-weekly-table td{text-align:right;font-variant-numeric:tabular-nums}
+.payroll-weekly-table th[scope=row]{text-align:left}
+.payroll-weekly-table th[scope=row] .ghost-button{display:block;max-width:100%;white-space:normal;margin-top:5px;font-size:12px}
+.payroll-weekly-table tfoot{font-weight:700;background:var(--surface-soft,#f3f7f7)}
+.payroll-calculation-details>summary,.payroll-review-group>summary{cursor:pointer;font-weight:700;min-height:44px;display:list-item;align-content:center;overflow-wrap:anywhere}
+.payroll-calculation-details[open]>summary,.payroll-review-group[open]>summary{margin-bottom:14px}
+.payroll-review-group>.native-record{margin:10px 0}
+@media(max-width:420px){.payroll-weekly-table th,.payroll-weekly-table td{padding:10px 6px;font-size:12px}.payroll-weekly-table th:first-child{width:48%}#payrollSummaryCards .metric-card{min-width:0}#payrollSummaryCards .metric-card strong{overflow-wrap:anywhere;font-size:clamp(20px,6vw,30px)}}

@@ -179,7 +179,7 @@
     document.querySelectorAll("dialog[open]").forEach(function (dialog) { dialog.close(); });
     ["dashboardHero", "actionSection", "dashboardMetrics", "realtimeShifts", "dailySchedule",
       "employeeList", "employeeStats", "shiftsTable", "scheduleList", "scheduleSummary",
-      "fleetQuickStats", "fleetStatusList", "payrollSummaryCards", "payrollTable",
+      "fleetQuickStats", "fleetStatusList", "payrollSummaryCards", "payrollTable", "payrollWeeklyTable", "payrollWeekStatus", "payrollDetailCards",
       "reportResult", "alertList", "auditTable", "recycleList", "recycleSummary", "invoiceQueueList", "invoiceQueueSummary",
       "coverageSummary", "coverageDays", "coverageTimeline", "serverHealth", "serverWarnings"].forEach(function (id) {
       const element = $(id);
@@ -551,9 +551,9 @@
   }
 
   function renderCacheStatus(){
-    let banner=$('localCacheStatus');if(!banner){banner=document.createElement('div');banner.id='localCacheStatus';banner.className='local-cache-status';$('portal').prepend(banner);}
-    const stale=Object.values(state.viewSnapshots?.[state.view]||{}).some(snapshot=>snapshot.stale===true);banner.classList.toggle('is-hidden',!state.previewSession&&!stale);
-    banner.textContent=state.previewSession?'Αποθηκευμένα δεδομένα · αναμονή επιβεβαίωσης σύνδεσης'+(state.cacheAt?' · '+formatDateTime(state.cacheAt):''):stale?'Προβάλλονται αποθηκευμένα στοιχεία. Η ενημέρωση συνεχίζεται στο παρασκήνιο.':'';
+    // Private snapshots and preview-session write guards remain active.
+    // Freshness/connection details belong to diagnostics, without a global banner.
+    $('localCacheStatus')?.remove();
   }
 
   async function initialize() {
@@ -4048,13 +4048,20 @@
     $("newAdjustmentButton").classList.toggle("is-hidden", !can("payroll.manage"));
 
     $("payrollLockButton").textContent = data.period.status === "locked" ? "Ξεκλείδωμα" : "Κλείδωμα";
+    const lockedPeriod=data.period.status === "locked";
     $("payrollSummaryCards").innerHTML = [
-      metric("Εργαζόμενοι", String(data.totals.employees || 0), start + " – " + end, "♙"),
-      metric("Πληρωτέες ώρες", String(data.totals.payableHours || 0), "Κανονικές + ειδικές", "◷"),
-      metric("Χιλιόμετρα", km(data.totals.kilometers), "Ολοκληρωμένες βάρδιες", "◇"),
-      metric("Υπερωρίες", String(data.totals.pendingOvertime || 0), (data.totals.approvedOvertime || 0) + " εγκεκριμένες", "!", null, data.totals.pendingOvertime ? "warning" : ""),
-      metric("Τελικό ποσό", money(data.totals.finalCents), data.period.status === "locked" ? "Κλειδωμένο snapshot" : "Ανοιχτή περίοδος", "€")
+      metric("Σύνολο ωρών", data.totals.payableHours == null ? "—" : String(data.totals.payableHours), "Πληρωτέες ώρες εβδομάδας", "◷"),
+      metric("Σύνολο μισθοδοσίας", data.totals.finalCents == null ? "—" : money(data.totals.finalCents), lockedPeriod ? "Κλειδωμένο snapshot" : "Προσωρινό ποσό · ανοιχτή εβδομάδα", "€")
     ].join("");
+    $("payrollDetailCards").innerHTML = [
+      metric("Εργαζόμενοι", String(data.totals.employees || 0), start + " – " + end, "♙"),
+      metric("Χιλιόμετρα", km(data.totals.kilometers), "Ολοκληρωμένες βάρδιες", "◇"),
+      metric("Υπερωρίες", String(data.totals.pendingOvertime || 0), (data.totals.approvedOvertime || 0) + " εγκεκριμένες", "!", null, data.totals.pendingOvertime ? "warning" : "")
+    ].join("");
+    $("payrollWeekStatus").textContent=start + " – " + end + " · " + (lockedPeriod ? "Κλειδωμένη περίοδος" : "Προσωρινή σύνοψη από τον διαθέσιμο υπολογισμό Server") + (data.blockers?.length ? " · Εκκρεμούν " + data.blockers.length + " έλεγχοι πριν το κλείδωμα" : "");
+    $("payrollWeeklyTable").innerHTML=data.employees.length ? '<table class="data-table"><thead><tr><th scope="col">Εργαζόμενος</th><th scope="col">Ώρες</th><th scope="col">Ποσό</th></tr></thead><tbody>' + data.employees.map(function(item){
+      return '<tr data-payroll-employee="' + escapeHtml(item.employeeId || "") + '"><th scope="row"><strong>' + escapeHtml(item.employeeName) + '</strong>' + (data.hoursSource === "ordexa" ? '<button class="ghost-button" type="button" data-ordexa-pay-breakdown="' + escapeHtml(item.employeeId) + '">Ανάλυση βαρδιών</button>' : '') + '</th><td>' + escapeHtml(item.payableHours == null ? "—" : hours(item.payableHours)) + '</td><td><strong>' + escapeHtml(item.finalCents == null ? "—" : money(item.finalCents)) + '</strong></td></tr>';
+    }).join("") + '</tbody><tfoot><tr><th scope="row">Σύνολο εβδομάδας</th><td>' + escapeHtml(data.totals.payableHours == null ? "—" : hours(data.totals.payableHours)) + '</td><td><strong>' + escapeHtml(data.totals.finalCents == null ? "—" : money(data.totals.finalCents)) + '</strong></td></tr></tfoot></table>' : '<p class="empty-copy">Δεν υπάρχουν υπολογισμένες βάρδιες σε αυτή την περίοδο.</p>';
     $("payrollTable").innerHTML = data.employees.length ? '<table class="data-table"><thead><tr><th>Εργαζόμενος</th><th>Βάρδιες</th><th>Κανονικές ώρες</th><th>Ειδικές ώρες</th><th>Πληρωτέες ώρες</th><th>Χλμ.</th><th>Βάση</th><th>Ειδική αμοιβή</th><th>Υπερωρίες / έγκριση</th><th>Bonus</th><th>Κρατήσεις</th><th>Προκαταβολές</th><th>Τελικό</th></tr></thead><tbody>' + data.employees.map(function (item) {
       return '<tr><td><strong>' + escapeHtml(item.employeeName) + '</strong>'+(data.hoursSource==='ordexa'?'<br><button class="ghost-button" type="button" data-ordexa-pay-breakdown="'+escapeHtml(item.employeeId)+'">Ανάλυση βαρδιών</button>':'')+'</td><td>' + Number(item.shifts || 0) + '</td><td>' + escapeHtml(hours(item.normalHours)) + '</td><td>' + escapeHtml(hours(item.specialHours)) + '</td><td>' + escapeHtml(hours(item.payableHours)) + '</td><td>' + escapeHtml(km(item.kilometers)) + '</td><td>' + escapeHtml(money(item.basePayCents)) + '</td><td>' + escapeHtml(money(item.specialPayCents)) + '</td><td>' + payrollOvertimeCell(item) + '</td><td>' + escapeHtml(money(item.bonusCents)) + '</td><td>' + escapeHtml(money(item.deductionCents)) + '</td><td>' + escapeHtml(money(item.advanceCents)) + '</td><td><strong>' + escapeHtml(money(item.finalCents)) + '</strong></td></tr>';
     }).join("") + '</tbody></table>' : '<p class="empty-copy">Δεν υπάρχουν ολοκληρωμένες βάρδιες σε αυτή την περίοδο.</p>';
