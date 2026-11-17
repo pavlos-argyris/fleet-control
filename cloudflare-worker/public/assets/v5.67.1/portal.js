@@ -499,9 +499,14 @@
     // initial reset. Finish a new Payroll visit after its content is laid out.
     const resetPayrollPosition = function () {
       if (view !== "payroll" || previousView === view) return;
-      window.requestAnimationFrame(function () {
-        if (navigationId === navigationSequence && state.view === "payroll" && !document.querySelector("dialog[open]")) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-      });
+      const reset = function () {
+        window.requestAnimationFrame(function () {
+          if (navigationId === navigationSequence && state.view === "payroll" && !document.querySelector("dialog[open]")) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+        });
+      };
+      const menu = $("uiMoreDialog");
+      if (menu && window.FleetNavigation?.afterClose) window.FleetNavigation.afterClose(menu, reset);
+      else reset();
     };
     const animateNavigation = previousView !== view && !$("portal").classList.contains("is-hidden");
     state.view = view;renderCacheStatus();
