@@ -32,7 +32,7 @@ await w.__ui.loadDashboard();assert.equal($('actionSection').querySelectorAll('.
 w.__ui.state.weekData={weekStart:'2026-10-19',weekEnd:'2026-10-25',scheduleState:'published',employees:[{id:'e',full_name:'Εργαζόμενος',role:'employee'}],schedules:[{id:'s',employee_id:'e',employee_name:'Εργαζόμενος',work_date:'2026-10-19',start_time:'22:00',end_time:'02:00',start_at:'2026-10-19T19:00:00Z',end_at:'2026-10-19T23:00:00Z',status:'planned',vehicle_name:'BTO 756'}]};w.__ui.renderWeekPlanner();assert.equal($('uiScheduleDays').querySelectorAll('button').length,7);assert.match($('scheduleList').textContent,/επόμενη ημέρα/);w.document.querySelector('[data-ui-schedule-day="2026-10-20"]').click();assert.equal($('scheduleList').querySelectorAll('.ui-selected-day').length,1);assert.equal($('scheduleList').querySelector('.ui-selected-day').dataset.uiWeekday,'2026-10-20');
 
 // Weekly summaries use Server amounts even when reminders exist; no payment decisions are made.
-const originalPayrollData=w.FleetOrdexaServerUI.payrollData;
+const originalPayrollData=w.FleetOrdexaServerUI.payrollData,originalScrollTo=w.scrollTo;let payrollScrolls=0;w.scrollTo=()=>{payrollScrolls++;};
 const payrollFixture={hoursSource:'ordexa',period:{status:'open'},projection:{fresh:true,sourceFresh:true,readOnly:false},totals:{employees:4,payableHours:13,kilometers:0,finalCents:8000},blockers:[{reason:'Εκκρεμεί τελικό clock out'}],employees:[
  {employeeId:'first',employeeName:'Διανομέας <img src=x>',shifts:2,normalHours:10.5,specialHours:0,payableHours:10.5,finalCents:6500},
  {employeeId:'second',employeeName:'Δεύτερος διανομέας',shifts:1,normalHours:2.5,specialHours:0,payableHours:2.5,finalCents:1500},
@@ -56,7 +56,7 @@ assert.ok(follows('payrollSummaryCards','payrollWeeklyTable')&&follows('payrollW
 payrollFixture.period.status='locked';payrollFixture.lockedSnapshot=true;await w.__ui.loadPayroll();
 assert.match($('payrollWeekStatus').textContent,/Κλειδωμένη/);assert.doesNotMatch($('payrollWeekStatus').textContent,/Προσωρινή/);
 assert.match($('payrollSummaryCards').textContent,/80,00/,'locked stored amount remains unchanged');
-w.FleetOrdexaServerUI.payrollData=originalPayrollData;
+assert.equal(payrollScrolls,0,'background payroll rendering never resets reading position');w.scrollTo=originalScrollTo;w.FleetOrdexaServerUI.payrollData=originalPayrollData;
 
 // Shared list and bike panels work without changing the stored fleet record.
 const fleet=new JSDOM(fs.readFileSync('cloudflare-worker/public/index.html','utf8'),{url:'https://fixture.invalid/index.html',runScripts:'outside-only',pretendToBeVisual:true}),f=fleet.window;f.matchMedia=()=>({matches:false});f.scrollTo=()=>{};f.HTMLDialogElement.prototype.showModal=function(){this.open=true;};f.HTMLDialogElement.prototype.close=function(){this.open=false;};f.eval(fs.readFileSync('cloudflare-worker/public/service-model.js','utf8'));f.eval(fs.readFileSync('cloudflare-worker/public/fleet-motion.js','utf8'));f.document.dispatchEvent(new f.Event('DOMContentLoaded'));

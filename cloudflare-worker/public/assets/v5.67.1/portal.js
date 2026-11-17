@@ -495,6 +495,14 @@
     window.FleetMotion?.finish();
     const navigationId = ++navigationSequence;
     const previousView = state.view;
+    // Closing the mobile More sheet can restore the old scroll after the
+    // initial reset. Finish a new Payroll visit after its content is laid out.
+    const resetPayrollPosition = function () {
+      if (view !== "payroll" || previousView === view) return;
+      window.requestAnimationFrame(function () {
+        if (navigationId === navigationSequence && state.view === "payroll" && !document.querySelector("dialog[open]")) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      });
+    };
     const animateNavigation = previousView !== view && !$("portal").classList.contains("is-hidden");
     state.view = view;renderCacheStatus();
     if($("uiMoreDialog")?.open)$("uiMoreDialog").close();
@@ -521,6 +529,7 @@
       if (view === "cash") window.FleetCashUI.load({opening:true});
       if (view === "invoices") refreshInvoiceReprocessBatch();
       $("portal").classList.remove("view-loading");
+      resetPayrollPosition();
       if(view!=="cash"&&view!=="fleet")revalidateView(view).then(changed=>{if(changed&&state.view===view)refreshLiveView(["fleet","invoices","workforce","schedule","payroll","stores","cash","status"],true);}).catch(()=>{});
       return;
     }
@@ -547,7 +556,7 @@
       if (view === "settings") await loadSettings();
       state.viewLoadedAt[view] = Date.now();(state.viewReady||(state.viewReady={}))[view]=true;
     } catch (error) { if(error.name!=='AbortError'){toast(error.message);if(navigationId===navigationSequence){$("uiViewErrorText").textContent=error.message+". Έλεγξε τη σύνδεση και δοκίμασε ξανά.";$("uiViewError").hidden=false;}} }
-    finally { if (navigationId === navigationSequence) $("portal").classList.remove("view-loading"); }
+    finally { if (navigationId === navigationSequence) { $("portal").classList.remove("view-loading"); resetPayrollPosition(); } }
   }
 
   function renderCacheStatus(){
