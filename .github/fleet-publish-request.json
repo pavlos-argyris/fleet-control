@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "mode": "candidate",
-  "requestId": "fleet-107-payroll-mwk228xm-84721e3cf229",
-  "sourceCommit": "84721e3cf2294079d614de7405478cac1b32f450",
+  "mode": "publish",
+  "requestId": "fleet-107-publish-mwm4pxbq",
+  "sourceCommit": "a0e9ad0416cb2f1c7728f687c603a484153bbe9c",
   "releaseVersion": "5.67.1",
-  "requestedAt": "2026-11-17T02:10:32.505Z",
-  "reason": "Issue #107 / PR #118: αρχικά υπογεγραμμένη υποψήφια έκδοση με εβδομαδιαία σύνοψη μισθοδοσίας και αφαίρεση της μόνιμης ειδοποίησης. Παραμένουν οι ιδιωτικές και φυσικές πύλες του issue, χωρίς παραγωγική ενεργοποίηση."
+  "requestedAt": "2026-11-18T13:00:28.791Z",
+  "reason": "Ο ιδιοκτήτης ζήτησε κανονική ενημέρωση της Fleet Control 5.67.1 (Client/Web) και 2.16.1 (Server), μέσω του επίσημου καναλιού ενημερώσεων."
 }
