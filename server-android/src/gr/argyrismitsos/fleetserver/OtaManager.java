@@ -6,6 +6,7 @@ import gr.argyrismitsos.fleetupdates.OtaInstaller;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -47,38 +48,51 @@ public final class OtaManager {
                 } finally { connection.disconnect(); }
                 }
                 if (!info.optBoolean("available") || info.optInt("versionCode") <= currentCode(c)) {
-                    p.edit().remove("ota_ready").remove("ota_apply_requested").remove("ota_force_requested").remove("ota_quiescing").apply(); BackupJobs.resumePending(c);file(c).delete();
+                    p.edit().remove("ota_ready").remove("ota_apply_requested").remove("ota_force_requested").remove("ota_quiescing").remove("ota_install_started").apply(); BackupJobs.resumePending(c);file(c).delete();
                     stage(c, "current", "Ο Server έχει την τελευταία διαθέσιμη έκδοση."); return;
                 }
                 if (!c.getPackageName().equals(info.optString("packageName")) || !info.optString("sha256").matches("[a-f0-9]{64}") || info.optLong("sizeBytes") < 1 || info.optLong("sizeBytes") > LIMIT) throw new IllegalStateException("Μη έγκυρη ενημέρωση Server.");
                 String old = p.getString("ota_ready", "");
-                if (old.length() > 0 && file(c).isFile() && new JSONObject(old).optString("releaseId").equals(info.optString("releaseId"))) { stage(c, "waiting", "Η έκδοση " + info.getString("version") + " είναι έτοιμη. Δες παρακάτω ποια εργασία αναμένεται ή το στάδιο του backup."); return; }
-                URL endpoint = new URL(info.getString("downloadUrl")), origin = new URL(base);
-                if (DIRECT_SCOPE?!gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(endpoint.toString()):!"https".equalsIgnoreCase(endpoint.getProtocol()) || !origin.getHost().equalsIgnoreCase(endpoint.getHost()) || origin.getPort() != endpoint.getPort() || !"/download/server.apk".equals(endpoint.getPath())) throw new IllegalStateException("Μη έγκυρη διεύθυνση OTA.");
+                if (old.length() > 0 && file(c).isFile() && file(c).length() == info.getLong("sizeBytes")
+                        && new JSONObject(old).optString("releaseId").equals(info.optString("releaseId"))) {
+                    if (p.getBoolean("ota_hold", false)) stage(c, "waiting", "Η ενημέρωση είναι έτοιμη για νέα προσπάθεια όταν την επιλέξεις.");
+                    else stage(c, "waiting", "Η έκδοση " + info.getString("version") + " είναι έτοιμη. Δες το στάδιο του backup.");
+                    return;
+                }
+                URL endpoint = new URL(info.getString("downloadUrl"));
+                if (DIRECT_SCOPE) {
+                    if (!gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(endpoint.toString())) throw new IOException("Μη έγκυρη διεύθυνση OTA.");
+                } else {
+                    URL origin = new URL(base);
+                    if (!"https".equalsIgnoreCase(endpoint.getProtocol()) || !origin.getHost().equalsIgnoreCase(endpoint.getHost())
+                            || origin.getPort() != endpoint.getPort() || !"/download/server.apk".equals(endpoint.getPath())) throw new IOException("Μη έγκυρη διεύθυνση OTA.");
+                }
+                if (c.getCacheDir().getUsableSpace() < info.getLong("sizeBytes")) throw new IOException("Δεν υπάρχει αρκετός χώρος για την ενημέρωση.");
                 stage(c, "downloading", "Γίνεται λήψη Server " + info.getString("version") + "…");
                 p.edit().putLong("ota_total_bytes", info.getLong("sizeBytes")).putLong("ota_downloaded_bytes", 0).putInt("ota_download_percent", 0).apply();
-                File part = new File(c.getCacheDir(), "fleet-server-update.part"); connection = DIRECT_SCOPE?gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint):open(endpoint);
+                File part = new File(c.getCacheDir(), "fleet-server-update.download.apk");
                 try {
-                    if (connection.getResponseCode() != 200) throw new IllegalStateException("Η λήψη OTA απέτυχε.");
-                    InputStream in = connection.getInputStream(); FileOutputStream out = new FileOutputStream(part);
-                    try {
+                    connection = DIRECT_SCOPE ? gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint) : open(endpoint);
+                    if (connection.getResponseCode() != 200) throw new IOException("Η λήψη OTA απέτυχε.");
+                    long expectedSize = info.getLong("sizeBytes");
+                    try (InputStream in = connection.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
                         byte[] buffer = new byte[65536]; long total = 0, lastProgress = 0; int count;
                         while ((count = in.read(buffer)) != -1) {
-                            total += count; if (total > LIMIT) throw new IllegalStateException("Μεγάλο APK."); out.write(buffer, 0, count);
+                            total += count; if (total > expectedSize) throw new IOException("Το APK υπερβαίνει το δηλωμένο μέγεθος."); out.write(buffer, 0, count);
                             long now = System.currentTimeMillis();
                             if (now - lastProgress >= 250 || total >= info.getLong("sizeBytes")) {
                                 p.edit().putLong("ota_downloaded_bytes", total).putInt("ota_download_percent", (int)Math.min(100, total * 100L / info.getLong("sizeBytes"))).apply();
                                 lastProgress = now;
                             }
                         }
+                        if (total != expectedSize) throw new IOException("Το APK δεν κατέβηκε πλήρως.");
                         out.getFD().sync();
                     }
-                    finally { in.close(); out.close(); }
                     stage(c, "validating", "Έλεγχος αρχείου και υπογραφής…");
                     OtaInstaller.validate(c, part, info.getInt("versionCode"), info.getString("version"), info.getLong("sizeBytes"), info.getString("sha256"));
-                    file(c).delete(); if (!part.renameTo(file(c))) throw new IllegalStateException("Δεν αποθηκεύτηκε η λήψη.");
+                    if (!part.renameTo(file(c))) throw new IllegalStateException("Δεν αποθηκεύτηκε η λήψη.");
                     synchronized(ServerWorkTracker.class){p.edit().remove("ota_checkpoint_job").remove("ota_checkpoint_error").remove("ota_hold").putString("ota_ready", info.toString()).putString("ota_stage", "waiting").putString("ota_message", "Έτοιμη η έκδοση " + info.getString("version") + ". Θα προηγηθεί backup.").apply();}
-                } finally { connection.disconnect(); part.delete(); }
+                } finally { if (connection != null) connection.disconnect(); part.delete(); }
             } catch (Exception error) { stage(c, "failed", error.getMessage() == null ? "Ο έλεγχος OTA θα επαναληφθεί." : error.getMessage()); }
             finally { checking.set(false); }
         } }, "fleet-server-ota").start();
@@ -91,7 +105,12 @@ public final class OtaManager {
     }
     public static void requestApply(Context c) { synchronized(ServerWorkTracker.class){if(!prefs(c).getBoolean("ota_quiescing",false))prefs(c).edit().remove("ota_checkpoint_job").commit();prefs(c).edit().putBoolean("ota_apply_requested", true).putBoolean("ota_hold",false).remove("ota_checkpoint_error").putLong("ota_attempt_at", 0).apply();} }
     private static void enterPause(Context c){SharedPreferences p=prefs(c);if(!p.getBoolean("ota_quiescing",false))p.edit().putString("ota_pause_epoch",java.util.UUID.randomUUID().toString()).putBoolean("ota_quiescing",true).commit();}
-    public static void requestForce(Context c){requestApply(c);synchronized(ServerWorkTracker.class){enterPause(c);prefs(c).edit().putBoolean("ota_force_requested",true).commit();}BackupJobs.pauseExports(c);stage(c,"waiting","Ζητήθηκε παύση εργασιών. Η εγκατάσταση θα ξεκινήσει μόνο μετά από ασφαλές σημείο και επαληθευμένο τοπικό backup.");}
+    public static void requestForce(Context c){
+        if (prefs(c).getString("ota_ready", "").isEmpty() || !file(c).isFile()) {
+            check(c, true);
+            return;
+        }
+        requestApply(c);synchronized(ServerWorkTracker.class){enterPause(c);prefs(c).edit().putBoolean("ota_force_requested",true).commit();}BackupJobs.pauseExports(c);stage(c,"waiting","Ζητήθηκε παύση εργασιών. Η εγκατάσταση θα ξεκινήσει μόνο μετά από ασφαλές σημείο και επαληθευμένο τοπικό backup.");}
     public static void cancelWait(Context c){synchronized(ServerWorkTracker.class){if(installationPending(c))return;prefs(c).edit().putBoolean("ota_hold",true).putBoolean("ota_quiescing",false).putBoolean("ota_force_requested",false).putBoolean("ota_apply_requested",false).remove("ota_checkpoint_job").remove("ota_checkpoint_error").commit();}BackupJobs.resumePending(c);stage(c,"waiting","Η ενημέρωση αναβλήθηκε. Οι εργασίες συνεχίζονται. Πάτησε Εγκατάσταση ενημέρωσης όταν είσαι έτοιμος.");}
     public static boolean forceRequested(Context c){return prefs(c).getBoolean("ota_force_requested",false);}
     public static boolean shouldYieldForUpdate(Context c) {
@@ -101,7 +120,7 @@ public final class OtaManager {
     }
     public static void resumeAfterRestart(Context c){
         BackupJobs.recoverAfterRestart(c);
-        try{String raw=prefs(c).getString("ota_ready","");if(raw.length()==0||new JSONObject(raw).optInt("versionCode")<=currentCode(c)){prefs(c).edit().remove("ota_ready").remove("ota_quiescing").remove("ota_force_requested").remove("ota_apply_requested").remove("ota_checkpoint_job").remove("ota_checkpoint_error").apply();BackupJobs.resumePending(c);}}catch(Exception ignored){}
+        try{String raw=prefs(c).getString("ota_ready","");if(raw.length()==0||new JSONObject(raw).optInt("versionCode")<=currentCode(c)){prefs(c).edit().remove("ota_ready").remove("ota_quiescing").remove("ota_force_requested").remove("ota_apply_requested").remove("ota_checkpoint_job").remove("ota_checkpoint_error").remove("ota_install_started").apply();BackupJobs.resumePending(c);}}catch(Exception ignored){}
     }
     public static boolean installationPending(Context c) {
         SharedPreferences p = OtaInstaller.preferences(c);
@@ -111,17 +130,52 @@ public final class OtaManager {
             && c.getPackageManager().getPackageInstaller().getSessionInfo(id) != null;
     }
     public static boolean installationInProgress(Context c) { return installationPending(c) && "installing".equals(OtaInstaller.preferences(c).getString("status", "")); }
+    private static void releasePauseAfterFailure(Context c, String message, boolean discardDownload) {
+        SharedPreferences.Editor state = prefs(c).edit().putBoolean("ota_hold", !discardDownload)
+                .putBoolean("ota_quiescing", false).putBoolean("ota_apply_requested", false)
+                .putBoolean("ota_force_requested", false).putLong("ota_attempt_at", System.currentTimeMillis())
+                .remove("ota_checkpoint_job").remove("ota_checkpoint_error").remove("ota_install_started");
+        if (discardDownload) {
+            state.remove("ota_ready").putLong("ota_checked_at", System.currentTimeMillis());
+            file(c).delete();
+        }
+        state.apply();
+        BackupJobs.resumePending(c);
+        stage(c, "failed", message);
+    }
+
     public static synchronized void maybeApply(Context c, FleetDataStore store) {
         if(BackendMode.direct(c)!=DIRECT_SCOPE)return;
         SharedPreferences p=prefs(c);boolean requested=p.getBoolean("ota_apply_requested",false),force=forceRequested(c);
-        if(p.getBoolean("ota_hold",false)||(!requested&&!p.getBoolean("automatic_ota",true))||installationPending(c))return;
+        if (p.getBoolean("ota_hold", false) || installationPending(c)) return;
+        if (!requested && !p.getBoolean("automatic_ota", true)) {
+            if (p.getBoolean("ota_quiescing", false)) cancelWait(c);
+            return;
+        }
         String raw=p.getString("ota_ready","");if(raw.length()==0||checking.get())return;
         if(!requested&&!p.getBoolean("ota_quiescing",false)&&System.currentTimeMillis()-p.getLong("ota_attempt_at",0)<OtaPolicy.RETRY_INTERVAL_MS)return;
         if(!OtaInstaller.canInstall(c)){stage(c,"permission","Χρειάζεται άδεια εγκατάστασης. Πάτησε «Εγκατάσταση ενημέρωσης».");return;}
         if(!force&&p.getString(BackupManager.KEY_FOLDER_URI,"").length()==0){stage(c,"backup_folder","Επίλεξε φάκελο backup. Η «Παύση & ενημέρωση» μπορεί να χρησιμοποιήσει επαληθευμένο τοπικό αντίγραφο, που δεν αντέχει σε απεγκατάσταση.");return;}
         try{
             JSONObject info=new JSONObject(raw);if(info.optInt("versionCode")<=currentCode(c)){resumeAfterRestart(c);return;}
+            long installationStarted = p.getLong("ota_install_started", 0);
+            if (installationStarted > 0) {
+                SharedPreferences android = OtaInstaller.preferences(c);
+                if (("failed".equals(android.getString("status", "")) && android.getLong("result_at", 0) >= installationStarted)
+                        || System.currentTimeMillis() - installationStarted >= 60000L) {
+                    releasePauseAfterFailure(c, "Το Android δεν ολοκλήρωσε την εγκατάσταση. Ο Server συνεχίζει και μπορείς να δοκιμάσεις ξανά.", false);
+                }
+                return;
+            }
             synchronized(ServerWorkTracker.class){enterPause(c);if(ServerWorkTracker.busy()){stage(c,"waiting","Αναμονή ασφαλούς σημείου της εργασίας που εμφανίζεται παρακάτω. Η παύση δεν εγκαταλείπει καταχωρήσεις.");return;}}
+            if (p.getString("ota_checkpoint_job", "").isEmpty() && !BackupJobs.isPreparing()) {
+                try {
+                    OtaInstaller.validate(c, file(c), info.getInt("versionCode"), info.getString("version"), info.getLong("sizeBytes"), info.getString("sha256"));
+                } catch (Exception rejected) {
+                    releasePauseAfterFailure(c, "Το πακέτο ενημέρωσης δεν επαληθεύτηκε. Θα γίνει νέα λήψη στον επόμενο έλεγχο.", true);
+                    return;
+                }
+            }
             JSONObject job=BackupJobs.requestForUpdate(c,store,info.getString("releaseId"));
             if(job==null){String error=p.getString("ota_checkpoint_error","");stage(c,error.length()>0?"backup_failed":"backup",error.length()>0?error:"Προετοιμασία τοπικού αντιγράφου πριν την ενημέρωση. Δες το αναλυτικό στάδιο στα Αντίγραφα.");return;}
             if(!job.optBoolean("localReady")){stage(c,"backup","Αναμονή ολοκλήρωσης τοπικού αντιγράφου.");return;}
@@ -131,9 +185,13 @@ public final class OtaManager {
             }
             if(!BackupJobs.localReady(c,job))throw new IllegalStateException("Δεν υπάρχει επαληθευμένο τοπικό αντίγραφο.");
             OtaInstaller.validate(c,file(c),info.getInt("versionCode"),info.getString("version"),info.getLong("sizeBytes"),info.getString("sha256"));
-            p.edit().putLong("ota_attempt_at",System.currentTimeMillis()).putBoolean("ota_apply_requested",false).putString("ota_backup_name",job.getString("fileName")).putLong("ota_backup_at",System.currentTimeMillis()).commit();
+            long now = System.currentTimeMillis();
+            p.edit().putLong("ota_attempt_at",now).putLong("ota_install_started", now).putBoolean("ota_apply_requested",false).putString("ota_backup_name",job.getString("fileName")).putLong("ota_backup_at",System.currentTimeMillis()).commit();
             OtaInstaller.install(c,file(c));stage(c,"installing",job.optBoolean("exported")?"Το backup αποθηκεύτηκε. Γίνεται εγκατάσταση…":"Το τοπικό backup επαληθεύτηκε. Γίνεται εγκατάσταση· η εκκρεμής αποστολή θα επαναληφθεί μετά.");
-        }catch(Exception error){p.edit().remove("ota_checkpoint_job").putBoolean("ota_quiescing",false).putBoolean("ota_apply_requested",false).putBoolean("ota_force_requested",false).putLong("ota_attempt_at",System.currentTimeMillis()).apply();BackupJobs.resumePending(c);stage(c,"failed","Η ενημέρωση δεν εφαρμόστηκε: "+(error.getMessage()==null?"Δοκίμασε ξανά.":error.getMessage()));}
+        } catch (Exception error) {
+            releasePauseAfterFailure(c, "Η ενημέρωση δεν εφαρμόστηκε. Ο Server συνεχίζει. "
+                    + (error.getMessage() == null ? "Δοκίμασε ξανά." : error.getMessage()), false);
+        }
     }
     public static JSONObject state(Context c) throws Exception {
         SharedPreferences p = prefs(c), install = OtaInstaller.preferences(c); JSONObject value = new JSONObject();
