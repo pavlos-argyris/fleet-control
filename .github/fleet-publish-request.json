@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "mode": "publish",
-  "requestId": "fleet-107-publish-mwm4pxbq",
-  "sourceCommit": "a0e9ad0416cb2f1c7728f687c603a484153bbe9c",
-  "releaseVersion": "5.67.1",
-  "requestedAt": "2026-11-18T13:00:28.791Z",
-  "reason": "Ο ιδιοκτήτης ζήτησε κανονική ενημέρωση της Fleet Control 5.67.1 (Client/Web) και 2.16.1 (Server), μέσω του επίσημου καναλιού ενημερώσεων."
+  "mode": "candidate",
+  "requestId": "fleet-116182d2-0808-468b-aad5-05db462ed947",
+  "sourceCommit": "f91e9f9dfd31c1ef6b6b2b948e9c239545335c12",
+  "releaseVersion": "5.67.3",
+  "requestedAt": "2026-11-20T13:41:41.841Z",
+  "reason": "Δοκιμή του Issue 107 σε Samsung με τα αρχικά υπογεγραμμένα APK"
 }
