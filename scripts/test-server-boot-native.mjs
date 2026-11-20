@@ -9,11 +9,11 @@ try {
   const files={
     'BroadcastReceiver.java':'package android.content;public abstract class BroadcastReceiver{public abstract void onReceive(Context context,Intent intent);}',
     'Intent.java':'package android.content;public class Intent{public static final String ACTION_BOOT_COMPLETED="android.intent.action.BOOT_COMPLETED",ACTION_MY_PACKAGE_REPLACED="android.intent.action.MY_PACKAGE_REPLACED";private String action;public String target;public Intent(){}public Intent setClassName(Context c,String name){target=name;return this;}public Intent(String s){action=s;}public Intent(Context c,Class<?> cls){}public String getAction(){return action;}}',
-    'Context.java':'package android.content;public class Context{public static final int MODE_PRIVATE=0;public boolean automatic=true;public int reads,background,foreground;public SharedPreferences getSharedPreferences(String n,int mode){reads++;return new SharedPreferences(this);}public void startService(Intent intent){background++;}public void startForegroundService(Intent intent){foreground++;}}',
-    'SharedPreferences.java':'package android.content;public class SharedPreferences{final Context c;public SharedPreferences(Context c){this.c=c;}public boolean getBoolean(String name,boolean fallback){if(!name.equals("automatic_start"))throw new AssertionError(name);return c.automatic;}}',
+    'Context.java':'package android.content;public class Context{public static final int MODE_PRIVATE=0;public boolean automatic=true,directAutomatic=true;public int reads,background,foreground;public String prefName;public Intent started;public SharedPreferences getSharedPreferences(String n,int mode){reads++;prefName=n;return new SharedPreferences(this);}public void startService(Intent intent){background++;started=intent;}public void startForegroundService(Intent intent){foreground++;started=intent;}}',
+    'SharedPreferences.java':'package android.content;public class SharedPreferences{final Context c;public SharedPreferences(Context c){this.c=c;}public boolean getBoolean(String name,boolean fallback){if(!name.equals("automatic_start"))throw new AssertionError(name);return c.prefName.equals("fleet_direct_fixture")?c.directAutomatic:c.automatic;}}',
     'Build.java':'package android.os;public class Build{public static class VERSION{public static int SDK_INT=23;}}',
     'BackupManager.java':'package gr.argyrismitsos.fleetserver;public class BackupManager{public static final String PREFS="fixture";}',
-    'BackendMode.java':'package gr.argyrismitsos.fleetserver;import android.content.Context;public class BackendMode{public static boolean selected;public static boolean direct(Context c){return selected;}}',
+    'BackendMode.java':'package gr.argyrismitsos.fleetserver;import android.content.Context;public class BackendMode{public static final String DIRECT_PREFERENCES_PREFIX="fleet_direct_";public static boolean selected;public static boolean direct(Context c){return selected;}}',
     'SyncService.java':'package gr.argyrismitsos.fleetserver;public class SyncService{}',
     'NativeColdRuntime.java':'package gr.argyrismitsos.fleetserver;import android.content.Context;public class NativeColdRuntime{public static boolean pending;public static boolean blocked(Context c){return pending;}}',
     'BootTest.java':String.raw`import android.content.*;import android.os.Build;import gr.argyrismitsos.fleetserver.BootReceiver;
@@ -30,6 +30,13 @@ public class BootTest{
    c=new Context();c.automatic=false;receiver.onReceive(c,new Intent(action));check(c.background+c.foreground==0,"automatic start off remains off");
   }
   gr.argyrismitsos.fleetserver.NativeColdRuntime.pending=true;Context blocked=new Context();receiver.onReceive(blocked,new Intent(Intent.ACTION_BOOT_COMPLETED));check(blocked.background+blocked.foreground==0,"pending cold restore never starts a foreground service before verified apply");
+  gr.argyrismitsos.fleetserver.BackendMode.selected=true;
+  for(String action:new String[]{Intent.ACTION_BOOT_COMPLETED,Intent.ACTION_MY_PACKAGE_REPLACED}){
+   Context direct=new Context();direct.automatic=false;receiver.onReceive(direct,new Intent(action));
+   check(direct.foreground==1&&direct.prefName.equals("fleet_direct_fixture")&&direct.started.target.equals("gr.argyrismitsos.fleetdirect.IndependentService"),"Direct boot and OTA use the scoped settings and the Direct service");
+   direct=new Context();direct.directAutomatic=false;receiver.onReceive(direct,new Intent(action));
+   check(direct.foreground==0&&direct.background==0,"Direct auto-start off overrides legacy settings");
+  }
   System.out.println("PASS native boot guard: only boot/own-package replacement, null/unknown actions rejected before any side effect, pending cold restore blocks service launch, existing automatic-start preference and SDK23/34 service branches preserved.");
  }
 }`
