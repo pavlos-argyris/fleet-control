@@ -55,6 +55,7 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
             }catch(Exception|LinkageError failure){if(failure instanceof InterruptedIOException||Thread.currentThread().isInterrupted())stage="EXPORT_TIMEOUT";context.getSharedPreferences("independent_ui",Context.MODE_PRIVATE).edit().putString("exportErrorCode",stage).apply();return new JSONObject().put("failed",true).put("errorCode",stage);}finally{BusinessSqlite.recordTiming("export."+format,System.nanoTime()-started);if(!saved&&file!=null)file.delete();}
         }
         if(command.equals("http.read")){String host=new URI(value.getString("url")).getHost();if(host!=null&&(host.endsWith(".workers.dev")||host.endsWith(".cloudflare.com")))throw new IOException("Δεν χρησιμοποιούνται Cloudflare endpoints στην ανεξάρτητη εγκατάσταση.");return NativePublicRead.fetch(value,objects);}
+        if(command.equals("independent.adminStatus")||command.equals("independent.adminAvailable"))return new JSONObject().put("available",false);
         if(command.equals("independent.status"))return status();
         if(command.equals("independent.probe"))return merge(status(),IndependentReadiness.probe(db,value,System.currentTimeMillis()));
         if(command.equals("independent.activate"))return merge(status(),IndependentReadiness.activate(db,value,config.getString("instanceId"),IndependentTls.valid(context,config.optString("hostname")),System.currentTimeMillis()));
@@ -121,6 +122,39 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
         if(!address.startsWith(IndependentConfig.realm(config)+"/api/"))throw new IOException("Αποκλείστηκε cloud download στην ανεξάρτητη εγκατάσταση.");
         serialized(new Callable<Void>(){public Void call()throws Exception{JSONObject request=new JSONObject().put("url",address).put("method","GET").put("headers",new JSONObject().put("X-Fleet-Server-Key",config.getString("serverKey")));JSONObject response=dispatch(request,true);if(response.getInt("status")!=200||!response.has("file"))throw new IOException("Δεν βρέθηκε το τοπικό αρχείο.");engine.copyInternalFile(response.getJSONObject("file").getString("ref"),target);return null;}});return true;
     }
+    void recoverAdminCommands() throws Exception {
+        serialized(() -> {
+            db.execSQL("UPDATE direct_admin_commands SET state='interrupted',session_hash=NULL,finished_at=? WHERE state='running'", new Object[]{System.currentTimeMillis()});
+            return null;
+        }, 2);
+    }
+
+    JSONObject claimAdminCommand() throws Exception {
+        return serialized(() -> {
+            long now = System.currentTimeMillis();
+            db.execSQL("UPDATE direct_admin_commands SET state='expired',session_hash=NULL,finished_at=? WHERE state='queued' AND created_at<?",
+                    new Object[]{now, now - 15 * 60000});
+            db.execSQL("UPDATE direct_admin_commands SET state='revoked',session_hash=NULL,finished_at=? WHERE state='queued' AND NOT EXISTS (" +
+                    "SELECT 1 FROM auth_sessions s JOIN app_users u ON u.id=s.user_id " +
+                    "WHERE s.token_hash=direct_admin_commands.session_hash AND s.user_id=direct_admin_commands.actor_id " +
+                    "AND s.revoked_at IS NULL AND s.expires_at>? AND s.created_at>=COALESCE(u.force_logout_after,0) " +
+                    "AND u.active=1 AND u.login_enabled=1 AND u.role='owner' AND u.deleted_at IS NULL)", new Object[]{now, now / 1000});
+            JSONArray queued = query("SELECT id,action,payload FROM direct_admin_commands WHERE state='queued' ORDER BY created_at LIMIT 1");
+            if (queued.length() == 0) return null;
+            JSONObject job = queued.getJSONObject(0);
+            db.execSQL("UPDATE direct_admin_commands SET state='running',session_hash=NULL WHERE id=? AND state='queued'", new Object[]{job.getString("id")});
+            return job;
+        }, 2);
+    }
+
+    void finishAdminCommand(String id, String state) throws Exception {
+        serialized(() -> {
+            db.execSQL("UPDATE direct_admin_commands SET state=?,finished_at=? WHERE id=? AND state='running'",
+                    new Object[]{state, System.currentTimeMillis(), id});
+            return null;
+        }, 2);
+    }
+
     long revision(){synchronized(changes){return revision;}}
     long await(long after)throws InterruptedException{synchronized(changes){if(revision==after)changes.wait(15000);return revision;}}
     String realm(){return IndependentConfig.realm(config);}

@@ -39,6 +39,7 @@ public class IndependentBusinessTest {
   engine=new NativeBusinessEngine(db,new File(args[3],"documents"),new File(args[3],"temporary"),configuration,code,manifest.getString("bundleSha256"),new NativeBusinessEngine.Authority(){public void beforeRequest(JSONObject r,boolean internal)throws Exception{if(rejectReportCommit&&r.getString("url").contains("/api/native/store-financials"))db.execSQL("UPDATE store_billing_local SET data=? WHERE id='daily:fixture-store-0:2026-10-01'",new Object[]{uncommittedStoreRow});}public void beforeCommit(JSONObject r,boolean internal)throws Exception{if(rejectReportCommit)throw new IOException("fixture report commit rejected");}},new NativeBusinessEngine.Ports(){public JSONObject call(String command,JSONObject value,BusinessObjects objects)throws Exception{
    if(command.equals("store.context"))return new JSONObject().put("configured",storeReady).put("scope","readmodel-stores").put("generation","fixture-source-generation");
    if(command.equals("health.snapshot"))return new JSONObject();
+   if(command.equals("independent.adminStatus")||command.equals("independent.adminAvailable"))return new JSONObject().put("available",true);
    if(command.equals("independent.status"))return new JSONObject().put("instanceId",instance).put("mode",mode());
    if(command.equals("independent.probe"))return IndependentReadiness.probe(db,value,System.currentTimeMillis());
    if(command.equals("independent.activate"))return IndependentReadiness.activate(db,value,instance,trusted,System.currentTimeMillis()).put("instanceId",instance);
@@ -55,6 +56,28 @@ public class IndependentBusinessTest {
    JSONObject created=body(call("/api/admin/employees","POST",new JSONObject().put("username","employee.test").put("password","Employee-Fixture-2026!").put("fullName","Employee test").put("role","employee"),token));String employee=created.getJSONObject("employee").getString("id");
    String rider=body(call("/api/auth/user-login","POST",new JSONObject().put("username","employee.test").put("password","Employee-Fixture-2026!"),null)).getString("token");
    check(call("/api/independent/probe","POST",new JSONObject(),rider).getInt("status")==403,"employee cannot acquire owner readiness");
+   String adminPath="/api/independent/server-admin";
+   check(call(adminPath,"GET",null,null).getInt("status")==401,"anonymous cannot see Direct administration");
+   check(call(adminPath,"POST",new JSONObject().put("action","check-update"),null).getInt("status")==401,"anonymous cannot queue Direct administration");
+   check(call(adminPath,"GET",null,rider).getInt("status")==403,"employee cannot see Direct administration");
+   check(call(adminPath,"POST",new JSONObject().put("action","check-update"),rider,false,null,true).getInt("status")==403,"employee cannot submit bare privileged requests");
+   JSONObject manager=new JSONObject().put("username","manager.test").put("password","Manager-Fixture-2026!").put("fullName","Manager test").put("role","manager");
+   check(call("/api/admin/employees","POST",manager,token).getInt("status")<300,"manager fixture created");
+   String serverAdminManagerToken=body(call("/api/auth/user-login","POST",manager,null)).getString("token");
+   check(call(adminPath,"GET",null,serverAdminManagerToken).getInt("status")==403&&call(adminPath,"POST",new JSONObject().put("action","check-update"),serverAdminManagerToken).getInt("status")==403,"manager cannot read or enqueue Direct administration");
+   check(call(adminPath,"GET",null,token).getInt("status")==200,"owner can see Direct administration");
+   check(call(adminPath,"POST",new JSONObject().put("action","restore"),token).getInt("status")==400,"critical recovery requires the local Android authority");
+   check(call(adminPath,"POST",new JSONObject().put("action","backup-settings").put("hour",100),token).getInt("status")==400,"malformed backup settings never enter queue");
+   JSONObject checkUpdate=new JSONObject().put("action","check-update");
+   String adminOperation=java.util.UUID.randomUUID().toString();
+   JSONObject accepted=call(adminPath,"POST",checkUpdate,token,false,adminOperation,true);
+   check(accepted.getInt("status")==202&&body(accepted).getString("state").equals("queued"),"owner operation durably committed before execution");
+   JSONObject replayAdmin=call(adminPath,"POST",checkUpdate,token,false,adminOperation,true);
+   check(replayAdmin.getInt("status")==202&&"1".equals(replayAdmin.getJSONObject("headers").optString("x-fleet-replayed")),"lost acknowledgement cannot enqueue a second privileged action");
+   check(call(adminPath,"POST",checkUpdate,token).getInt("status")==409,"duplicate active command rejected");
+   check(body(call(adminPath,"GET",null,token)).getJSONArray("commands").length()==1,"one queued command is visible after replay");
+   check(!body(call(adminPath,"GET",null,token)).getJSONArray("commands").getJSONObject(0).has("session_hash"),"command history excludes the private session reference");
+
    check(call("/api/server/ordexa/import","POST",new JSONObject(),token).getInt("status")==403,"external owner cannot claim internal server key");
    JSONObject local=body(call("/api/independent/probe","POST",new JSONObject(),token));check(local.getBoolean("writeRollback")&&!local.getBoolean("externalVerified")&&local.getString("proof").isEmpty(),"actual local write/rollback cannot claim external proof");
    check(sql.call("sql.query",new JSONObject().put("sql","SELECT name FROM sqlite_master WHERE name='independent_rollback_probe'")).getJSONArray("results").length()==0,"probe table really rolled back");
@@ -106,6 +129,7 @@ ${fs.readFileSync('scripts/fixtures/IndependentStoreReadModelChecks.java.txt','u
    }finally{models.close();projectionDb.close();}
    System.out.println("Native invoice benchmark: "+new JSONObject().put("entries",invoiceCount).put("requests",invoicePages).put("previousRequests",15).put("elapsedMs",(System.nanoTime()-invoiceStarted)/1000000).toString());
    check(call("/api/auth/user-logout","POST",new JSONObject(),token).getInt("status")==200,"logout supported");check(call("/api/independent/probe","POST",new JSONObject(),token).getInt("status")==401,"revoked owner cannot reuse readiness");
+   check(call(adminPath,"GET",null,token).getInt("status")==401&&call(adminPath,"POST",checkUpdate,token,false,adminOperation,true).getInt("status")==401,"revoked owner cannot read or replay an accepted command");
    check(network==0,"zero Cloudflare/external capability calls in actual local runtime scenario");
    System.out.println("PASS real Java/Rhino/SQLite independent auth, roles, 30+ sessions and 8 concurrent clients, real probe write/rollback, localhost/stale/session/TLS/confirmation gates, atomic activation+audit+receipt failure and ACK replay, immediate revocation; outbound capabilities=0. Public peer is synthetic; physical 4G/Android acceptance remains pending.");
   }finally{engine.close();db.close();}

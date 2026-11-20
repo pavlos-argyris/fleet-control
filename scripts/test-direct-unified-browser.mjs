@@ -17,7 +17,7 @@ const invoices=Array.from({length:57},(_,i)=>({id:'invoice-'+i,key:'service-docu
 const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined});
 try{for(const width of [390,1280]){
   const context=await browser.newContext({viewport:{width,height:900},locale:'el-GR',timezoneId:'Europe/Athens',serviceWorkers:'block'}),page=await context.newPage();
-  const requests=[],errors=[],missing=[],management=managementData();let logged=false,invoiceRequests=0;
+  const requests=[],errors=[],missing=[],management=managementData();let logged=false,invoiceRequests=0,adminAvailable=false,adminPosts=0;
   page.on('pageerror',error=>errors.push(error.message));
   await context.addInitScript(selection=>{
     // A fresh Web/Client starts at revision zero, unlike the Server.
@@ -39,6 +39,19 @@ try{for(const width of [390,1280]){
       if(url.pathname==='/api/independent/status'){
         assert.equal(request.headers().authorization,'Bearer unified-fixture-token','fresh login diagnostics use the authenticated session, even before persistent storage completes');
         return route.fulfill({json:{instanceId:'fixture-instance',mode:'primary',ordexaLastSuccessAt:null}});
+      }
+      if(url.pathname==='/api/independent/server-admin'){
+        assert.equal(request.headers().authorization,'Bearer unified-fixture-token');
+        if(request.method()==='POST'){
+          assert.match(request.headers()['x-fleet-operation'],/^[0-9a-f-]{36}$/);
+          assert.deepEqual(request.postDataJSON(),{action:'check-update'});
+          adminPosts++;
+          return route.fulfill({status:202,json:{action:'check-update',state:'queued'}});
+        }
+        if(!adminAvailable)return route.fulfill({status:503,json:{error:'Διακοπή δοκιμής'}});
+        return route.fulfill({json:{observedAt:Date.now(),serverVersion:'2.16.2',https:{listenerActive:true,wifiConnected:true},
+          backup:{enabled:false,hour:3,retention:30,frequency:'daily',revision:'false:3:30:daily'},device:{storageFreeBytes:100000000},
+          commands:adminPosts?[{action:'check-update',state:'queued',created_at:Date.now()}]:[]}});
       }
       if(url.pathname==='/api/independent/events')return route.fulfill({contentType:'text/event-stream',body:'event: ready\ndata: {}\n\n'});
       if(url.pathname==='/api/sync'){
@@ -80,6 +93,23 @@ try{for(const width of [390,1280]){
     await page.locator('[data-invoice-card]').first().waitFor();await page.locator('#invoiceLoadProgress').waitFor({state:'hidden'});
     assert.equal(invoiceRequests,2,'full 57-invoice fixture needs only two requests');
     await page.screenshot({path:path.join(out,'invoices-'+width+'.png'),fullPage:true});
+    if(width===390){
+      await page.locator('#menuButton').click();
+      await page.locator('#sideNav [data-go="server"]').filter({hasText:'Διαχείριση Server'}).click();
+      const admin=page.locator('#directServerAdmin');
+      await admin.locator('[data-admin-message]').filter({hasText:/Διακοπή δοκιμής|HTTP 503|σύνδεση με τον Server/}).waitFor();
+      adminAvailable=true;
+      await admin.getByRole('button',{name:'Ανανέωση',exact:true}).click();
+      await admin.getByText(/HTTPS ενεργό/).waitFor();
+      assert(await admin.getByRole('button',{name:'Άνοιγμα τιμολογίων',exact:true}).isVisible());
+      await admin.getByRole('button',{name:'Έλεγχος έκδοσης',exact:true}).click();
+      await admin.getByText(/Σε αναμονή/).waitFor();
+      assert.equal(adminPosts,1);
+    }else{
+      assert.equal(await page.locator('#directServerAdmin').count(),0);
+      assert.equal(requests.some(p=>p.startsWith('/api/independent/server-admin')),false);
+    }
+
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);assert.deepEqual(errors,[]);assert.deepEqual(missing,[]);
   }catch(error){fs.writeFileSync(path.join(out,'error-'+width+'.json'),JSON.stringify({requests,errors,missing},null,2));await page.screenshot({path:path.join(out,'error-'+width+'.png'),fullPage:true});throw error;}finally{await context.close();}
 }}finally{await browser.close();}

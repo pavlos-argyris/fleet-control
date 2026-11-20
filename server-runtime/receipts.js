@@ -8,6 +8,7 @@ export async function beginOperation(request,env,form){
   const path=new URL(request.url).pathname;
   if(['GET','HEAD','OPTIONS'].includes(request.method)||/^\/api\/(auth|events|native\/files)\//.test(path))return {};
   let actor;try{actor=await authenticateExternal(request,env);}catch(e){return{response:json(e.message||'Χρειάζεται σύνδεση.',Number(e.status)||401)}};
+  if(path==='/api/independent/server-admin'&&actor.role!=='owner')return{response:json('Απαιτείται λογαριασμός ιδιοκτήτη.',403)};
   const id=request.headers.get('X-Fleet-Operation')||'';
   if(!/^[a-f0-9-]{36}$/.test(id))return{response:json('Η αποθήκευση χρειάζεται μοναδική ταυτότητα ενέργειας. Ενημέρωσε την εφαρμογή.',428,'operation_id_required')};
   const normalized={};
