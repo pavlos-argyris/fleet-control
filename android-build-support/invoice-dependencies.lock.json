@@ -11,7 +11,10 @@
       "file": "pdfbox.aar",
       "url": "https://repo.maven.apache.org/maven2/com/tom-roush/pdfbox-android/2.0.27.0/pdfbox-android-2.0.27.0.aar",
       "sha256": "30277f879cfd571db2a137582c95516a0d4ea6778e945519bc58ca93d57d88c7",
-      "sizeBytes": 3254019
+      "sizeBytes": 3254019,
+      "mirrors": [
+        "https://repo1.maven.org/maven2/com/tom-roush/pdfbox-android/2.0.27.0/pdfbox-android-2.0.27.0.aar"
+      ]
     },
     {
       "file": "r8.jar",
