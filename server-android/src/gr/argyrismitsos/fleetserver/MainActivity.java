@@ -432,7 +432,8 @@ public final class MainActivity extends Activity {
 
     private Bundle directControl(String method, String argument, Bundle input) throws RemoteException {
         // Android keeps the UI process alive if the separate Direct provider is restarted.
-        ContentProviderClient control = getContentResolver().acquireUnstableContentProviderClient(BackendMode.CONTROL_AUTHORITY);
+        Uri authority = Uri.parse("content://" + BackendMode.CONTROL_AUTHORITY);
+        ContentProviderClient control = getContentResolver().acquireUnstableContentProviderClient(authority);
         if (control == null) throw new IllegalStateException("Η τοπική υπηρεσία Direct δεν είναι διαθέσιμη.");
         try {
             Bundle result = control.call(method, argument, input);
