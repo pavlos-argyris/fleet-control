@@ -887,7 +887,7 @@
     "sync-ordexa":"Συγχρονισμός Ordexa", "backup-settings":"Ρυθμίσεις backup"
   };
   const adminCommandStates = {queued:"Σε αναμονή",running:"Σε εξέλιξη",completed:"Υποβλήθηκε",failed:"Απέτυχε",
-    interrupted:"Διακόπηκε",expired:"Έληξε"};
+    interrupted:"Διακόπηκε",expired:"Έληξε",revoked:"Ανακλήθηκε"};
   let serverAdminLoading = false;
 
   async function loadServerView() {
@@ -909,7 +909,8 @@
       panel = document.createElement("section");
       panel.id = "directServerAdmin";
       panel.className = "panel";
-      panel.innerHTML = '<p data-admin-message role="status">Φορτώνεται η κατάσταση του Server…</p><div data-admin-content></div>';
+      panel.innerHTML = '<p data-admin-message role="status">Φορτώνεται η κατάσταση του Server…</p><button type="button" class="secondary-button" data-admin-refresh>Ανανέωση</button><div data-admin-content></div>';
+      panel.querySelector("[data-admin-refresh]").onclick = loadClientServerManagement;
       section.querySelector(".section-toolbar").after(panel);
     }
     const message = panel.querySelector("[data-admin-message]"), content = panel.querySelector("[data-admin-content]");
@@ -931,7 +932,8 @@
         ["Ordexa", sync.busy ? "Συγχρονίζεται" : sync.configured ? "Ρυθμισμένο" : "Εκκρεμεί ρύθμιση", "Τελευταία λήψη "+at(sync.lastSuccess)],
         ["Αντίγραφα", backup.enabled ? "Αυτόματα ενεργά" : "Αυτόματα ανενεργά", "Τελευταίο "+at(backup.lastAt)],
         ["Ενημερώσεις", ota.availableVersion || "—", "Τελευταίος έλεγχος "+at(ota.checkedAt)],
-        ["Εργασίες", String(data.activeWork??"—"), source.serviceStartedAt ? "Έναρξη "+at(source.serviceStartedAt) : ""]
+        ["Εργασίες", String(data.activeWork??"—"), source.serviceStartedAt ? "Έναρξη "+at(source.serviceStartedAt) : ""],
+        ["Ουρά τιμολογίων", data.invoiceStage||"—", "Επανάληψη από την καρτέλα τιμολογίων"]
       ];
       const history = (data.commands||[]).map(command => '<li>'+escapeHtml(adminCommandLabels[command.action]||command.action)+
         ' · '+escapeHtml(adminCommandStates[command.state]||command.state)+' · '+escapeHtml(at(command.finished_at||command.created_at))+'</li>').join("");
@@ -939,21 +941,21 @@
       content.innerHTML = '<div class="health-grid">'+values.map(([label,value,hint])=>'<article class="health-card"><span><strong>'+
         escapeHtml(label)+'</strong><small>'+escapeHtml(value)+' · '+escapeHtml(hint)+'</small></span></article>').join("")+'</div>'+
         '<div class="two-column-actions">'+Object.entries(adminCommandLabels).map(([id,label])=>action(id,label)).join("")+
-        action("refresh","Ανανέωση")+'</div>'+
+        action("invoices","Άνοιγμα τιμολογίων")+'</div>'+
         (history ? '<h3>Πρόσφατες ενέργειες</h3><ul>'+history+'</ul>' : '')+
         '<p>Η αλλαγή πιστοποιητικού, η επιλογή φακέλου, η ανάκτηση και η εγκατάσταση ενημέρωσης ολοκληρώνονται στο κινητό Server.</p>';
       message.textContent = source.listenerError ? "Κατάσταση HTTPS "+source.listenerError : "Ενημερώθηκε "+at(data.observedAt);
       content.querySelectorAll("[data-admin-command]").forEach(button => {
         button.onclick = () => {
           const id = button.dataset.adminCommand;
-          if (id === "refresh") return loadClientServerManagement();
+          if (id === "invoices") return goTo("invoices");
           submitClientServerCommand(id, backup, button, message).catch(error => { message.textContent = error.message; });
         };
       });
     } catch (error) {
       if (state.token !== token || state.view !== "server") return;
       if ([401,403].includes(Number(error.status))) content.replaceChildren();
-      else content.querySelectorAll("[data-admin-command]:not([data-admin-command=refresh])").forEach(button => { button.disabled=true; });
+      else content.querySelectorAll("[data-admin-command]").forEach(button => { button.disabled=true; });
       message.textContent = error.message || "Δεν ενημερώθηκε η κατάσταση του Server.";
     } finally {
       serverAdminLoading = false;
