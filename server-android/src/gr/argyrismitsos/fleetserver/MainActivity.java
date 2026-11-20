@@ -236,7 +236,7 @@ public final class MainActivity extends Activity {
         if(BackendMode.direct(this)){
             JSONObject direct=new JSONObject(directControl("dashboard","",null).getString("json"));JSONObject stats=direct.optJSONObject("stats");result.put("ota",direct.optJSONObject("ota"));
             if(stats!=null){for(String name:new String[]{"bikes","users","activeShifts","openAlerts","historyEntries"})result.put(name,stats.opt(name));}
-            result.put("workerUrl",BackendMode.DIRECT).put("serverOnline",direct.optBoolean("listenerActive")).put("serviceRunning",true).put("lastError",direct.optString("listenerError")).put("syncDiagnostics",new JSONObject().put("stage","Direct · τοπική SQLite").put("endpoint",BackendMode.DIRECT)).put("dataSource","Direct · ανεξάρτητα δεδομένα");
+            result.put("workerUrl",BackendMode.DIRECT).put("serverOnline",direct.optBoolean("listenerActive")).put("serviceRunning",direct.optJSONObject("origin")!=null&&direct.getJSONObject("origin").optBoolean("serviceRunning")).put("originHealth",direct.optJSONObject("origin")).put("lastError",direct.optString("listenerError")).put("syncDiagnostics",new JSONObject().put("stage","Direct · τοπική SQLite").put("endpoint",BackendMode.DIRECT)).put("dataSource","Direct · ανεξάρτητα δεδομένα");
         }
         result.put("settingsLoaded", true);
         return result;

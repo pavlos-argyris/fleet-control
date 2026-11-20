@@ -146,9 +146,13 @@ public final class UnifiedNativeChecks{
                 String first=prefs.getString(BackupManager.KEY_LAST_URI,"");check(!first.isEmpty(),"Backup export records the Direct URI/ledger");
                 JSONObject verified=BackupManager.verifyAndRemember(target,Uri.parse(first),password);
                 check(verified.getBoolean("readable")&&verified.getBoolean("complete")&&verified.getBoolean("documentsVerified"),"Exported backup read-back verification succeeds");
-                prefs.edit().putBoolean("automatic_backup",true).putInt(BackupManager.KEY_HOUR,0).putString(BackupManager.KEY_FREQUENCY,"daily").putString(BackupManager.KEY_LAST_DAY,"").putLong("backup_automatic_attempt",0).commit();
+                prefs.edit().putBoolean("automatic_backup",true).putInt(BackupManager.KEY_HOUR,0).putString(BackupManager.KEY_FREQUENCY,"daily").putString(BackupManager.KEY_LAST_DAY,"").commit();
                 BackupManager.maybeAutomatic(target,store);
-                check(!prefs.getString(BackupManager.KEY_LAST_DAY,"").isEmpty()&&!first.equals(prefs.getString(BackupManager.KEY_LAST_URI,"")),"Scheduled automatic Direct backup exports and records another verified packet");
+                long automaticDeadline=android.os.SystemClock.elapsedRealtime()+15000;
+                while(first.equals(prefs.getString(BackupManager.KEY_LAST_URI,""))
+                        && !"failed".equals(BackupStatus.get(target).optString("state"))
+                        && android.os.SystemClock.elapsedRealtime()<automaticDeadline)Thread.sleep(25);
+                check(!prefs.getString(BackupManager.KEY_LAST_DAY,"").isEmpty()&&!first.equals(prefs.getString(BackupManager.KEY_LAST_URI,"")),"Scheduled automatic Direct backup exports and records another verified packet: "+BackupStatus.get(target).optString("error"));
             }
             check(root.getInt(BackupManager.KEY_HOUR,0)==22&&!root.getBoolean("automatic_backup",true)&&root.getString("worker_url","").equals("https://cloud-sentinel.invalid"),"Native Direct settings/backups never rewrite Cloud preferences");
             JSONObject preview=NativeRecoveryController.preview(target,manifest,password);

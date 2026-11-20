@@ -50,7 +50,7 @@ public final class DirectHost {
         if(!c.getSharedPreferences(BackupManager.PREFS,0).edit().putString(BackupManager.KEY_RESTORE_TEST,proof.toString()).commit())throw new IOException("Δεν καταγράφηκε η επαλήθευση του αντιγράφου.");
         return job;
     }
-    static void maintenance(Context c,IndependentRuntime runtime)throws Exception{
+    static void maintenance(Context c)throws Exception{
         if(NativeColdRuntime.blocked(c)||NativeRecoveryController.replacing()||c.getSharedPreferences(BackupManager.PREFS,0).getBoolean("native_recovery_pending",false))return;
         if(resumed.compareAndSet(false,true))OtaManager.resumeAfterRestart(c);
         OtaManager.check(c,false);

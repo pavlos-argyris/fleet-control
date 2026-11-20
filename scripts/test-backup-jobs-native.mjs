@@ -7,10 +7,51 @@ try{
  write('Context',`package android.content;import java.io.*;public class Context{public static final int MODE_PRIVATE=0;File root;SharedPreferences p=new SharedPreferences();ContentResolver resolver;public Context(File f){root=f;f.mkdirs();resolver=new ContentResolver(f);}public File getFilesDir(){return root;}public SharedPreferences getSharedPreferences(String n,int m){return p;}public ContentResolver getContentResolver(){return resolver;}}`);
  write('Uri',`package android.net;public class Uri{public final String value;private Uri(String v){value=v;}public static Uri parse(String v){return new Uri(v);}public String toString(){return value;}}`);
  write('CancellationSignal',`package android.os;public class CancellationSignal{public volatile boolean cancelled;public void cancel(){cancelled=true;}}`);
- write('Cursor',`package android.database;public class Cursor{String value;public Cursor(String v){value=v;}public boolean moveToFirst(){return true;}public String getString(int i){return value;}public void close(){}}`);
- write('ParcelFileDescriptor',`package android.os;import java.io.*;public class ParcelFileDescriptor{final FileOutputStream out;public ParcelFileDescriptor(File f)throws Exception{out=new FileOutputStream(f);}public void close()throws IOException{out.close();}public static class AutoCloseOutputStream extends OutputStream{final ParcelFileDescriptor fd;public AutoCloseOutputStream(ParcelFileDescriptor f){fd=f;}public void write(int n)throws IOException{fd.out.write(n);}public void write(byte[] b,int o,int n)throws IOException{fd.out.write(b,o,n);}public void flush()throws IOException{fd.out.flush();}public void close()throws IOException{fd.close();}}}`);
- write('ContentResolver',`package android.content;import java.io.*;import java.util.*;import java.util.concurrent.*;import android.net.Uri;import android.os.*;import android.database.Cursor;public class ContentResolver{public final File out;public volatile boolean fail,block;public volatile String failSuffix="";public volatile CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);public final List<String> names=Collections.synchronizedList(new ArrayList<String>());public ContentResolver(File f){out=new File(f,"exports");out.mkdirs();}public Uri create(String name)throws Exception{entered.countDown();if(block)release.await();if(fail||!failSuffix.isEmpty()&&name.endsWith(failSuffix))throw new IOException("simulated provider failure");names.add(name);return Uri.parse(name);}public Cursor query(Uri u,String[] p,String s,String[] a,String order,CancellationSignal c){return new Cursor(u.value);}public ParcelFileDescriptor openFileDescriptor(Uri u,String m,CancellationSignal c)throws Exception{if(c.cancelled)throw new IOException("cancelled");return new ParcelFileDescriptor(new File(out,u.value));}}`);
- write('DocumentsContract',`package android.provider;import android.content.*;import android.net.Uri;public class DocumentsContract{public static class Document{public static final String COLUMN_DISPLAY_NAME="name";}public static Uri buildDocumentUriUsingTree(Uri u,String id){return u;}public static String getTreeDocumentId(Uri u){return u.value;}public static Uri createDocument(ContentResolver r,Uri p,String type,String name)throws Exception{return r.create(name);}}`);
+ write('Cursor',`package android.database;import java.util.*;public class Cursor implements AutoCloseable{
+  final List<String[]> rows;int index=-1;public Cursor(List<String[]> rows){this.rows=rows;}
+  public boolean moveToFirst(){index=0;return !rows.isEmpty();}
+  public boolean moveToNext(){return ++index<rows.size();}
+  public String getString(int i){return rows.get(index)[i];}public void close(){}
+ }`);
+ write('ParcelFileDescriptor',`package android.os;import java.io.*;public class ParcelFileDescriptor{
+  final FileOutputStream out;final FileInputStream in;
+  public ParcelFileDescriptor(File file,String mode)throws Exception{boolean reading=mode.equals("r");out=reading?null:new FileOutputStream(file);in=reading?new FileInputStream(file):null;}
+  public void close()throws IOException{if(in!=null)in.close();if(out!=null)out.close();}
+  public static class AutoCloseInputStream extends FilterInputStream{public AutoCloseInputStream(ParcelFileDescriptor file){super(file.in);}}
+  public static class AutoCloseOutputStream extends FilterOutputStream{
+   public AutoCloseOutputStream(ParcelFileDescriptor file){super(file.out);}
+   public void write(byte[] b,int offset,int size)throws IOException{out.write(b,offset,size);}
+  }
+ }`);
+ write('ContentResolver',`package android.content;import java.io.*;import java.util.*;import java.util.concurrent.*;import android.net.Uri;import android.os.*;import android.database.Cursor;public class ContentResolver{
+  public final File out;public volatile boolean fail,block;public volatile String failSuffix="";public volatile CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);
+  public final List<String> names=Collections.synchronizedList(new ArrayList<String>());
+  public ContentResolver(File f){out=new File(f,"exports");out.mkdirs();}
+  public Uri create(String name)throws Exception{
+   entered.countDown();if(block)release.await();
+   if(fail||!failSuffix.isEmpty()&&name.endsWith(failSuffix))throw new IOException("simulated provider failure");
+   if(!new File(out,name).createNewFile())throw new IOException("duplicate create");
+   names.add(name);return Uri.parse(name);
+  }
+  public Cursor query(Uri u,String[] p,String s,String[] a,String order,CancellationSignal c){
+   List<String[]> result=new ArrayList<String[]>();
+   if(u.value.equals("children")){String[] files=out.list();if(files!=null)for(String file:files)result.add(new String[]{file,file});}
+   else if(new File(out,u.value).exists())result.add(new String[]{u.value});
+   return new Cursor(result);
+  }
+  public ParcelFileDescriptor openFileDescriptor(Uri u,String mode,CancellationSignal c)throws Exception{
+   if(c.cancelled)throw new IOException("cancelled");
+   return new ParcelFileDescriptor(new File(out,u.value),mode);
+  }
+ }`);
+ write('DocumentsContract',`package android.provider;import android.content.*;import android.net.Uri;public class DocumentsContract{
+  public static class Document{public static final String COLUMN_DISPLAY_NAME="name",COLUMN_DOCUMENT_ID="id";}
+  public static Uri buildDocumentUriUsingTree(Uri u,String id){return Uri.parse(id);}
+  public static Uri buildChildDocumentsUriUsingTree(Uri u,String id){return Uri.parse("children");}
+  public static String getTreeDocumentId(Uri u){return u.value;}
+  public static String getDocumentId(Uri u){return u.value;}
+  public static Uri createDocument(ContentResolver r,Uri p,String type,String name)throws Exception{return r.create(name);}
+ }`);
  write('Base64','package android.util;public class Base64{public static final int DEFAULT=0,NO_WRAP=2;}');
  write('Base64OutputStream','package android.util;import java.io.*;public class Base64OutputStream extends FilterOutputStream{public Base64OutputStream(OutputStream o,int flags){super(java.util.Base64.getEncoder().wrap(o));}@Override public void write(byte[] b,int o,int n)throws IOException{out.write(b,o,n);}}');
  write('Base64InputStream','package android.util;import java.io.*;public class Base64InputStream extends FilterInputStream{public Base64InputStream(InputStream i,int flags){super(java.util.Base64.getMimeDecoder().wrap(i));}}');
@@ -22,7 +63,7 @@ try{
  write('NativeBackupPreparation',`package gr.argyrismitsos.fleetserver;import android.content.Context;import java.io.*;import org.json.JSONObject;public class NativeBackupPreparation{public static boolean enabled;public static JSONObject prepareIfImported(Context c,FleetDataStore store,File folder,String id,BackupEnvelope envelope,NativeBackupBuilder.Progress progress)throws Exception{if(!enabled)return null;JSONObject job=new JSONObject().put("expectedDocuments",1).put("includedDocuments",1).put("missingDocuments",0).put("workforceIncluded",true).put("localReady",true);for(String[] part:new String[][]{{"data","fcbackup"},{"docs","fcdocs"},{"database","fcdb"}}){File file=new File(folder,id+"-"+part[0]+"."+part[1]);try(FileOutputStream output=new FileOutputStream(file)){output.write(("fixture-"+part[0]).getBytes("UTF-8"));}job.put(part[0]+"Path",file.getName()).put(part[0]+"Bytes",file.length()).put(part[0]+"Sha256",BackupCipher.digest(file));}return job;}}`);
  write('BackupManager',`package gr.argyrismitsos.fleetserver;import android.content.*;import android.net.Uri;import org.json.*;import javax.crypto.*;import javax.crypto.spec.*;import java.io.*;public class BackupManager{public static final String PREFS="test",KEY_FOLDER_URI="folder";public static volatile int recorded;static JSONObject preparePayload(Context c,FleetDataStore s){return s.fullBackupPayload();}static JSONObject documentInventory(JSONObject j){return j.getJSONObject("fleet");}static byte[] encryptionKey(){return new byte[32];}static byte[] encrypt(byte[] p)throws Exception{byte[] iv=new byte[12];new java.security.SecureRandom().nextBytes(iv);Cipher x=Cipher.getInstance("AES/GCM/NoPadding");x.init(Cipher.ENCRYPT_MODE,new SecretKeySpec(encryptionKey(),"AES"),new GCMParameterSpec(128,iv));ByteArrayOutputStream o=new ByteArrayOutputStream();o.write(iv);o.write(x.doFinal(p));return ("FCB2\\n"+java.util.Base64.getEncoder().encodeToString(o.toByteArray())).getBytes("UTF-8");}static void recordExported(Context c,JSONObject j){recorded++;}static void cleanupLater(Context c,Uri u){}}`);
  // Only the timeout clock is shortened; the actual transfer/cancellation/journal code is compiled unchanged.
- write('BackupJobs',fs.readFileSync(base+'BackupJobs.java','utf8').replace('private static final long IDLE_TIMEOUT_MS=90000','private static long IDLE_TIMEOUT_MS=150').replace('}},5,5,TimeUnit.SECONDS);','}},20,20,TimeUnit.MILLISECONDS);'));
+ write('BackupJobs',fs.readFileSync(base+'BackupJobs.java','utf8').replace('private static final long IDLE_TIMEOUT_MS=90000','private static long IDLE_TIMEOUT_MS=150').replace('}, 5, 5, TimeUnit.SECONDS);','}, 20, 20, TimeUnit.MILLISECONDS);'));
  write('JobsTest',String.raw`package gr.argyrismitsos.fleetserver;import android.content.*;import java.io.*;import java.nio.file.*;import java.util.concurrent.*;import org.json.*;
 public class JobsTest{
  static void check(boolean b,String text){if(!b)throw new AssertionError(text);}
@@ -44,7 +85,7 @@ public class JobsTest{
  public static void main(String[] args)throws Exception{try{
  Context c=new Context(new File(args[0]));c.getSharedPreferences("test",0).edit().putString("folder","fixture-folder").commit();ContentResolver r=c.getContentResolver();FleetDataStore store=new FleetDataStore();store.value=new JSONObject().put("fleet",new JSONObject().put("bikes",new JSONArray().put(new JSONObject().put("id","b").put("history",new JSONArray().put(new JSONObject().put("id","e").put("attachments",new JSONArray().put(new JSONObject().put("key","service-documents/b/e/a.pdf").put("name","a.pdf").put("contentType","application/pdf"))))))));Files.write(new File(c.getFilesDir(),"invoice.pdf").toPath(),"%PDF-1.4 fixture".getBytes("UTF-8"));
  String name=BackupJobs.createAndExport(c,store);check(BackupManager.recorded==1,"only completed transfer recorded");check(r.names.size()==2&&r.names.get(0).endsWith(".fcdocs")&&r.names.get(1).equals(name),"sidecar first, metadata last");check(BackupStatus.get(c).optInt("percent")==100,"100 only complete");String first=BackupJobs.lastJob(c);check(BackupJobs.localReady(c,BackupJobs.load(c,first)),"durable local files verified");
- r.fail=true;boolean failed=false;try{BackupJobs.createAndExport(c,store);}catch(Exception e){failed=true;}check(failed&&BackupManager.recorded==1,"failed export never replaces success");String pending=BackupJobs.lastJob(c);check(BackupJobs.localReady(c,BackupJobs.load(c,pending)),"failure retains local checkpoint");check(BackupStatus.get(c).optInt("percent")<100,"failed below100");String oldName=BackupJobs.load(c,pending).getString("fileName");r.fail=false;BackupJobs.retry(c);waitState(c,"completed");check(BackupManager.recorded==2&&!oldName.equals(BackupJobs.load(c,pending).getString("fileName")),"retry fresh matching pair, no duplicate name");
+ r.fail=true;boolean failed=false;try{BackupJobs.createAndExport(c,store);}catch(Exception e){failed=true;}check(failed&&BackupManager.recorded==1,"failed export never replaces success");String pending=BackupJobs.lastJob(c);check(BackupJobs.localReady(c,BackupJobs.load(c,pending)),"failure retains local checkpoint");check(BackupStatus.get(c).optInt("percent")<100,"failed below100");String oldName=BackupJobs.load(c,pending).getString("fileName");r.fail=false;BackupJobs.retry(c);waitState(c,"completed");check(BackupManager.recorded==2&&oldName.equals(BackupJobs.load(c,pending).getString("fileName")),"retry preserves the original logical backup name");
  r.block=true;r.entered=new CountDownLatch(1);r.release=new CountDownLatch(1);boolean[] interrupted={false};Thread t=begin(c,store,interrupted);check(r.entered.await(2,TimeUnit.SECONDS),"provider entered");BackupJobs.pauseExports(c);t.join(1000);check(!t.isAlive()&&interrupted[0],"pause releases waiting caller without provider reply");check(BackupStatus.get(c).optString("state").equals("paused"),"durable pause status");r.block=false;r.release.countDown();Thread.sleep(100);check(BackupManager.recorded==2&&BackupStatus.get(c).optString("state").equals("paused"),"late callback cannot revive/certify paused attempt");BackupJobs.retry(c);waitState(c,"completed");check(BackupManager.recorded==3,"paused checkpoint retried");
  r.block=true;r.entered=new CountDownLatch(1);r.release=new CountDownLatch(1);boolean[] stalled={false};Thread timeout=begin(c,store,stalled);check(r.entered.await(2,TimeUnit.SECONDS),"stalled provider entered");timeout.join(3000);check(!timeout.isAlive()&&stalled[0],"idle watchdog unblocks backup caller");check(BackupStatus.get(c).optString("state").equals("failed")&&BackupStatus.get(c).optBoolean("localReady"),"timeout is explicit, local copy retained");r.block=false;r.release.countDown();Thread.sleep(100);check(BackupManager.recorded==3,"timed-out late callback cannot complete");
  BackupJobs.resumePending(c);waitState(c,"completed");check(BackupManager.recorded==4,"pending exports resume from durable journal");check(BackupJobs.pendingStamps(c).isEmpty(),"no false pending after actual completion");
@@ -73,6 +114,25 @@ public class JobsTest{
  r.names.clear();r.failSuffix=".fcdb";try{BackupJobs.createAndExport(c,store);throw new AssertionError("database transfer failure accepted");}catch(IOException expected){}check(BackupManager.recorded==recorded+1&&r.names.size()==1,"partial database transfer cannot write final manifest or replace completed backup");
  JSONObject nativePending=BackupJobs.load(c,BackupJobs.lastJob(c));check(BackupJobs.localReady(c,nativePending),"all actual local part hashes survive provider failure");r.failSuffix="";BackupJobs.retry(c);waitState(c,"completed");check(BackupManager.recorded==recorded+2,"third-part provider failure retries the entire matched bundle");
  File nativeDatabase=new File(new File(c.getFilesDir(),"safe-backups"),nativePending.getString("databasePath"));try(FileOutputStream output=new FileOutputStream(nativeDatabase)){output.write(1);}try{BackupJobs.localReady(c,nativePending);throw new AssertionError("damaged database considered ready");}catch(IOException expected){}
+ Context scheduled=new Context(new File(args[0],"scheduled"));SharedPreferences automatic=scheduled.getSharedPreferences("test",0);
+ automatic.edit().putString("folder","fixture-folder").commit();ContentResolver destination=scheduled.getContentResolver();
+ destination.failSuffix=".fcdb";
+ BackupJobs.scheduled(scheduled,store,"2026-11-20",false);waitState(scheduled,"failed");
+ String automaticId=BackupJobs.lastJob(scheduled);
+ JSONObject partial=BackupJobs.load(scheduled,automaticId);check(partial.optInt("automaticExportAttempts")==1,"failed scheduled export persists attempt");
+ check(destination.names.size()==1,"scheduled export left only its first companion");
+ for(int i=0;i<8;i++)BackupJobs.scheduled(scheduled,store,"2026-11-20",false);
+ check(automaticId.equals(BackupJobs.lastJob(scheduled))&&destination.names.size()==1,"same slot and backoff do not create more files");
+ // Defer due times without altering transfer behavior.
+ destination.failSuffix="";
+ java.lang.reflect.Method save=BackupJobs.class.getDeclaredMethod("save",Context.class,JSONObject.class);save.setAccessible(true);
+ save.invoke(null,scheduled,partial.put("nextAutomaticExportAt",0));
+ BackupJobs.scheduled(scheduled,store,"2026-11-21",false);waitState(scheduled,"completed");
+ JSONObject completed=BackupJobs.load(scheduled,automaticId);
+ check(completed.optBoolean("exported")&&completed.optInt("automaticExportAttempts")==2&&destination.names.size()==3,"retry after restart/day change reuses completed companion and both original file names");
+ check(destination.names.get(2).equals(partial.getString("fileName")),"completion marker uses the original stable manifest name");
+ int exported=destination.names.size();BackupJobs.scheduled(scheduled,store,"2026-11-20",false);
+ check(destination.names.size()==exported&&automaticId.equals(BackupJobs.lastJob(scheduled)),"same-day replay and earlier clock dates do not create snapshots");
  System.out.println("PASS actual native backup jobs: durable local checkpoint, sidecar before metadata, success-only 100%, provider failure/retry, unique paired names, safe pause, late-callback fencing, idle watchdog, pending export recovery, OTA preparation independent of slow uploads and obsolete snapshot result fencing.");System.exit(0);
  }catch(Throwable t){t.printStackTrace();System.exit(1);}}
 }`);
