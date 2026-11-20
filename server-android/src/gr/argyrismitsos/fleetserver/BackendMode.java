@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 public final class BackendMode {
     public static final String CLOUD="https://fleet-control.pavlosargyris.workers.dev", DIRECT="https://fleet-control.duckdns.org";
     public static final String CONTROL_AUTHORITY="gr.argyrismitsos.fleetserver.direct-control";
+    public static final String DIRECT_PREFERENCES_PREFIX="fleet_direct_";
     private static final ReentrantReadWriteLock gate=new ReentrantReadWriteLock(true);
     private static int readers;private static RandomAccessFile readerFile;private static FileLock readerLock;
     private static volatile Context application;

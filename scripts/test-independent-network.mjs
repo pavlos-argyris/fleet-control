@@ -22,6 +22,28 @@ public class IndependentNetworkTest {
  static String request(String value)throws Exception{return new String(requestBytes(value),"UTF-8");}
  static String largeScript(){StringBuilder text=new StringBuilder();for(int i=0;i<2000;i++)text.append("const staticFixture = 'public repeated asset';\n");return text.toString();}
 ${fs.readFileSync('scripts/fixtures/IndependentKeepAliveChecks.java.txt','utf8')}
+ static void listenerRecovery(SSLContext context,String realm)throws Exception{
+  InetAddress loopback=InetAddress.getByName("127.0.0.1");IndependentHttps.Handler handler=new IndependentHttps.Handler(){
+   public JSONObject api(JSONObject ignored){throw new AssertionError("health must not invoke API");}
+   public InputStream asset(String path){throw new AssertionError("health must not read assets");}
+   public long revision(){return 0;}public long await(long revision){return 0;}
+  };
+  int savedPort=port;
+  try(IndependentHttps failed=new IndependentHttps(context,loopback,0,realm,handler)){
+   port=failed.port();
+   java.lang.reflect.Field listenerField=IndependentHttps.class.getDeclaredField("listener");listenerField.setAccessible(true);
+   SSLServerSocket listener=(SSLServerSocket)listenerField.get(failed);listener.setSoTimeout(150);
+   failed.start();
+   long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(3);
+   while(failed.online()&&System.nanoTime()<deadline)Thread.sleep(10);
+   check(!failed.online()&&listener.isBound()&&!listener.isClosed(),"failed accept loop is offline even with a bound, open socket");
+  }
+  try(IndependentHttps recovered=new IndependentHttps(context,loopback,port,realm,handler)){
+   recovered.start();
+   check(request("GET /health HTTP/1.1\r\nHost: "+host+"\r\n\r\n").startsWith("HTTP/1.1 200"),"same port serves TLS after acceptor failure");
+  } finally {port=savedPort;}
+  System.out.println("PASS TLS listener liveness and recovery on the same port");
+ }
  static void staticChecks()throws Exception{
   check(IndependentHttps.acceptsGzip("br, gzip;q=0.8"),"gzip negotiation");check(!IndependentHttps.acceptsGzip("gzip;q=0, *;q=1"),"explicit gzip exclusion wins");check(IndependentHttps.acceptsGzip("*;q=0.5"),"wildcard negotiation");check(!IndependentHttps.acceptsGzip("gzip;q=NaN"),"invalid quality rejected");
   Class<?> type=Class.forName("gr.argyrismitsos.fleetserver.IndependentHttps$StaticAsset");java.lang.reflect.Constructor<?> ctor=type.getDeclaredConstructor(byte[].class,boolean.class);ctor.setAccessible(true);Object asset=ctor.newInstance(largeScript().getBytes("UTF-8"),true);java.lang.reflect.Field field=type.getDeclaredField("gzip");field.setAccessible(true);byte[] compressed=(byte[])field.get(asset);check(compressed.length<largeScript().length()/2,"large static text is compressed");
@@ -96,7 +118,12 @@ ${fs.readFileSync('scripts/fixtures/IndependentKeepAliveChecks.java.txt','utf8')
   rejected=false;try{IndependentCertificateTransfer.decrypt(new byte[65537],host,portableCode);}
   catch(Exception expected){rejected=true;}check(rejected,"oversized transfer rejected before PBKDF");
   final java.util.concurrent.atomic.AtomicInteger requests=new java.util.concurrent.atomic.AtomicInteger();
-  IndependentHttps server=new IndependentHttps(tls,InetAddress.getByName("127.0.0.1"),0,realm,new IndependentHttps.Handler(){public String assetVersion(){return "fixture-v1";}public boolean immutable(String path){return path.startsWith("assets/v1.0.0/");}public JSONObject routing()throws Exception{return new JSONObject().put("schema",1).put("revision",7).put("activeMode","cloudflare");}public JSONObject api(JSONObject request)throws Exception{requests.incrementAndGet();if(request.getJSONObject("headers").optString("authorization").equals("Bearer fixture-revoked"))return IndependentHttps.error(401,"Synthetic revoked session");check(!request.getJSONObject("headers").has("x-fleet-server-key"),"listener strips spoofed native key");check(!request.optBoolean("independentExternal"),"real localhost connection cannot become external");check(request.optString("independentPeer").equals("127.0.0.1"),"actual TCP peer overrides spoofed forwarding headers");return new JSONObject().put("status",200).put("headers",new JSONObject().put("Content-Type","application/json").put("Access-Control-Allow-Origin","*")).put("body","{\"local\":true}");}public InputStream asset(String name)throws Exception{if(name.equals("assets/v1.0.0/large.js"))return new ByteArrayInputStream(largeScript().getBytes("UTF-8"));if(name.equals("portal.html"))return new ByteArrayInputStream("<h1>Android-owned Web</h1>".getBytes("UTF-8"));if(name.equals("index.html"))return new ByteArrayInputStream("Fleet module".getBytes("UTF-8"));if(name.equals("download/client.apk")||name.equals("vendor/pdfjs/pdf.mjs")||name.equals("vendor/pdfjs/standard_fonts/FoxitSans.pfb"))return new ByteArrayInputStream("fixture private-free asset".getBytes("UTF-8"));throw new FileNotFoundException();}public long revision(){return 0;}public long await(long revision)throws Exception{Thread.sleep(10);return 0;}});port=server.port();server.start();String discovery=request("GET /fleet-mode.json HTTP/1.1\r\nHost: "+host+"\r\nOrigin: https://fleet-control.pavlosargyris.workers.dev\r\n\r\n");check(discovery.startsWith("HTTP/1.1 200")&&discovery.toLowerCase(Locale.US).contains("access-control-allow-origin: *")&&discovery.contains("\"revision\":7"),"only public mode discovery has credential-free CORS");
+  IndependentHttps server=new IndependentHttps(tls,InetAddress.getByName("127.0.0.1"),0,realm,new IndependentHttps.Handler(){public String assetVersion(){return "fixture-v1";}public boolean immutable(String path){return path.startsWith("assets/v1.0.0/");}public JSONObject routing()throws Exception{return new JSONObject().put("schema",1).put("revision",7).put("activeMode","cloudflare");}public JSONObject api(JSONObject request)throws Exception{requests.incrementAndGet();if(request.getJSONObject("headers").optString("authorization").equals("Bearer fixture-revoked"))return IndependentHttps.error(401,"Synthetic revoked session");check(!request.getJSONObject("headers").has("x-fleet-server-key"),"listener strips spoofed native key");check(!request.optBoolean("independentExternal"),"real localhost connection cannot become external");check(request.optString("independentPeer").equals("127.0.0.1"),"actual TCP peer overrides spoofed forwarding headers");return new JSONObject().put("status",200).put("headers",new JSONObject().put("Content-Type","application/json").put("Access-Control-Allow-Origin","*")).put("body","{\"local\":true}");}public InputStream asset(String name)throws Exception{if(name.equals("assets/v1.0.0/large.js"))return new ByteArrayInputStream(largeScript().getBytes("UTF-8"));if(name.equals("portal.html"))return new ByteArrayInputStream("<h1>Android-owned Web</h1>".getBytes("UTF-8"));if(name.equals("index.html"))return new ByteArrayInputStream("Fleet module".getBytes("UTF-8"));if(name.equals("download/client.apk")||name.equals("vendor/pdfjs/pdf.mjs")||name.equals("vendor/pdfjs/standard_fonts/FoxitSans.pfb"))return new ByteArrayInputStream("fixture private-free asset".getBytes("UTF-8"));throw new FileNotFoundException();}public long revision(){return 0;}public long await(long revision)throws Exception{Thread.sleep(10);return 0;}});port=server.port();listenerRecovery(tls,realm);
+  check(!server.online(),"bound socket with no acceptor is offline");
+  server.start();check(server.online(),"started TLS acceptor is online");
+  boolean duplicate=false;try{server.start();}catch(IllegalStateException alreadyStarted){duplicate=true;}
+  check(duplicate,"second service start cannot spawn a duplicate TLS acceptor");
+  String discovery=request("GET /fleet-mode.json HTTP/1.1\r\nHost: "+host+"\r\nOrigin: https://fleet-control.pavlosargyris.workers.dev\r\n\r\n");check(discovery.startsWith("HTTP/1.1 200")&&discovery.toLowerCase(Locale.US).contains("access-control-allow-origin: *")&&discovery.contains("\"revision\":7"),"only public mode discovery has credential-free CORS");
   long started=System.nanoTime();try{
    String target="/assets/v1.0.0/large.js",common=" HTTP/1.1\r\nHost: "+host+"\r\nAccept-Encoding: gzip\r\n";
    byte[] compressedResponse=requestBytes("GET "+target+common+"\r\n");String latin=new String(compressedResponse,"ISO-8859-1");int split=latin.indexOf("\r\n\r\n");String responseHeaders=latin.substring(0,split).toLowerCase(Locale.US);byte[] zipped=Arrays.copyOfRange(compressedResponse,split+4,compressedResponse.length);

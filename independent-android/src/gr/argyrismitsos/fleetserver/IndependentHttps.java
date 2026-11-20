@@ -17,6 +17,7 @@ public final class IndependentHttps implements AutoCloseable {
     private static final ThreadLocal<Boolean> persistent=new ThreadLocal<Boolean>();
     private final Semaphore eventSlots=new Semaphore(8);
     private final Set<Socket> sockets=Collections.synchronizedSet(new HashSet<Socket>());private volatile boolean closed;
+    private volatile Thread acceptor;
     private final LinkedHashMap<String,StaticAsset> assets=new LinkedHashMap<String,StaticAsset>(16,0.75f,true);
     private long assetBytes;
     private static final long ASSET_CACHE_LIMIT=8L*1024*1024;
@@ -46,12 +47,66 @@ public final class IndependentHttps implements AutoCloseable {
     private static boolean matches(String supplied,String etag){if(supplied==null)return false;for(String value:supplied.split(",")){value=value.trim();if(value.startsWith("W/"))value=value.substring(2);if(value.equals("*")||value.equals(etag))return true;}return false;}
     public IndependentHttps(SSLContext tls,InetAddress bind,int port,String realm,Handler handler)throws Exception{
         this.realm=IndependentPolicy.origin(realm);host=new URI(realm).getHost();this.handler=handler;
-        listener=(SSLServerSocket)tls.getServerSocketFactory().createServerSocket();listener.setReuseAddress(true);List<String> versions=new ArrayList<String>();for(String protocol:listener.getSupportedProtocols())if(protocol.equals("TLSv1.2")||protocol.equals("TLSv1.3"))versions.add(protocol);listener.setEnabledProtocols(versions.toArray(new String[0]));listener.bind(new InetSocketAddress(bind,port),48);
+        SSLServerSocket socket = (SSLServerSocket) tls.getServerSocketFactory().createServerSocket();
+        try {
+            socket.setReuseAddress(true);
+            List<String> versions = new ArrayList<String>();
+            for (String protocol : socket.getSupportedProtocols()) {
+                if (protocol.equals("TLSv1.2") || protocol.equals("TLSv1.3")) versions.add(protocol);
+            }
+            socket.setEnabledProtocols(versions.toArray(new String[0]));
+            socket.bind(new InetSocketAddress(bind, port), 48);
+            listener = socket;
+        } catch (Exception setupFailed) {
+            closeSocket(socket);
+            throw setupFailed;
+        }
     }
     int port(){return listener.getLocalPort();}
-    boolean online(){return !closed&&listener.isBound()&&!listener.isClosed();}
-    String bindAddress(){return listener.getInetAddress().getHostAddress();}
-    public void start(){Thread thread=new Thread(new Runnable(){public void run(){while(!closed)try{final SSLSocket socket=(SSLSocket)listener.accept();sockets.add(socket);try{readers.execute(new Runnable(){public void run(){serve(socket);}});}catch(RejectedExecutionException full){sockets.remove(socket);socket.close();}}catch(IOException error){if(closed)return;}}},"fleet-independent-https");thread.setDaemon(true);thread.start();}
+    boolean online() {
+        Thread thread = acceptor;
+        return !closed && listener.isBound() && !listener.isClosed() && thread != null && thread.isAlive();
+    }
+
+    String bindAddress() { return listener.getInetAddress().getHostAddress(); }
+
+    public synchronized void start() {
+        if (closed || acceptor != null) throw new IllegalStateException("Origin already started or closed");
+        acceptor = new Thread(this::accept, "fleet-independent-https");
+        acceptor.setDaemon(true);
+        acceptor.start();
+    }
+
+    private void accept() {
+        while (!closed) {
+            final SSLSocket socket;
+            try {
+                socket = (SSLSocket) listener.accept();
+            } catch (IOException unavailable) {
+                // End the accept loop. The service will recreate the listener
+                // on its next health check, including after an unexpected failure.
+                return;
+            }
+            synchronized (sockets) {
+                if (closed) {
+                    closeSocket(socket);
+                    return;
+                }
+                sockets.add(socket);
+                try {
+                    readers.execute(() -> serve(socket));
+                } catch (RejectedExecutionException saturated) {
+                    sockets.remove(socket);
+                    closeSocket(socket);
+                }
+            }
+        }
+    }
+
+    private static void closeSocket(Closeable socket) {
+        try { socket.close(); }
+        catch (IOException ignored) { }
+    }
     static String line(InputStream input,int maximum)throws Exception{ByteArrayOutputStream bytes=new ByteArrayOutputStream();for(;;){int b=input.read();if(b<0)throw new EOFException();if(b==10){byte[] raw=bytes.toByteArray();if(raw.length==0||raw[raw.length-1]!=13)throw new IOException("Invalid HTTP line");return new String(raw,0,raw.length-1,"ISO-8859-1");}if(b==0||bytes.size()>=maximum)throw new IOException("Oversized HTTP line");bytes.write(b);}}
     private void serve(SSLSocket socket){
         try(SSLSocket connection=socket){connection.setSoTimeout(10000);connection.startHandshake();InputStream input=new BufferedInputStream(connection.getInputStream());OutputStream output=new BufferedOutputStream(connection.getOutputStream());long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(60);
@@ -129,5 +184,16 @@ public final class IndependentHttps implements AutoCloseable {
         byte[] body=response.optString("body","").getBytes("UTF-8");head(output,response.getInt("status"),body.length,response.optJSONObject("headers")==null?new JSONObject():response.getJSONObject("headers"));if(!headOnly)output.write(body);output.flush();
     }
     private static String mime(String file){if(file.endsWith(".html"))return"text/html; charset=utf-8";if(file.endsWith(".js")||file.endsWith(".mjs"))return"application/javascript; charset=utf-8";if(file.endsWith(".css"))return"text/css; charset=utf-8";if(file.endsWith(".svg"))return"image/svg+xml";if(file.endsWith(".png"))return"image/png";if(file.endsWith(".json")||file.endsWith(".webmanifest"))return"application/json";if(file.endsWith(".woff2"))return"font/woff2";if(file.endsWith(".wasm"))return"application/wasm";if(file.equals("download/client.apk"))return"application/vnd.android.package-archive";return"application/octet-stream";}
-    @Override public void close()throws Exception{closed=true;listener.close();synchronized(sockets){for(Socket socket:sockets)try{socket.close();}catch(IOException ignored){}sockets.clear();}readers.shutdownNow();}
+    @Override public synchronized void close() throws IOException {
+        closed = true;
+        try {
+            listener.close();
+        } finally {
+            synchronized (sockets) {
+                for (Socket socket : sockets) closeSocket(socket);
+                sockets.clear();
+            }
+            readers.shutdownNow();
+        }
+    }
 }
