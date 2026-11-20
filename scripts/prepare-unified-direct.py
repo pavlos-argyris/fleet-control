@@ -29,7 +29,6 @@ for name,p in sources.items():
     imports=('\nimport '+old+'.R;' if re.search(r'\bR\.',value) else '')+('\nimport '+old+'.BackendMode;' if 'BackendMode.' in value or name in ('IndependentRuntime.java','IndependentService.java','IndependentActivity.java') else '')
     value=value.replace('package '+new+';','package '+new+';'+imports)
     if name=='MainActivity.java':
-        value=change(value,'    private FleetDataStore store;','    private volatile FleetDataStore store;')
         value=change(value,'        store = new FleetDataStore(getApplicationContext());','        store = null; // Open lazily after verified import; preparation must not create a database.')
         value=change(value,'        try { result = store.getStats(); }','''        try {
             if(store==null&&IndependentConfig.read(this).has("backupSha256"))synchronized(this){if(store==null)store=new FleetDataStore(getApplicationContext());}
@@ -40,8 +39,16 @@ for name,p in sources.items():
 ''')
         value=change(value,'        preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);','''        if(!BackendMode.direct(this)){startActivity(new Intent().setClassName(this,"gr.argyrismitsos.fleetserver.MainActivity"));finish();return;}
         preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
-        DirectHost.initialize(this);
 ''')
+        value=change(value,'''    private void openDashboardAfterStartup() {
+        prepareDashboard();
+    }''','''    private void openDashboardAfterStartup() {
+        showDashboardMessage("Προετοιμασία τοπικών δεδομένων Server…", false);
+        backendWork.execute(() -> {
+            DirectHost.initialize(this);
+            runOnUiThread(this::prepareDashboard);
+        });
+    }''')
         value=value.replace('NativePrimaryService.install(getApplicationContext());','DirectHost.initialize(getApplicationContext());')
         value=change(value,'result.put("primary",NativePrimaryService.get(this).status());','result.put("primary",DirectHost.primary(this));')
         value=change(value,'if(BackendMode.direct(this))stopService(new Intent().setClassName(this,"gr.argyrismitsos.fleetdirect.IndependentService"));','stopService(new Intent(this,IndependentService.class));')

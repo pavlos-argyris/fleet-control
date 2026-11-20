@@ -80,7 +80,9 @@ build_apk() {
   local compile_classpath="$ANDROID_JAR"
   local invoice_jars=()
   local direct_sources=()
+  local android_api_sources=()
   if [[ "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
+    android_api_sources+=("$PROJECT_ROOT/android-build-support/api26/android/webkit/RenderProcessGoneDetail.java")
     python3 "$PROJECT_ROOT/scripts/prepare-invoice-dependencies.py" "$work_dir/invoice-deps"
     if [[ "${FLEET_ISOLATED_BUILD:-}" != "skip-direct-provider" ]]; then
       python3 "$PROJECT_ROOT/scripts/prepare-independent-sqlite.py" "$work_dir/invoice-deps"
@@ -133,9 +135,10 @@ build_apk() {
     -proc:none -source 1.8 -target 1.8 \
     -classpath "$compile_classpath" \
     -d "$work_dir/classes" \
-    "${java_sources[@]}" "${direct_sources[@]}"
+    "${java_sources[@]}" "${direct_sources[@]}" "${android_api_sources[@]}"
 
   if [[ "$source_dir" == "$PROJECT_ROOT/server-android" ]]; then
+    rm "$work_dir/classes/android/webkit/RenderProcessGoneDetail.class"
     python3 - "$work_dir" <<'PY'
 import sys,zipfile
 from pathlib import Path

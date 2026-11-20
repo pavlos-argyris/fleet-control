@@ -11,6 +11,9 @@ for kind in ('client','server'):
     with zipfile.ZipFile(apk) as z:
         dex=b''.join(z.read(n) for n in z.namelist() if n.startswith('classes') and n.endswith('.dex'))
         if kind=='server':
+            assert b'onRenderProcessGone' in dex, 'Compiled Server dashboard handles renderer termination'
+            with zipfile.ZipFile(root/'.build/unified-server-classes.jar') as program:
+                assert 'android/webkit/RenderProcessGoneDetail.class' not in program.namelist(), 'Android supplies the renderer detail class'
             assert b'content://gr.argyrismitsos.fleetserver.direct-control' in dex, 'Physical control provider URI is in compiled bridge'
             assert b'content://gr.argyrismitsos.fleetdirect.direct-control' not in dex, 'Never rename a provider authority with its Java namespace'
             for name in ('fleetserver/BackendMode','fleetdirect/IndependentRuntime','fleetdirect/DirectControlProvider','fleetdirect/ScopedContext'):
