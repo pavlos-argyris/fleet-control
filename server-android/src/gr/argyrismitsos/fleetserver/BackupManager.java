@@ -88,11 +88,13 @@ public final class BackupManager {
         JSONObject metadata=new JSONObject().put("fileName",job.getString("fileName")).put("time",isoNow())
             .put("expectedDocuments",job.optInt("expectedDocuments")).put("includedDocuments",job.optInt("includedDocuments"))
             .put("missingDocuments",job.optInt("missingDocuments")).put("workforceIncluded",job.optBoolean("workforceIncluded")).put("fullPrimaryDatabase",job.optLong("databaseBytes")>0).put("portable",job.optBoolean("portable")).put("restoreVerified",job.optJSONObject("nativeProof")!=null&&job.getJSONObject("nativeProof").optBoolean("restoreVerified"));
-        preferences.edit().putString(KEY_EXPORT_LEDGER,ledger.toString())
+        if (!preferences.edit().putString(KEY_EXPORT_LEDGER,ledger.toString())
             .putString(KEY_LAST_DAY,new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(new Date()))
             .putString(KEY_LAST_TIME,isoNow()).putString(KEY_LAST_URI,job.getString("dataUri"))
             .putString(KEY_LAST_RESULT,job.optInt("missingDocuments")>0?"Αποθηκεύτηκε· λείπουν "+job.optInt("missingDocuments")+" τοπικά τιμολόγια":"Επιτυχία")
-            .putString(KEY_LAST_METADATA,metadata.toString()).commit();
+            .putString(KEY_LAST_METADATA,metadata.toString()).commit()) {
+            throw new java.io.IOException("Δεν καταγράφηκε η επιβεβαίωση εξαγωγής backup.");
+        }
         }
     }
     private static final java.util.concurrent.atomic.AtomicBoolean cleaning=new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -104,9 +106,6 @@ public final class BackupManager {
     public static void maybeAutomatic(Context context, FleetDataStore store) {
         SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         if (!preferences.getBoolean("automatic_backup", true) || BackupStatus.active(context) || BackupJobs.isPreparing() || OtaManager.shouldYieldForUpdate(context)) return;
-        long attempted=preferences.getLong("backup_automatic_attempt",0);
-        if(System.currentTimeMillis()-attempted<3600000L)return;
-        String folder = preferences.getString(KEY_FOLDER_URI, "");
         java.util.Calendar calendar = java.util.Calendar.getInstance();
         int desiredHour = preferences.getInt(KEY_HOUR, 3);
         String frequency = preferences.getString(KEY_FREQUENCY, "daily");
@@ -114,11 +113,13 @@ public final class BackupManager {
         if ("weekdays".equals(frequency) && (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY)) return;
         if ("weekly".equals(frequency) && dayOfWeek != java.util.Calendar.MONDAY) return;
         String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
-        if (calendar.get(java.util.Calendar.HOUR_OF_DAY) < desiredHour || today.equals(preferences.getString(KEY_LAST_DAY, ""))) return;
+        if (calendar.get(java.util.Calendar.HOUR_OF_DAY) < desiredHour) return;
         try {
-            preferences.edit().putLong("backup_automatic_attempt",System.currentTimeMillis()).apply();
-            if(folder==null||folder.length()==0){JSONObject job=BackupJobs.createLocalAutomatic(context,store);preferences.edit().putString(KEY_LAST_DAY,today).putString(KEY_LAST_TIME,isoNow()).putString(KEY_LAST_RESULT,"Κρυπτογραφημένο τοπικό backup επαληθεύτηκε. Επίλεξε φάκελο για αντίγραφο εκτός συσκευής.").apply();}
-            else createBackup(context, store);
+            JSONObject local = BackupJobs.scheduled(context, store, today, today.equals(preferences.getString(KEY_LAST_DAY, "")));
+            if (local != null) {
+                preferences.edit().putString(KEY_LAST_DAY, today).putString(KEY_LAST_TIME, isoNow())
+                        .putString(KEY_LAST_RESULT, "Κρυπτογραφημένο τοπικό backup επαληθεύτηκε. Επίλεξε φάκελο για αντίγραφο εκτός συσκευής.").apply();
+            }
         } catch (Exception error) {
             preferences.edit().putString(KEY_LAST_RESULT, error.getMessage()).apply();
         }
