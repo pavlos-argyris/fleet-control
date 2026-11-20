@@ -4,6 +4,7 @@ import gr.argyrismitsos.fleetupdates.OtaInstaller;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ContentProviderClient;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -12,22 +13,34 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.RemoteException;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import org.json.JSONObject;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Map;
 
 public final class MainActivity extends Activity {
+    private static final String DASHBOARD_URL = "file:///android_asset/www/index.html";
+    private static final String DASHBOARD_LOADING = "{\"settingsLoaded\":false,\"dashboardError\":\"Φορτώνονται τα στοιχεία του Server.\"}";
     private static final int PICK_BACKUP_FOLDER = 201;
     private static final int PICK_CLIENT_APK = 202;
     private static final int PICK_WEB_PACKAGE = 203;
@@ -38,8 +51,14 @@ public final class MainActivity extends Activity {
     private static final int PICK_PRIMARY_RECOVERY = 208;
     private final ExecutorService backendWork=Executors.newSingleThreadExecutor();
     private String backendOwnerToken="";
+    private final ExecutorService dashboardWork = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean dashboardRefreshPending = new AtomicBoolean();
+    private final Handler dashboardHandler = new Handler();
+    private volatile String dashboardSnapshot = DASHBOARD_LOADING;
     private WebView webView;
-    private FleetDataStore store;
+    private Runnable dashboardLoadTimeout;
+    private boolean dashboardRecovered, resumed, automaticStartPending;
+    private volatile FleetDataStore store;
     private SharedPreferences preferences;
     private volatile boolean dashboardSettingsLoaded;
     private ExecutorService executor;
@@ -70,14 +89,42 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.rgb(7, 28, 35));
         preferences = getSharedPreferences(BackupManager.PREFS, MODE_PRIVATE);
         executor = Executors.newSingleThreadExecutor();
+        openDashboardAfterStartup();
+    }
+
+    private void openDashboardAfterStartup() {
+        prepareDashboard();
+    }
+
+    private void prepareDashboard() {
+        if (isFinishing() || isDestroyed()) return;
         if(NativeColdRuntime.blocked(this)){
             NativeRecoveryStartup.show(this,executor,new Runnable(){public void run(){NativePrimaryService.install(getApplicationContext());recreate();}});return;
         }
         store = new FleetDataStore(getApplicationContext());
         setDefaults();
-        OtaManager.resumeAfterRestart(getApplicationContext());
+        backendWork.execute(() -> OtaManager.resumeAfterRestart(getApplicationContext()));
         requestNotificationPermissionIfNeeded();
+        automaticStartPending = preferences.getBoolean("automatic_start", true);
+        openDashboardWebView();
+        refreshDashboard();
+        if (resumed) resumeDashboard();
+    }
 
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
+    private void openDashboardWebView() {
+        if (isFinishing() || isDestroyed()) return;
+        try {
+            createDashboardWebView();
+        } catch (RuntimeException unavailable) {
+            Log.w("FleetServerUi", "dashboard creation failed");
+            disposeDashboardWebView();
+            showDashboardMessage("Η οθόνη του Server δεν μπόρεσε να ανοίξει.", true);
+        }
+    }
+
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
+    private void createDashboardWebView() {
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(243, 248, 248));
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -95,22 +142,87 @@ public final class MainActivity extends Activity {
         webView.setWebViewClient(localWebViewClient());
         webView.setWebChromeClient(new WebChromeClient());
         setContentView(webView);
-        webView.loadUrl("file:///android_asset/www/index.html");
-        if (preferences.getBoolean("automatic_start", true)) {
-            startServerService();backendWork.execute(()->{try{directControl("startControl","",null);}catch(Exception ignored){}});
-        }
+        WebView opening = webView;
+        dashboardLoadTimeout = () -> recoverDashboard(opening, "load-timeout");
+        dashboardHandler.postDelayed(dashboardLoadTimeout, 15000);
+        opening.loadUrl(DASHBOARD_URL);
     }
 
     private WebViewClient localWebViewClient() {
         return new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 if (isLocalAppUrl(url)) return false;
                 openExternalUrl(url);
                 return true;
             }
 
+            @Override public void onPageFinished(WebView view, String url) {
+                if (view == webView && DASHBOARD_URL.equals(url)) cancelDashboardLoadTimeout();
+            }
+
+            @Override public void onReceivedError(WebView view, int code, String description, String failedUrl) {
+                if (DASHBOARD_URL.equals(failedUrl)) recoverDashboard(view, "asset-load");
+            }
+
+            // API 26. The build uses older Android stubs, so the method is declared
+            // with the platform signature and dispatched by WebView at runtime.
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                recoverDashboard(view, detail.didCrash() ? "renderer-crash" : "renderer-stopped");
+                return true;
+            }
         };
+    }
+
+    private void recoverDashboard(WebView failed, String reason) {
+        if (failed != webView || isFinishing() || isDestroyed()) return;
+        Log.w("FleetServerUi", reason);
+        disposeDashboardWebView();
+        if (dashboardRecovered) {
+            showDashboardMessage("Η οθόνη του Server χρειάζεται επαναφόρτωση.", true);
+            return;
+        }
+        dashboardRecovered = true;
+        showDashboardMessage("Επαναφόρτωση της οθόνης του Server…", false);
+        dashboardHandler.post(() -> {
+            openDashboardWebView();
+            if (resumed) resumeDashboard();
+        });
+    }
+
+    private void showDashboardMessage(String message, boolean retry) {
+        LinearLayout content = new LinearLayout(this);
+        content.setPadding(24, 32, 24, 24);
+        content.setOrientation(LinearLayout.VERTICAL);
+        TextView label = new TextView(this);
+        label.setText(message);
+        content.addView(label);
+        if (retry) {
+            Button button = new Button(this);
+            button.setText("Άνοιγμα ξανά");
+            button.setOnClickListener(view -> {
+                dashboardRecovered = false;
+                openDashboardWebView();
+                if (resumed) resumeDashboard();
+            });
+            content.addView(button);
+        }
+        setContentView(content);
+    }
+
+    private void cancelDashboardLoadTimeout() {
+        if (dashboardLoadTimeout == null) return;
+        dashboardHandler.removeCallbacks(dashboardLoadTimeout);
+        dashboardLoadTimeout = null;
+    }
+
+    private void disposeDashboardWebView() {
+        cancelDashboardLoadTimeout();
+        WebView old = webView;
+        webView = null;
+        backNavigationPending = false;
+        if (old == null) return;
+        if (old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
+        old.destroy();
     }
 
     private boolean isLocalAppUrl(String url) {
@@ -164,6 +276,25 @@ public final class MainActivity extends Activity {
         stopService(new Intent(this, SyncService.class));
         if(BackendMode.direct(this))stopService(new Intent().setClassName(this,"gr.argyrismitsos.fleetdirect.IndependentService"));
         preferences.edit().putBoolean("service_running", false).apply();
+    }
+
+    private void refreshDashboard() {
+        if (!dashboardRefreshPending.compareAndSet(false, true)) return;
+        try {
+            dashboardWork.execute(() -> {
+                try {
+                    dashboardSnapshot = dashboard().toString();
+                    dashboardSettingsLoaded = true;
+                } catch (Exception unavailable) {
+                    dashboardSettingsLoaded = false;
+                    dashboardSnapshot = "{\"settingsLoaded\":false,\"dashboardError\":\"Δεν φορτώθηκαν τα στοιχεία του Server.\"}";
+                } finally {
+                    dashboardRefreshPending.set(false);
+                }
+            });
+        } catch (RejectedExecutionException stopped) {
+            dashboardRefreshPending.set(false);
+        }
     }
 
     private JSONObject dashboard() throws Exception {
@@ -299,7 +430,19 @@ public final class MainActivity extends Activity {
         catch (Exception ignored) { return ""; }
     }
 
-    private Bundle directControl(String method,String arg,Bundle input){return getContentResolver().call(Uri.parse("content://"+BackendMode.CONTROL_AUTHORITY),method,arg,input);}
+    private Bundle directControl(String method, String argument, Bundle input) throws RemoteException {
+        // Android keeps the UI process alive if the separate Direct provider is restarted.
+        Uri authority = Uri.parse("content://" + BackendMode.CONTROL_AUTHORITY);
+        ContentProviderClient control = getContentResolver().acquireUnstableContentProviderClient(authority);
+        if (control == null) throw new IllegalStateException("Η τοπική υπηρεσία Direct δεν είναι διαθέσιμη.");
+        try {
+            Bundle result = control.call(method, argument, input);
+            if (result == null) throw new IllegalStateException("Η τοπική υπηρεσία Direct δεν απάντησε.");
+            return result;
+        } finally {
+            control.release();
+        }
+    }
     public final class ServerBridge {
         @JavascriptInterface public String getBackendMode(){try{return directControl("status","",null).getString("json");}catch(Exception e){return "{\"error\":\"Η κατάσταση λειτουργίας δεν φορτώθηκε.\"}";}}
         @JavascriptInterface public void prepareDirect(){runOnUiThread(()->startActivity(new Intent().setClassName(MainActivity.this,"gr.argyrismitsos.fleetdirect.IndependentActivity")));}
@@ -331,15 +474,8 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void ordexaSync(final String value){runTask("ordexaSync",ordexaRequestId(value),new Task(){public JSONObject run()throws Exception{return OrdexaSync.sync(getApplicationContext(),new JSONObject(value));}});}
         @JavascriptInterface
         public String getDashboard() {
-            try {
-                JSONObject value = dashboard();
-                dashboardSettingsLoaded = true;
-                return value.toString();
-            } catch (Exception error) {
-                dashboardSettingsLoaded = false;
-                try { return new JSONObject().put("settingsLoaded", false).put("dashboardError", "Δεν φορτώθηκαν τα στοιχεία του Server. " + String.valueOf(error.getMessage())).toString(); }
-                catch (Exception ignored) { return "{\"settingsLoaded\":false,\"dashboardError\":\"Δεν φορτώθηκαν τα στοιχεία του Server.\"}"; }
-            }
+            refreshDashboard();
+            return dashboardSnapshot;
         }
 
         @JavascriptInterface
@@ -712,21 +848,43 @@ public final class MainActivity extends Activity {
     }
     private void finishBackNavigation(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
 
-    @Override protected void onResume() { super.onResume();if(routeBackend()||preferences==null||NativeColdRuntime.blocked(this))return;OtaInstaller.resume(this); OtaManager.check(getApplicationContext(), preferences.getBoolean("automatic_ota", true)); }
-    @Override protected void onPause() { OtaInstaller.pause(this); super.onPause(); }
-
-    @Override
-    protected void onDestroy() {
-        backendWork.shutdownNow();backendOwnerToken="";
-        if (executor != null) executor.shutdownNow();
-        if (store != null) store.close();
-        if (webView != null) {
-            webView.removeJavascriptInterface("AndroidServer");
-            webView.loadUrl("about:blank");
-            webView.stopLoading();
-            webView.destroy();
-            webView = null;
+    private void resumeDashboard() {
+        if (webView == null || preferences == null || NativeColdRuntime.blocked(this)) return;
+        if (automaticStartPending) {
+            automaticStartPending = false;
+            startServerService();
+            backendWork.execute(() -> {
+                try { directControl("startControl", "", null); }
+                catch (Exception ignored) { }
+            });
         }
+        OtaInstaller.resume(this);
+        OtaManager.check(getApplicationContext(), false);
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        resumed = true;
+        if (!routeBackend()) resumeDashboard();
+    }
+
+    @Override protected void onPause() {
+        resumed = false;
+        OtaInstaller.pause(this);
+        super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        dashboardHandler.removeCallbacksAndMessages(null);
+        backendWork.shutdownNow();
+        backendOwnerToken = "";
+        if (executor != null) executor.shutdownNow();
+        // Any active dashboard read finishes before its store is closed.
+        dashboardWork.execute(() -> {
+            if (store != null) store.close();
+        });
+        dashboardWork.shutdown();
+        disposeDashboardWebView();
         super.onDestroy();
     }
 }
