@@ -2243,12 +2243,6 @@
     return window.FleetServiceModel.qrDocumentState(entry);
   }
 
-  function qrAttentionRows(fleet) {
-    const rows=[];
-    for(const bike of fleet||[])for(const entry of bike.history||[]){const state=qrEntryState(entry);if(state?.attention)rows.push({bike,entry,state});}
-    return rows;
-  }
-
   const qrNoticeMemory = new Set();
   const qrRetries = new Set();
   function notifyQrFailures(rows) {
@@ -2270,10 +2264,10 @@
 
   function renderQrAttention() {
     const list=document.getElementById('bikeList');if(!list)return;
-    const rows=qrAttentionRows(bikes);let banner=document.getElementById('qrAttentionBanner');
+    const rows=window.FleetServiceModel.qrAttentionRows(bikes);let banner=document.getElementById('qrAttentionBanner');
     if(!banner){banner=document.createElement('button');banner.id='qrAttentionBanner';banner.type='button';banner.className='secondary-action ui-qr-attention';list.before(banner);}
     banner.hidden=!rows.length;
-    if(rows.length){const first=rows[0];banner.innerHTML='<strong>'+rows.length+' '+(rows.length===1?'τιμολόγιο χρειάζεται έλεγχο':'τιμολόγια χρειάζονται έλεγχο')+'</strong><small>'+escapeHtml(first.bike.name+' · '+formatDate(first.entry.date))+' · Πάτησε για έλεγχο και επανάληψη</small>';banner.onclick=()=>window.FleetFollowup.open('pending',{entryIds:rows.map(r=>String(r.bike.id)+':'+String(r.entry.id))});}
+    if(rows.length){const first=rows[0];banner.innerHTML='<strong>'+rows.length+' '+(rows.length===1?'τιμολόγιο χρειάζεται έλεγχο':'τιμολόγια χρειάζονται έλεγχο')+'</strong><small>'+escapeHtml(first.bike.name+' · '+formatDate(first.entry.date))+' · Πάτησε για έλεγχο και επανάληψη</small>';banner.onclick=()=>window.FleetFollowup.open('pending',{entryIds:rows.map(row=>row.key),qrAlerts:true});}
     notifyQrFailures(rows);
   }
 
@@ -2456,7 +2450,7 @@
       `;
     }).join("");
     refreshWigglyProgressRings(elements.detailHistory);
-    notifyQrFailures(qrAttentionRows([bike]));
+    notifyQrFailures(window.FleetServiceModel.qrAttentionRows([bike]));
   }
 
   function getHistoryEntry(bike, entryId) {
