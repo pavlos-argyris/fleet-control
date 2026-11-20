@@ -36,5 +36,44 @@ const oldApi=w.FleetFollowupAdapter.api;let reportReady=true;
 w.FleetFollowupAdapter.api=async(path,options)=>path==='/api/admin/server-report'?{ready:reportReady,message:'Περιμένει τον Server',report:{costCents:5900,services:1,documents:2,unknownCosts:0,bikes:[{name:'<img src=x onerror=alert(1)>',costCents:5900,services:1,missingInvoices:0,unknownCosts:0}],issues:[{bike:'BTO 756',date:'2026-10-01',detail:'<script>unsafe</script>',kind:'invoice-km'}]}}:oldApi(path,options);
 d.querySelector('[data-server-report-open]').click();await new Promise(r=>setImmediate(r));let reportNode=w.document.querySelector('[data-server-report]');assert.match(reportNode.textContent,/59,00/);assert.equal(reportNode.querySelector('img,script'),null);assert.match(reportNode.textContent,/unsafe/);
 reportReady=false;w.document.querySelector('[data-server-report-refresh]').click();await new Promise(r=>setImmediate(r));assert.equal(reportNode.textContent,'Περιμένει τον Server','Stale reports never display old totals');w.document.querySelector('[data-server-report-back]').click();assert.ok(d.open,'Back returns to previous dialog');
-d.querySelector('[data-followup-close]').click();assert.equal(w.document.querySelector('.followup-dialog'),null);w.close();
+d.querySelector('[data-followup-close]').click();assert.equal(w.document.querySelector('.followup-dialog'),null);
+const mixed=[0,1].map(b=>({id:'qr-bike-'+b,name:'Μηχανάκι '+b,history:Array.from({length:31},(_,i)=>({
+  id:'service-'+i,type:'service',date:'2026-11-10',km:10000+i,updatedAt:'2026-11-10T12:00:00Z',
+  invoiceData:{qrJobId:b+'-job-'+i,qrUrl:'https://fixture.invalid/qr/'+b+'/'+i,
+    qrProcessingStatus:['error','cancelled','completed','processing'][i%4]}
+}))}));
+const qrRows=w.FleetServiceModel.qrAttentionRows(mixed);
+assert.equal(qrRows.length,62,'Logical QR cases are scoped to bike and entry even when entry IDs repeat');
+const counted=qrRows.map(row=>row.key),chosen=qrRows[0];
+let pages=0,sourceOffline=false, retried;
+w.FleetFollowupAdapter.getBikes=()=>mixed;
+w.FleetFollowupAdapter.getOutbox=async()=>[{data:{bikeId:chosen.bike.id,entryId:chosen.entry.id,items:[{done:false}]}}];
+w.FleetFollowupAdapter.retry=async row=>{retried=row;};
+w.FleetFollowupAdapter.api=async path=>{
+  if(path==='/api/admin/service-documents/reprocess-batch')return {batch:null};
+  if(!path.startsWith('/api/admin/service-documents?paged=1'))throw new Error(path);
+  if(sourceOffline)throw new Error('fixture offline');
+  pages++;
+  if(!path.includes('cursor='))return {documents:[],hasMore:true,nextCursor:'fixture',serverVersion:2};
+  return {documents:[{id:'canonical',bikeId:chosen.bike.id,bikeName:chosen.bike.name,entryId:chosen.entry.id,
+    serviceDate:chosen.entry.date,name:'canonical-qr',qrUrl:chosen.state.data.qrUrl,status:'error',canRestart:true}],hasMore:false,serverVersion:2};
+};
+await w.FleetFollowup.open('pending',{entryIds:counted});
+const qrDialog=w.document.querySelector('.followup-dialog');
+assert.equal(qrDialog.dataset.count,'62');
+assert.equal(qrDialog.querySelector('[data-followup-tab=pending] b').textContent,'62');
+assert.equal(qrDialog.querySelectorAll('.followup-card').length,62);
+assert.equal(qrDialog.querySelectorAll('[data-followup-action=outbox]').length,0,'Banner opens its scoped QR cases');
+assert.match(qrDialog.textContent,/παλιά ένδειξη ολοκλήρωσης δεν επιβεβαιώνεται/);
+assert.ok(pages>=2,'Stored QR record reached the canonical paginated list');
+qrDialog.querySelectorAll('[data-followup-action=retry]')[1].click();
+await new Promise(resolve=>setImmediate(resolve));
+assert.ok(retried.historicalQr&&retried.entryId&&retried.jobId,'Retry addresses the exact historical case');
+sourceOffline=true;qrDialog.querySelector('[data-followup-refresh]').click();
+await new Promise(resolve=>setImmediate(resolve));
+assert.equal(qrDialog.dataset.count,'62','Temporary server failure does not erase known alert cases');
+assert.match(qrDialog.querySelector('[data-followup-message]').textContent,/offline/);
+assert.equal(qrDialog.querySelectorAll('.followup-card').length,62);
+w.close();
+
 console.log('OK service follow-up: same-day ambiguity excluded, bound chronology acknowledgements, date/plate filters, explicit invoice exemptions, queued/processing exclusions, actual unified DOM actions and escaping.');

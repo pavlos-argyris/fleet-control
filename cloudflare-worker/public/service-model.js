@@ -188,6 +188,16 @@
     data.qrProcessingProgress=String(status==='completed'&&attachment?100:Math.max(0,Math.min(95,Number(data.qrProcessingProgress)||5)));
     return {data,status,attachment,needsVerification,attention:['error','delayed','cancelled'].includes(status),visible:status!=='completed'||!attachment};
   }
+  function qrAttentionRows(bikes, selectedKeys) {
+    const rows = new Map();
+    for (const bike of bikes || []) for (const entry of bike.history || []) {
+      const key = String(bike.id) + ':' + String(entry.id);
+      if (selectedKeys && !selectedKeys.has(key)) continue;
+      const state = qrDocumentState(entry);
+      if (state && (selectedKeys ? state.visible : state.attention)) rows.set(key, { key, bike, entry, state });
+    }
+    return [...rows.values()];
+  }
   function pendingInvoice(entry) {
     const data=entry.invoiceData||{};
     return !!data.qrUrl && !['completed','failed','error','cancelled','superseded'].includes(data.qrProcessingStatus||'');
@@ -204,5 +214,5 @@
     }
     return rows.sort((a,b)=>date(b.entry.date).localeCompare(date(a.entry.date))||String(a.bike.name).localeCompare(String(b.bike.name),'el')||String(a.entry.id).localeCompare(String(b.entry.id)));
   }
-  root.FleetServiceModel={completeFleetSnapshot,loadInvoiceDocuments,isOilTask,cents,euro,date,invoice,sourcePhoto,preserveInvoiceFiles,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,qrDocumentState,pendingInvoice,missingInvoices};
+  root.FleetServiceModel={completeFleetSnapshot,loadInvoiceDocuments,isOilTask,cents,euro,date,invoice,sourcePhoto,preserveInvoiceFiles,amounts,summary,state,journal,decision,canUndo,undo,resolved,plans,maintenance,defaults,expectation,kmAcknowledgments,chronology,qrDocumentState,qrAttentionRows,pendingInvoice,missingInvoices};
 })(globalThis);

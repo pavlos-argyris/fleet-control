@@ -6,34 +6,71 @@
   const date=d=>M.date(d)?M.date(d).split('-').reverse().join('/'):'Χωρίς ημερομηνία';
   const A=()=>root.FleetFollowupAdapter;
   let dialog=null,bikes=[],documents=[],outbox=[],tab='pending',filter={bikeId:'',from:'',to:'',includeExempt:false},attentionKeys=null,request=0,recoveryTimer=0,recoveryActive=false;
+  let invoiceCoverage = false;
   const pathApi=(path,options)=>A().api(path,options);
+  const identity = (bikeId, entryId) => String(bikeId) + ':' + String(entryId);
   async function load(){
     const revision=++request,context=A().context?.();
     if(dialog?.open)dialog.querySelector("[data-followup-message]").textContent="Φόρτωση ιστορικού και καταστάσεων…";
-    const result=await Promise.allSettled([tab==='pending'?Promise.resolve({bikes:A().getBikes?.()||bikes}):A().api('/api/snapshot'),M.loadInvoiceDocuments(pathApi),A().getOutbox()]);
+    const result=await Promise.allSettled([tab==='pending'?Promise.resolve({bikes:A().getBikes?.()||bikes}):A().api('/api/snapshot'),M.loadInvoiceDocuments(pathApi,{active:()=>revision===request&&dialog?.open&&context===A().context?.()}),A().getOutbox()]);
     if(revision!==request||!dialog?.open)return;
     if(!A().canManage()||context!==A().context?.()){dialog.close();return;}
     const messages=[];
     if(result[0].status==='fulfilled'){const archived=new Set(result[0].value.archivedBikeIds||[]);bikes=(result[0].value.bikes||[]).filter(b=>!archived.has(b.id));}else {bikes=A().getBikes?.()||[];messages.push('Δεν ανανεώθηκε το ιστορικό: '+result[0].reason.message);}
-    if(result[1].status==='fulfilled')documents=result[1].value.documents||[];else{documents=[];messages.push('Δεν φορτώθηκε η κατάσταση τιμολογίων: '+result[1].reason.message);}
-    if(result[2].status==='fulfilled')outbox=result[2].value;else {outbox=[];messages.push('Δεν διαβάστηκε η τοπική ουρά: '+result[2].reason.message);}
+    invoiceCoverage = result[1].status === 'fulfilled' && result[2].status === 'fulfilled';
+    if(result[1].status==='fulfilled')documents=result[1].value.documents||[];else messages.push('Δεν ανανεώθηκε η κατάσταση τιμολογίων: '+result[1].reason.message);
+    if(result[2].status==='fulfilled')outbox=result[2].value;else messages.push('Δεν διαβάστηκε η τοπική ουρά: '+result[2].reason.message);
     if(tab==='pending'&&!bikes.length)bikes=[...new Map(documents.map(d=>[d.bikeId,{id:d.bikeId,name:d.bikeName,history:[]}])).values()];
     dialog.querySelector('[data-followup-message]').textContent=messages.join(' · ');render();
   }
   function filtered(bike,entry){const d=M.date(entry.date);return (!filter.bikeId||String(bike.id)===filter.bikeId)&&(!(filter.from||filter.to)||(!!d&&(!filter.from||d>=filter.from)&&(!filter.to||d<=filter.to)));}
   function localRows(){return outbox.filter(row=>(row.data.items||[]).some(i=>!i.done)).map(row=>{const job=row.data,bike=bikes.find(b=>String(b.id)===String(job.bikeId)),entry=bike?.history?.find(e=>String(e.id)===String(job.entryId));return {row,bike,entry};});}
+  function matchesQr(document, row) {
+    if (identity(document.bikeId, document.entryId) !== row.key) return false;
+    const { qrJobId, qrUrl } = row.state.data;
+    const job = document.jobId || document.invoiceData?.qrJobId;
+    const url = document.qrUrl || document.invoiceData?.qrUrl;
+    if (job && qrJobId) return String(job) === String(qrJobId);
+    return Boolean(url && qrUrl && url === qrUrl);
+  }
+
+  function historicalQr({key,bike,entry,state}) {
+    const {qrJobId,qrUrl,qrProcessingError,qrProcessingStage}=state.data;
+    return {
+      id:'qr-history:'+key, bikeId:bike.id, entryId:entry.id, bikeName:bike.name, serviceDate:entry.date,
+      name:'Τιμολόγιο QR', status:state.status==='cancelled'?'error':state.status,
+      jobId:qrJobId, qrUrl, canRestart:Boolean(qrJobId||qrUrl), historicalQr:true,
+      error:qrProcessingError||(state.status==='cancelled'?'Η ανάγνωση του QR ακυρώθηκε.':''),
+      progressStage:qrProcessingStage||'Στοιχεία από το ιστορικό του μηχανιού.'
+    };
+  }
+
   function classify(){
     const local=localRows(),queued=new Set(local.map(v=>String(v.row.data.entryId)));
     const missing=M.missingInvoices(bikes,{...filter,queuedEntryIds:[...queued]});
     const mileage=bikes.flatMap(b=>M.chronology(b)).filter(r=>filtered(r.bike,r.entry)&&(!r.acknowledgment||filter.includeExempt));
-    const invoices=documents.filter(r=>(!attentionKeys||attentionKeys.has(String(r.bikeId)+':'+String(r.entryId)))&&r.status!=='confirmed'&&(!filter.bikeId||String(r.bikeId)===filter.bikeId)&&(!(filter.from||filter.to)||(M.date(r.serviceDate)&&(!filter.from||M.date(r.serviceDate)>=filter.from)&&(!filter.to||M.date(r.serviceDate)<=filter.to))));
-    return {missing,mileage,invoices,local:local.filter(r=>(!attentionKeys||attentionKeys.has(String(r.row.data.bikeId)+':'+String(r.row.data.entryId)))&&(r.bike&&r.entry?filtered(r.bike,r.entry):!filter.bikeId&&!filter.from&&!filter.to))};
+    const stored=documents.filter(r=>r.status!=='confirmed'&&filtered({id:r.bikeId},{date:r.serviceDate}));
+    const cases=M.qrAttentionRows(bikes,attentionKeys).filter(row=>filtered(row.bike,row.entry));
+    const documentsByHistory=new Map();
+    for(const record of stored){
+      const key=identity(record.bikeId,record.entryId);
+      if(!documentsByHistory.has(key))documentsByHistory.set(key,[]);
+      documentsByHistory.get(key).push(record);
+    }
+    const invoices=attentionKeys?[]:stored.slice();
+    for(const row of cases){
+      const canonical=documentsByHistory.get(row.key)?.find(record=>matchesQr(record,row));
+      if(attentionKeys||!canonical)invoices.push(canonical||historicalQr(row));
+    }
+    const localPending=attentionKeys?[]:local.filter(r=>r.bike&&r.entry?filtered(r.bike,r.entry):!filter.bikeId&&!filter.from&&!filter.to);
+    return {missing,mileage,invoices,local:localPending};
   }
   function card(title,context,body,buttons,badge){return '<article class="followup-card"><header><div><strong>'+esc(title)+'</strong><small>'+esc(context)+'</small></div><span class="followup-badge">'+esc(badge||'Εκκρεμεί')+'</span></header><p>'+esc(body)+'</p><div class="service-tools-toolbar">'+buttons+'</div></article>';}
   const button=(name,label,index)=>'<button type="button" class="secondary-button" data-followup-action="'+name+'" data-index="'+index+'">'+label+'</button>';
   function render(){
     if(!dialog?.open)return;
     const data=classify(),counts={missing:data.missing.filter(r=>!r.exempt).length,mileage:data.mileage.filter(r=>!r.acknowledgment).length,pending:data.invoices.length+data.local.length};
+    if (!attentionKeys && !invoiceCoverage) counts.pending = counts.pending > 0 ? '≥ '+counts.pending : '—';
     dialog.querySelector('[data-followup-tabs]').innerHTML=[['pending','Εκκρεμότητες'],['missing','Service χωρίς τιμολόγιο'],['mileage','Έλεγχος χιλιομέτρων']].map(([id,label])=>'<button type="button" class="secondary-button '+(tab===id?'active':'')+'" data-followup-tab="'+id+'" aria-pressed="'+(tab===id)+'">'+label+' <b>'+counts[id]+'</b></button>').join('');
     const rows=[];
     if(tab==='missing')data.missing.forEach((r,i)=>rows.push(card(r.bike.name,date(r.entry.date)+' · '+km(r.entry.km),r.exempt?'Δεν αναμένεται τιμολόγιο: '+r.entry.invoiceExpectation.reason+' · '+r.entry.invoiceExpectation.actor:'Δεν υπάρχει συνδεδεμένο PDF ούτε ενεργή ανάγνωση ή τοπική αποστολή.',button('edit-missing','Προσθήκη QR / αρχείου',i)+button('expectation',r.exempt?'Αναμένεται ξανά τιμολόγιο':'Δεν αναμένεται τιμολόγιο',i),r.exempt?'Εξαιρέθηκε':'Χωρίς τιμολόγιο')));
@@ -41,12 +78,12 @@
     if(tab==='pending'){
       data.local.forEach((r,i)=>{const remaining=r.row.data.items.filter(v=>!v.done);rows.push(card(r.bike?.name||'Καταχώρηση στη συσκευή',r.entry?date(r.entry.date):'Το service δεν βρέθηκε στην τρέχουσα λίστα',r.row.data.error||'Περιμένουν αποστολή '+remaining.length+' PDF/QR. Τα αρχεία είναι αποθηκευμένα σε αυτή τη συσκευή.',button('outbox','Νέα προσπάθεια αποστολής',i),r.row.data.error?'Αποτυχία αποστολής':'Τοπική ουρά'));});
       data.invoices.forEach((r,i)=>{const busy=['processing','delayed'].includes(r.status),failed=r.status==='error'||r.status==='delayed';let text=r.error||(r.warnings||[]).map(w=>w.message||w.label).join(' · ');
-        if(!text)text=busy?(r.progressStage||r.progress?.stage||r.invoiceData?.qrProcessingStage||'Ο Server διαβάζει το τιμολόγιο. Περιμένουμε ολοκλήρωση.'):'Έλεγξε τα στοιχεία που διαβάστηκαν και επιβεβαίωσέ τα.';
+        if(!text)text=(busy||r.historicalQr)?(r.progressStage||r.progress?.stage||r.invoiceData?.qrProcessingStage||'Ο Server διαβάζει το τιμολόγιο. Περιμένουμε ολοκλήρωση.'):'Έλεγξε τα στοιχεία που διαβάστηκαν και επιβεβαίωσέ τα.';
         let actions=r.key&&!busy?button('review','Έλεγχος / διόρθωση',i):'';if(failed&&(r.canRestart||r.canRetry))actions+=button('retry','Νέα προσπάθεια ανάλυσης',i);if(r.key)actions+=button('open','Άνοιγμα PDF',i);
-        rows.push(card(r.bikeName||'Τιμολόγιο',r.name+' · '+date(r.serviceDate),text,actions,busy?'Σε επεξεργασία':failed?'Σφάλμα':'Προς έλεγχο'));
+        rows.push(card(r.bikeName||'Τιμολόγιο',r.name+' · '+date(r.serviceDate),text,actions,r.historicalQr?'QR ιστορικού':busy?'Σε επεξεργασία':failed?'Σφάλμα':'Προς έλεγχο'));
       });
     }
-    dialog.querySelector('[data-followup-list]').innerHTML=rows.join('')||'<p class="followup-empty">Δεν υπάρχουν εγγραφές με αυτά τα φίλτρα.</p>';
+    dialog.querySelector('[data-followup-list]').innerHTML=rows.join('')||'<p class="followup-empty">'+(tab==='pending'&&!invoiceCoverage?'Η πλήρης λίστα εκκρεμοτήτων δεν έχει επιβεβαιωθεί.':'Δεν υπάρχουν εγγραφές με αυτά τα φίλτρα.')+'</p>';
     dialog.querySelector('h2').textContent=tab==='missing'?'Service χωρίς τιμολόγιο':tab==='mileage'?'Έλεγχος ιστορικού χιλιομέτρων':'Εκκρεμότητες στόλου';
     dialog.querySelector('[data-followup-explanation]').textContent=tab==='missing'?'Εδώ βρίσκεις service χωρίς συνδεδεμένο PDF. Πρόσθεσε QR ή αρχείο στην υπάρχουσα καταχώρηση. Αν δεν πρόκειται να έχει τιμολόγιο, δήλωσέ το με εξήγηση· το service δεν διαγράφεται.':tab==='mileage'?'Εδώ εμφανίζονται καταγραφές με λιγότερα χιλιόμετρα από προηγούμενη ημερομηνία. Με «Έλεγχος καταχώρησης» διορθώνεις τα στοιχεία. Με «Είναι σωστό» κρατάς την ένδειξη και εξηγείς τη διαφορά.':'Εδώ συγκεντρώνονται τιμολόγια προς έλεγχο, αναγνώσεις που καθυστερούν ή απέτυχαν και αρχεία που περιμένουν αποστολή από αυτή τη συσκευή. Η ενέργεια σε κάθε κάρτα δείχνει το επόμενο βήμα.';
     dialog.querySelector('[data-followup-caption]').textContent=tab==='pending'?'Οι τοπικές αποστολές αφορούν αυτή τη συσκευή και τον λογαριασμό σου. Service χωρίς τιμολόγιο και έλεγχοι χιλιομέτρων εμφανίζονται στις διπλανές καρτέλες.':tab==='mileage'?'Συγκρίνονται καταγραφές διαφορετικών ημερών. Η επιβεβαίωση ισχύει μόνο για αυτές τις δύο ημερομηνίες και ενδείξεις. Δεν αλλάζει χιλιόμετρα ή κύκλους service.':'Η περίοδος αφορά την ημερομηνία service. Η εξαίρεση καταγράφει ποιος την έκανε και γιατί.';
@@ -122,10 +159,19 @@
     refresh.onclick=read;await read();
   }
   async function open(selected,options){
-    if(options?.recover&&Array.isArray(options.entryIds)){filter={bikeId:'',from:'',to:'',includeExempt:false};if(dialog?.open){dialog.querySelector('[data-bike]').value='';dialog.querySelector('[data-from]').value='';dialog.querySelector('[data-to]').value='';dialog.querySelector('[data-exempt]').checked=false;}}
     if(!A()?.canManage())return A()?.toast('Χρειάζεται πρόσβαση διαχείρισης στόλου.');
-    if(dialog?.open){tab=selected||tab;render();if(options?.recover){await load();await recoverAll(options.entryIds);}return;}
-    attentionKeys=options?.entryIds?.length?new Set(options.entryIds.map(String)):null;tab=selected||'pending';bikes=A().getBikes?.()||[];documents=[];outbox=[];
+    attentionKeys=options?.entryIds?.length?new Set(options.entryIds.map(String)):null;
+    if(attentionKeys){
+      filter={bikeId:'',from:'',to:'',includeExempt:false};
+      if(dialog?.open){
+        dialog.querySelector('[data-bike]').value='';
+        dialog.querySelector('[data-from]').value='';
+        dialog.querySelector('[data-to]').value='';
+        dialog.querySelector('[data-exempt]').checked=false;
+      }
+    }
+    if(dialog?.open){tab=selected||tab;render();await load();if(options?.recover)await recoverAll(options.entryIds);return;}
+    tab=selected||'pending';bikes=A().getBikes?.()||[];documents=[];outbox=[];invoiceCoverage=false;
     dialog=U.dialog('Εκκρεμότητες στόλου','<p class="service-section-help" data-followup-explanation></p><div class="service-tools-toolbar" data-followup-tabs></div><div class="followup-filters"><label>Μηχανάκι<select data-bike><option value="">Όλα</option></select></label><label>Από<input type="date" data-from></label><label>Έως<input type="date" data-to></label><label class="followup-check"><input type="checkbox" data-exempt> Εμφάνιση εξαιρέσεων / ελεγμένων</label></div><p data-followup-caption></p><p data-followup-message role="alert"></p><section class="service-section-help" data-recovery-status role="status" aria-live="polite"></section><div class="service-tools-toolbar"><button type="button" class="primary-button" data-followup-recover hidden>Επανάληψη όλων</button><button type="button" class="secondary-button" data-recovery-resume hidden>Συνέχιση ουράς</button></div><div data-followup-list></div><div class="service-tools-toolbar"><button type="button" class="secondary-button" data-server-report-open>Συνολικός έλεγχος από Server</button><button type="button" class="secondary-button" data-followup-refresh>Ανανέωση</button><button type="button" class="ghost-button" data-followup-close>Πίσω</button></div>');dialog.classList.add('followup-dialog');
     const d=dialog;const select=d.querySelector('[data-bike]');
     function populate(){const val=filter.bikeId;select.innerHTML='<option value="">Όλα</option>'+bikes.map(b=>'<option value="'+esc(b.id)+'">'+esc(b.name)+'</option>').join('');select.value=val;}
