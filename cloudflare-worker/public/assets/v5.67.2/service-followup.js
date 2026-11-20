@@ -6,7 +6,7 @@
   const date=d=>M.date(d)?M.date(d).split('-').reverse().join('/'):'Χωρίς ημερομηνία';
   const A=()=>root.FleetFollowupAdapter;
   let dialog=null,bikes=[],documents=[],outbox=[],tab='pending',filter={bikeId:'',from:'',to:'',includeExempt:false},attentionKeys=null,request=0,recoveryTimer=0,recoveryActive=false;
-  let invoiceCoverage = false;
+  let invoiceCoverage = false, qrAlerts = false;
   const pathApi=(path,options)=>A().api(path,options);
   const identity = (bikeId, entryId) => String(bikeId) + ':' + String(entryId);
   async function load(){
@@ -49,7 +49,7 @@
     const local=localRows(),queued=new Set(local.map(v=>String(v.row.data.entryId)));
     const missing=M.missingInvoices(bikes,{...filter,queuedEntryIds:[...queued]});
     const mileage=bikes.flatMap(b=>M.chronology(b)).filter(r=>filtered(r.bike,r.entry)&&(!r.acknowledgment||filter.includeExempt));
-    const stored=documents.filter(r=>r.status!=='confirmed'&&filtered({id:r.bikeId},{date:r.serviceDate}));
+    const stored=documents.filter(r=>r.status!=='confirmed'&&(!attentionKeys||attentionKeys.has(identity(r.bikeId,r.entryId)))&&filtered({id:r.bikeId},{date:r.serviceDate}));
     const cases=M.qrAttentionRows(bikes,attentionKeys).filter(row=>filtered(row.bike,row.entry));
     const documentsByHistory=new Map();
     for(const record of stored){
@@ -57,12 +57,12 @@
       if(!documentsByHistory.has(key))documentsByHistory.set(key,[]);
       documentsByHistory.get(key).push(record);
     }
-    const invoices=attentionKeys?[]:stored.slice();
+    const invoices=qrAlerts?[]:stored.slice();
     for(const row of cases){
       const canonical=documentsByHistory.get(row.key)?.find(record=>matchesQr(record,row));
-      if(attentionKeys||!canonical)invoices.push(canonical||historicalQr(row));
+      if(qrAlerts||!canonical)invoices.push(canonical||historicalQr(row));
     }
-    const localPending=attentionKeys?[]:local.filter(r=>r.bike&&r.entry?filtered(r.bike,r.entry):!filter.bikeId&&!filter.from&&!filter.to);
+    const localPending=qrAlerts?[]:local.filter(r=>(!attentionKeys||attentionKeys.has(identity(r.row.data.bikeId,r.row.data.entryId)))&&(r.bike&&r.entry?filtered(r.bike,r.entry):!filter.bikeId&&!filter.from&&!filter.to));
     return {missing,mileage,invoices,local:localPending};
   }
   function card(title,context,body,buttons,badge){return '<article class="followup-card"><header><div><strong>'+esc(title)+'</strong><small>'+esc(context)+'</small></div><span class="followup-badge">'+esc(badge||'Εκκρεμεί')+'</span></header><p>'+esc(body)+'</p><div class="service-tools-toolbar">'+buttons+'</div></article>';}
@@ -70,7 +70,7 @@
   function render(){
     if(!dialog?.open)return;
     const data=classify(),counts={missing:data.missing.filter(r=>!r.exempt).length,mileage:data.mileage.filter(r=>!r.acknowledgment).length,pending:data.invoices.length+data.local.length};
-    if (!attentionKeys && !invoiceCoverage) counts.pending = counts.pending > 0 ? '≥ '+counts.pending : '—';
+    if (!qrAlerts && !invoiceCoverage) counts.pending = counts.pending > 0 ? '≥ '+counts.pending : '—';
     dialog.querySelector('[data-followup-tabs]').innerHTML=[['pending','Εκκρεμότητες'],['missing','Service χωρίς τιμολόγιο'],['mileage','Έλεγχος χιλιομέτρων']].map(([id,label])=>'<button type="button" class="secondary-button '+(tab===id?'active':'')+'" data-followup-tab="'+id+'" aria-pressed="'+(tab===id)+'">'+label+' <b>'+counts[id]+'</b></button>').join('');
     const rows=[];
     if(tab==='missing')data.missing.forEach((r,i)=>rows.push(card(r.bike.name,date(r.entry.date)+' · '+km(r.entry.km),r.exempt?'Δεν αναμένεται τιμολόγιο: '+r.entry.invoiceExpectation.reason+' · '+r.entry.invoiceExpectation.actor:'Δεν υπάρχει συνδεδεμένο PDF ούτε ενεργή ανάγνωση ή τοπική αποστολή.',button('edit-missing','Προσθήκη QR / αρχείου',i)+button('expectation',r.exempt?'Αναμένεται ξανά τιμολόγιο':'Δεν αναμένεται τιμολόγιο',i),r.exempt?'Εξαιρέθηκε':'Χωρίς τιμολόγιο')));
@@ -161,6 +161,7 @@
   async function open(selected,options){
     if(!A()?.canManage())return A()?.toast('Χρειάζεται πρόσβαση διαχείρισης στόλου.');
     attentionKeys=options?.entryIds?.length?new Set(options.entryIds.map(String)):null;
+    qrAlerts=Boolean(attentionKeys && options.qrAlerts);
     if(attentionKeys){
       filter={bikeId:'',from:'',to:'',includeExempt:false};
       if(dialog?.open){

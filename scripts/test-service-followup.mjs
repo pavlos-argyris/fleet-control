@@ -58,7 +58,7 @@ w.FleetFollowupAdapter.api=async path=>{
   return {documents:[{id:'canonical',bikeId:chosen.bike.id,bikeName:chosen.bike.name,entryId:chosen.entry.id,
     serviceDate:chosen.entry.date,name:'canonical-qr',qrUrl:chosen.state.data.qrUrl,status:'error',canRestart:true}],hasMore:false,serverVersion:2};
 };
-await w.FleetFollowup.open('pending',{entryIds:counted});
+await w.FleetFollowup.open('pending',{entryIds:counted,qrAlerts:true});
 const qrDialog=w.document.querySelector('.followup-dialog');
 assert.equal(qrDialog.dataset.count,'62');
 assert.equal(qrDialog.querySelector('[data-followup-tab=pending] b').textContent,'62');
