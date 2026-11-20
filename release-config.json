@@ -1,9 +1,9 @@
 {
-  "releaseVersion": "5.67.2",
-  "notes": "• Η προειδοποίηση QR ανοίγει τις ίδιες εκκρεμότητες τιμολογίων.\n• Οι αποθηκευμένες εκκρεμότητες παραμένουν ορατές όταν αποτύχει η ανανέωση.",
+  "releaseVersion": "5.67.3",
+  "notes": "• Βελτιώσεις για Direct HTTPS με κλειστή οθόνη.\n• Μία προγραμματισμένη εργασία backup και ασφαλής επανάληψη εξαγωγής.\n• Ανάκαμψη της οθόνης Server.\n• Κανονικός έλεγχος και λήψη ενημερώσεων Server και Client.\n• Συμφωνία προειδοποιήσεων QR με τις εκκρεμότητες τιμολογίων.\n• Καρτέλα Διαχείριση Server για τον Admin στον Android Client.",
   "client": {
-    "version": "5.67.2",
-    "versionCode": 115,
+    "version": "5.67.3",
+    "versionCode": 116,
     "packageName": "gr.argyrismitsos.fleetcontrol"
   },
   "server": {
@@ -12,10 +12,10 @@
     "packageName": "gr.argyrismitsos.fleetserver"
   },
   "web": {
-    "version": "5.67.2",
+    "version": "5.67.3",
     "retainedAssetVersions": [
-      "5.67.1",
-      "5.67.0"
+      "5.67.2",
+      "5.67.1"
     ]
   },
   "worker": {

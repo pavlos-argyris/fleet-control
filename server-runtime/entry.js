@@ -5,7 +5,7 @@ import {DB} from './database.js';
 import {RECEIPT_SCHEMA,beginOperation,finishOperation} from './receipts.js';
 import {FEATURE_SCHEMA,routeFeatures} from './features.js';
 import {bindFileSecurity} from './security.js';
-import {routeStandalone} from './standalone.js';
+import {routeStandalone,DIRECT_ADMIN_SCHEMA} from './standalone.js';
 import {beginSharedReads,finishSharedReads} from './shared-reads.js';
 const native=globalThis.FleetHost;
 const bucket={
@@ -25,7 +25,7 @@ globalThis.__fleetInit=function(configuration){
   const config=JSON.parse(configuration);realm=new URL(config.realm).origin;
   environment={LOCAL_PRIMARY:true,STANDALONE:config.standalone===true,DB,SERVICE_DOCS:bucket,RELEASES:bucket,SERVER_KEY:config.serverKey,PIN_PEPPER:config.authPepper,EVENT_SIGNING_KEY:config.eventSigningKey,ASSETS:{fetch:()=>new Response('Not available',{status:404})}};
   if(config.eventSigningKey)environment.FLEET_EVENTS={idFromName:()=>0,get:()=>({async fetch(request){native('events.queue',{body:await request.text()});return Response.json({ok:true});}})};
-  native('sql.exec',{sql:RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA});
+  native('sql.exec',{sql:RECEIPT_SCHEMA+'\n'+FEATURE_SCHEMA+(config.standalone?'\n'+DIRECT_ADMIN_SCHEMA:'')});
 };
 globalThis.__fleetRequest=function(serialized){
   globalThis.__fleetResult=null;

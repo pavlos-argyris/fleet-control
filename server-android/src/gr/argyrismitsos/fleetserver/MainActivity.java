@@ -362,19 +362,21 @@ public final class MainActivity extends Activity {
                 JSONObject primary=NativePrimaryState.read(store.getReadableDatabase());if(!primary.optString("phase","cloud").equals("cloud")&&!workerUrl.equals(primary.optString("realm")))throw new IllegalStateException("Η διεύθυνση της κύριας βάσης αλλάζει μόνο μέσα από ελεγχόμενη μεταφορά ή ανάκτηση.");
                 String backupFrequency = input.optString("backupFrequency", "daily");
                 if (!"weekdays".equals(backupFrequency) && !"weekly".equals(backupFrequency)) backupFrequency = "daily";
-                boolean saved = preferences.edit()
-                        .putString("worker_url", workerUrl)
-                        .putInt("sync_seconds", Math.max(10, Math.min(60, input.optInt("syncSeconds", 30))))
-                        .putInt("invoice_parallelism", Math.max(1, Math.min(10, input.optInt("invoiceParallelism", 4))))
-                        .putInt("ocr_parallelism",Math.max(1,Math.min(3,input.optInt("ocrParallelism",1))))
-                        .putInt(BackupManager.KEY_HOUR, Math.max(0, Math.min(23, input.optInt("backupHour", 3))))
-                        .putInt(BackupManager.KEY_RETENTION, Math.max(1, Math.min(90, input.optInt("backupRetention", 30))))
-                        .putString(BackupManager.KEY_FREQUENCY, backupFrequency)
-                        .putBoolean("automatic_start", input.optBoolean("automaticStart", true))
-                        .putBoolean("automatic_backup", input.optBoolean("automaticBackup", true))
-                        .commit();
-                if (!saved) throw new IllegalStateException("Δεν επιβεβαιώθηκε η εγγραφή των ρυθμίσεων στη συσκευή. Δοκίμασε ξανά.");
-                return new JSONObject().put("ok", true).put("settingsSaved", true).toString();
+                synchronized (ServerWorkTracker.class) {
+                    boolean saved = preferences.edit()
+                            .putString("worker_url", workerUrl)
+                            .putInt("sync_seconds", Math.max(10, Math.min(60, input.optInt("syncSeconds", 30))))
+                            .putInt("invoice_parallelism", Math.max(1, Math.min(10, input.optInt("invoiceParallelism", 4))))
+                            .putInt("ocr_parallelism",Math.max(1,Math.min(3,input.optInt("ocrParallelism",1))))
+                            .putInt(BackupManager.KEY_HOUR, Math.max(0, Math.min(23, input.optInt("backupHour", 3))))
+                            .putInt(BackupManager.KEY_RETENTION, Math.max(1, Math.min(90, input.optInt("backupRetention", 30))))
+                            .putString(BackupManager.KEY_FREQUENCY, backupFrequency)
+                            .putBoolean("automatic_start", input.optBoolean("automaticStart", true))
+                            .putBoolean("automatic_backup", input.optBoolean("automaticBackup", true))
+                            .commit();
+                    if (!saved) throw new IllegalStateException("Δεν επιβεβαιώθηκε η εγγραφή των ρυθμίσεων στη συσκευή. Δοκίμασε ξανά.");
+                    return new JSONObject().put("ok", true).put("settingsSaved", true).toString();
+                }
             } catch (Exception error) {
                 try { return new JSONObject().put("ok", false).put("message", error.getMessage()).toString(); }
                 catch (Exception ignored) { return "{\"ok\":false}"; }

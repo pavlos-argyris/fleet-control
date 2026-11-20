@@ -220,7 +220,9 @@ for name,p in sources.items():
         return response;
     }''')
         value=change(value,'public boolean ready(){return !closed;}','public boolean ready(){return !closed&&BackendMode.approved(context);}')
-        value=change(value,'void jobs()throws Exception{','void jobs()throws Exception{if(!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context))return;')
+        value=change(value,'void jobs()throws Exception{','void jobs()throws Exception{if(!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context))return;DirectServerAdmin.schedule(context,this);')
+        value=change(value,'if(command.equals("independent.adminStatus")||command.equals("independent.adminAvailable"))return new JSONObject().put("available",false);','''if(command.equals("independent.adminStatus"))return DirectServerAdmin.status(context).put("available",true);
+        if(command.equals("independent.adminAvailable"))return new JSONObject().put("available",true);''')
     if name=='IndependentService.java':
         value=change(value,'        // The integrated Server supplies its process and restore initialization.','        DirectHost.initialize(this);')
         value=change(value,'        // The integrated Server supplies its own backup and OTA lane.','''        hostMaintenance = executor("host-maintenance");

@@ -304,7 +304,7 @@ public final class IndependentService extends Service {
             String ipv4 = IndependentAcme.updateDns(this);
             dnsFailures = 0;
             dnsAt = now + 300000;
-            ui.edit().putString("ipv4", ipv4).apply();
+            ui.edit().putString("ipv4", ipv4).putLong("dnsLastUpdatedAt", now).apply();
             message("network", "Το DNS ενημερώθηκε. Η εισερχόμενη πρόσβαση 4G/5G χρειάζεται χωριστό έλεγχο.");
         } catch (Exception error) {
             dnsFailures = Math.min(7, dnsFailures + 1);

@@ -136,6 +136,7 @@
   }
 
   function clearSession() {
+    $("directServerAdmin")?.remove();
     window.FleetNativeUiKit?.clear();window.FleetCashUI?.clear();window.FleetStoreFinancialUI?.clear();window.FleetPayrollReviewUI?.clear();window.FleetHealthUI?.clear();
     window.FleetOrdexaUI?.clear();window.FleetStoreBillingUI?.clear();
     window.FleetLive?.stop();window.FleetSharedReads?.clear();
@@ -388,12 +389,17 @@
     }
   }
 
+  function clientServerManagement() {
+    return Boolean(window.AndroidFleet && window.FleetBackend?.directOnly && state.user?.role === "owner");
+  }
+
   function availableNavigation() {
     return navDefinitions.filter(function (item) {
+      if (item.id === "server" && window.AndroidFleet && window.FleetBackend?.directOnly) return clientServerManagement();
       if (item.employeeOnly && state.user.role !== "employee") return false;
       if (!item.employeeOnly && state.user.role === "employee") return false;
       return can(item.permission);
-    });
+    }).map(item => item.id === "server" && clientServerManagement() ? {...item, label:"Διαχείριση Server"} : item);
   }
 
   const navigationHelp = {cash:"Ποσά παραδόσεων και ανάλυση ανά κατάστημα",stores:"Ημερήσιες παραγγελίες, χρεώσεις και επιλογές διατήρησης",dashboard:"Η σημερινή εικόνα",shifts:"Καταγραφή παρουσιών και χιλιομέτρων",schedules:"Εβδομαδιαίος προγραμματισμός",employees:"Στοιχεία και δικαιώματα ομάδας",fleet:"Συντήρηση και ιστορικό μηχανών",invoices:"Ανάγνωση, έλεγχος και PDF",payroll:"Ώρες και υπολογισμός αμοιβών",reports:"Συγκεντρωτικές αναφορές",alerts:"Εκκρεμότητες που χρειάζονται ενέργεια",audit:"Ποιος άλλαξε τι και πότε",recycle:"Ανάκτηση διαγραμμένων εγγραφών",server:"Σύνδεση και αντίγραφα ασφαλείας",settings:"Λογαριασμοί και κανόνες συστήματος"};
@@ -561,7 +567,7 @@
       if (view === "alerts") await loadAlerts();
       if (view === "audit") await loadAudit();
       if (view === "recycle") await loadRecycle();
-      if (view === "server") {await loadStatus(true);await window.FleetHealthUI.load();}
+      if (view === "server") await loadServerView();
       if (view === "settings") await loadSettings();
       state.viewLoadedAt[view] = Date.now();(state.viewReady||(state.viewReady={}))[view]=true;
     } catch (error) { if(error.name!=='AbortError'){toast(error.message);if(navigationId===navigationSequence){$("uiViewErrorText").textContent=error.message+". Έλεγξε τη σύνδεση και δοκίμασε ξανά.";$("uiViewError").hidden=false;}} }
@@ -873,6 +879,115 @@
       $("serverMini").classList.remove("online");
       $("serverMini").querySelector("small").textContent = "Χωρίς σύνδεση";
       if (renderFull) toast(error.message);
+    }
+  }
+
+  const adminCommandLabels = {
+    "check-update":"Έλεγχος έκδοσης", "retry-backup":"Επανάληψη αποστολής", "create-backup":"Δημιουργία backup",
+    "sync-ordexa":"Συγχρονισμός Ordexa", "backup-settings":"Ρυθμίσεις backup"
+  };
+  const adminCommandStates = {queued:"Σε αναμονή",running:"Σε εξέλιξη",completed:"Υποβλήθηκε",failed:"Απέτυχε",
+    interrupted:"Διακόπηκε",expired:"Έληξε"};
+  let serverAdminLoading = false;
+
+  async function loadServerView() {
+    if (clientServerManagement()) return loadClientServerManagement();
+    await loadStatus(true);
+    await window.FleetHealthUI.load();
+  }
+
+  async function loadClientServerManagement() {
+    const section = $("viewServer"), token = state.token;
+    if (!section || !token || serverAdminLoading || state.view !== "server") return;
+    state.statusAttemptAt = Date.now();
+    serverAdminLoading = true;
+    let panel = $("directServerAdmin");
+    if (!panel) {
+      section.querySelector(".section-toolbar h2").textContent = "Διαχείριση Server";
+      ["serverWarnings","serverHealth","nativeHealthRoot"].forEach(id => { if($(id)) $(id).hidden=true; });
+      section.querySelector(".backup-panel").hidden = true;
+      panel = document.createElement("section");
+      panel.id = "directServerAdmin";
+      panel.className = "panel";
+      panel.innerHTML = '<p data-admin-message role="status">Φορτώνεται η κατάσταση του Server…</p><div data-admin-content></div>';
+      section.querySelector(".section-toolbar").after(panel);
+    }
+    const message = panel.querySelector("[data-admin-message]"), content = panel.querySelector("[data-admin-content]");
+    try {
+      const data = await api("/api/independent/server-admin", {forceRead:true});
+      if (state.token !== token || state.view !== "server" || !clientServerManagement()) return;
+      const source = data.https || {}, device = data.device || {}, backup = data.backup || {}, sync = data.ordexa || {}, ota = data.update || {};
+      const at = value => value ? formatDateTime(typeof value === "number" ? new Date(value).toISOString() : value) : "—";
+      const gb = value => Number.isFinite(value) ? (value/1073741824).toLocaleString("el-GR",{maximumFractionDigits:2})+" GB" : "—";
+      const ready = Boolean(source.listenerActive);
+      const values = [
+        ["Υπηρεσία", ready ? "HTTPS ενεργό" : "HTTPS ανενεργό", "Server "+(data.serverVersion||"—")],
+        ["Πιστοποιητικό", source.hostname || "—", source.certificateExpiresAt ? "Λήγει "+at(source.certificateExpiresAt) : "Εκκρεμεί επαλήθευση"],
+        ["Δίκτυο", source.wifiConnected ? "Wi-Fi ενεργό" : "Wi-Fi μη διαθέσιμο", "DNS "+at(source.dnsLastUpdatedAt)],
+        ["Αποθηκευτικός χώρος", gb(device.storageFreeBytes), "Σύνολο "+gb(device.storageTotalBytes)],
+        ["Μπαταρία", Number.isFinite(device.batteryPercent) ? device.batteryPercent+"%" : "—",
+          Number.isFinite(device.batteryTemperatureC) ? device.batteryTemperatureC+" °C" : "Θερμοκρασία μη διαθέσιμη"],
+        ["Android", device.androidVersion || "—", source.deviceIdle ? "Λειτουργία αδράνειας" : "Τελευταίος έλεγχος "+at(source.listenerObservedAt)],
+        ["Ordexa", sync.busy ? "Συγχρονίζεται" : sync.configured ? "Ρυθμισμένο" : "Εκκρεμεί ρύθμιση", "Τελευταία λήψη "+at(sync.lastSuccess)],
+        ["Αντίγραφα", backup.enabled ? "Αυτόματα ενεργά" : "Αυτόματα ανενεργά", "Τελευταίο "+at(backup.lastAt)],
+        ["Ενημερώσεις", ota.availableVersion || "—", "Τελευταίος έλεγχος "+at(ota.checkedAt)],
+        ["Εργασίες", String(data.activeWork??"—"), source.serviceStartedAt ? "Έναρξη "+at(source.serviceStartedAt) : ""]
+      ];
+      const history = (data.commands||[]).map(command => '<li>'+escapeHtml(adminCommandLabels[command.action]||command.action)+
+        ' · '+escapeHtml(adminCommandStates[command.state]||command.state)+' · '+escapeHtml(at(command.finished_at||command.created_at))+'</li>').join("");
+      const action = (id,label) => '<button type="button" class="secondary-button" data-admin-command="'+id+'">'+escapeHtml(label)+'</button>';
+      content.innerHTML = '<div class="health-grid">'+values.map(([label,value,hint])=>'<article class="health-card"><span><strong>'+
+        escapeHtml(label)+'</strong><small>'+escapeHtml(value)+' · '+escapeHtml(hint)+'</small></span></article>').join("")+'</div>'+
+        '<div class="two-column-actions">'+Object.entries(adminCommandLabels).map(([id,label])=>action(id,label)).join("")+
+        action("refresh","Ανανέωση")+'</div>'+
+        (history ? '<h3>Πρόσφατες ενέργειες</h3><ul>'+history+'</ul>' : '')+
+        '<p>Η αλλαγή πιστοποιητικού, η επιλογή φακέλου, η ανάκτηση και η εγκατάσταση ενημέρωσης ολοκληρώνονται στο κινητό Server.</p>';
+      message.textContent = source.listenerError ? "Κατάσταση HTTPS "+source.listenerError : "Ενημερώθηκε "+at(data.observedAt);
+      content.querySelectorAll("[data-admin-command]").forEach(button => {
+        button.onclick = () => {
+          const id = button.dataset.adminCommand;
+          if (id === "refresh") return loadClientServerManagement();
+          submitClientServerCommand(id, backup, button, message).catch(error => { message.textContent = error.message; });
+        };
+      });
+    } catch (error) {
+      if (state.token !== token || state.view !== "server") return;
+      if ([401,403].includes(Number(error.status))) content.replaceChildren();
+      else content.querySelectorAll("[data-admin-command]:not([data-admin-command=refresh])").forEach(button => { button.disabled=true; });
+      message.textContent = error.message || "Δεν ενημερώθηκε η κατάσταση του Server.";
+    } finally {
+      serverAdminLoading = false;
+    }
+  }
+
+  async function submitClientServerCommand(action, backup, button, message) {
+    const token = state.token;
+    if (!clientServerManagement() || state.previewSession) return;
+    let body = {action};
+    if (action === "backup-settings") {
+      try {
+        const settings = await simpleEditor({
+          title:"Ρυθμίσεις αντιγράφων ασφαλείας",
+          html:'<label><input id="adminBackupEnabled" type="checkbox" '+(backup.enabled?"checked":"")+'> Αυτόματα αντίγραφα</label>'+
+            '<label class="field">Ώρα (0–23)<input id="adminBackupHour" type="number" min="0" max="23" value="'+Number(backup.hour)+'" required></label>'+
+            '<label class="field">Αριθμός αντιγράφων (1–90)<input id="adminBackupRetention" type="number" min="1" max="90" value="'+Number(backup.retention)+'" required></label>'+
+            '<label class="field">Συχνότητα<select id="adminBackupFrequency">'+[["daily","Καθημερινά"],["weekdays","Εργάσιμες"],["weekly","Εβδομαδιαία"]].map(([value,label])=>
+              '<option value="'+value+'" '+(value===backup.frequency?"selected":"")+'>'+label+'</option>').join("")+'</select></label>',
+          collect:()=>({enabled:$("adminBackupEnabled").checked,hour:$("adminBackupHour").valueAsNumber,
+            retention:$("adminBackupRetention").valueAsNumber,frequency:$("adminBackupFrequency").value,revision:backup.revision})
+        });
+        body={...body,...settings};
+      } catch (cancelled) { return; }
+    }
+    if (state.token !== token || state.view !== "server" || !clientServerManagement()) return;
+    button.disabled = true;
+    try {
+      await api("/api/independent/server-admin", {method:"POST",body,headers:{"X-Fleet-Operation":crypto.randomUUID()}});
+      if (state.token !== token) return;
+      message.textContent = "Το αίτημα αποθηκεύτηκε στον Server.";
+      await loadClientServerManagement();
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -4992,7 +5107,7 @@
       else if(view==='invoices'&&scopes.some(s=>s==='invoices'||s==='fleet')){if(!state.invoiceReprocessBusy)await loadInvoices();await refreshInvoiceReprocessBatch();}
       else if(view==='alerts'&&scopes.some(s=>s==='invoices'||s==='fleet'||s==='workforce'))await loadAlerts();
       else if(view==='fleet'&&scopes.includes('fleet'))await loadFleetSummary();
-      else if(view==='server'&&scopes.includes('status')){await loadStatus(true);await window.FleetHealthUI.changed();}
+      else if(view==='server'&&scopes.includes('status'))await loadServerView();
       else if(view==='dashboard'&&scopes.some(s=>['fleet','workforce','status'].includes(s)))await loadDashboard();
       else if(scopes.includes('workforce')){const loaders={'employee-home':loadEmployeeHome,shifts:loadShifts,schedules:loadSchedules,employees:loadEmployees,payroll:loadPayroll,alerts:loadAlerts};if(loaders[view])await loaders[view]();}
     }catch(error){toast(error.message);}
@@ -5006,7 +5121,10 @@
   setInterval(function(){
     if(!state.user||state.user.role==='employee'||document.hidden)return;
     const delay=state.view==='server'?60000:300000;
-    if(Date.now()-Math.max(Number(state.statusLoadedAt||0),Number(state.statusAttemptAt||0))>=delay)loadStatus(state.view==='server');
+    if(Date.now()-Math.max(Number(state.statusLoadedAt||0),Number(state.statusAttemptAt||0))>=delay){
+      if(state.view==='server'&&clientServerManagement())loadClientServerManagement();
+      else loadStatus(state.view==='server');
+    }
   },15000);
   setInterval(function () {
     if (!state.user || state.view !== "invoices" || document.hidden || !hasLiveInvoiceJobs()) return;
