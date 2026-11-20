@@ -702,7 +702,7 @@ public class MainActivity extends Activity {
             public void run() {
                 try {
                     final UpdateInfo update = fetchUpdateInfo();
-                    if (update != null && isNewerVersion(update.version, currentVersionName())) {
+                    if (update != null && isNewerUpdate(update)) {
                         mainHandler.post(new Runnable() {
                             @Override
                             public void run() {
@@ -727,10 +727,18 @@ public class MainActivity extends Activity {
         // The installed Server can expose an older bundled/selected Client.
         // Check the public signed release first; its availability does not
         // depend on business readiness, revision, login or Server version.
-        if(direct)try{
-            org.json.JSONObject body=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");
-            if(isNewerVersion(body.getString("version"),currentVersionName()))return new UpdateInfo(body.getString("version"),body.getLong("sizeBytes"),body.getString("sha256"),body.optString("notes"),body.getInt("versionCode"),body.getString("downloadUrl"));
-        }catch(Exception unavailable){/* The verified local catalogue remains usable offline. */}
+        UpdateInfo published = null;
+        Exception releaseError = null;
+        if (direct) {
+            try {
+                org.json.JSONObject body = gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");
+                published = new UpdateInfo(body.getString("version"), body.getLong("sizeBytes"), body.getString("sha256"),
+                        body.optString("notes"), body.getInt("versionCode"), body.getString("downloadUrl"));
+                if (isNewerUpdate(published)) return published;
+            } catch (Exception unavailable) {
+                releaseError = unavailable;
+            }
+        }
         try {
             URL endpoint = new URL(BackendSelection.apiBase(this)+"/api/client-update");
             if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση ενημέρωσης.");
@@ -752,10 +760,10 @@ public class MainActivity extends Activity {
                     body.optString("notes", "").trim(),
                     body.optInt("versionCode", 0),
                     body.optString("downloadUrl", UPDATE_DOWNLOAD_URL));
-        } catch(Exception error){
-            if(!direct)throw error;
-            org.json.JSONObject body=gr.argyrismitsos.fleetupdates.PublicReleaseFeed.latest("client");
-            return new UpdateInfo(body.getString("version"),body.getLong("sizeBytes"),body.getString("sha256"),body.optString("notes"),body.getInt("versionCode"),body.getString("downloadUrl"));
+        } catch (Exception error) {
+            if (published != null) return published;
+            if (releaseError != null) throw releaseError;
+            throw error;
         } finally {
             if (connection != null) connection.disconnect();
         }
@@ -777,7 +785,7 @@ public class MainActivity extends Activity {
     }
 
     private void offerUpdate(final UpdateInfo update) {
-        if (isFinishing() || update == null || !isNewerVersion(update.version, currentVersionName())) return;
+        if (isFinishing() || update == null || !isNewerUpdate(update)) return;
         SharedPreferences preferences = getSharedPreferences(UPDATE_PREFERENCES, MODE_PRIVATE);
         String promptedVersion = preferences.getString(LAST_UPDATE_PROMPT_KEY, "");
         long promptedAt = preferences.getLong(LAST_UPDATE_PROMPT_AT_KEY, 0L);
@@ -820,26 +828,15 @@ public class MainActivity extends Activity {
         updateDownloadedBytes=0;
         clientUpdateStage("downloading","Γίνεται λήψη της νέας έκδοσης…",false);
         new Thread(new Runnable() {
-            @Override
-            public void run() {
+            @Override public void run() {
                 try {
-                    final File apk = downloadUpdate(update);
-                    mainHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            updateDownloadInFlight.set(false);
-                            installUpdate(apk);
-                        }
-                    });
-                } catch (final Exception error) {
-                    updateDownloadInFlight.set(false);
+                    installUpdate(downloadUpdate(update));
+                } catch (Exception error) {
                     clearPrompt(update.version);
-                    mainHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            clientUpdateStage("failed","Η ενημέρωση δεν ολοκληρώθηκε: " + (error.getMessage()==null ? "δοκίμασε ξανά" : error.getMessage()),false);
-                        }
-                    });
+                    clientUpdateStage("failed", "Η ενημέρωση δεν ολοκληρώθηκε: "
+                            + (error.getMessage() == null ? "δοκίμασε ξανά." : error.getMessage()), false);
+                } finally {
+                    updateDownloadInFlight.set(false);
                 }
             }
         }, "fleet-update-download").start();
@@ -847,51 +844,61 @@ public class MainActivity extends Activity {
 
     private File downloadUpdate(UpdateInfo update) throws Exception {
         HttpURLConnection connection = null;
-        File part = new File(getCacheDir(), UPDATE_FILE_NAME + ".part");
+        File part = new File(getCacheDir(), "fleet-client-update.download.apk");
         File apk = new File(getCacheDir(), UPDATE_FILE_NAME);
         if (part.exists() && !part.delete()) throw new IllegalStateException("Δεν καθαρίστηκε η προσωρινή λήψη.");
-        if (apk.exists() && !apk.delete()) throw new IllegalStateException("Δεν καθαρίστηκε η προηγούμενη ενημέρωση.");
+        long expectedSize = update.sizeBytes;
+        if (expectedSize < 1 || expectedSize > MAX_UPDATE_BYTES) throw new IllegalStateException("Μη έγκυρο μέγεθος APK.");
+        if (getCacheDir().getUsableSpace() < expectedSize) throw new IllegalStateException("Δεν υπάρχει αρκετός χώρος για την ενημέρωση.");
         try {
             URL endpoint = new URL(update.downloadUrl);
-            URL trusted = new URL(BackendSelection.apiBase(this)+"/download/client.apk");
-            if (!(BackendSelection.direct(this)&&gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl))&&(!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort() || !trusted.getPath().equals(endpoint.getPath()))) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
-            if (!"https".equalsIgnoreCase(endpoint.getProtocol())) throw new IllegalStateException("Μη ασφαλής σύνδεση APK.");
-            if(endpoint.getUserInfo()!=null||endpoint.getRef()!=null)throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
-            connection = gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl)?gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint):(HttpURLConnection) endpoint.openConnection();
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(30000);
-            connection.setInstanceFollowRedirects(false);
-            connection.setUseCaches(false);
-            connection.setRequestProperty("Accept", "application/vnd.android.package-archive");
+            boolean github = BackendSelection.direct(this)
+                    && gr.argyrismitsos.fleetupdates.PublicReleaseFeed.downloadUrl(update.downloadUrl);
+            URL trusted = new URL(BackendSelection.apiBase(this) + "/download/client.apk");
+            if (!github && (!trusted.getHost().equalsIgnoreCase(endpoint.getHost()) || trusted.getPort() != endpoint.getPort()
+                    || !trusted.getPath().equals(endpoint.getPath()))) throw new IllegalStateException("Μη έγκυρη διεύθυνση APK.");
+            if (!"https".equalsIgnoreCase(endpoint.getProtocol()) || endpoint.getUserInfo() != null || endpoint.getRef() != null) {
+                throw new IllegalStateException("Μη ασφαλής σύνδεση APK.");
+            }
+            if (github) {
+                // PublicReleaseFeed configures and connects each hop before returning.
+                connection = gr.argyrismitsos.fleetupdates.PublicReleaseFeed.open(endpoint);
+            } else {
+                connection = (HttpURLConnection) endpoint.openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setInstanceFollowRedirects(false);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Accept", "application/vnd.android.package-archive");
+            }
             if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) throw new IllegalStateException("Η λήψη απέτυχε.");
-            long expectedSize = update.sizeBytes;
-            if (expectedSize > MAX_UPDATE_BYTES) throw new IllegalStateException("Το APK είναι υπερβολικά μεγάλο.");
+            String contentLength = connection.getHeaderField("Content-Length");
+            if (contentLength != null && Long.parseLong(contentLength) != expectedSize) throw new IllegalStateException("Το μέγεθος λήψης δεν συμφωνεί με την έκδοση.");
             try (InputStream input = new BufferedInputStream(connection.getInputStream());
                  OutputStream output = new BufferedOutputStream(new FileOutputStream(part))) {
-                byte[] buffer = new byte[8192];
-                int count;
+                byte[] buffer = new byte[65536];
                 long total = 0L, lastUpdateProgress = 0L;
+                int count;
                 while ((count = input.read(buffer)) != -1) {
                     total += count;
-                    if (total > MAX_UPDATE_BYTES) throw new IllegalStateException("Το APK είναι υπερβολικά μεγάλο.");
+                    if (total > expectedSize) throw new IllegalStateException("Το APK υπερβαίνει το δηλωμένο μέγεθος.");
                     output.write(buffer, 0, count);
-                    if (System.currentTimeMillis()-lastUpdateProgress>=250 || total>=expectedSize) {
-                        lastUpdateProgress=System.currentTimeMillis();updateDownloadedBytes=total;
-                        clientUpdateStage("downloading","Λήψη νέας έκδοσης…",false);
+                    if (System.currentTimeMillis() - lastUpdateProgress >= 250 || total == expectedSize) {
+                        lastUpdateProgress = System.currentTimeMillis();
+                        updateDownloadedBytes = total;
+                        clientUpdateStage("downloading", "Λήψη νέας έκδοσης…", false);
                     }
                 }
-                output.flush();
-                if (expectedSize > 0L && total != expectedSize) throw new IllegalStateException("Το APK δεν κατέβηκε πλήρως.");
+                if (total != expectedSize) throw new IllegalStateException("Το APK δεν κατέβηκε πλήρως.");
             }
+            clientUpdateStage("validating", "Έλεγχος αρχείου και υπογραφής…", false);
+            OtaInstaller.validate(this, part, update.versionCode, update.version, expectedSize, update.sha256);
+            if (!part.renameTo(apk)) throw new IllegalStateException("Δεν αποθηκεύτηκε το APK.");
+            return apk;
         } finally {
             if (connection != null) connection.disconnect();
+            part.delete();
         }
-
-        clientUpdateStage("validating","Έλεγχος αρχείου και υπογραφής…",false);
-        try { OtaInstaller.validate(this, part, update.versionCode, update.version, update.sizeBytes, update.sha256); }
-        catch (Exception error) { part.delete(); throw error; }
-        if (!part.renameTo(apk)) throw new IllegalStateException("Δεν αποθηκεύτηκε το APK.");
-        return apk;
     }
 
     private void installUpdate(File apk) {
@@ -917,6 +924,17 @@ public class MainActivity extends Activity {
         } catch (Exception error) {
             return "0";
         }
+    }
+
+    private boolean isNewerUpdate(UpdateInfo update) {
+        if (update.versionCode > 0) {
+            try {
+                return update.versionCode > getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+            } catch (Exception unavailable) {
+                return false;
+            }
+        }
+        return isNewerVersion(update.version, currentVersionName());
     }
 
     private static boolean isNewerVersion(String remote, String local) {
