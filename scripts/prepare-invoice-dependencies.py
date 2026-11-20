@@ -7,13 +7,22 @@ cache.mkdir(parents=True,exist_ok=True)
 lock=json.loads((root/'android-build-support/invoice-dependencies.lock.json').read_text())
 for item in lock['items']:
     target=cache/item['file']
-    def valid():
-        return target.exists() and target.stat().st_size==item['sizeBytes'] and hashlib.sha256(target.read_bytes()).hexdigest()==item['sha256']
-    if not valid():
+    def valid(path):
+        return path.is_file() and path.stat().st_size==item['sizeBytes'] and hashlib.sha256(path.read_bytes()).hexdigest()==item['sha256']
+    if not valid(target):
         part=target.with_suffix(target.suffix+'.part')
-        subprocess.run(['curl','--fail','--location','--silent','--show-error','--retry','2','--max-time','180',item['url'],'-o',str(part)],check=True)
-        part.replace(target)
-    if not valid(): raise SystemExit('Invoice dependency checksum mismatch: '+item['file'])
+        for address in [item['url'], *item.get('mirrors', [])]:
+            try:
+                subprocess.run(['curl','--fail','--location','--silent','--show-error','--retry','2','--max-time','180',address,'-o',str(part)],check=True)
+                if valid(part):
+                    part.replace(target)
+                    break
+            except subprocess.CalledProcessError:
+                continue
+            finally:
+                part.unlink(missing_ok=True)
+        else:
+            raise SystemExit('No verified download available for pinned invoice dependency: '+item['file'])
 destination=Path(sys.argv[1])
 (destination/'jars').mkdir(parents=True,exist_ok=True)
 (destination/'assets').mkdir(exist_ok=True)

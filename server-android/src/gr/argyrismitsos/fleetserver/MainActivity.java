@@ -4,6 +4,7 @@ import gr.argyrismitsos.fleetupdates.OtaInstaller;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ContentProviderClient;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -13,6 +14,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.RemoteException;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
@@ -365,7 +367,7 @@ public final class MainActivity extends Activity {
         if(BackendMode.direct(this)){
             JSONObject direct=new JSONObject(directControl("dashboard","",null).getString("json"));JSONObject stats=direct.optJSONObject("stats");result.put("ota",direct.optJSONObject("ota"));
             if(stats!=null){for(String name:new String[]{"bikes","users","activeShifts","openAlerts","historyEntries"})result.put(name,stats.opt(name));}
-            result.put("workerUrl",BackendMode.DIRECT).put("serverOnline",direct.optBoolean("listenerActive")).put("serviceRunning",true).put("lastError",direct.optString("listenerError")).put("syncDiagnostics",new JSONObject().put("stage","Direct · τοπική SQLite").put("endpoint",BackendMode.DIRECT)).put("dataSource","Direct · ανεξάρτητα δεδομένα");
+            result.put("workerUrl",BackendMode.DIRECT).put("serverOnline",direct.optBoolean("listenerActive")).put("serviceRunning",direct.optJSONObject("origin")!=null&&direct.getJSONObject("origin").optBoolean("serviceRunning")).put("originHealth",direct.optJSONObject("origin")).put("lastError",direct.optString("listenerError")).put("syncDiagnostics",new JSONObject().put("stage","Direct · τοπική SQLite").put("endpoint",BackendMode.DIRECT)).put("dataSource","Direct · ανεξάρτητα δεδομένα");
         }
         result.put("settingsLoaded", true);
         return result;
@@ -428,7 +430,18 @@ public final class MainActivity extends Activity {
         catch (Exception ignored) { return ""; }
     }
 
-    private Bundle directControl(String method,String arg,Bundle input){return getContentResolver().call(Uri.parse("content://"+BackendMode.CONTROL_AUTHORITY),method,arg,input);}
+    private Bundle directControl(String method, String argument, Bundle input) throws RemoteException {
+        // Android keeps the UI process alive if the separate Direct provider is restarted.
+        ContentProviderClient control = getContentResolver().acquireUnstableContentProviderClient(BackendMode.CONTROL_AUTHORITY);
+        if (control == null) throw new IllegalStateException("Η τοπική υπηρεσία Direct δεν είναι διαθέσιμη.");
+        try {
+            Bundle result = control.call(method, argument, input);
+            if (result == null) throw new IllegalStateException("Η τοπική υπηρεσία Direct δεν απάντησε.");
+            return result;
+        } finally {
+            control.release();
+        }
+    }
     public final class ServerBridge {
         @JavascriptInterface public String getBackendMode(){try{return directControl("status","",null).getString("json");}catch(Exception e){return "{\"error\":\"Η κατάσταση λειτουργίας δεν φορτώθηκε.\"}";}}
         @JavascriptInterface public void prepareDirect(){runOnUiThread(()->startActivity(new Intent().setClassName(MainActivity.this,"gr.argyrismitsos.fleetdirect.IndependentActivity")));}

@@ -14,10 +14,13 @@ public final class BootReceiver extends BroadcastReceiver {
         if (intent == null) return;
         String action = intent.getAction();
         if (!Intent.ACTION_BOOT_COMPLETED.equals(action) && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) return;
-        if(NativeColdRuntime.blocked(context))return;
-        SharedPreferences preferences = context.getSharedPreferences(BackupManager.PREFS, Context.MODE_PRIVATE);
+        boolean direct = BackendMode.direct(context);
+        // Direct validates and processes its own recovery state inside its scoped process.
+        if (!direct && NativeColdRuntime.blocked(context)) return;
+        String preferencesName = direct ? BackendMode.DIRECT_PREFERENCES_PREFIX + BackupManager.PREFS : BackupManager.PREFS;
+        SharedPreferences preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE);
         if (!preferences.getBoolean("automatic_start", true)) return;
-        Intent service = BackendMode.direct(context)?new Intent().setClassName(context,"gr.argyrismitsos.fleetdirect.IndependentService"):new Intent(context, SyncService.class);
+        Intent service = direct?new Intent().setClassName(context,"gr.argyrismitsos.fleetdirect.IndependentService"):new Intent(context, SyncService.class);
         try {
             if (Build.VERSION.SDK_INT >= 26) {
                 Method method = Context.class.getMethod("startForegroundService", Intent.class);
