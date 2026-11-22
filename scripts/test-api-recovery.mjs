@@ -38,7 +38,7 @@ const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),rem
 const bike1={id:'one',name:'Fixture one',currentKm:10,history:[]},bike2={id:'two',name:'Fixture two',currentKm:20,history:[]};
 let seen=[];let editDuringUpload=false;let failPost=false;
 const loading=[];
-const syncContext={config:{independent:true},lastReadBikes:new Map([bike1,bike2].map(bike=>[String(bike.id),JSON.stringify(bike)])),window:{FleetServiceModel:globalThis.FleetServiceModel},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,fleetLoaded:false,fleetLoading:(message,failed)=>loading.push({message,failed}),
+const syncContext={config:{independent:true},lastReadBikes:new Map([bike1,bike2].map(bike=>[String(bike.id),JSON.stringify(bike)])),window:{FleetServiceModel:globalThis.FleetServiceModel},currentUser:null,bikes:[bike1,bike2],dirtyBikeIds:new Set(),pendingFleetChange:false,syncRunning:false,syncQueued:false,cloudSnapshotVersion:null,minimumFleetRevision:0,projectedFleet:false,fleetLoaded:false,fleetLoading:(message,failed)=>loading.push({message,failed}),
  webToken:'fixture-token',apiBase:'https://fixture.invalid',navigator:{onLine:true},activeBikeId:null,localStorage:storage,
  STORAGE_KEY:'bikes',DIRTY_KEY:'dirty',DIRTY_BIKE_KEY:'dirty-ids',setSyncState(){},scheduleSync(){},renderHome(){},renderDetail(){},
  requestHeaders(){return {'Authorization':'Bearer fixture-token','Content-Type':'application/json'};},

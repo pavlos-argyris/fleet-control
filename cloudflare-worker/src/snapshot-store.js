@@ -17,6 +17,48 @@ export async function snapshotSummary(env) {
   return { version: Number(row?.version || 0), source: row?.source || 'canonical', updatedAt: row?.updated_at || '', bikes: Number(row?.bikes || 0) };
 }
 
+const fleetCardFields = [
+  'id', 'name', 'currentKm', 'lastServiceKm', 'nextServiceKm', 'intervalKm',
+  'lastCheckedAt', 'createdAt', 'updatedAt', 'hasMajorService', 'lastMajorServiceKm',
+  'lastMajorServiceMilestoneKm', 'pendingMajorServiceKm', 'nextMajorServiceKm', 'majorServiceTargetKm'
+];
+
+export function fleetCard(bike) {
+  return Object.fromEntries(fleetCardFields.map(key => [key, bike[key]]));
+}
+
+export async function fleetCardRow(env, sinceVersion) {
+  const fields = fleetCardFields.map(key => `'${key}', json_extract(b.value,'$.${key}')`).join(', ');
+  return env.DB.prepare(`SELECT s.version, s.source, s.updated_at,
+    CASE WHEN CAST(s.version AS TEXT)=? THEN NULL ELSE
+      (SELECT COALESCE(json_group_array(bike_id), '[]') FROM vehicle_archives WHERE active=1) END AS archived_json,
+    CASE WHEN CAST(s.version AS TEXT)=? THEN NULL ELSE
+      (SELECT COALESCE(json_group_array(json_object(${fields})), '[]')
+     FROM json_each(s.data,'$.bikes') b WHERE NOT EXISTS
+     (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=json_extract(b.value,'$.id'))) END AS bikes_json
+    FROM fleet_snapshot s WHERE s.id=1 AND (CAST(s.version AS TEXT)=? OR json_type(s.data,'$.bikes')='array')`)
+    .bind(sinceVersion, sinceVersion, sinceVersion).first();
+}
+
+export async function fleetQrCandidates(env) {
+  const { results } = await env.DB.prepare(`SELECT json_extract(b.value,'$.id') AS bike_id, json_object(
+    'id', json_extract(h.value,'$.id'), 'type', json_extract(h.value,'$.type'), 'updatedAt', json_extract(h.value,'$.updatedAt'),
+    'invoiceData', json_object('qrJobId',json_extract(h.value,'$.invoiceData.qrJobId'),'qrUrl',json_extract(h.value,'$.invoiceData.qrUrl'),
+      'qrProcessingStatus',json_extract(h.value,'$.invoiceData.qrProcessingStatus'),
+      'qrProcessingUpdatedAt',json_extract(h.value,'$.invoiceData.qrProcessingUpdatedAt'),
+      'qrProcessingStartedAt',json_extract(h.value,'$.invoiceData.qrProcessingStartedAt')),
+    'attachments', json((SELECT COALESCE(json_group_array(json_object(
+      'key',json_extract(a.value,'$.key'),'renderJobId',json_extract(a.value,'$.renderJobId'),
+      'qrUrl',json_extract(a.value,'$.qrUrl'),'qrValue',json_extract(a.value,'$.qrValue'),
+      'ocr',json_object('qrJobId',json_extract(a.value,'$.ocr.qrJobId'),'qrUrl',json_extract(a.value,'$.ocr.qrUrl')),
+      'qrData',json_object('qrJobId',json_extract(a.value,'$.qrData.qrJobId'),'qrUrl',json_extract(a.value,'$.qrData.qrUrl'))
+    )), '[]') FROM json_each(h.value,'$.attachments') a))) AS entry_json
+    FROM fleet_snapshot s, json_each(s.data,'$.bikes') b, json_each(b.value,'$.history') h
+    WHERE s.id=1 AND (json_extract(h.value,'$.invoiceData.qrUrl') <> '' OR json_extract(h.value,'$.invoiceData.qrJobId') <> '')
+    AND NOT EXISTS (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=json_extract(b.value,'$.id'))`).all();
+  return results;
+}
+
 // Read bounded canonical rows rather than one aggregate containing every
 // invoice/history cell. A missing/partial native cursor is never an empty fleet.
 export async function snapshotPage(env, cursor = '') {
@@ -96,9 +138,11 @@ export async function fleetRegistrySnapshot(env) {
   return { version: Number(rows.results?.[0]?.version || 0), data: { bikes: (rows.results || []).map(row => JSON.parse(row.bike_json)) } };
 }
 
-export async function readSnapshotBike(env, id) {
+export async function readSnapshotBike(env, id, { activeOnly = false } = {}) {
   const row = await env.DB.prepare(`SELECT s.version, b.key AS bike_index, b.value AS bike_json
-    FROM fleet_snapshot s, json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? LIMIT 1`).bind(id).first();
+    FROM fleet_snapshot s, json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=?
+    ${activeOnly ? "AND NOT EXISTS (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=json_extract(b.value,'$.id'))" : ''}
+    LIMIT 1`).bind(id).first();
   return row ? { version:Number(row.version), index:Number(row.bike_index), json:row.bike_json, bike:JSON.parse(row.bike_json) } : null;
 }
 
