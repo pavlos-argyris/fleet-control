@@ -2956,12 +2956,28 @@ async function fleetBikeView(request, env) {
   if (!await mayViewFleet(request, env)) return json({ error: 'Χρειάζεται σύνδεση για την προβολή του στόλου.' }, 401);
   const params = new URL(request.url).searchParams;
   const id = cleanText(params.get('id'), 100), view = params.get('view');
-  if (!id || !['summary', 'history', 'files'].includes(view)) return json({ error: 'Μη έγκυρη προβολή μηχανής.' }, 400);
+  if (!id || !['summary', 'history', 'history-preview', 'files'].includes(view)) return json({ error: 'Μη έγκυρη προβολή μηχανής.' }, 400);
   const located = await readSnapshotBike(env, id, { activeOnly: true });
   if (!located) return json({ error: 'Το μηχανάκι δεν είναι διαθέσιμο.' }, 404);
   const { bike, version } = located;
   if (view === 'history') return json({ bike, version });
   const history = Array.isArray(bike.history) ? bike.history : [];
+  if (view === 'history-preview') {
+    const previewInvoice = value => {
+      if (!value?.rawText) return value;
+      const { rawText, ...invoice } = value;
+      return { ...invoice, hasRawText: true };
+    };
+    const entries = history.map(entry => ({
+      ...entry,
+      invoiceData: previewInvoice(entry.invoiceData),
+      attachments: (entry.attachments || []).map(file => ({
+        ...file, ocr: previewInvoice(file.ocr), qrData: previewInvoice(file.qrData)
+      }))
+    }));
+    return json({ bike: { ...fleetCard(bike), history: entries, historyDeletedIds: bike.historyDeletedIds,
+      nextServiceNotes: bike.nextServiceNotes }, version });
+  }
   if (view === 'files') {
     const files = history.flatMap(entry => (entry.attachments || []).filter(file => file.key).map(file => ({
       key: file.key, name: file.name, serviceDate: entry.date,
@@ -3013,10 +3029,10 @@ async function syncSingleBike(request, env, serverOnly) {
       const previous = located.bike, history = previous.history || [];
       const existing = history.find(entry => entry.id === check.id);
       if (existing) {
-        if (existing.type !== 'check' || existing.km !== check.km || existing.date !== check.date) return json({ error: 'Ο έλεγχος έχει ήδη καταχωριστεί με άλλα στοιχεία.' }, 409);
+        if (existing.type !== 'check' || existing.km !== check.km || existing.date !== check.date) return json({ error: 'Ο έλεγχος έχει ήδη καταχωριστεί με άλλα στοιχεία.', code: 'mileage_id_conflict' }, 409);
         return json({ saved: true, card: fleetCard(previous), entry: existing, version: located.version });
       }
-      if (check.km < Number(previous.lastServiceKm || 0)) return json({ error: 'Τα χιλιόμετρα είναι λιγότερα από την τελευταία αλλαγή λαδιών.' }, 409);
+      if (check.km < Number(previous.lastServiceKm || 0)) return json({ error: 'Τα χιλιόμετρα είναι λιγότερα από την τελευταία αλλαγή λαδιών.', code: 'mileage_outdated' }, 409);
       bike = normalizeBike({ ...previous, history: [check, ...history],
         currentKm: Math.max(Number(previous.currentKm || 0), check.km),
         lastCheckedAt: [previous.lastCheckedAt || '', check.date].sort().at(-1), updatedAt: check.updatedAt });

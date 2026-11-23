@@ -54,9 +54,14 @@
   let qrAttentionRequest = null;
   let historyPreloadTimer = 0;
   let historyPreloadRunning = false;
-  let historyPreloadBytes = 0;
+  const historyRetryAt = new Map();
   let minimumFleetRevision = 0;
   let mileageCheckSaving = false;
+  let mileageSyncTimer = 0;
+  let mileageSyncRunning = false;
+  let mileageSyncQueued = false;
+  let mileageRetryDelay = 1000;
+  const adoptedMileageScopes = new Set();
   let syncQueued = false;
   let pendingEditAction = null;
   let webToken = "";
@@ -1235,10 +1240,15 @@
     projectedFleet = false;
     bikeViews.clear();
     bikeViewRequests.clear();
-    historyPreloadBytes = 0;
+    historyRetryAt.clear();
     qrAttentionCount = 0;
     clearTimeout(historyPreloadTimer);
     historyPreloadTimer = 0;
+    clearTimeout(mileageSyncTimer);
+    mileageSyncTimer = 0;
+    mileageRetryDelay = 1000;
+    adoptedMileageScopes.clear();
+    renderMileageQueue([]);
     window.FleetFollowup?.reset();window.FleetOperations?.reset();
     currentUser = null;
     bikes = [];
@@ -1345,6 +1355,7 @@
         if (projectedFleet) {
           setTimeout(refreshQrAttention, 0);
           scheduleHistoryPreload();
+          scheduleMileageSync();
         }
         return;
       }
@@ -1406,7 +1417,10 @@
       if (archived.has(id)) dirtyBikeIds.delete(id);
       else if (!entries.has(id) && previous.has(id)) entries.set(id, previous.get(id));
     }
-    if (revisionChanged) { bikeViews.clear(); historyPreloadBytes = 0; }
+    if (revisionChanged) {
+      bikeViews.clear();
+      historyRetryAt.clear();
+    }
     bikes = [...entries.values()];
     lastReadBikes = new Map(bikes.map(bike => [bike.id, JSON.stringify(bike)]));
     projectedFleet = true;
@@ -1420,6 +1434,7 @@
     setSyncState(pendingFleetChange ? 'syncing' : 'synced', pendingFleetChange ? 'Εκκρεμεί…' : 'Συγχρονίστηκε');
     setTimeout(refreshQrAttention, 0);
     scheduleHistoryPreload();
+    scheduleMileageSync();
   }
 
   function scheduleSync() {
@@ -1574,8 +1589,9 @@
 
   function renderInvoiceOcrDetails(file, entry) {
     const fallback = (entry && entry.attachments || []).length <= 1 ? entry && entry.invoiceData : null;
-    const data = mergeInvoiceData(invoiceDataFromAttachment(file), fallback);
-    if (!data) return "";
+    const hasRawText = file.ocr?.hasRawText || file.qrData?.hasRawText || fallback?.hasRawText;
+    const data = mergeInvoiceData(invoiceDataFromAttachment(file), fallback) || {};
+    if (!Object.keys(data).length && !hasRawText) return "";
     const fields = [
       ["Προμηθευτής", data.supplier],
       ["Αριθμός τιμολογίου", data.invoiceNumber],
@@ -1601,7 +1617,8 @@
       : "";
     const raw = data.rawText
       ? '<details class="invoice-raw-details"><summary>Πλήρες αναγνωρισμένο κείμενο</summary><pre>' + escapeHtml(data.rawText) + '</pre></details>'
-      : "";
+      : hasRawText ? '<button type="button" class="secondary-button" data-load-invoice-text="' + escapeHtml(file.key) +
+        '" data-invoice-text-entry="' + escapeHtml(entry.id) + '">Πλήρες αναγνωρισμένο κείμενο</button>' : "";
     const needsReview = Boolean(file && file.ocr && data && !data.confirmedAt);
     const review = needsReview
       ? '<button type="button" class="document-review-button" data-review-document="' + escapeHtml(file.key) + '" data-review-document-entry="' + escapeHtml(entry && entry.id || "") + '">Έλεγχος &amp; αποθήκευση στοιχείων</button>'
@@ -1617,6 +1634,10 @@
     return JSON.stringify([id, view]);
   }
 
+  function preparedBike(id) {
+    return (bikeViews.get(bikeViewKey(id, 'history')) || bikeViews.get(bikeViewKey(id, 'history-preview')))?.bike;
+  }
+
   function loadBikeView(id, view, background = false) {
     const key = bikeViewKey(id, view);
     if (bikeViews.has(key)) return Promise.resolve(bikeViews.get(key));
@@ -1624,20 +1645,17 @@
     const token = webToken, revision = cloudSnapshotVersion;
     const promise = (async function () {
       const path = '/api/sync/bike?view=' + view + '&id=' + encodeURIComponent(id);
-      const headers = requestHeaders(false);
+      const headers = requestHeaders(true);
       if (background) headers['X-Fleet-Read-Priority'] = 'background';
       const response = await fetchReadWithRetry(apiBase + path, { headers, cache: 'no-store' });
+      if (view === 'history-preview' && response.status === 400) return loadBikeView(id, 'history', background);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Δεν φορτώθηκε η καρτέλα μηχανής.');
       if (token !== webToken || revision !== cloudSnapshotVersion || !getBike(id) || !Number.isSafeInteger(data.version) || data.version < minimumFleetRevision) {
         throw new Error('Η λίστα ενημερώθηκε. Άνοιξε ξανά την προβολή.');
       }
-      if (view === 'files' ? !Array.isArray(data.files) : data.bike?.id !== id || (view === 'history' && !Array.isArray(data.bike.history))) {
+      if (view === 'files' ? !Array.isArray(data.files) : data.bike?.id !== id || (view.startsWith('history') && !Array.isArray(data.bike.history))) {
         throw new Error('Ο Server επέστρεψε ελλιπή στοιχεία μηχανής.');
-      }
-      if (view === 'history') {
-        historyPreloadBytes += JSON.stringify(data).length * 2;
-        if (background && historyPreloadBytes > 8 * 1024 * 1024) return data;
       }
       bikeViews.set(key, data);
       return data;
@@ -1676,24 +1694,33 @@
       .catch(error => showToast(error.message || 'Δεν φορτώθηκε το ιστορικό μηχανής.'));
   }
 
-  function scheduleHistoryPreload() {
+  function scheduleHistoryPreload(delay = 40) {
     if (historyPreloadTimer || historyPreloadRunning || !projectedFleet || !fleetScreenActive() || navigator.onLine === false) return;
     historyPreloadTimer = setTimeout(async function () {
       historyPreloadTimer = 0;
       if (!projectedFleet || !fleetScreenActive()) return;
-      if (syncRunning || activeBikeId || qrAttentionRequest || bikeViewRequests.size || pendingFleetChange || mileageCheckSaving || document.querySelector('dialog[open]')) {
-        scheduleHistoryPreload();
+      if (syncRunning || qrAttentionRequest || bikeViewRequests.size || pendingFleetChange || mileageCheckSaving || document.querySelector('dialog[open]')) {
+        scheduleHistoryPreload(100);
         return;
       }
-      if (historyPreloadBytes >= 8 * 1024 * 1024) return;
-      const bike = bikes.find(item => !Array.isArray(item.history) && !bikeViews.has(bikeViewKey(item.id, 'history')));
-      if (!bike) return;
+      const now = Date.now();
+      const remaining = bikes.filter(item => !Array.isArray(item.history) && !preparedBike(item.id));
+      const bike = remaining.find(item => (historyRetryAt.get(item.id) || 0) <= now);
+      if (!bike) {
+        if (remaining.length) scheduleHistoryPreload(Math.max(40, Math.min(...remaining.map(item => historyRetryAt.get(item.id))) - now));
+        return;
+      }
       historyPreloadRunning = true;
-      try { await loadBikeView(bike.id, 'history', true); }
-      catch (error) { return; }
+      try {
+        await loadBikeView(bike.id, 'history-preview', true);
+        historyRetryAt.delete(bike.id);
+        if (!elements.serviceOrderView.classList.contains('is-hidden') &&
+            bikes.every(item => Array.isArray(item.history) || preparedBike(item.id))) renderServiceOrder();
+      }
+      catch (error) { historyRetryAt.set(bike.id, Date.now() + 1500); }
       finally { historyPreloadRunning = false; }
       scheduleHistoryPreload();
-    }, 400);
+    }, delay);
   }
 
   function refreshBikeTab() {
@@ -1701,8 +1728,8 @@
     const id = activeBikeId, bike = getBike(id);
     if (!projectedFleet || !bike || Array.isArray(bike.history)) return;
     const view = window.FleetUI?.currentBikeTab?.() || 'summary';
-    if (view !== 'history' && bikeViews.has(bikeViewKey(id, 'history'))) return;
-    const load = view === 'history' ? loadBikeRecord(id) : loadBikeView(id, view);
+    if (preparedBike(id)) return;
+    const load = loadBikeView(id, view === 'history' ? 'history-preview' : view);
     load.then(function () {
       if (activeBikeId === id) renderDetail();
     }).catch(function (error) {
@@ -1896,12 +1923,13 @@
   }
 
   function renderServiceOrder() {
-    if (projectedFleet && bikes.some(bike => !Array.isArray(bike.history))) {
+    const records = projectedFleet ? bikes.map(bike => Array.isArray(bike.history) ? bike : preparedBike(bike.id)) : bikes;
+    if (records.some(bike => !bike)) {
       elements.serviceOrderSummary.textContent = 'Φορτώνονται τα τελευταία service…';
       elements.serviceOrderList.replaceChildren();
       return;
     }
-    const rows = latestServiceRows(bikes);
+    const rows = latestServiceRows(records);
     elements.serviceOrderSummary.textContent = rows.length + " μηχανάκια · " + rows.filter(function (row) { return row.date; }).length + " με ημερομηνία service";
     elements.serviceOrderList.innerHTML = rows.length ? rows.map(function (row, index) {
       const entry = row.latest;
@@ -1927,9 +1955,7 @@
     elements.serviceOrderView.classList.remove("is-hidden");
     setDetailPresentation(true, "service-order");
     renderServiceOrder();
-    if (projectedFleet) loadFleetRecords().then(() => {
-      if (!elements.serviceOrderView.classList.contains('is-hidden')) renderServiceOrder();
-    }).catch(error => { elements.serviceOrderSummary.textContent = error.message; });
+    scheduleHistoryPreload(0);
     window.scrollTo(0, 0);
     if (pushState !== false) {
       try { history.pushState({ view: "service-order" }, "", "#latest-services"); } catch (error) {}
@@ -2597,8 +2623,7 @@
     window.FleetUI?.setBikeContext(bike.id);
     const view = window.FleetUI?.currentBikeTab?.() || 'summary';
     const files = bikeViews.get(bikeViewKey(bike.id, 'files'))?.files;
-    const hasHistory = Array.isArray(bike.history);
-    const prepared = hasHistory ? bike : bikeViews.get(bikeViewKey(bike.id, 'history'))?.bike;
+    const prepared = Array.isArray(bike.history) ? bike : preparedBike(bike.id);
     if (!projectedFleet || view === 'files') {
       if (!projectedFleet || prepared || files) window.FleetUI?.renderBikeFiles(prepared || bike, prepared ? undefined : files);
       else document.getElementById('uiBikeFiles').textContent = 'Φορτώνονται τα τιμολόγια…';
@@ -2636,12 +2661,12 @@
     elements.detailMajorServiceHint.textContent = major.message;
     elements.detailMajorServiceHint.className = "detail-major-hint " + major.key;
     if (projectedFleet && view !== 'history') return;
-    if (projectedFleet && !hasHistory) {
+    if (projectedFleet && !prepared) {
       elements.historyCount.textContent = '—';
       elements.detailHistory.textContent = 'Φορτώνεται το ιστορικό…';
       return;
     }
-    const selectedEntries = (bike.history || []).filter(entry => activeHistoryFilter === 'all' || entry.type === activeHistoryFilter);
+    const selectedEntries = (prepared?.history || []).filter(entry => activeHistoryFilter === 'all' || entry.type === activeHistoryFilter);
     const historyEntries = historyEntriesForDisplay(selectedEntries);
     elements.historyFilterButtons.forEach(function (button) {
       const selected = button.dataset.historyFilter === activeHistoryFilter;
@@ -3625,37 +3650,173 @@
     return JSON.stringify([bikeId, km, date]);
   }
 
-  function mileageDraftScope() {
-    const generation = window.FleetPrimary?.generation(new URL(apiBase || location.href).origin) || '';
-    return serviceStorageScope() + '|' + generation;
+  function mileageAuthority() {
+    const origin = new URL(apiBase || location.href).origin;
+    let instance = window.FleetPrimary?.generation(origin);
+    try { instance ||= window.parent.FleetPrimary?.generation(origin); } catch (error) {}
+    const key = 'fleet-mileage-instance:' + origin;
+    try {
+      if (instance) localStorage.setItem(key, instance);
+      else instance = localStorage.getItem(key);
+    } catch (error) {}
+    return instance || '';
   }
 
-  async function saveProjectedMileage(bike, km, date) {
-    const scope = mileageDraftScope(), token = webToken;
+  function mirrorMileageCheck(mileage, authority, token) {
+    if (!config.independent || !authority) return;
+    try { window.AndroidFleet?.stageMileageCheck?.(JSON.stringify({ mileage }), authority, token); }
+    catch (error) { /* The browser queue is already durable. */ }
+  }
+
+  async function adoptLegacyMileageChecks(scope, authority) {
+    const storage = window.FleetServiceStorage;
+    const oldScopes = authority ? [scope + '|' + authority, scope + '|'] : [scope + '|'];
+    for (const oldScope of oldScopes) {
+      if (adoptedMileageScopes.has(oldScope)) continue;
+      for (const row of await storage.list(oldScope, 'mileage-check')) {
+        const adopted = await storage.claim(scope, 'mileage-check', row.key, { ...row.data, authority }, row.at);
+        if (adopted.data.id === row.data.id) await storage.remove(oldScope, 'mileage-check', row.key);
+      }
+      adoptedMileageScopes.add(oldScope);
+    }
+  }
+
+  async function queueMileage(bike, km, date) {
+    const scope = serviceStorageScope(), token = webToken, authority = mileageAuthority();
     const key = mileageDraftKey(bike.id, km, date);
-    const saved = await window.FleetServiceStorage.get(scope, 'mileage-check', key);
-    const mileage = saved?.data || { bikeId: bike.id, id: uid(), km, date };
-    if (!saved) await window.FleetServiceStorage.put(scope, 'mileage-check', key, mileage);
-    if (scope !== mileageDraftScope() || token !== webToken) throw new Error('Η σύνδεση άλλαξε πριν από την καταχώριση.');
-    const result = await window.FleetFollowupAdapter.api('/api/sync/bike', { method: 'POST', body: { mileage } });
-    if (!result.saved || result.card?.id !== bike.id || result.entry?.id !== mileage.id || !Number.isSafeInteger(result.version)) {
-      throw new Error('Ο Server δεν επιβεβαίωσε τον έλεγχο χιλιομέτρων.');
-    }
-    await window.FleetServiceStorage.remove(scope, 'mileage-check', key).catch(() => {});
-    if (scope !== mileageDraftScope() || token !== webToken) return null;
+    await adoptLegacyMileageChecks(scope, authority);
+    const {data} = await window.FleetServiceStorage.claim(scope, 'mileage-check', key, { bikeId: bike.id, id: uid(), km, date, authority });
+    if (scope !== serviceStorageScope() || token !== webToken) throw new Error('Η σύνδεση άλλαξε. Ο έλεγχος έμεινε αποθηκευμένος στον αρχικό λογαριασμό.');
+    const {id} = data;
+    if (authority === data.authority && !dirtyBikeIds.has(bike.id)) mirrorMileageCheck({ bikeId: bike.id, id, km, date }, authority, token);
+    return data;
+  }
+
+  function applyMileageReceipt(result, mileage) {
     minimumFleetRevision = Math.max(minimumFleetRevision, result.version);
-    for (const view of ['history', 'summary', 'files']) bikeViews.delete(bikeViewKey(bike.id, view));
-    const current = getBike(bike.id);
+    const current = getBike(mileage.bikeId);
     if (!current) return null;
-    if (result.version < (cloudSnapshotVersion || 0) || dirtyBikeIds.has(bike.id)) return current;
-    let updated = result.card;
-    if (Array.isArray(current.history)) {
-      const history = [result.entry, ...current.history.filter(entry => entry.id !== result.entry.id)].slice(0, 500);
-      updated = { ...current, ...result.card, history };
+    if (result.version < (cloudSnapshotVersion || 0) || dirtyBikeIds.has(current.id)) return current;
+    const addCheck = source => ({ ...source, ...result.card,
+      history: [result.entry, ...source.history.filter(entry => entry.id !== mileage.id)].slice(0, 500)
+    });
+    const consecutive = result.version === cloudSnapshotVersion + 1;
+    for (const view of ['history', 'history-preview', 'summary', 'files']) {
+      const key = bikeViewKey(current.id, view), cached = bikeViews.get(key);
+      if (consecutive && Array.isArray(cached?.bike?.history)) {
+        bikeViews.set(key, { ...cached, version: result.version, bike: addCheck(cached.bike) });
+      } else if (!consecutive) bikeViews.delete(key);
     }
+    if (consecutive) cloudSnapshotVersion = result.version;
+    else {
+      bikeViews.clear();
+      if (fleetScreenActive()) setTimeout(syncNow, 0);
+    }
+    let updated = result.card;
+    if (consecutive && Array.isArray(current.history)) updated = addCheck(current);
     bikes[bikes.indexOf(current)] = updated;
     lastReadBikes.set(updated.id, JSON.stringify(updated));
     return updated;
+  }
+
+  function renderMileageQueue(rows) {
+    const output = document.getElementById('quickMileageQueue');
+    if (!output) return;
+    const failures = rows.filter(row => row.data?.syncError);
+    const pending = rows.length - failures.length;
+    output.textContent = [
+      pending ? pending + ' σε αναμονή αποστολής' : '',
+      failures.length ? failures.length + ' χρειάζονται έλεγχο. ' + failures[0].data.syncError : ''
+    ].filter(Boolean).join(' · ');
+    output.hidden = !rows.length;
+  }
+
+  function scheduleMileageSync(wait = 0) {
+    if (!webToken || !canManageHistory() || !window.FleetServiceStorage) return;
+    if (mileageSyncRunning) {
+      mileageSyncQueued = true;
+      return;
+    }
+    clearTimeout(mileageSyncTimer);
+    mileageSyncTimer = setTimeout(processMileageChecks, wait);
+  }
+
+  async function processMileageChecks() {
+    if (mileageSyncRunning || !webToken || !canManageHistory()) return;
+    mileageSyncRunning = true;
+    mileageSyncQueued = false;
+    const scope = serviceStorageScope(), token = webToken, storage = window.FleetServiceStorage;
+    const active = () => token === webToken && scope === serviceStorageScope() && canManageHistory();
+    let retry = false;
+    try {
+      await adoptLegacyMileageChecks(scope, mileageAuthority());
+      const rows = await storage.list(scope, 'mileage-check');
+      if (!active()) return;
+      renderMileageQueue(rows);
+      if (navigator.onLine === false) return;
+      rows.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      for (const row of rows) {
+        if (!active()) return;
+        if (row.data.syncError) continue;
+        const { bikeId, id, km, date, authority } = row.data;
+        if (dirtyBikeIds.has(bikeId)) { retry = true; continue; }
+        const mileage = { bikeId, id, km, date };
+        const instance = mileageAuthority();
+        if (authority && instance && authority !== instance) {
+          await storage.put(scope, 'mileage-check', row.key, { ...row.data, syncError: 'Άλλαξε ο Server. Έλεγξε την ένδειξη πριν την υποβάλεις ξανά.' });
+          continue;
+        }
+        mirrorMileageCheck(mileage, authority || instance, token);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 16000);
+        let result;
+        try {
+          result = await window.FleetFollowupAdapter.api('/api/sync/bike', {
+            method: 'POST', body: { mileage }, signal: controller.signal,
+            headers: { 'X-Fleet-Operation': id, ...(authority ? { 'X-Fleet-Instance': authority } : {}) }
+          });
+          if (!result.saved || result.card?.id !== bikeId || result.entry?.id !== id || !Number.isSafeInteger(result.version)) {
+            throw new Error('Ο Server δεν επιβεβαίωσε τον έλεγχο χιλιομέτρων.');
+          }
+        } catch (error) {
+          if ([400, 404, 422].includes(error.status) || ['bike_archived', 'mileage_outdated', 'mileage_id_conflict', 'mileage_instance_changed', 'operation_conflict', 'operation_authorization_changed'].includes(error.code)) {
+            await storage.put(scope, 'mileage-check', row.key, { ...row.data, syncError: error.message });
+            try { window.AndroidFleet?.finishMileageCheck?.(id, token); } catch (ignored) {}
+            continue;
+          }
+          retry = true;
+          break;
+        } finally { clearTimeout(timeout); }
+        await storage.remove(scope, 'mileage-check', row.key);
+        try { window.AndroidFleet?.finishMileageCheck?.(id, token); } catch (ignored) {}
+        if (!active()) return;
+        const updated = applyMileageReceipt(result, mileage);
+        if (updated) {
+          renderHome();
+          if (activeBikeId === bikeId) renderDetail();
+          const status = { ...getStatus(updated), majorPlan: getMajorServicePlan(updated) };
+          if (elements.quickCheckResult.dataset.mileageId === id && elements.quickBikeSelect.value === bikeId && !elements.quickCheckResult.classList.contains('is-hidden')) {
+            showCheckResult(updated, status, false);
+          }
+          notifyMileageService(updated, status);
+        }
+      }
+      const remaining = await storage.list(scope, 'mileage-check');
+      if (active()) renderMileageQueue(remaining);
+    } catch (error) {
+      retry = true;
+    } finally {
+      mileageSyncRunning = false;
+      if (!active()) {
+        if (mileageSyncQueued) scheduleMileageSync();
+      } else if (retry && navigator.onLine !== false) {
+        scheduleMileageSync(mileageRetryDelay);
+        mileageRetryDelay = Math.min(30000, mileageRetryDelay * 2);
+      } else {
+        mileageRetryDelay = 1000;
+        if (mileageSyncQueued) scheduleMileageSync();
+      }
+    }
   }
 
   async function handleQuickCheck(event) {
@@ -3682,27 +3843,24 @@
       return;
     }
 
-    let status, waitingForSync = false;
+    let status;
     const date = today();
     mileageCheckSaving = true;
     renderQuickBikeSelect();
     try {
-      if (projectedFleet && navigator.onLine !== false && !dirtyBikeIds.has(bike.id)) {
-        bike = await saveProjectedMileage(bike, km, date);
-        if (!bike) return;
-        status = { ...getStatus(bike), majorPlan: getMajorServicePlan(bike) };
-      } else {
-        let draft;
-        if (projectedFleet) {
-          const scope = mileageDraftScope(), token = webToken;
-          draft = await window.FleetServiceStorage.get(scope, 'mileage-check', mileageDraftKey(bike.id, km, date));
-          bike = await loadBikeRecord(bike.id);
-          if (scope !== mileageDraftScope() || token !== webToken) return;
-          waitingForSync = true;
+      if (config.independent || projectedFleet) {
+        const pending = await queueMileage(bike, km, date);
+        if (elements.quickBikeSelect.value === bike.id) {
+          const preview = { ...bike, currentKm: Math.max(km, bike.currentKm) };
+          showCheckResult(preview, { ...getStatus(preview), majorPlan: getMajorServicePlan(preview) }, true);
+          elements.quickCheckResult.dataset.mileageId = pending.id;
+          elements.quickBikePicker.focus();
         }
-        if (!bike || bike.id !== elements.quickBikeSelect.value) return;
-        status = updateMileage(bike, km, date, draft?.data?.id);
+        showToast('Ο έλεγχος μπήκε στην ουρά αποστολής.');
+        scheduleMileageSync();
+        return;
       }
+      status = updateMileage(bike, km, date);
     }
     catch(error){elements.quickCheckError.textContent='Ο έλεγχος δεν αποθηκεύτηκε: '+(error.message||'Δοκίμασε ξανά.');showToast(elements.quickCheckError.textContent);return;}
     finally { mileageCheckSaving = false; renderQuickBikeSelect(); }
@@ -3710,14 +3868,19 @@
     if(activeBikeId===bike.id)renderDetail();
     elements.quickBikeSelect.value = bike.id;
     elements.quickCurrentKm.value = bike.currentKm;
-    showCheckResult(bike, status, waitingForSync);
+    showCheckResult(bike, status, false);
     elements.quickCheckResult.scrollIntoView?.({block:'nearest',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
-    showToast(waitingForSync ? "Αναμένεται επιβεβαίωση του Server." : status.key === "ok" ? "Ο έλεγχος αποθηκεύτηκε." : bike.name + ": " + status.message);
+    showToast(status.key === "ok" ? "Ο έλεγχος αποθηκεύτηκε." : bike.name + ": " + status.message);
+    notifyMileageService(bike, status);
+  }
+
+  function notifyMileageService(bike, status) {
     if ((status.key !== "ok" || majorNeedsAttention(bike)) && window.AndroidFleet && typeof window.AndroidFleet.notifyService === "function") {
       const notificationMessage = majorNeedsAttention(bike)
         ? status.message + " " + status.majorPlan.message
         : status.message;
-      window.AndroidFleet.notifyService(bike.name, notificationMessage, status.key === "ok" ? "soon" : status.key);
+      try { window.AndroidFleet.notifyService(bike.name, notificationMessage, status.key === "ok" ? "soon" : status.key); }
+      catch (error) { /* The check is already verified. */ }
     }
   }
 
@@ -4534,7 +4697,7 @@
     localDiagnostics:async()=>({outbox:(await window.FleetServiceStorage?.list(serviceStorageScope(),'outbox')||[]).length,failedSaves:Array.from(backgroundHistorySaves.values()).filter(j=>j.status==='error').length}),
     saveWorkbook:async(blob,name)=>{if(window.AndroidFleet?.exportHistoryExcel){window.AndroidFleet.exportHistoryExcel(await blobToBase64(blob),name);return;}const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),60000);},
     saveDiagnosticReport:report=>{if(window.AndroidFleet?.exportDiagnosticReport)window.AndroidFleet.exportDiagnosticReport(JSON.stringify(report));else{const u=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download='Fleet_Diagnostics.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),60000);}},
-    api:async(path,options)=>{options=options||{};const response=await fetch(apiBase+path,{method:options.method||'GET',headers:requestHeaders(!!options.body),body:options.body?JSON.stringify(options.body):undefined,cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||'Δεν ολοκληρώθηκε η ενέργεια.'),{status:response.status,rayId:response.headers.get('cf-ray')||''});return data;},
+    api:async(path,options)=>{options=options||{};const response=await fetch(apiBase+path,{method:options.method||'GET',headers:{...requestHeaders(!!options.body),...options.headers},body:options.body?JSON.stringify(options.body):undefined,cache:'no-store',signal:options.signal});const data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||'Δεν ολοκληρώθηκε η ενέργεια.'),{status:response.status,code:data.code,rayId:response.headers.get('cf-ray')||''});return data;},
     applyBike:bike=>{mergeBackgroundBike(bike);saveBikes();renderHome();if(activeBikeId===bike.id)renderDetail();},
     edit:(bikeId,entryId,purpose)=>withBikeRecord(bikeId,()=>{openDetail(bikeId);openHistoryEntryDialog(entryId);if(purpose==='invoice'){elements.historyEntryReason.value='Προσθήκη τιμολογίου σε υπάρχον service';elements.historyEntryInvoiceQrValue.focus();elements.historyEntryInvoiceQrValue.scrollIntoView({block:'nearest'});}}),
     review:record=>withBikeRecord(record.bikeId,()=>{openDetail(record.bikeId);return reviewStoredServiceDocument(record.entryId,record.key);}),
@@ -4632,6 +4795,22 @@
   });
   if (elements.refreshArchivedButton) elements.refreshArchivedButton.addEventListener("click", loadArchivedBikes);
   elements.detailHistory.addEventListener("click", function (event) {
+    const selectedBike = activeBikeId;
+    const withSelectedBike = action => withBikeRecord(selectedBike, bike => {
+      if (activeBikeId === selectedBike) return action(bike);
+    });
+    const invoiceText = event.target.closest('[data-load-invoice-text]');
+    if (invoiceText) return withSelectedBike(bike => {
+      const entry = getHistoryEntry(bike, invoiceText.dataset.invoiceTextEntry);
+      const file = entry?.attachments?.find(item => item.key === invoiceText.dataset.loadInvoiceText);
+      if (!file || !invoiceText.isConnected) return;
+      const fallback = entry.attachments.length <= 1 ? entry.invoiceData : null;
+      const text = mergeInvoiceData(invoiceDataFromAttachment(file), fallback)?.rawText;
+      if (!text) return showToast('Το αναγνωρισμένο κείμενο δεν βρέθηκε.');
+      const content = document.createElement('pre');
+      content.textContent = text;
+      invoiceText.replaceWith(content);
+    });
     const retrySave = event.target.closest("[data-retry-service-save]");
     if (retrySave) return requireEditAccess(async function () {
       const job = backgroundHistorySaves.get(retrySave.dataset.retryServiceSave);
@@ -4642,19 +4821,19 @@
     });
     const qrSource=event.target.closest("[data-view-qr]");if(qrSource)return void window.FleetServiceUI?.showQr(qrSource.dataset.viewQr);
     const retryQr = event.target.closest("[data-retry-qr]");
-    if (retryQr) return requireEditAccess(function () { retryQrDocumentJob(activeBikeId, retryQr.dataset.retryQrEntry, retryQr.dataset.retryQr); });
+    if (retryQr) return requireEditAccess(() => withSelectedBike(() => retryQrDocumentJob(selectedBike, retryQr.dataset.retryQrEntry, retryQr.dataset.retryQr)));
     const deleteDocument = event.target.closest("[data-delete-document]");
-    if (deleteDocument) return deleteServiceDocument(deleteDocument.dataset.deleteDocumentEntry, deleteDocument.dataset.deleteDocument);
+    if (deleteDocument) return withSelectedBike(() => deleteServiceDocument(deleteDocument.dataset.deleteDocumentEntry, deleteDocument.dataset.deleteDocument));
     const reviewDocument = event.target.closest("[data-review-document]");
-    if (reviewDocument) return reviewStoredServiceDocument(reviewDocument.dataset.reviewDocumentEntry, reviewDocument.dataset.reviewDocument);
+    if (reviewDocument) return withSelectedBike(() => reviewStoredServiceDocument(reviewDocument.dataset.reviewDocumentEntry, reviewDocument.dataset.reviewDocument));
     const downloadDocument = event.target.closest("[data-download-document]");
     if (downloadDocument) return downloadServiceDocument({ key: downloadDocument.dataset.downloadDocument, name: downloadDocument.dataset.downloadDocumentName || "τιμολόγιο" });
     const documentButton = event.target.closest("[data-view-document]");
     if (documentButton) return openServiceDocument({ key: documentButton.dataset.viewDocument });
     const edit = event.target.closest("[data-edit-history]");
-    if (edit) return openHistoryEntryDialog(edit.dataset.editHistory);
+    if (edit) return withSelectedBike(() => openHistoryEntryDialog(edit.dataset.editHistory));
     const remove = event.target.closest("[data-delete-history]");
-    if (remove) deleteHistoryEntry(remove.dataset.deleteHistory);
+    if (remove) return withSelectedBike(() => deleteHistoryEntry(remove.dataset.deleteHistory));
   });
   elements.detailBackButton.addEventListener("click", function () {
     if (history.state && history.state.view === "detail") {
@@ -4852,6 +5031,7 @@
   }
 
   window.addEventListener("online", function () {
+    scheduleMileageSync();
     refreshCurrentUser();
     syncNow();
   });
@@ -4874,10 +5054,12 @@
     try{return window.parent===window||!window.frameElement||!window.frameElement.closest('.is-hidden');}catch(_){return true;}
   }
   document.addEventListener("visibilitychange", function () {
-    if (fleetScreenActive()) syncNow();
+    if (fleetScreenActive()) { scheduleMileageSync(); syncNow(); }
   });
+  window.addEventListener('fleet-independent-instance', function () { mileageAuthority(); scheduleMileageSync(); });
   function hasVisibleQrProcessing() {
-    const bike = getBike(activeBikeId);
+    const current = getBike(activeBikeId);
+    const bike = Array.isArray(current?.history) ? current : preparedBike(activeBikeId);
     return Boolean(bike && Array.isArray(bike.history) && bike.history.some(function (entry) {
       const data = normalizeInvoiceData(entry && entry.invoiceData) || {};
       return entry && entry.type !== "check" && data.qrJobId && (["processing", "delayed"].includes(String(data.qrProcessingStatus || "")) || qrEntryState(entry)?.needsVerification);
@@ -4886,7 +5068,9 @@
   let qrProgressRefreshRunning = false;
   async function refreshVisibleQrProgress() {
     if (qrProgressRefreshRunning || !fleetScreenActive() || !webToken || !activeBikeId || !hasVisibleQrProcessing()) return;
-    const bike = getBike(activeBikeId);
+    const current = getBike(activeBikeId);
+    const bike = Array.isArray(current?.history) ? current : await loadBikeRecord(activeBikeId).catch(() => null);
+    if (!bike || bike.id !== activeBikeId || qrProgressRefreshRunning) return;
     const bikeId = bike && bike.id;
     const jobs = (bike && Array.isArray(bike.history) ? bike.history : []).map(function (entry) {
       const data = normalizeInvoiceData(entry && entry.invoiceData) || {};
@@ -4938,6 +5122,7 @@
   renderHome();
   renderAccessState();
   renderArchiveAccess();
+  scheduleMileageSync();
   refreshCurrentUser();
   syncNow();
 }());

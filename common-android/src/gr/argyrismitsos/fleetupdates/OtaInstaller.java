@@ -78,8 +78,11 @@ public final class OtaInstaller {
         if (!canInstall(context)) throw new IllegalStateException("Ενεργοποίησε την άδεια εγκατάστασης ενημερώσεων.");
         PackageInstaller installer = context.getPackageManager().getPackageInstaller();
         SharedPreferences prefs = preferences(context);
+        reconcile(context, 0);
         int previous = prefs.getInt("session_id", -1);
         if (previous >= 0 && installer.getSessionInfo(previous) != null) throw new IllegalStateException("Υπάρχει ήδη εγκατάσταση σε εξέλιξη.");
+        PackageInfo archive = context.getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), 0);
+        if (archive == null || !context.getPackageName().equals(archive.packageName)) throw new IllegalStateException("Δεν αναγνωρίστηκε το πακέτο ενημέρωσης.");
         PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         params.setAppPackageName(context.getPackageName()); params.setSize(apk.length());
         if (Build.VERSION.SDK_INT >= 31) PackageInstaller.SessionParams.class.getMethod("setRequireUserAction", int.class).invoke(params, 2);
@@ -95,7 +98,11 @@ public final class OtaInstaller {
             if("direct".equals(scope(context)))callback.setClassName(context,"gr.argyrismitsos.fleetdirect.DirectOtaReceiver");
             int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? 0x02000000 : 0);
             PendingIntent result = PendingIntent.getBroadcast(context, id, callback, flags);
-            prefs.edit().putInt("session_id", id).putString("status", "installing").putString("message", "Γίνεται εγκατάσταση της ενημέρωσης…").remove("confirmation").commit();
+            if (!prefs.edit().putInt("session_id", id).putInt("target_code", archive.versionCode)
+                    .putLong("started_at", System.currentTimeMillis()).putString("status", "installing")
+                    .putString("message", "Γίνεται εγκατάσταση της ενημέρωσης…").remove("confirmation").commit()) {
+                throw new IllegalStateException("Δεν καταγράφηκε η εγκατάσταση.");
+            }
             session.commit(result.getIntentSender());
         } catch (Exception error) {
             installer.abandonSession(id);
@@ -103,15 +110,49 @@ public final class OtaInstaller {
             throw error;
         } finally { if (session != null) session.close(); }
     }
-    public static void resume(Activity activity) { foreground = new WeakReference<Activity>(activity); openConfirmation(activity); }
+
+    public static synchronized void reconcile(Context context, int knownTarget) {
+        SharedPreferences prefs = preferences(context);
+        String status = prefs.getString("status", "");
+        if (!"installing".equals(status) && !"confirmation".equals(status)) return;
+        try {
+            int target = prefs.getInt("target_code", knownTarget);
+            int installed = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionCode;
+            int session = prefs.getInt("session_id", -1);
+            if (target > 0 && installed >= target) {
+                finish(context, session, true);
+            } else if ((session < 0 || context.getPackageManager().getPackageInstaller().getSessionInfo(session) == null)
+                    && System.currentTimeMillis() - prefs.getLong("started_at", 0) >= 5000) {
+                finish(context, session, false);
+            }
+        } catch (Exception ignored) { /* Android can publish the result on the next check. */ }
+    }
+
+    static synchronized void finish(Context context, int session, boolean success) {
+        SharedPreferences prefs = preferences(context);
+        if (session != prefs.getInt("session_id", -1)) return;
+        prefs.edit().putInt("session_id", -1).remove("confirmation").remove("target_code").remove("started_at")
+                .putString("status", success ? "success" : "failed")
+                .putString("message", success ? "Η ενημέρωση εγκαταστάθηκε." : "Η εγκατάσταση δεν ολοκληρώθηκε. Μπορείς να δοκιμάσεις ξανά.")
+                .putLong("result_at", System.currentTimeMillis()).commit();
+        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager != null) manager.cancel(7199);
+    }
+
+    public static void resume(Activity activity) {
+        foreground = new WeakReference<Activity>(activity);
+        reconcile(activity, 0);
+        openConfirmation(activity);
+    }
     public static void pause(Activity activity) { if (foreground.get() == activity) foreground.clear(); }
     public static void openConfirmation(Activity activity) {
         SharedPreferences prefs = preferences(activity); String raw = prefs.getString("confirmation", "");
-        if (raw.length() == 0) return;
+        if (!"confirmation".equals(prefs.getString("status", "")) || raw.length() == 0) return;
         try { activity.startActivity(Intent.parseUri(raw, 0)); prefs.edit().remove("confirmation").apply(); }
         catch (Exception ignored) { prefs.edit().putString("message", "Πάτησε την ειδοποίηση για εγκατάσταση.").apply(); }
     }
-    static void pending(Context context, final Intent confirmation) {
+    static synchronized void pending(final Context context, final int session, final Intent confirmation) {
+        if (session != preferences(context).getInt("session_id", -1)) return;
         preferences(context).edit().putString("status", "confirmation").putString("message", "Το Android χρειάζεται επιβεβαίωση εγκατάστασης.").putString("confirmation", confirmation.toUri(0)).apply();
         try {
             NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -128,6 +169,16 @@ public final class OtaInstaller {
             manager.notify(7199, builder.build());
         } catch (Exception ignored) { /* The status remains accessible in the app even without notifications. */ }
         final Activity activity = foreground.get();
-        if (activity != null && scope(activity).equals(scope(context)) && !activity.isFinishing() && activity.hasWindowFocus()) activity.runOnUiThread(new Runnable() { public void run() { openConfirmation(activity); } });
+        if (activity != null && scope(activity).equals(scope(context)) && !activity.isFinishing() && activity.hasWindowFocus()) {
+            activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (preferences(context).getInt("session_id", -1) != session) return;
+                    try {
+                        activity.startActivity(confirmation);
+                        preferences(context).edit().remove("confirmation").apply();
+                    } catch (Exception ignored) { /* The notification retains the original intent. */ }
+                }
+            });
+        }
     }
 }

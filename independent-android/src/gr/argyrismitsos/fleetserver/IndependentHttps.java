@@ -176,7 +176,7 @@ public final class IndependentHttps implements AutoCloseable {
         if(!supplied.has("Cache-Control")&&!supplied.has("cache-control"))headers.append("Cache-Control: private, no-store\r\n");
         if(discovery)headers.append("Access-Control-Allow-Origin: *\r\n");
         if(length>=0)headers.append("Content-Length: ").append(length).append("\r\n");
-        for(String name:new String[]{"content-type","content-disposition","set-cookie","x-fleet-replayed","cache-control","etag","vary","content-encoding","server-timing"}){Iterator<String> names=supplied.keys();while(names.hasNext()){String key=names.next();String value=supplied.optString(key);if(key.equalsIgnoreCase(name)&&value.indexOf('\r')<0&&value.indexOf('\n')<0)headers.append(name).append(": ").append(value).append("\r\n");}}
+        for(String name:new String[]{"content-type","content-disposition","set-cookie","x-fleet-replayed","x-fleet-instance","cache-control","etag","vary","content-encoding","server-timing"}){Iterator<String> names=supplied.keys();while(names.hasNext()){String key=names.next();String value=supplied.optString(key);if(key.equalsIgnoreCase(name)&&value.indexOf('\r')<0&&value.indexOf('\n')<0)headers.append(name).append(": ").append(value).append("\r\n");}}
         if(!supplied.has("content-type")&&!supplied.has("Content-Type"))headers.append("Content-Type: application/json\r\n");headers.append("\r\n");output.write(headers.toString().getBytes("ISO-8859-1"));
     }
     private static void respond(OutputStream output,JSONObject response,boolean headOnly)throws Exception{

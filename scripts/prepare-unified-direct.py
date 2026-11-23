@@ -217,15 +217,14 @@ for name,p in sources.items():
         }
     }''')
         value=change(value,'JSONObject headers=new JSONObject().put("Authorization","Bearer "+token);','JSONObject headers=new JSONObject().put("Authorization","Bearer "+token).put("X-Fleet-Backend-Revision",String.valueOf(BackendMode.read(context).getLong("revision")));')
-        value=change(value,'private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{return response;}', '''private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{
+        value=change(value,'private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{', '''private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{
         // The writer and read fence have returned before acquiring the mode
         // write lock. A public owner probe never upgrades a held read lock.
         if(gr.argyrismitsos.fleetupdates.BackendPolicy.DIRECT_ONLY&&response.optInt("status")==200&&new URI(request.getString("url")).getPath().equals("/api/independent/probe")){
             JSONObject body=new JSONObject(response.getString("body"));
             if(body.optBoolean("externalVerified")){DirectHost.confirmReadiness(context,this);body.put("directReady",BackendMode.approved(context)).put("message","Ο εξωτερικός έλεγχος HTTPS ολοκληρώθηκε. Ο Direct Server είναι έτοιμος.");response.put("body",body.toString());}
         }
-        return response;
-    }''')
+''')
         value=change(value,'public boolean ready(){return !closed;}','public boolean ready(){return !closed&&BackendMode.approved(context);}')
         value=change(value,'void jobs()throws Exception{','void jobs()throws Exception{if(!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context))return;DirectServerAdmin.schedule(context,this);')
         value=change(value,'if(command.equals("independent.adminStatus")||command.equals("independent.adminAvailable"))return new JSONObject().put("available",false);','''if(command.equals("independent.adminStatus"))return DirectServerAdmin.status(context).put("available",true);

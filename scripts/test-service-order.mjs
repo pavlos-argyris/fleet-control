@@ -30,7 +30,7 @@ const history = {
 const context = vm.createContext({ bikes, elements, history, Set, Date, Number, String, projectedFleet: false,
   isEmbedded: false, homeListPosition: null, serviceOrderPosition: null, activeBikeId: null, activeHistoryFilter: '', serviceOrderHomeScroll: 0, historyReportOpen: false,
   window: { scrollY: 850, scrollTo: (x, y) => scrolls.push(y) },
-  getBike: id => bikes.find(x => x.id === id), refreshBikeTab() {}, renderArchiveAccess() {}, renderHome() {},
+  getBike: id => bikes.find(x => x.id === id), refreshBikeTab() {}, renderArchiveAccess() {}, renderHome() {}, scheduleHistoryPreload() {},
   setDetailPresentation: (active, view) => modes.push(view),
   formatDate: value => String(value), formatKm: value => value + ' km',
   escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
