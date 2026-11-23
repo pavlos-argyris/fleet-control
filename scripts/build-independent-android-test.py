@@ -24,8 +24,7 @@ if unified:
             end=text.index('\n    private static Object readField',start)
             text=text[:start]+'''        check(base.getSharedPreferences("issue95_sentinel",0).getString("keep","").equals("cloud-preserved"),"Direct restore preserves unscoped Cloud preferences");
         check(gr.argyrismitsos.fleetserver.BackendMode.direct(base)&&!gr.argyrismitsos.fleetserver.BackendMode.approved(base),"Import selects Direct preparation but does not approve business writes");
-        Bundle status=base.getContentResolver().call(Uri.parse("content://gr.argyrismitsos.fleetserver.direct-control"),"status","",null);
-        check(status.getBoolean("ok")&&new JSONObject(status.getString("json")).getBoolean("backupVerified"),"Private provider observes the same isolated restored configuration across processes");
+        UnifiedNativeChecks.checkRestoredProvider(base);
         UnifiedNativeChecks.run(base,target,manifest,owner,PASSWORD);
     }
 '''+text[end:]
