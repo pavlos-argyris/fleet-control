@@ -72,6 +72,14 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
         return result;
     }
     private JSONObject readSnapshot(JSONObject request)throws Exception{checkAuthority();return readModels==null?null:readModels.get(request);}
+    private int requestPriority(JSONObject request) throws Exception {
+        if (!request.optString("method").equals("GET")) return 0;
+        URI url = new URI(request.getString("url"));
+        JSONObject headers = request.optJSONObject("headers");
+        if (url.getPath().equals("/api/sync/bike") && url.getRawQuery() != null && url.getRawQuery().startsWith("view=history&")
+                && headers != null && headers.optString("x-fleet-read-priority").equals("background")) return 2;
+        return 1;
+    }
     JSONObject external(final JSONObject request)throws Exception{
         checkAuthority();try{JSONObject snapshot=readSnapshot(request);if(snapshot!=null)return afterExternal(request,snapshot);}catch(Exception optionalCache){}
         JSONObject response=serialized(new Callable<JSONObject>(){public JSONObject call()throws Exception{
@@ -79,7 +87,7 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
             if(result.optInt("status")==200&&new URI(request.getString("url")).getPath().equals("/api/auth/user-login"))warmViews(result);
             if(readModels!=null&&result.optInt("status")==200&&Arrays.asList("/api/auth/user-logout","/api/auth/force-logout").contains(new URI(request.getString("url")).getPath()))readModels.clear();
             return materialize(request,result);
-        }},request.optString("method").equals("GET")?1:0);return afterExternal(request,response);
+        }},requestPriority(request));return afterExternal(request,response);
     }
     private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{return response;}
     private void warmViews(JSONObject login)throws Exception{

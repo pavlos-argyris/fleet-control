@@ -30,7 +30,7 @@ const direct='https://fleet-control.duckdns.org';
   const urls=[],states=[],notices=[];let failMerge=true;
   const remote=Array.from({length:29},(_,i)=>({id:'bike-'+i,name:'Fixture '+i,history:[]}));
   const context={navigator:{onLine:true},syncRunning:false,syncQueued:false,fleetLoaded:false,webToken:'fixture',pendingFleetChange:false,
-    cloudSnapshotVersion:null,bikes:[],apiBase:direct,activeBikeId:null,
+    cloudSnapshotVersion:null,minimumFleetRevision:0,bikes:[],apiBase:direct,activeBikeId:null,config:{independent:true},
     window:{FleetServiceModel:globalThis.FleetServiceModel},setTimeout,Set,localStorage:{},sessionStorage:{},
     setSyncState:(state)=>states.push(state),fleetLoading:(message,failed)=>notices.push({message,failed}),
     fetchReadWithRetry:async url=>{urls.push(url);return Response.json({version:123,bikes:remote});},
@@ -40,7 +40,7 @@ const direct='https://fleet-control.duckdns.org';
   vm.runInContext(app.slice(app.indexOf('  async function syncNow('),app.indexOf('  function scheduleSync('))+'\nglobalThis.sync=syncNow;',context);
   await context.sync();assert.equal(context.cloudSnapshotVersion,null,'a failed merge cannot acknowledge a server revision');
   assert.equal(context.fleetLoaded,false);assert.equal(notices.at(-1).failed,true);
-  failMerge=false;await context.sync();assert.equal(urls[1],direct+'/api/sync?paged=1','retry asks for the complete fleet instead of accepting unchanged');
+  failMerge=false;await context.sync();assert.equal(urls[1],direct+'/api/sync?paged=1&view=cards','retry requests a complete list and supports the legacy response');
   assert.equal(context.bikes.length,29);assert.equal(context.cloudSnapshotVersion,123);assert.equal(context.fleetLoaded,true);
   context.fleetLoaded=false;context.cloudSnapshotVersion=null;context.bikes=[];
   context.fetchReadWithRetry=async()=>Response.json({version:124,bikes:[{id:'incomplete'}]});
@@ -55,12 +55,28 @@ const direct='https://fleet-control.duckdns.org';
   await context.sync();assert.equal(sessionCleared,1,'a revoked session on a later page uses the same logout path as the first read');
 }
 {
-  let scheduled=0,opened=0;
-  const context={window:{FLEET_CONFIG:{independent:true},requestIdleCallback:()=>{scheduled++;return 1;}},fleetPreloadTimer:null,$:()=>({}),can:()=>true,state:{user:{role:'owner'}},ensureFleetModule:()=>{opened++;}};
+  let callback, opened = 0;
+  const requests = [], payload = { view: 'cards', bikes: [], version: 3 };
+  const context = {
+    window: { FLEET_CONFIG: { independent: true }, requestIdleCallback: work => { callback = work; return 1; } },
+    fleetPreloadTimer: null, preparedFleetCards: null, $: () => ({ getAttribute: () => null }), can: () => true,
+    state: { user: { role: 'owner' }, token: 'fixture' }, ensureFleetModule: () => { opened++; },
+    api: async path => { requests.push(path); return payload; }
+  };
   vm.createContext(context);
   vm.runInContext(portal.slice(portal.indexOf('  function scheduleFleetPreload('),portal.indexOf('  let fleetHostScroll'))+'\nglobalThis.preload=scheduleFleetPreload;',context);
-  context.preload();assert.equal(scheduled,0,'Direct does not start hidden private Fleet reads while another screen loads');assert.equal(opened,0);
-  context.window.FLEET_CONFIG.independent=false;context.preload();assert.equal(scheduled,1,'the dormant non-Direct policy retains its behavior');
+  context.preload();
+  assert.deepEqual(requests, []);
+  callback();
+  assert.deepEqual(requests, ['/api/sync?paged=1&view=cards'], 'Direct warms just the compact list after the dashboard');
+  assert.equal(opened, 0, 'preparing the list does not open the iframe');
+  assert.equal(context.window.FleetCardPreload.take('different-account'), null);
+  assert.equal(await context.window.FleetCardPreload.take('fixture'), payload);
+  assert.equal(context.window.FleetCardPreload.take('fixture'), null, 'the prepared list is consumed once');
+  context.window.FLEET_CONFIG.independent = false;
+  context.preload();
+  callback();
+  assert.equal(opened, 1, 'the dormant non-Direct policy retains its behavior');
 }
 {
   const context={window:{FLEET_CONFIG:{independent:true,apiBase:direct}},location:{origin:direct},SERVER_URL_KEY:'server-url',loadSetting:()=> 'https://old-cloud.invalid'};

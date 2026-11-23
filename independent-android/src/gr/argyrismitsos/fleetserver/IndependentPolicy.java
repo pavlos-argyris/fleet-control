@@ -29,7 +29,7 @@ public final class IndependentPolicy {
     }
     public static Map<String,String> safeHeaders(Map<String,String> supplied){
         Map<String,String> result=new HashMap<String,String>();
-        for(String name:Arrays.asList("authorization","cookie","content-type","origin","x-fleet-operation","x-fleet-pin-session","x-admin-pin","x-fleet-pin","x-idempotency-key","x-fleet-projection","x-fleet-local-ocr"))if(supplied.containsKey(name))result.put(name,supplied.get(name));
+        for(String name:Arrays.asList("authorization","cookie","content-type","origin","x-fleet-operation","x-fleet-pin-session","x-admin-pin","x-fleet-pin","x-idempotency-key","x-fleet-projection","x-fleet-read-priority","x-fleet-local-ocr"))if(supplied.containsKey(name))result.put(name,supplied.get(name));
         return result;
     }
 }

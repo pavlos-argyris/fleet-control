@@ -12,7 +12,10 @@
   async function load(){
     const revision=++request,context=A().context?.();
     if(dialog?.open)dialog.querySelector("[data-followup-message]").textContent="Φόρτωση ιστορικού και καταστάσεων…";
-    const result=await Promise.allSettled([tab==='pending'?Promise.resolve({bikes:A().getBikes?.()||bikes}):A().api('/api/snapshot'),M.loadInvoiceDocuments(pathApi,{active:()=>revision===request&&dialog?.open&&context===A().context?.()}),A().getOutbox()]);
+    const history = tab === 'pending'
+      ? Promise.resolve(A().loadBikes ? A().loadBikes(attentionKeys) : A().getBikes?.() || bikes).then(value => ({ bikes: value }))
+      : A().api('/api/snapshot');
+    const result=await Promise.allSettled([history,M.loadInvoiceDocuments(pathApi,{active:()=>revision===request&&dialog?.open&&context===A().context?.()}),A().getOutbox()]);
     if(revision!==request||!dialog?.open)return;
     if(!A().canManage()||context!==A().context?.()){dialog.close();return;}
     const messages=[];

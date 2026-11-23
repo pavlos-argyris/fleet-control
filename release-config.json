@@ -1,21 +1,21 @@
 {
-  "releaseVersion": "5.67.3",
-  "notes": "• Βελτιώσεις για Direct HTTPS με κλειστή οθόνη.\n• Μία προγραμματισμένη εργασία backup και ασφαλής επανάληψη εξαγωγής.\n• Ανάκαμψη της οθόνης Server.\n• Κανονικός έλεγχος και λήψη ενημερώσεων Server και Client.\n• Συμφωνία προειδοποιήσεων QR με τις εκκρεμότητες τιμολογίων.\n• Καρτέλα Διαχείριση Server για τον Admin στον Android Client.",
+  "releaseVersion": "5.67.4",
+  "notes": "• Βελτιώσεις για Direct HTTPS με κλειστή οθόνη.\n• Μία προγραμματισμένη εργασία backup και ασφαλής επανάληψη εξαγωγής.\n• Ανάκαμψη της οθόνης Server.\n• Κανονικός έλεγχος και λήψη ενημερώσεων Server και Client.\n• Συμφωνία προειδοποιήσεων QR με τις εκκρεμότητες τιμολογίων.\n• Καρτέλα Διαχείριση Server για τον Admin στον Android Client.\n• Ταχύτερο άνοιγμα των μηχανών και προφόρτωση του ιστορικού στο παρασκήνιο.\n• Σταθερή ταξινόμηση κατά πινακίδα και μικρότερη αποστολή στον έλεγχο χιλιομέτρων.",
   "client": {
-    "version": "5.67.3",
-    "versionCode": 116,
+    "version": "5.67.4",
+    "versionCode": 117,
     "packageName": "gr.argyrismitsos.fleetcontrol"
   },
   "server": {
-    "version": "2.16.2",
-    "versionCode": 88,
+    "version": "2.16.3",
+    "versionCode": 89,
     "packageName": "gr.argyrismitsos.fleetserver"
   },
   "web": {
-    "version": "5.67.3",
+    "version": "5.67.4",
     "retainedAssetVersions": [
-      "5.67.2",
-      "5.67.1"
+      "5.67.3",
+      "5.67.2"
     ]
   },
   "worker": {

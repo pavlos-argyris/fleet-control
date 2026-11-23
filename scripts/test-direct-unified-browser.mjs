@@ -17,7 +17,7 @@ const invoices=Array.from({length:57},(_,i)=>({id:'invoice-'+i,key:'service-docu
 const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined});
 try{for(const width of [390,1280]){
   const context=await browser.newContext({viewport:{width,height:900},locale:'el-GR',timezoneId:'Europe/Athens',serviceWorkers:'block'}),page=await context.newPage();
-  const requests=[],errors=[],missing=[],management=managementData();let logged=false,invoiceRequests=0,adminAvailable=false,adminPosts=0;
+  const requests=[],backgroundHistoryRequests=[],errors=[],missing=[],management=managementData();let logged=false,invoiceRequests=0,adminAvailable=false,adminPosts=0,mileageWrites=0;
   page.on('pageerror',error=>errors.push(error.message));
   await context.addInitScript(selection=>{
     // A fresh Web/Client starts at revision zero, unlike the Server.
@@ -55,10 +55,34 @@ try{for(const width of [390,1280]){
       }
       if(url.pathname==='/api/independent/events')return route.fulfill({contentType:'text/event-stream',body:'event: ready\ndata: {}\n\n'});
       if(url.pathname==='/api/sync'){
+        const view=url.searchParams.get('view');
+        if(view==='cards')return route.fulfill({json:{view,bikes:bikes.map(({history,...card})=>({...card,nextServiceKm:10000})),version:10,archivedBikeIds:[]}});
+        if(view==='qr-attention')return route.fulfill({json:{count:2}});
         if(url.searchParams.has('sinceVersion'))return route.fulfill({json:{unchanged:true,version:10}});
         assert.equal(url.searchParams.get('paged'),'1','normal Direct reads bounded canonical pages');
         const offset=Number((url.searchParams.get('cursor')||'10:0').split(':')[1]),next=Math.min(offset+4,bikes.length);
         return route.fulfill({json:{paged:true,bikes:bikes.slice(offset,next),version:10,totalBikes:bikes.length,offset,hasMore:next<bikes.length,nextCursor:next<bikes.length?'10:'+next:'',archivedBikeIds:[]}});
+      }
+      if(url.pathname==='/api/sync/bike'){
+        if(request.method()==='POST'){
+          const body=request.postDataJSON();
+          assert.deepEqual(Object.keys(body),['mileage']);
+          assert.ok(request.postData().length<200);
+          assert.match(request.headers()['x-fleet-operation'],/^[0-9a-f-]{36}$/);
+          mileageWrites++;
+          const {bikeId,km,id,date}=body.mileage;
+          const {history,...card}=bikes.find(item=>item.id===bikeId);
+          return route.fulfill({json:{saved:true,card:{...card,currentKm:km,nextServiceKm:10000,lastCheckedAt:date},entry:{id,km,date,type:'check'},version:11}});
+        }
+        const bike=bikes.find(item=>item.id===url.searchParams.get('id'));
+        const view=url.searchParams.get('view');
+        if(view==='history'){
+          if(request.headers()['x-fleet-read-priority']==='background')backgroundHistoryRequests.push(bike.id);
+          return route.fulfill({json:{bike,version:10}});
+        }
+        if(view==='files')return route.fulfill({json:{files:[{key:'fixture/one.pdf',name:'Fixture.pdf',serviceDate:'2026-11-10',invoiceDate:'2026-11-11'}],version:10}});
+        const {history,...card}=bike;
+        return route.fulfill({json:{bike:{...card,nextServiceNotes:[]},lastService:{date:'2026-11-10',km:8000,tasks:['Fixture service']},version:10}});
       }
       if(url.pathname==='/api/admin/vehicles/archived')return route.fulfill({json:{bikes:[]}});
       if(url.pathname==='/api/workforce/vehicles')return route.fulfill({json:{vehicles:bikes.map(b=>({id:b.id,name:b.name,status:'available',odometer:b.currentKm}))}});
@@ -81,14 +105,48 @@ try{for(const width of [390,1280]){
     if(width===390){await page.locator('#menuButton').click();await page.locator('.sidebar-foot .client-ota-open').click();await page.locator('#clientOtaCheck').click();assert(await page.evaluate(()=>window.fixtureUpdateChecked));await page.locator('.client-ota-close').click();await page.locator('#sidebarBackdrop').click({position:{x:width-10,y:10}});}
     assert.equal(await page.locator('#fleetBackendStatus').isHidden(),true);assert.equal(await page.locator('#fleetPrimaryStatus').isHidden(),true);
     await page.waitForTimeout(1900);
-    assert.equal(requests.some(p=>p.startsWith('/api/sync')),false,'opening the home page does not secretly read the full Fleet history');
+    const prefetches=requests.filter(p=>p.startsWith('/api/sync'));
+    assert.deepEqual(prefetches,['/api/sync?paged=1&view=cards'],'home prefetches only the compact card list');
     assert.equal(await page.locator('#fleetModuleFrame').getAttribute('src'),null);
     const fleet=page.locator('#bottomNav [data-go="fleet"]');if(await fleet.isVisible())await fleet.click();else await page.locator('#sideNav [data-go="fleet"]').click();
     const embedded=page.frameLocator('#fleetModuleFrame');await embedded.locator('#bikeCount').filter({hasText:'29'}).waitFor();
+    assert.equal(requests.filter(p=>p.includes('view=cards')).length,1,'Fleet reuses the warm card request');
+    assert.ok(!requests.includes('/api/workforce/vehicles') && !requests.includes('/api/admin/vehicles/archived'),'closed fleet tools have not loaded');
     assert.equal(await embedded.locator('#fleetLoadNotice').isHidden(),true,'complete same-origin Fleet read clears the loading state even beyond synchronous browser cache capacity');assert.equal(await embedded.locator('.bike-card').count(),29);assert(JSON.stringify(bikes).length>5_000_000,'real Chromium fixture uses multi-megabyte service history');
+    await embedded.locator('#qrAttentionBanner').filter({hasText:'2 τιμολόγια'}).waitFor();
+    const backgroundHistory = p => p.startsWith('/api/sync/bike?view=history');
+    if(!requests.some(backgroundHistory))await page.waitForResponse(r=>backgroundHistory(new URL(r.url()).pathname+new URL(r.url()).search));
+    assert.ok(requests.findIndex(p=>p.includes('view=qr-attention'))<requests.findIndex(backgroundHistory));
+    assert.equal(backgroundHistoryRequests[0],'bike-0','the first history uses the background priority');
     assert.equal(await page.locator('#fleetBackendStatus').isHidden(),true);assert.equal(await page.locator('#fleetPrimaryStatus').isHidden(),true);
     await page.waitForFunction(()=>document.querySelector('#fleetModuleShell').classList.contains('is-loaded')&&document.querySelector('#fleetModuleShell').getAttribute('aria-busy')==='false');
     await page.screenshot({path:path.join(out,'fleet-'+width+'.png'),fullPage:true});
+    await embedded.locator('[data-bike-id="bike-0"]').click();
+    await embedded.getByRole('button',{name:'Ιστορικό',exact:true}).click();
+    await embedded.locator('#historyCount').filter({hasText:'2 εγγραφές'}).waitFor();
+    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history&id=bike-0').length,1,'opening a prepared history reuses the background request');
+    await embedded.locator('#detailBackButton').click();
+    await embedded.locator('[data-bike-id="bike-28"]').click();
+    await embedded.locator('#detailLatestService').getByText('Fixture service').waitFor();
+    await embedded.locator('[data-ui-bike-tab="files"]').click();
+    await embedded.locator('#uiBikeFiles').getByText('Fixture.pdf').waitFor();
+    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=files&id=bike-28').length,1);
+    await embedded.getByRole('button',{name:'Ιστορικό',exact:true}).click();
+    await embedded.locator('#historyCount').filter({hasText:'2 εγγραφές'}).waitFor();
+    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history&id=bike-28').length,1);
+    await embedded.getByRole('button',{name:'Σύνοψη',exact:true}).click();
+    await embedded.locator('#detailCheckButton').click();
+    await embedded.locator('#quickBikePicker').click();
+    const registrationOrder=await embedded.locator('[data-pick-bike]').evaluateAll(buttons=>buttons.slice(0,12).map(button=>button.dataset.pickBike));
+    assert.deepEqual(registrationOrder,Array.from({length:12},(_,i)=>'bike-'+i));
+    await embedded.locator('[data-pick-bike="bike-28"]').click();
+    await embedded.locator('#quickCurrentKm').fill('9500');
+    await embedded.locator('#quickCheckForm button[type="submit"]').click();
+    await embedded.locator('#quickCheckResult').getByText(/Ο έλεγχος αποθηκεύτηκε/).waitFor();
+    assert.equal(mileageWrites,1);
+    await embedded.locator('#quickCheckBackButton').click();
+    await embedded.locator('#detailBackButton').click();
+    await embedded.locator('#homeView').waitFor({state:'visible'});
     const documents=page.locator('#bottomNav [data-go="invoices"]');if(await documents.isVisible())await documents.click();else await page.locator('#sideNav [data-go="invoices"]').click();
     await page.locator('[data-invoice-card]').first().waitFor();await page.locator('#invoiceLoadProgress').waitFor({state:'hidden'});
     assert.equal(invoiceRequests,2,'full 57-invoice fixture needs only two requests');
@@ -113,4 +171,4 @@ try{for(const width of [390,1280]){
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);assert.deepEqual(errors,[]);assert.deepEqual(missing,[]);
   }catch(error){fs.writeFileSync(path.join(out,'error-'+width+'.json'),JSON.stringify({requests,errors,missing},null,2));await page.screenshot({path:path.join(out,'error-'+width+'.png'),fullPage:true});throw error;}finally{await context.close();}
 }}finally{await browser.close();}
-console.log('PASS actual normal Direct Portal/Fleet/Invoices at 390/1280: same-origin despite stale URL, revision fence, 29 loaded bikes with >6 MB original invoice history, no hidden Fleet reads or top technical banners, fresh-login owner session, complete 57 invoices in two reads. Synthetic data/network; physical Note10+/Nova not measured.');
+console.log('PASS normal Direct Portal/Fleet/Invoices at 390/1280: same-origin and fresh owner session; compact first layout with 29 bikes and >6 MB of stored history; background history reuse, confirmed mileage write, and all 57 global invoices in two reads. Synthetic data/network; physical Note10+/Nova not measured.');

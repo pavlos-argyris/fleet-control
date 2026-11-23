@@ -351,6 +351,8 @@
         "scripts/test-client-landscape*.mjs",
         "scripts/test-ui-system*.mjs",
         "scripts/test-navigation-motion*.mjs",
+        "scripts/test-direct-unified-browser.mjs",
+        "scripts/test-worker-snapshot-load.mjs",
         "scripts/test-independent-readmodels.mjs",
         "scripts/test-view-cache.mjs"
       ],

@@ -92,6 +92,7 @@
   let navigationSequence = 0;
   let deferredInstallPrompt = null;
   let fleetPreloadTimer = null;
+  let preparedFleetCards = null;
   let invoiceLiveRefreshRunning = false;
 
   const $ = function (id) { return document.getElementById(id); };
@@ -382,10 +383,10 @@
       returnToFleet = sessionStorage.getItem("fleet-control-return-to-fleet") === "1" || new URLSearchParams(location.search).get("next") === "fleet";
       sessionStorage.removeItem("fleet-control-return-to-fleet");
     } catch (error) {}
-    goTo(returnToFleet && can("fleet.view") ? "fleet" : state.user.role === "employee" ? "employee-home" : "dashboard");
+    const opened = goTo(returnToFleet && can("fleet.view") ? "fleet" : state.user.role === "employee" ? "employee-home" : "dashboard");
     if (state.user.role !== "employee") {
       loadStatus();
-      scheduleFleetPreload();
+      opened.then(scheduleFleetPreload);
     }
   }
 
@@ -555,7 +556,7 @@
       if (view === "shifts") await loadShifts();
       if (view === "schedules") await loadSchedules();
       if (view === "employees") await loadEmployees();
-      if (view === "fleet") await loadFleetSummary();
+      if (view === "fleet" && $("fleetAvailabilityPanel").open) await loadFleetSummary();
       if (view === "invoices") {
         await loadInvoices();
         refreshInvoiceReprocessBatch();
@@ -3570,7 +3571,10 @@
           active:()=>token===state.token&&sequence===state.invoiceListSequence&&state.view==='invoices',
           progress:count=>{if(token===state.token)progress.textContent='Φορτώθηκαν '+count+' τιμολόγια · συνεχίζεται η φόρτωση…';}
         });
-        if(applyInvoiceDocuments(data,sequence,token))renderInvoiceQueue();
+        if (applyInvoiceDocuments(data, sequence, token)) {
+          state.invoiceLastLivePoll = Date.now();
+          renderInvoiceQueue();
+        }
       }finally{if(token===state.token&&sequence===state.invoiceListSequence)progress.hidden=true;}
     })();
     state.invoiceLoadFlight=task;
@@ -3585,7 +3589,7 @@
   }
 
   async function refreshInvoiceProgressLive() {
-    if (invoiceLiveRefreshRunning || state.invoiceReprocessBusy || !state.user || state.view !== "invoices" || document.hidden) return;
+    if (invoiceLiveRefreshRunning || state.invoiceLoadFlight || state.invoiceReprocessBusy || !state.user || state.view !== "invoices" || document.hidden) return;
     const now=Date.now(),interval=window.FleetLive?.connected()?300000:hasLiveInvoiceJobs()?5000:60000;
     if(now-(state.invoiceLastLivePoll||0)<interval)return;
     state.invoiceLastLivePoll=now;
@@ -4086,20 +4090,32 @@
   }
 
   function scheduleFleetPreload() {
-    // The static shell already warms public assets. Starting the hidden iframe
-    // also reads the full private Fleet history and competes with the open view
-    // on the Android writer, so defer that work until Fleet is actually opened.
-    if (window.FLEET_CONFIG?.independent) return;
     if (fleetPreloadTimer || !$("fleetModuleFrame") || !can("fleet.view")) return;
     const preload = function () {
       fleetPreloadTimer = null;
-      if (state.user && state.user.role !== "employee" && can("fleet.view")) ensureFleetModule();
+      if (!state.user || state.user.role === "employee" || !can("fleet.view")) return;
+      if (!window.FLEET_CONFIG?.independent) { ensureFleetModule(); return; }
+      if (!state.token || state.previewSession || $("fleetModuleFrame").getAttribute("src")) return;
+      const token = state.token;
+      const result = api('/api/sync?paged=1&view=cards').then(value => value.view === 'cards' ? value : null).catch(() => null);
+      preparedFleetCards = { token, at: Date.now(), result };
     };
     if (typeof window.requestIdleCallback === "function") {
       fleetPreloadTimer = window.requestIdleCallback(preload, { timeout: 1800 });
     } else {
       fleetPreloadTimer = window.setTimeout(preload, 1200);
     }
+  }
+
+  if (window.FLEET_CONFIG?.independent) {
+    window.FleetCardPreload = {
+      take(token) {
+        if (!preparedFleetCards || preparedFleetCards.token !== token || state.token !== token || Date.now() - preparedFleetCards.at > 30000) return null;
+        const result = preparedFleetCards.result;
+        preparedFleetCards = null;
+        return result.then(value => state.token === token && !state.previewSession ? value : null);
+      }
+    };
   }
 
   let fleetHostScroll = null;
@@ -4130,6 +4146,7 @@
     const frame = $("fleetModuleFrame");
     const shell = $("fleetModuleShell");
     if (!frame || !shell) return;
+    preparedFleetCards = null;
     setFleetDetailMode(false);
     frame.removeAttribute("src");
     shell.classList.remove("is-loaded");
@@ -4779,6 +4796,9 @@
   }
 
   function bindEvents() {
+    $('fleetAvailabilityPanel')?.addEventListener('toggle', function () {
+      if (this.open && state.view === 'fleet') loadFleetSummary().catch(error => toast(error.message));
+    });
     $("loginForm").addEventListener("submit", handleLogin);
     $("bootstrapForm").addEventListener("submit", handleBootstrap);
     $("showBootstrap").addEventListener("click", function () { $("loginForm").classList.add("is-hidden"); $("bootstrapForm").classList.remove("is-hidden"); });
@@ -5108,7 +5128,7 @@
       else if(view==='cash'&&scopes.includes('cash'))window.FleetCashUI.changed();
       else if(view==='invoices'&&scopes.some(s=>s==='invoices'||s==='fleet')){if(!state.invoiceReprocessBusy)await loadInvoices();await refreshInvoiceReprocessBatch();}
       else if(view==='alerts'&&scopes.some(s=>s==='invoices'||s==='fleet'||s==='workforce'))await loadAlerts();
-      else if(view==='fleet'&&scopes.includes('fleet'))await loadFleetSummary();
+      else if(view==='fleet'&&scopes.includes('fleet')&&$('fleetAvailabilityPanel').open)await loadFleetSummary();
       else if(view==='server'&&scopes.includes('status'))await loadServerView();
       else if(view==='dashboard'&&scopes.some(s=>['fleet','workforce','status'].includes(s)))await loadDashboard();
       else if(scopes.includes('workforce')){const loaders={'employee-home':loadEmployeeHome,shifts:loadShifts,schedules:loadSchedules,employees:loadEmployees,payroll:loadPayroll,alerts:loadAlerts};if(loaders[view])await loaders[view]();}

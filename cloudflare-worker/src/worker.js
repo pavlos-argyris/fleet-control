@@ -11,7 +11,7 @@ const ServiceModel = globalThis.FleetServiceModel;
 import '../public/fleet-operations-model.js';
 const OperationsModel = globalThis.FleetOperationsModel;
 import { INVOICE_IMPORT_SCHEMA, routeInvoiceImports, readImportDraftForJob, finishImportDraft, restartImportDraft, invoiceDuplicates } from './invoice-imports.js';
-import { visibleSnapshotRow, snapshotSummary, snapshotPage, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike } from "./snapshot-store.js";
+import { visibleSnapshotRow, snapshotSummary, snapshotPage, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike, fleetCard, fleetCardRow, fleetQrCandidates } from "./snapshot-store.js";
 import { routeServiceOperations } from './service-operations.js';
 import { stableReviewJson, readReviewReceipt, commitInvoiceReview } from './invoice-review-store.js';
 import { parseInvoiceText, enrichInvoiceExtraction, evaluateInvoiceConfirmation, INVOICE_RULES_VERSION, MAX_INVOICE_TEXT, MAX_INVOICE_ITEMS } from './invoice-extraction.js';
@@ -169,6 +169,7 @@ async function route(request, env) {
   if (path === "/api/snapshot" && request.method === "GET") return snapshotResponse(request, env);
   if (path === "/api/sync" && request.method === "GET") return legacySyncGet(request, env);
   if (path === "/api/sync" && request.method === "POST") return legacySyncPost(request, env);
+  if (path === "/api/sync/bike" && request.method === "GET") return fleetBikeView(request, env);
   if (path === "/api/sync/bike" && request.method === "POST") return syncSingleBike(request, env, false);
   if (path === "/api/server/snapshot/bike" && request.method === "PUT") return syncSingleBike(request, env, true);
   if ((path === "/api/auth/login" || path === "/api/unlock") && request.method === "POST") return login(request, env);
@@ -2922,6 +2923,21 @@ async function legacySyncGet(request, env) {
   if (!await mayViewFleet(request, env)) return json({ error: "Χρειάζεται σύνδεση για την προβολή του στόλου." }, 401);
   const url = new URL(request.url);
   const sinceVersion = url.searchParams.get("sinceVersion");
+  if (url.searchParams.get('view') === 'cards') {
+    const row = await fleetCardRow(env, sinceVersion);
+    if (row && String(row.version) === sinceVersion) return json({ unchanged: true, version: Number(row.version) });
+    if (!row || typeof row.archived_json !== 'string') throw new Error('Δεν διαβάστηκε η λίστα μηχανών.');
+    return snapshotJsonResponse(row, { view: 'cards', archivedBikeIds: JSON.parse(row.archived_json), updatedAt: row.updated_at });
+  }
+  if (url.searchParams.get('view') === 'qr-attention') {
+    const rows = await fleetQrCandidates(env);
+    const keys = new Set();
+    for (const row of rows) {
+      const entry = JSON.parse(row.entry_json);
+      if (ServiceModel.qrDocumentState(entry)?.attention) keys.add(String(row.bike_id) + ':' + String(entry.id));
+    }
+    return json({ count: keys.size, ...(url.searchParams.get('details') === '1' ? { entryIds: [...keys] } : {}) });
+  }
   if (sinceVersion !== null) {
     const summary = await snapshotSummary(env);
     if (String(summary.version) === sinceVersion) return json({unchanged:true,version:summary.version});
@@ -2934,6 +2950,32 @@ async function legacySyncGet(request, env) {
   const row = await visibleSnapshotRow(env);
   const archivedBikeIds = [...await activeArchivedBikeIds(env)];
   return snapshotJsonResponse(row, { archivedBikeIds, serverTime: new Date().toISOString() });
+}
+
+async function fleetBikeView(request, env) {
+  if (!await mayViewFleet(request, env)) return json({ error: 'Χρειάζεται σύνδεση για την προβολή του στόλου.' }, 401);
+  const params = new URL(request.url).searchParams;
+  const id = cleanText(params.get('id'), 100), view = params.get('view');
+  if (!id || !['summary', 'history', 'files'].includes(view)) return json({ error: 'Μη έγκυρη προβολή μηχανής.' }, 400);
+  const located = await readSnapshotBike(env, id, { activeOnly: true });
+  if (!located) return json({ error: 'Το μηχανάκι δεν είναι διαθέσιμο.' }, 404);
+  const { bike, version } = located;
+  if (view === 'history') return json({ bike, version });
+  const history = Array.isArray(bike.history) ? bike.history : [];
+  if (view === 'files') {
+    const files = history.flatMap(entry => (entry.attachments || []).filter(file => file.key).map(file => ({
+      key: file.key, name: file.name, serviceDate: entry.date,
+      invoiceDate: ServiceModel.date(file.invoiceData?.invoiceDate || file.ocr?.invoiceDate) || entry.date
+    })));
+    return json({ files, version });
+  }
+  const deleted = new Set(bike.historyDeletedIds || []);
+  const last = history.filter(entry => entry.type === 'service' && !deleted.has(entry.id) &&
+    !/^Αρχικ[ήη]\s+(?:ένδειξη|ενδειξη|καταχώρηση|καταχωρηση)/iu.test(String(entry.notes || '').trim()))
+    .sort((a, b) => String(ServiceModel.date(b.date)).localeCompare(String(ServiceModel.date(a.date))) ||
+      String(a.id || '').localeCompare(String(b.id || '')))[0];
+  const lastService = last ? { date: last.date, km: last.km, tasks: last.tasks || [] } : null;
+  return json({ bike: { ...fleetCard(bike), nextServiceNotes: bike.nextServiceNotes || [] }, lastService, version });
 }
 
 async function syncSingleBike(request, env, serverOnly) {
@@ -2950,13 +2992,38 @@ async function syncSingleBike(request, env, serverOnly) {
     }
   }
   const body = await request.json();
-  const incoming = normalizeBike(body?.bike);
-  if (!incoming) return json({ error: "Μη έγκυρα στοιχεία μηχανής." }, 400);
-  if ((await activeArchivedBikeIds(env)).has(incoming.id)) return json({ error: "Η μηχανή έχει αρχειοθετηθεί.", code: "bike_archived" }, 409);
+  const mileage = !fromServer && body?.mileage;
+  const incoming = mileage ? null : normalizeBike(body?.bike);
+  const bikeId = mileage ? cleanText(mileage.bikeId, 100) : incoming?.id;
+  if (!bikeId) return json({ error: "Μη έγκυρα στοιχεία μηχανής." }, 400);
+  let check = null;
+  if (mileage) {
+    const date = strictCalendarDate(mileage.date);
+    if (!Number.isSafeInteger(mileage.km) || mileage.km < 0 || mileage.km > 2_000_000_000 ||
+        !date || date !== mileage.date || !cleanText(mileage.id, 100)) return json({ error: 'Μη έγκυρος έλεγχος χιλιομέτρων.' }, 400);
+    const now = new Date().toISOString();
+    check = normalizeHistory([{ id: mileage.id, km: mileage.km, date: mileage.date, type: 'check', createdAt: now, updatedAt: now }])[0];
+  }
+  if ((await activeArchivedBikeIds(env)).has(bikeId)) return json({ error: "Η μηχανή έχει αρχειοθετηθεί.", code: "bike_archived" }, 409);
   for (let attempt=0; attempt<5; attempt++) {
-    const located = await readSnapshotBike(env, incoming.id);
-    const bike = located ? mergeBike(located.bike, incoming) : incoming;
-    const corrected = incoming.historyCorrectedAt && incoming.historyCorrectedAt > String(located?.bike.historyCorrectedAt || "");
+    const located = await readSnapshotBike(env, bikeId);
+    let bike;
+    if (check) {
+      if (!located) return json({ error: 'Το μηχανάκι δεν βρέθηκε.' }, 404);
+      const previous = located.bike, history = previous.history || [];
+      const existing = history.find(entry => entry.id === check.id);
+      if (existing) {
+        if (existing.type !== 'check' || existing.km !== check.km || existing.date !== check.date) return json({ error: 'Ο έλεγχος έχει ήδη καταχωριστεί με άλλα στοιχεία.' }, 409);
+        return json({ saved: true, card: fleetCard(previous), entry: existing, version: located.version });
+      }
+      if (check.km < Number(previous.lastServiceKm || 0)) return json({ error: 'Τα χιλιόμετρα είναι λιγότερα από την τελευταία αλλαγή λαδιών.' }, 409);
+      bike = normalizeBike({ ...previous, history: [check, ...history],
+        currentKm: Math.max(Number(previous.currentKm || 0), check.km),
+        lastCheckedAt: [previous.lastCheckedAt || '', check.date].sort().at(-1), updatedAt: check.updatedAt });
+    } else {
+      bike = located ? mergeBike(located.bike, incoming) : incoming;
+    }
+    const corrected = incoming?.historyCorrectedAt && incoming.historyCorrectedAt > String(located?.bike.historyCorrectedAt || "");
     if (corrected) {
       bike.odometerFloorKm = await workforceOdometerFloor(env, incoming.id);
       Object.assign(bike, normalizeBike(bike));
@@ -2981,7 +3048,7 @@ async function syncSingleBike(request, env, serverOnly) {
         { version: located?.version || 0 }, { version, changed: [{ id: bike.id, name: bike.name, odometer: bike.currentKm, lastServiceKm: bike.lastServiceKm }] },
         "Επιβεβαιωμένη αλλαγή από Fleet Control", pinUsed);
     }
-    return json({ saved: true, bike, version, updatedAt: now });
+    return json(check ? { saved: true, card: fleetCard(bike), entry: check, version } : { saved: true, bike, version, updatedAt: now });
   }
   return json({ error: "Η μηχανή ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά.", code: "snapshot_conflict" }, 409);
 }

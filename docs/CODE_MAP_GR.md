@@ -10,6 +10,7 @@
 |---|---|---|
 | Server και τοπική SQLite | `server-android/src/.../fleetserver/SyncService.java`, `FleetDataStore.java`, `FleetHttp.java`, `SystemMirror.java` | `test-server-snapshot-sync.mjs`, `test-server-system-mirror.mjs` |
 | Worker, D1, δικαιώματα και events | `cloudflare-worker/src/worker.js`, `workforce-core.js`, `snapshot-store.js`, `mirror-delta.js` | `test-worker-model.mjs`, `test-mirror-compound-limit.mjs` |
+| Κάρτες, ιστορικό και χιλιόμετρα μηχανών | `snapshot-store.js`, `worker.js`, `public/app.js`, `public/portal.js`, `IndependentRuntime.java` | `test-worker-snapshot-load.mjs`, `test-direct-unified-browser.mjs` |
 | Ordexa και clock in/out | `OrdexaClient.java`, `OrdexaSync.java`, `cloudflare-worker/src/ordexa*.js` | `test-ordexa-native.mjs`, `test-ordexa-browser.mjs` |
 | Βάρδιες/μισθοδοσία | `OrdexaPayrollEngine.java`, `OrdexaPayrollSync.java`, `ordexa-pay.js`, `ordexa-server-ui.js` | `test-ordexa-pay.mjs`, `test-payroll-regressions.mjs` |
 | Καταστήματα/παραγγελίες | `StoreBilling*.java`, `cloudflare-worker/src/store-billing.js` | `test-store-billing-*.mjs` |
