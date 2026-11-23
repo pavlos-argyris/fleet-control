@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "candidate",
-  "requestId": "fleet-116182d2-0808-468b-aad5-05db462ed947",
-  "sourceCommit": "f91e9f9dfd31c1ef6b6b2b948e9c239545335c12",
-  "releaseVersion": "5.67.3",
-  "requestedAt": "2026-11-20T13:41:41.841Z",
-  "reason": "Δοκιμή του Issue 107 σε Samsung με τα αρχικά υπογεγραμμένα APK"
+  "requestId": "fleet-ea18c236-285a-4ff7-8d4c-9061b9d9495e",
+  "sourceCommit": "07338c5c3da5fcabedc59a7cc87d925e31c02c68",
+  "releaseVersion": "5.67.4",
+  "requestedAt": "2026-11-23T16:13:25.334Z",
+  "reason": "Υπογεγραμμένη δοκιμή στο Samsung για την προφόρτωση ιστορικού του PR #126 πριν από την κανονική ενημέρωση"
 }
