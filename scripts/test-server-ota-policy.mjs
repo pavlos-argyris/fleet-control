@@ -8,10 +8,33 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-ota-policy-'));
 try {
   const client = fs.readFileSync(path.join(root, 'client-android/src/gr/argyrismitsos/fleetcontrol/MainActivity.java'), 'utf8');
   const method = client.match(/^    private static String formatUpdateNotes\([\s\S]*?^    \}/m)?.[0]; assert.ok(method);
+  const installer = fs.readFileSync(path.join(root, 'common-android/src/gr/argyrismitsos/fleetupdates/OtaInstaller.java'), 'utf8');
+  const reconcile = installer.match(/^    public static synchronized void reconcile\([\s\S]*?^    \}/m)?.[0]; assert.ok(reconcile);
   fs.writeFileSync(path.join(temp, 'OtaPolicyTest.java'), `
 import gr.argyrismitsos.fleetserver.OtaPolicy;
 public class OtaPolicyTest {
   ${method}
+  ${reconcile}
+  static class SharedPreferences {
+    String status = "installing"; int target; int session = 12; long started;
+    String getString(String key, String fallback) { return status; }
+    int getInt(String key, int fallback) { return key.equals("session_id") ? session : target > 0 ? target : fallback; }
+    long getLong(String key, long fallback) { return started; }
+  }
+  static class Context {
+    final SharedPreferences prefs = new SharedPreferences();
+    final PackageManager manager = new PackageManager();
+    String getPackageName() { return "test"; }
+    PackageManager getPackageManager() { return manager; }
+  }
+  static class PackageManager {
+    int versionCode = 88; boolean hasSession;
+    PackageManager getPackageInfo(String name, int flags) { return this; }
+    PackageManager getPackageInstaller() { return this; }
+    Object getSessionInfo(int id) { return hasSession ? this : null; }
+  }
+  static SharedPreferences preferences(Context context) { return context.prefs; }
+  static void finish(Context context, int session, boolean success) { context.prefs.status = success ? "success" : "failed"; }
   static void check(boolean value) { if (!value) throw new AssertionError(); }
   static void notes(String input, String expected) { if (!formatUpdateNotes(input).equals(expected)) throw new AssertionError(formatUpdateNotes(input)); }
   public static void main(String[] args) {
@@ -21,6 +44,18 @@ public class OtaPolicyTest {
     check(OtaPolicy.checkDue(100000, 90000, true, false));
     check(!OtaPolicy.checkDue(200000, 90000, false, false));
     check(OtaPolicy.checkDue(80000, 90000, false, true));
+    Context update = new Context();
+    update.manager.hasSession = true;
+    reconcile(update, 89);
+    check(update.prefs.status.equals("installing"));
+    update.manager.versionCode = 89;
+    reconcile(update, 89);
+    check(update.prefs.status.equals("success"));
+    update.prefs.status = "confirmation";
+    update.prefs.target = 90;
+    update.manager.hasSession = false;
+    reconcile(update, 0);
+    check(update.prefs.status.equals("failed"));
     check(OtaPolicy.yieldForUpdate(1000000, 0, true, false, true, true, true));
     check(!OtaPolicy.yieldForUpdate(1000000, 900000, true, false, true, true, true));
     check(OtaPolicy.yieldForUpdate(1000000, 900000, true, true, false, true, true));

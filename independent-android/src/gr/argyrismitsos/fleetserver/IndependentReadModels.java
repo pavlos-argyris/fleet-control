@@ -41,7 +41,34 @@ final class IndependentReadModels implements AutoCloseable {
    db.execSQL("DROP TRIGGER IF EXISTS "+name);
    db.execSQL("CREATE TRIGGER "+name+" AFTER "+event+" ON "+table+condition+" BEGIN INSERT INTO independent_projection_revisions(scope,revision) VALUES('"+scope+"',1) ON CONFLICT(scope) DO UPDATE SET revision=revision+1; END");
   }
+  if(tables.contains("independent_store_week_reports")&&tables.contains("store_billing_local"))installStoreWeekInvalidation(db);
   if(own)db.setTransactionSuccessful();}finally{if(own)db.endTransaction();}
+ }
+ private static String invalidateStoreWeek(String row){
+  String monday="date("+row+".day,'-'||((CAST(strftime('%w',"+row+".day) AS INTEGER)+6)%7)||' days')";
+  return "DELETE FROM independent_store_week_reports WHERE scope="+row+".scope AND "+
+    "("+row+".kind='store' OR ("+row+".kind IN ('local_day','coverage','outbox') AND monday="+monday+")); ";
+ }
+ private static void installStoreWeekInvalidation(SQLiteDatabase db){
+  String reportKinds=" IN ('store','local_day','coverage','outbox')";
+  for(String action:new String[]{"INSERT","UPDATE","DELETE"}){
+   String name="independent_store_week_input_"+action.toLowerCase(Locale.US);
+   db.execSQL("DROP TRIGGER IF EXISTS "+name);
+   String relevant=action.equals("INSERT")?"NEW.kind"+reportKinds:action.equals("DELETE")?"OLD.kind"+reportKinds:"(OLD.kind"+reportKinds+" OR NEW.kind"+reportKinds+") AND (OLD.scope<>NEW.scope OR OLD.kind<>NEW.kind OR OLD.day<>NEW.day OR OLD.store_id<>NEW.store_id OR OLD.data<>NEW.data)";
+   db.execSQL("CREATE TRIGGER "+name+" AFTER "+action+" ON store_billing_local WHEN "+relevant+" BEGIN "+
+     (action.equals("INSERT")?"":invalidateStoreWeek("OLD"))+(action.equals("DELETE")?"":invalidateStoreWeek("NEW"))+"END");
+   name="independent_store_week_alias_"+action.toLowerCase(Locale.US);
+   db.execSQL("DROP TRIGGER IF EXISTS "+name);
+   db.execSQL("CREATE TRIGGER "+name+" AFTER "+action+" ON native_store_aliases BEGIN "+
+     (action.equals("INSERT")?"":"DELETE FROM independent_store_week_reports WHERE scope=OLD.scope; ")+
+     (action.equals("DELETE")?"":"DELETE FROM independent_store_week_reports WHERE scope=NEW.scope; ")+"END");
+  }
+  // INSERT OR REPLACE does not run DELETE triggers on every SQLite configuration.
+  db.execSQL("CREATE TRIGGER IF NOT EXISTS independent_store_week_replaced_input BEFORE INSERT ON store_billing_local "+
+    "WHEN EXISTS (SELECT 1 FROM store_billing_local WHERE id=NEW.id AND kind"+reportKinds+" AND (scope<>NEW.scope OR kind<>NEW.kind OR day<>NEW.day)) BEGIN "+
+    "DELETE FROM independent_store_week_reports WHERE EXISTS (SELECT 1 FROM store_billing_local old_input WHERE old_input.id=NEW.id "+
+    "AND (old_input.scope<>NEW.scope OR old_input.kind<>NEW.kind OR old_input.day<>NEW.day) AND old_input.scope=independent_store_week_reports.scope "+
+    "AND (old_input.kind='store' OR (old_input.kind IN ('local_day','coverage','outbox') AND monday=date(old_input.day,'-'||((CAST(strftime('%w',old_input.day) AS INTEGER)+6)%7)||' days')))); END");
  }
  private static String scope(String path){
   if(path.matches("/api/(sync|snapshot|workforce/vehicles|admin/service-documents|admin/service-document-followups)"))return "fleet";
@@ -57,7 +84,10 @@ final class IndependentReadModels implements AutoCloseable {
   if(closed||!request.optString("method").equals("GET")||request.has("body")||request.has("form")||request.optBoolean("internal"))return "";
   URI uri=new URI(request.getString("url"));if(!realm.equals(uri.getScheme()+"://"+uri.getRawAuthority())||uri.getRawFragment()!=null||request.getString("url").length()>4096||scope(uri.getPath()).isEmpty())return "";
   // Sorting names preserves the order of duplicate values (URLSearchParams.get).
-  List<String[]> pairs=new ArrayList<String[]>();if(uri.getRawQuery()!=null)for(String pair:uri.getRawQuery().split("&",-1)){String[] p=pair.split("=",2);pairs.add(new String[]{URLDecoder.decode(p[0],"UTF-8"),URLDecoder.decode(p.length==2?p[1]:"","UTF-8")});}if(pairs.size()>40)return "";Collections.sort(pairs,(a,b)->a[0].compareTo(b[0]));StringBuilder key=new StringBuilder(uri.getPath());for(String[] p:pairs)key.append(key.indexOf("?")<0?'?':'&').append(URLEncoder.encode(p[0],"UTF-8")).append('=').append(URLEncoder.encode(p[1],"UTF-8"));return key.toString();
+  List<String[]> pairs=new ArrayList<String[]>();if(uri.getRawQuery()!=null)for(String pair:uri.getRawQuery().split("&",-1)){String[] p=pair.split("=",2);pairs.add(new String[]{URLDecoder.decode(p[0],"UTF-8"),URLDecoder.decode(p.length==2?p[1]:"","UTF-8")});}if(pairs.size()>40)return "";
+  // Weekly amounts use the shared, transactionally invalidated SQLite report.
+  if(uri.getPath().equals("/api/native/store-financials"))for(String[] p:pairs)if(p[0].equals("period")){if(p[1].equals("week"))return "";break;}
+  Collections.sort(pairs,(a,b)->a[0].compareTo(b[0]));StringBuilder key=new StringBuilder(uri.getPath());for(String[] p:pairs)key.append(key.indexOf("?")<0?'?':'&').append(URLEncoder.encode(p[0],"UTF-8")).append('=').append(URLEncoder.encode(p[1],"UTF-8"));return key.toString();
  }
  private JSONObject identity(JSONObject request)throws Exception{
   JSONObject headers=request.optJSONObject("headers");String auth="",cookie="";int authCount=0,cookieCount=0;if(headers!=null)for(String key:keys(headers)){if(key.equalsIgnoreCase("authorization")){auth=headers.optString(key);authCount++;}if(key.equalsIgnoreCase("cookie")){cookie=headers.optString(key);cookieCount++;}}if(authCount>1||cookieCount>1||!auth.isEmpty()&&!auth.matches("Bearer [\\x21-\\x7E]{1,1024}"))return null;String token=auth.startsWith("Bearer ")?auth.substring(7):"";if(token.isEmpty())for(String part:cookie.split(";")){String[] p=part.trim().split("=",2);if(p.length==2&&p[0].equals("fc_auth"))token=p[1];}if(token.isEmpty()||token.length()>1024)return null;

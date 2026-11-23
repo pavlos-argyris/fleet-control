@@ -1,10 +1,12 @@
 import {fleetRegistrySnapshot,readSnapshotBike,writeSnapshotBike} from '../cloudflare-worker/src/snapshot-store.js';
 import {publishChanges} from '../cloudflare-worker/src/change-events.js';
 import {maintainWorkforce,recordExternalAudit,authenticateExternal} from '../cloudflare-worker/src/workforce.js';
+import {prepareNextStoreWeek,STORE_WEEK_SCHEMA} from './reports.js';
 
 export const DIRECT_ADMIN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS direct_admin_commands(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,session_hash TEXT,action TEXT NOT NULL,payload TEXT NOT NULL,state TEXT NOT NULL,created_at INTEGER NOT NULL,finished_at INTEGER);
 CREATE INDEX IF NOT EXISTS direct_admin_commands_queue ON direct_admin_commands(state,created_at);
+${STORE_WEEK_SCHEMA}
 `;
 
 async function serverAdmin(request,env,actor){
@@ -41,6 +43,10 @@ export async function routeStandalone(request,env,value){
   const path=new URL(request.url).pathname;
   if(!env.STANDALONE||!path.startsWith('/api/independent/'))return null;
   try{
+    if(path==='/api/independent/store-week-prepare'){
+      if(!request.localInternal||request.method!=='POST')return Response.json({error:'Η εργασία απαιτεί τοπική υπηρεσία Server.'},{status:403});
+      return Response.json(await prepareNextStoreWeek(env));
+    }
     if(path==='/api/independent/maintenance'&&request.localInternal&&request.method==='POST'){
       const before=await env.DB.prepare('SELECT total_changes() n').first();
       await maintainWorkforce(env,{serverLastSeen:new Date().toISOString()},{readSnapshot:fleetRegistrySnapshot,readFleetRegistry:fleetRegistrySnapshot,readSnapshotBike,writeSnapshotBike});

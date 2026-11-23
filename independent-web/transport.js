@@ -33,11 +33,15 @@
     if(!/^\/api\/(auth|native\/files)\//.test(url.pathname)){
      pendingKey=prefix+await hash([origin,headers.get('Authorization')||userId,method,url.href,signature].join('\n'));
      if(!storage)throw Error('Δεν υποστηρίζεται ασφαλής αποθήκευση ταυτότητας ενέργειας.');
-     const record=await storage.claim({id:pendingKey,kind:'independent-operation',operation:crypto.randomUUID(),at:Date.now(),path:url.pathname,userId,origin});
+     const requestedOperation=url.pathname==='/api/sync/bike'?headers.get('X-Fleet-Operation'):'';
+     const operation=/^[a-f0-9-]{36}$/.test(requestedOperation||'')?requestedOperation:crypto.randomUUID();
+     const record=await storage.claim({id:pendingKey,kind:'independent-operation',operation,at:Date.now(),path:url.pathname,userId,origin});
      headers.set('X-Fleet-Operation',record.operation);
     }
    }
    const response=await network(url.href,{method,headers,body,credentials:'same-origin',cache:'no-store',signal:request.signal,redirect:'error'});
+   const instance=response.headers.get('X-Fleet-Instance');
+   if(response.ok&&instance)generation=instance;
    if(pendingKey){let code='';try{code=(await response.clone().json()).code||'';}catch{}if(response.ok||response.status>=400&&response.status<500&&![408,429].includes(response.status)&&!['operation_conflict','operation_authorization_changed'].includes(code))await storage.remove(pendingKey);}
    if(['/api/auth/user-login','/api/auth/me'].includes(url.pathname)&&response.ok){const data=await response.clone().json();authUser=data.user||null;authToken=data.token||(headers.get('Authorization')||'').replace(/^Bearer\s+/i,'');userId=authUser?.id||'';root.dispatchEvent(new CustomEvent('fleet-independent-auth',{detail:authUser}));}
    if(response.status===401&&(!authToken||headers.get('Authorization')==='Bearer '+authToken)){authUser=null;authToken='';root.dispatchEvent(new CustomEvent('fleet-independent-auth',{detail:null}));}

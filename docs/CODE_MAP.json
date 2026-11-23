@@ -161,7 +161,9 @@
         "cloudflare-worker/public/store-weekly-report.js",
         "cloudflare-worker/public/store-financial-ui.js",
         "scripts/fixtures/native-management-browser-data.mjs",
-        "server-runtime/shared-reads.js"
+        "server-runtime/shared-reads.js",
+        "independent-android/src/gr/argyrismitsos/fleetserver/IndependentReadModels.java",
+        "independent-android/src/gr/argyrismitsos/fleetserver/IndependentRuntime.java"
       ],
       "tests": [
         "scripts/test-store-billing-*.mjs",
@@ -250,6 +252,9 @@
         "cloudflare-worker/public/fleet-operations*.js",
         "cloudflare-worker/public/service-*.js",
         "cloudflare-worker/public/service-model.js",
+        "cloudflare-worker/public/app.js",
+        "client-android/src/gr/argyrismitsos/fleetcontrol/MileageSyncJob.java",
+        "independent-web/transport.js",
         "server-android/src/gr/argyrismitsos/fleetserver/NextServiceNotes.java"
       ],
       "tests": [

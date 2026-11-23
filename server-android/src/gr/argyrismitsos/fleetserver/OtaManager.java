@@ -120,7 +120,27 @@ public final class OtaManager {
     }
     public static void resumeAfterRestart(Context c){
         BackupJobs.recoverAfterRestart(c);
-        try{String raw=prefs(c).getString("ota_ready","");if(raw.length()==0||new JSONObject(raw).optInt("versionCode")<=currentCode(c)){prefs(c).edit().remove("ota_ready").remove("ota_quiescing").remove("ota_force_requested").remove("ota_apply_requested").remove("ota_checkpoint_job").remove("ota_checkpoint_error").remove("ota_install_started").apply();BackupJobs.resumePending(c);}}catch(Exception ignored){}
+        reconcileInstallation(c);
+    }
+    private static void reconcileInstallation(Context c){
+        SharedPreferences p=prefs(c);
+        try {
+            String raw=p.getString("ota_ready","");
+            int target=raw.isEmpty()?0:new JSONObject(raw).optInt("versionCode");
+            OtaInstaller.reconcile(c,target);
+            if(target>0&&target<=currentCode(c)){
+                p.edit().remove("ota_ready").remove("ota_quiescing").remove("ota_force_requested").remove("ota_apply_requested")
+                        .remove("ota_checkpoint_job").remove("ota_checkpoint_error").remove("ota_install_started")
+                        .remove("ota_hold").commit();
+                file(c).delete();
+                BackupJobs.resumePending(c);
+                stage(c,"current","Η ενημέρωση εγκαταστάθηκε. Ο Server λειτουργεί στην έκδοση "+ServerConfig.SERVER_VERSION+".");
+            }else if(target==0&&p.getString("ota_stage","").equals("installing")&&!installationPending(c)){
+                p.edit().remove("ota_quiescing").remove("ota_install_started").commit();
+                BackupJobs.resumePending(c);
+                stage(c,"current","Ο Server λειτουργεί στην έκδοση "+ServerConfig.SERVER_VERSION+".");
+            }
+        }catch(Exception ignored){}
     }
     public static boolean installationPending(Context c) {
         SharedPreferences p = OtaInstaller.preferences(c);
@@ -146,6 +166,7 @@ public final class OtaManager {
 
     public static synchronized void maybeApply(Context c, FleetDataStore store) {
         if(BackendMode.direct(c)!=DIRECT_SCOPE)return;
+        reconcileInstallation(c);
         SharedPreferences p=prefs(c);boolean requested=p.getBoolean("ota_apply_requested",false),force=forceRequested(c);
         if (p.getBoolean("ota_hold", false) || installationPending(c)) return;
         if (!requested && !p.getBoolean("automatic_ota", true)) {
@@ -195,6 +216,7 @@ public final class OtaManager {
     }
     public static JSONObject state(Context c) throws Exception {
         SharedPreferences p = prefs(c), install = OtaInstaller.preferences(c); JSONObject value = new JSONObject();
+        if ("installing".equals(p.getString("ota_stage", ""))) reconcileInstallation(c);
         value.put("stage", p.getString("ota_stage", "idle"));
         value.put("blockers",ServerWorkTracker.get()).put("backupProgress",BackupStatus.get(c)).put("pauseRequested",p.getBoolean("ota_quiescing",false)).put("forceRequested",forceRequested(c)).put("held",p.getBoolean("ota_hold",false));
         value.put("downloadPercent", p.getInt("ota_download_percent", 0));

@@ -4,11 +4,43 @@ import {businessContext} from './ports.js';
 import {aggregateStoreFinancials} from '../cloudflare-worker/src/store-financial-report.js';
 import {list,reply,NativeError,text,day,range,actor,audit,stamp,addDay,integer,hash} from './common.js';
 export const REPORT_SCHEMA="CREATE TABLE IF NOT EXISTS native_store_aliases(scope TEXT NOT NULL,source_id TEXT NOT NULL,target_id TEXT NOT NULL,revision INTEGER NOT NULL,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL,PRIMARY KEY(scope,source_id));";
+export const STORE_WEEK_SCHEMA="CREATE TABLE IF NOT EXISTS independent_store_week_reports(scope TEXT NOT NULL,monday TEXT NOT NULL,format INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(scope,monday));";
+const STORE_WEEK_FORMAT=1;
 const periodKey=(d,period,from)=>period==='range'?from:period==='day'?d:period==='month'?d.slice(0,7):addDay(d,-((new Date(d+'T12:00:00Z').getUTCDay()+6)%7));
 async function scopeFor(url,env){const current=businessContext(env);if(!current.configured||!current.scope)throw new NativeError(503,'Ρύθμισε πρώτα την ανάγνωση καταστημάτων στον Server.');const requested=url.searchParams.get('scope');if(requested&&requested!==current.scope)throw new NativeError(409,'Άλλαξε η ενεργή πηγή καταστημάτων. Άνοιξε ξανά την αναφορά.');return current.scope;}
 export async function storeReport(env,{from,to,period='day',scope,storeId=''}){
   day(from);day(to);if(!['day','week','month','range'].includes(period))throw new NativeError(400,'Επίλεξε ημέρα, εβδομάδα ή μήνα.');
-  return sharedStoreRead(env,{from,to,period,scope,storeId},()=>computeStoreReport(env,{from,to,period,scope,storeId}));
+  const parameters={from,to,period,scope,storeId};
+  if(env.STANDALONE&&period==='week'&&!storeId&&periodKey(from,period,from)===from&&addDay(from,6)===to){
+    const saved=await env.DB.prepare('SELECT body FROM independent_store_week_reports WHERE scope=? AND monday=? AND format=?').bind(scope,from,STORE_WEEK_FORMAT).first();
+    if(saved?.body){try{return JSON.parse(saved.body);}catch(invalidSnapshot){/* Rebuild the derived row. */}}
+    return prepareStoreWeek(env,scope,from);
+  }
+  return sharedStoreRead(env,parameters,()=>computeStoreReport(env,parameters));
+}
+async function prepareStoreWeek(env,scope,monday){
+  const report=await computeStoreReport(env,{from:monday,to:addDay(monday,6),period:'week',scope,storeId:''});
+  const body=JSON.stringify(report);
+  // Keep a single derived cell per week. The direct runtime invalidates it
+  // in the same SQLite transaction as changes to the inputs.
+  await env.DB.prepare('INSERT INTO independent_store_week_reports(scope,monday,format,body) VALUES(?,?,?,?) ON CONFLICT(scope,monday) DO UPDATE SET format=excluded.format,body=excluded.body').bind(scope,monday,STORE_WEEK_FORMAT,body.length<=500000?body:'').run();
+  return report;
+}
+export async function prepareNextStoreWeek(env){
+  const {configured,scope}=businessContext(env);
+  if(!configured||!scope)return {prepared:false};
+  if(!await env.DB.prepare("SELECT 1 found FROM store_billing_local WHERE scope=? AND kind='store' LIMIT 1").bind(scope).first())return {prepared:false};
+  const row=await env.DB.prepare(`WITH dates AS (
+    SELECT DISTINCT day FROM store_billing_local WHERE scope=? AND kind IN ('coverage','local_day') AND day<>''
+  ), weeks AS (
+    SELECT DISTINCT date(day,'-'||((CAST(strftime('%w',day) AS INTEGER)+6)%7)||' days') AS monday FROM dates
+  )
+  SELECT weeks.monday FROM weeks LEFT JOIN independent_store_week_reports p
+    ON p.scope=? AND p.monday=weeks.monday AND p.format=?
+  WHERE weeks.monday IS NOT NULL AND p.monday IS NULL ORDER BY weeks.monday DESC LIMIT 1`).bind(scope,scope,STORE_WEEK_FORMAT).first();
+  if(!row)return {prepared:false};
+  await prepareStoreWeek(env,scope,row.monday);
+  return {prepared:true,monday:row.monday};
 }
 async function computeStoreReport(env,{from,to,period,scope,storeId}){
   const catalog=list(await env.DB.prepare("SELECT id store_id,data FROM store_billing_local WHERE scope=? AND kind='store' ORDER BY id").bind(scope).all());

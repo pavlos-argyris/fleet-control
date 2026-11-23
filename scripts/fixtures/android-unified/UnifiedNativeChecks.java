@@ -45,8 +45,16 @@ public final class UnifiedNativeChecks{
         JSONObject dashboard=awaitDashboard(activity.new ServerBridge(),null);
         check(dashboard.optBoolean("settingsLoaded")&&dashboard.optBoolean("directPreparing")&&!dashboard.has("dashboardError"),"Fresh Direct dashboard loads preparation without a database or owner credentials: "+dashboard.optString("dashboardError"));
         check(!scope.getDatabasePath(NativeColdRestore.DATABASE_NAME).exists(),"Opening the fresh Server UI must not create an empty database that blocks first backup import");
-        stopFixtureProvider(base);
         android.util.Log.i("FleetSqliteTest","PASS fresh real generated dashboard before first import: Direct preparation, real provider and no premature database");
+    }
+    static void checkRestoredProvider(Context base)throws Exception{
+        // The fixture imports from the instrumentation process. Restart the
+        // provider after that commit, like a cold recovery, so Android cannot
+        // relaunch it before the restored preferences exist on disk.
+        stopFixtureProvider(base);
+        android.os.Bundle status=base.getContentResolver().call(Uri.parse("content://gr.argyrismitsos.fleetserver.direct-control"),"status","",null);
+        check(status!=null&&status.getBoolean("ok")&&new JSONObject(status.getString("json")).getBoolean("backupVerified"),
+            "Private provider observes the same isolated restored configuration across processes");
     }
     private static void stopFixtureProvider(Context base)throws Exception{
         android.app.ActivityManager manager=(android.app.ActivityManager)base.getSystemService(Context.ACTIVITY_SERVICE);

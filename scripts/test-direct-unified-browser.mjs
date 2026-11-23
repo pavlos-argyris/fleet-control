@@ -12,12 +12,14 @@ const staged=path.join(out,'assets/independent-www');
 const csp=fs.readFileSync('independent-android/src/gr/argyrismitsos/fleetserver/IndependentHttps.java','utf8').match(/Content-Security-Policy: (.*?)\\r\\n/)[1];
 const selection={schema:1,revision:7,selectedMode:'direct',activeMode:'direct',directOnly:true,directApproved:true,pending:false,cloudUrl:'https://fleet-control.pavlosargyris.workers.dev',directUrl:origin,updatedAt:1};
 const user={id:'fixture-owner',username:'fixture.owner',fullName:'Συνθετικός ιδιοκτήτης',role:'owner',permissions:['*']};
-const bikes=Array.from({length:29},(_,i)=>({id:'bike-'+i,name:'Μηχανάκι '+i,currentKm:9000,lastServiceKm:8000,intervalKm:2000,history:Array.from({length:2},(_,j)=>({id:'e-'+j,type:'service',date:'2026-11-10',km:8000,oilChanged:true,tasks:['Fixture service'],invoiceData:{rawText:'Ω'.repeat(110000),totalAmount:'10,00'}})),updatedAt:'2026-11-13T12:00:00Z'}));
+const fixtureBikes=Array.from({length:29},(_,i)=>({id:'bike-'+i,name:'Μηχανάκι '+i,currentKm:9000,lastServiceKm:8000,intervalKm:2000,history:Array.from({length:2},(_,j)=>({id:'e-'+j,type:'service',date:'2026-11-10',km:8000,oilChanged:true,tasks:['Fixture service'],invoiceData:{rawText:'Ω'.repeat(110000),totalAmount:'10,00'},attachments:i===28&&j===0?[{id:'fixture-one',key:'fixture/one.pdf',name:'Fixture.pdf',ocr:{invoiceDate:'2026-11-11'}}]:[]})),updatedAt:'2026-11-13T12:00:00Z'}));
 const invoices=Array.from({length:57},(_,i)=>({id:'invoice-'+i,key:'service-documents/b/e'+i+'/f.pdf',bikeId:'bike-0',bikeName:'Μηχανάκι 0',entryId:'e'+i,name:'Fixture-'+i+'.pdf',status:'warning',serviceDate:'2026-11-10',invoiceData:{}}));
 const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined});
 try{for(const width of [390,1280]){
   const context=await browser.newContext({viewport:{width,height:900},locale:'el-GR',timezoneId:'Europe/Athens',serviceWorkers:'block'}),page=await context.newPage();
-  const requests=[],backgroundHistoryRequests=[],errors=[],missing=[],management=managementData();let logged=false,invoiceRequests=0,adminAvailable=false,adminPosts=0,mileageWrites=0;
+  const bikes=structuredClone(fixtureBikes),mileageReceipts=new Map(),mileageAttempts=[];
+  const requests=[],backgroundHistoryRequests=[],errors=[],missing=[],management=managementData();
+  let logged=false,invoiceRequests=0,adminAvailable=false,adminPosts=0,fleetRevision=10,writeOffline=false,dropAcknowledgment=false;
   page.on('pageerror',error=>errors.push(error.message));
   await context.addInitScript(selection=>{
     // A fresh Web/Client starts at revision zero, unlike the Server.
@@ -56,9 +58,9 @@ try{for(const width of [390,1280]){
       if(url.pathname==='/api/independent/events')return route.fulfill({contentType:'text/event-stream',body:'event: ready\ndata: {}\n\n'});
       if(url.pathname==='/api/sync'){
         const view=url.searchParams.get('view');
-        if(view==='cards')return route.fulfill({json:{view,bikes:bikes.map(({history,...card})=>({...card,nextServiceKm:10000})),version:10,archivedBikeIds:[]}});
+        if(url.searchParams.get('sinceVersion')===String(fleetRevision)&&view!=='qr-attention')return route.fulfill({json:{unchanged:true,version:fleetRevision}});
+        if(view==='cards')return route.fulfill({json:{view,bikes:bikes.map(({history,...card})=>({...card,nextServiceKm:10000})),version:fleetRevision,archivedBikeIds:[]}});
         if(view==='qr-attention')return route.fulfill({json:{count:2}});
-        if(url.searchParams.has('sinceVersion'))return route.fulfill({json:{unchanged:true,version:10}});
         assert.equal(url.searchParams.get('paged'),'1','normal Direct reads bounded canonical pages');
         const offset=Number((url.searchParams.get('cursor')||'10:0').split(':')[1]),next=Math.min(offset+4,bikes.length);
         return route.fulfill({json:{paged:true,bikes:bikes.slice(offset,next),version:10,totalBikes:bikes.length,offset,hasMore:next<bikes.length,nextCursor:next<bikes.length?'10:'+next:'',archivedBikeIds:[]}});
@@ -68,21 +70,33 @@ try{for(const width of [390,1280]){
           const body=request.postDataJSON();
           assert.deepEqual(Object.keys(body),['mileage']);
           assert.ok(request.postData().length<200);
-          assert.match(request.headers()['x-fleet-operation'],/^[0-9a-f-]{36}$/);
-          mileageWrites++;
           const {bikeId,km,id,date}=body.mileage;
-          const {history,...card}=bikes.find(item=>item.id===bikeId);
-          return route.fulfill({json:{saved:true,card:{...card,currentKm:km,nextServiceKm:10000,lastCheckedAt:date},entry:{id,km,date,type:'check'},version:11}});
+          assert.equal(request.headers()['x-fleet-operation'],id,'the same durable ID is used for the Android and browser receipt');
+          mileageAttempts.push({id,bikeId,km,date});
+          if(writeOffline)return route.abort('connectionrefused');
+          if(mileageReceipts.has(id))return route.fulfill({json:mileageReceipts.get(id)});
+          const bike=bikes.find(item=>item.id===bikeId),{history,...card}=bike;
+          const entry={id,km,date,type:'check'},nextCard={...card,currentKm:km,nextServiceKm:10000,lastCheckedAt:date};
+          Object.assign(bike,nextCard,{history:[entry,...history]});
+          const receipt={saved:true,card:nextCard,entry,version:++fleetRevision};
+          mileageReceipts.set(id,receipt);
+          if(dropAcknowledgment){dropAcknowledgment=false;return route.abort('connectionreset');}
+          return route.fulfill({json:receipt});
         }
         const bike=bikes.find(item=>item.id===url.searchParams.get('id'));
         const view=url.searchParams.get('view');
-        if(view==='history'){
+        if(view==='history'||view==='history-preview'){
           if(request.headers()['x-fleet-read-priority']==='background')backgroundHistoryRequests.push(bike.id);
-          return route.fulfill({json:{bike,version:10}});
+          const preview={...bike,history:bike.history.map(entry=>{
+            if(!entry.invoiceData)return entry;
+            const {rawText,...invoiceData}=entry.invoiceData;
+            return {...entry,invoiceData:{...invoiceData,hasRawText:Boolean(rawText)}};
+          })};
+          return route.fulfill({json:{bike:view==='history-preview'?preview:bike,version:fleetRevision}});
         }
         if(view==='files')return route.fulfill({json:{files:[{key:'fixture/one.pdf',name:'Fixture.pdf',serviceDate:'2026-11-10',invoiceDate:'2026-11-11'}],version:10}});
         const {history,...card}=bike;
-        return route.fulfill({json:{bike:{...card,nextServiceNotes:[]},lastService:{date:'2026-11-10',km:8000,tasks:['Fixture service']},version:10}});
+        return route.fulfill({json:{bike:{...card,nextServiceNotes:[]},lastService:{date:'2026-11-10',km:8000,tasks:['Fixture service']},version:fleetRevision}});
       }
       if(url.pathname==='/api/admin/vehicles/archived')return route.fulfill({json:{bikes:[]}});
       if(url.pathname==='/api/workforce/vehicles')return route.fulfill({json:{vehicles:bikes.map(b=>({id:b.id,name:b.name,status:'available',odometer:b.currentKm}))}});
@@ -114,7 +128,7 @@ try{for(const width of [390,1280]){
     assert.ok(!requests.includes('/api/workforce/vehicles') && !requests.includes('/api/admin/vehicles/archived'),'closed fleet tools have not loaded');
     assert.equal(await embedded.locator('#fleetLoadNotice').isHidden(),true,'complete same-origin Fleet read clears the loading state even beyond synchronous browser cache capacity');assert.equal(await embedded.locator('.bike-card').count(),29);assert(JSON.stringify(bikes).length>5_000_000,'real Chromium fixture uses multi-megabyte service history');
     await embedded.locator('#qrAttentionBanner').filter({hasText:'2 τιμολόγια'}).waitFor();
-    const backgroundHistory = p => p.startsWith('/api/sync/bike?view=history');
+    const backgroundHistory = p => p.startsWith('/api/sync/bike?view=history-preview&');
     if(!requests.some(backgroundHistory))await page.waitForResponse(r=>backgroundHistory(new URL(r.url()).pathname+new URL(r.url()).search));
     assert.ok(requests.findIndex(p=>p.includes('view=qr-attention'))<requests.findIndex(backgroundHistory));
     assert.equal(backgroundHistoryRequests[0],'bike-0','the first history uses the background priority');
@@ -124,16 +138,20 @@ try{for(const width of [390,1280]){
     await embedded.locator('[data-bike-id="bike-0"]').click();
     await embedded.getByRole('button',{name:'Ιστορικό',exact:true}).click();
     await embedded.locator('#historyCount').filter({hasText:'2 εγγραφές'}).waitFor();
-    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history&id=bike-0').length,1,'opening a prepared history reuses the background request');
+    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history-preview&id=bike-0').length,1,'opening a prepared history reuses the background request');
     await embedded.locator('#detailBackButton').click();
+    const until=Date.now()+10000;
+    while(new Set(backgroundHistoryRequests).size!==29 && Date.now()<until)await page.waitForTimeout(40);
+    assert.equal(new Set(backgroundHistoryRequests).size,29,'all bikes receive a compact background history');
     await embedded.locator('[data-bike-id="bike-28"]').click();
     await embedded.locator('#detailLatestService').getByText('Fixture service').waitFor();
     await embedded.locator('[data-ui-bike-tab="files"]').click();
     await embedded.locator('#uiBikeFiles').getByText('Fixture.pdf').waitFor();
-    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=files&id=bike-28').length,1);
+    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=files&id=bike-28').length,0,'prepared history includes file names');
     await embedded.getByRole('button',{name:'Ιστορικό',exact:true}).click();
     await embedded.locator('#historyCount').filter({hasText:'2 εγγραφές'}).waitFor();
-    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history&id=bike-28').length,1);
+    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history-preview&id=bike-28').length,1);
+    assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history&id=bike-28').length,0);
     await embedded.getByRole('button',{name:'Σύνοψη',exact:true}).click();
     await embedded.locator('#detailCheckButton').click();
     await embedded.locator('#quickBikePicker').click();
@@ -141,9 +159,33 @@ try{for(const width of [390,1280]){
     assert.deepEqual(registrationOrder,Array.from({length:12},(_,i)=>'bike-'+i));
     await embedded.locator('[data-pick-bike="bike-28"]').click();
     await embedded.locator('#quickCurrentKm').fill('9500');
+    if(width===390)writeOffline=true;
     await embedded.locator('#quickCheckForm button[type="submit"]').click();
-    await embedded.locator('#quickCheckResult').getByText(/Ο έλεγχος αποθηκεύτηκε/).waitFor();
-    assert.equal(mileageWrites,1);
+    if(width===390){
+      await embedded.locator('#quickCheckResult').getByText(/Σε αναμονή επιβεβαίωσης/).waitFor();
+      await embedded.locator('#quickBikePicker').click();
+      await embedded.locator('[data-pick-bike="bike-27"]').click();
+      await embedded.locator('#quickCurrentKm').fill('9600');
+      await embedded.locator('#quickCheckForm button[type="submit"]').click();
+      await embedded.locator('#quickMileageQueue').getByText('2 σε αναμονή αποστολής').waitFor();
+      assert.equal(mileageReceipts.size,0,'selecting and saving the next bike did not wait for the offline server');
+      await page.reload();
+      await page.locator('#portal').waitFor({state:'visible'});
+      await fleet.click();
+      await embedded.locator('#bikeCount').filter({hasText:'29'}).waitFor();
+      await embedded.locator('[data-bike-id="bike-27"]').click();
+      await embedded.locator('#detailCheckButton').click();
+      await embedded.locator('#quickMileageQueue').getByText('2 σε αναμονή αποστολής').waitFor();
+      dropAcknowledgment=true;
+      writeOffline=false;
+      await embedded.locator('#quickMileageQueue').waitFor({state:'hidden',timeout:15000});
+      assert.equal(mileageReceipts.size,2,'both offline submissions reached the server after reload');
+      assert.equal(new Set(mileageAttempts.map(attempt=>attempt.id)).size,2,'failed transport and a lost acknowledgment reuse the original IDs');
+      assert.ok(mileageAttempts.length>2);
+    }else{
+      await embedded.locator('#quickCheckResult').getByText(/Ο έλεγχος αποθηκεύτηκε/).waitFor();
+      assert.equal(mileageReceipts.size,1);
+    }
     await embedded.locator('#quickCheckBackButton').click();
     await embedded.locator('#detailBackButton').click();
     await embedded.locator('#homeView').waitFor({state:'visible'});
@@ -171,4 +213,4 @@ try{for(const width of [390,1280]){
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);assert.deepEqual(errors,[]);assert.deepEqual(missing,[]);
   }catch(error){fs.writeFileSync(path.join(out,'error-'+width+'.json'),JSON.stringify({requests,errors,missing},null,2));await page.screenshot({path:path.join(out,'error-'+width+'.png'),fullPage:true});throw error;}finally{await context.close();}
 }}finally{await browser.close();}
-console.log('PASS normal Direct Portal/Fleet/Invoices at 390/1280: same-origin and fresh owner session; compact first layout with 29 bikes and >6 MB of stored history; background history reuse, confirmed mileage write, and all 57 global invoices in two reads. Synthetic data/network; physical Note10+/Nova not measured.');
+console.log('PASS Direct Portal/Fleet/Invoices at 390/1280: all 29 compact histories before opening, two offline mileage checks survive reload and replay the lost acknowledgment, and all 57 invoices arrive in two reads. Physical Android and network timing are separate.');

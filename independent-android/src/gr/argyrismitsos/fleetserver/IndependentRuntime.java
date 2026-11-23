@@ -8,7 +8,7 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
     private final Context context;private FleetDataStore store;private SQLiteDatabase db,readDatabase;private IndependentReadModels readModels;private NativeBusinessEngine engine;private final JSONObject config;
     private final IndependentWorkQueue executor=new IndependentWorkQueue();
     private final RandomAccessFile lockFile;private java.nio.channels.FileLock processLock;
-    private long housekeepingAt;private volatile Thread writer;private volatile boolean closed;private long revision=0;private final Object changes=new Object();
+    private long housekeepingAt,storeWeekCheckAt;private volatile Thread writer;private volatile boolean closed;private long revision=0;private final Object changes=new Object();
     static String asset(Context c,String name)throws Exception{try(InputStream input=c.getAssets().open(name);ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] bytes=new byte[65536];int n;while((n=input.read(bytes))!=-1){if(out.size()+n>8*1024*1024)throw new IOException("Oversized bundled asset");out.write(bytes,0,n);}return new String(out.toByteArray(),"UTF-8");}}
     private IndependentRuntime(final Context c)throws Exception{
         context=c;config=IndependentConfig.read(c);if(!config.has("backupSha256")||!config.getJSONObject("restoreProof").optBoolean("restoreVerified"))throw new IOException("Εισήγαγε πρώτα πλήρες επαληθευμένο backup.");
@@ -24,7 +24,7 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
             public void beforeCommit(JSONObject response,boolean internal)throws Exception{checkAuthority();}
         },new NativeBusinessEngine.Ports(){public JSONObject call(String command,JSONObject value,BusinessObjects objects)throws Exception{return port(command,value,objects);}});
         // Initialize the same schema/business handlers against the imported local database.
-        internal("/api/status","GET",null);IndependentReadModels.install(db);readDatabase=SQLiteDatabase.openDatabase(db.getPath(),null,SQLiteDatabase.OPEN_READONLY);
+        internal("/api/status","GET",null);new StoreBillingStore(store);IndependentReadModels.install(db);readDatabase=SQLiteDatabase.openDatabase(db.getPath(),null,SQLiteDatabase.OPEN_READONLY);
         readModels=new IndependentReadModels(readDatabase,IndependentConfig.realm(config),config.getString("authPepper"),new IndependentReadModels.Loader(){
             public void schedule(final Runnable task){executor.submit(new Callable<Void>(){public Void call(){writer=Thread.currentThread();try{task.run();return null;}finally{Thread.interrupted();}}},2);}
             public JSONObject compute(JSONObject request)throws Exception{checkAuthority();return projectionJson(request,dispatch(request,false));}
@@ -65,6 +65,13 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
     private JSONArray query(String sql)throws Exception{return new BusinessSqlite(db).call("sql.query",new JSONObject().put("sql",sql)).getJSONArray("results");}
     JSONObject status()throws Exception{JSONObject saved=IndependentConfig.read(context);return new JSONObject().put("instanceId",config.getString("instanceId")).put("mode",query("SELECT mode FROM independent_instance WHERE id=1").getJSONObject(0).getString("mode")).put("endpoint",IndependentConfig.realm(config)).put("serverOnline",!closed).put("backupVerified",true).put("restoredAt",config.getLong("restoredAt")).put("lastBackupAt",saved.optLong("lastBackupAt")).put("ordexaLastSuccessAt",OrdexaSync.status(context).optString("lastSuccess")).put("testOrdexa",saved.optBoolean("testOrdexa")).put("sourceIntervalMs",300000).put("externalTestRequired",true);}
     private JSONObject dispatch(JSONObject request,boolean internal)throws Exception{
+        JSONObject headers=request.getJSONObject("headers");
+        String expected=headers.optString("x-fleet-instance");
+        if(!internal&&!expected.isEmpty()&&request.optString("method").equals("POST")
+                &&new URI(request.getString("url")).getPath().equals("/api/sync/bike")&&!expected.equals(config.getString("instanceId"))){
+            JSONObject error=new JSONObject().put("error","Άλλαξε ο Server. Έλεγξε την καταχώριση πριν επαναλάβεις.").put("code","mileage_instance_changed");
+            return new JSONObject().put("status",409).put("body",error.toString());
+        }
         long started=System.nanoTime();JSONObject result;try{result=engine.request(request,internal,30000);}finally{BusinessSqlite.recordTiming("business.request",System.nanoTime()-started);}
         if(result.optInt("status")==200&&new URI(request.getString("url")).getPath().equals("/api/independent/activate"))context.getSharedPreferences("independent_ui",Context.MODE_PRIVATE).edit().putString("mode",new JSONObject(result.getString("body")).optString("mode","test")).apply();
         // Signals leave the writer only after the native request transaction committed.
@@ -76,7 +83,8 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
         if (!request.optString("method").equals("GET")) return 0;
         URI url = new URI(request.getString("url"));
         JSONObject headers = request.optJSONObject("headers");
-        if (url.getPath().equals("/api/sync/bike") && url.getRawQuery() != null && url.getRawQuery().startsWith("view=history&")
+        if (url.getPath().equals("/api/sync/bike") && url.getRawQuery() != null
+                && (url.getRawQuery().startsWith("view=history&") || url.getRawQuery().startsWith("view=history-preview&"))
                 && headers != null && headers.optString("x-fleet-read-priority").equals("background")) return 2;
         return 1;
     }
@@ -89,13 +97,17 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
             return materialize(request,result);
         }},requestPriority(request));return afterExternal(request,response);
     }
-    private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{return response;}
+    private JSONObject afterExternal(JSONObject request,JSONObject response)throws Exception{
+        JSONObject headers=response.optJSONObject("headers");
+        if(headers!=null&&headers.has("x-fleet-actor"))headers.put("x-fleet-instance",config.getString("instanceId"));
+        return response;
+    }
     private void warmViews(JSONObject login)throws Exception{
         if(readModels==null||!login.has("body"))return;JSONObject value=new JSONObject(login.getString("body"));String token=value.optString("token");if(token.isEmpty())return;JSONObject headers=new JSONObject().put("Authorization","Bearer "+token);
-        Calendar calendar=Calendar.getInstance(TimeZone.getTimeZone("Europe/Athens"));if(calendar.get(Calendar.HOUR_OF_DAY)<5)calendar.add(Calendar.DATE,-1);java.text.SimpleDateFormat format=new java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US);format.setTimeZone(calendar.getTimeZone());String day=format.format(calendar.getTime());while(calendar.get(Calendar.DAY_OF_WEEK)!=Calendar.MONDAY)calendar.add(Calendar.DATE,-1);String monday=format.format(calendar.getTime());calendar.add(Calendar.DATE,6);String sunday=format.format(calendar.getTime());
+        Calendar calendar=Calendar.getInstance(TimeZone.getTimeZone("Europe/Athens"));if(calendar.get(Calendar.HOUR_OF_DAY)<5)calendar.add(Calendar.DATE,-1);java.text.SimpleDateFormat format=new java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US);format.setTimeZone(calendar.getTimeZone());String day=format.format(calendar.getTime());while(calendar.get(Calendar.DAY_OF_WEEK)!=Calendar.MONDAY)calendar.add(Calendar.DATE,-1);String monday=format.format(calendar.getTime());
         JSONObject user=value.optJSONObject("user");if(user==null)return;Set<String> permissions=new HashSet<String>();JSONArray allowed=user.optJSONArray("permissions");if(allowed!=null)for(int i=0;i<allowed.length();i++)permissions.add(allowed.optString(i));
         if(user.optString("role").equals("employee")){readModels.warm(headers,"/api/employee/home");if(permissions.contains("select_vehicle"))readModels.warm(headers,"/api/workforce/vehicles");return;}
-        for(String[] target:new String[][]{{"/api/workforce/vehicles","fleet.view"},{"/api/admin/employees","employees.view"},{"/api/admin/ordexa-server/dashboard","dashboard.view"},{"/api/admin/ordexa-server/shifts?day="+day,"shifts.view"},{"/api/admin/schedule-week?week="+monday,"schedules.view"},{"/api/admin/ordexa-server/payroll?week="+monday,"payroll.view"},{"/api/admin/service-documents?paged=1","fleet.view"},{"/api/native/cash?from="+day+"&to="+day+"&period=day&courierId=&offset=0","cash.view"},{"/api/native/cash/rules","cash.view"},{"/api/native/store-financials?from="+monday+"&to="+sunday+"&period=week&storeId=&offset=0","stores.view"},{"/api/admin/alerts","alerts.view"},{"/api/native/health","alerts.view"},{"/api/admin/settings","settings.manage"},{"/api/admin/recycle","audit.view"},{"/api/admin/audit","audit.view"}})if(permissions.contains("*")||permissions.contains(target[1]))readModels.warm(headers,target[0]);
+        for(String[] target:new String[][]{{"/api/workforce/vehicles","fleet.view"},{"/api/admin/employees","employees.view"},{"/api/admin/ordexa-server/dashboard","dashboard.view"},{"/api/admin/ordexa-server/shifts?day="+day,"shifts.view"},{"/api/admin/schedule-week?week="+monday,"schedules.view"},{"/api/admin/ordexa-server/payroll?week="+monday,"payroll.view"},{"/api/admin/service-documents?paged=1","fleet.view"},{"/api/native/cash?from="+day+"&to="+day+"&period=day&courierId=&offset=0","cash.view"},{"/api/native/cash/rules","cash.view"},{"/api/admin/alerts","alerts.view"},{"/api/native/health","alerts.view"},{"/api/admin/settings","settings.manage"},{"/api/admin/recycle","audit.view"},{"/api/admin/audit","audit.view"}})if(permissions.contains("*")||permissions.contains(target[1]))readModels.warm(headers,target[0]);
     }
 
     JSONObject localLogin(String username,String password)throws Exception{return external(new JSONObject().put("url",IndependentConfig.realm(config)+"/api/auth/user-login").put("method","POST").put("headers",new JSONObject().put("Content-Type","application/json")).put("body",new JSONObject().put("username",username).put("password",password).put("deviceName","Independent owner console").toString()));}
@@ -166,7 +178,22 @@ public final class IndependentRuntime implements FleetHttp.LocalTransport,AutoCl
     long revision(){synchronized(changes){return revision;}}
     long await(long after)throws InterruptedException{synchronized(changes){if(revision==after)changes.wait(15000);return revision;}}
     String realm(){return IndependentConfig.realm(config);}
-    void jobs()throws Exception{long now=System.currentTimeMillis();if(readModels!=null)readModels.refreshDirty();if(now-housekeepingAt>=60000){internal("/api/server/heartbeat","POST",new JSONObject().put("serverVersion",ServerConfig.SERVER_VERSION).put("health",DeviceHealth.collect(context)));internal("/api/independent/maintenance","POST",new JSONObject());housekeepingAt=now;}if(!IndependentConfig.read(context).optBoolean("testOrdexa"))return;OrdexaSync.tick(context);StoreBillingSync.tick(context,store);OrdexaPayrollSync.tick(context,store);CashSync.tick(context,store);}
+    void jobs()throws Exception{
+        long now=System.currentTimeMillis();
+        if(readModels!=null)readModels.refreshDirty();
+        if(now-housekeepingAt>=60000){
+            internal("/api/server/heartbeat","POST",new JSONObject().put("serverVersion",ServerConfig.SERVER_VERSION).put("health",DeviceHealth.collect(context)));
+            internal("/api/independent/maintenance","POST",new JSONObject());housekeepingAt=now;
+        }
+        if(now>=storeWeekCheckAt){
+            storeWeekCheckAt=now+30000;
+            try{
+                if(internal("/api/independent/store-week-prepare","POST",null).optBoolean("prepared"))storeWeekCheckAt=now+1000;
+            }catch(Exception unavailable){/* Foreground reports remain available. */}
+        }
+        if(!IndependentConfig.read(context).optBoolean("testOrdexa"))return;
+        OrdexaSync.tick(context);StoreBillingSync.tick(context,store);OrdexaPayrollSync.tick(context,store);CashSync.tick(context,store);
+    }
     static String iso(){return iso(System.currentTimeMillis());}static String iso(long time){java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX",Locale.US);return f.format(new Date(time));}
     @Override public synchronized void close()throws Exception{closed=true;executor.shutdownNow();if(readModels!=null)readModels.close();if(readDatabase!=null)readDatabase.close();engine.close();store.close();processLock.release();lockFile.close();synchronized(IndependentRuntime.class){if(instance==this)instance=null;}}
 }

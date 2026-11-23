@@ -387,10 +387,15 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String getClientUpdateState() {
             try {
                 org.json.JSONObject state=new org.json.JSONObject(updateStateJson);
+                OtaInstaller.reconcile(MainActivity.this,availableUpdate==null?0:availableUpdate.versionCode);
                 SharedPreferences installer=OtaInstaller.preferences(MainActivity.this);
                 String nativeStage=installer.getString("status","");
-                if (!updateCheckInFlight.get() && !updateDownloadInFlight.get() && ("installing".equals(nativeStage)||"confirmation".equals(nativeStage)||("failed".equals(nativeStage) && ("installing".equals(state.optString("stage")) || "confirmation".equals(state.optString("stage")))))) {
+                boolean wasInstalling="installing".equals(state.optString("stage"))||"confirmation".equals(state.optString("stage"));
+                if (!updateCheckInFlight.get() && !updateDownloadInFlight.get() && ("installing".equals(nativeStage)||"confirmation".equals(nativeStage)||("failed".equals(nativeStage) && wasInstalling))) {
                     state.put("stage",nativeStage).put("message",installer.getString("message",""));
+                } else if("success".equals(nativeStage)&&wasInstalling) {
+                    state.put("stage","current").put("message",installer.getString("message",""));
+                    state.remove("ready");
                 }
                 return state.toString();
             } catch(Exception error){return updateStateJson;}
@@ -479,6 +484,24 @@ public class MainActivity extends Activity {
             transientAuthToken = "";
             if(!authRealm.isEmpty())gr.argyrismitsos.fleetupdates.SessionVault.clear(getSharedPreferences(SESSION_PREFERENCES, MODE_PRIVATE),realmTokenKey(authRealm));
             AlertJobService.cancel(getApplicationContext());
+            }
+        }
+
+        @JavascriptInterface
+        public void stageMileageCheck(String body, String instance, String token) {
+            if (BackendSelection.DIRECT.equals(authRealm) && token != null && !token.isEmpty()
+                    && token.equals(transientAuthToken)) {
+                try { MileageSyncJob.stage(getApplicationContext(), body, instance, token); }
+                catch (Exception ignored) { /* The in-app draft remains available. */ }
+            }
+        }
+
+        @JavascriptInterface
+        public void finishMileageCheck(String id, String token) {
+            if (BackendSelection.DIRECT.equals(authRealm) && token != null && !token.isEmpty()
+                    && token.equals(transientAuthToken)) {
+                try { MileageSyncJob.discard(getApplicationContext(), id, token); }
+                catch (Exception ignored) { /* A retry uses the same operation ID. */ }
             }
         }
 
