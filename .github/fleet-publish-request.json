@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "mode": "candidate",
-  "requestId": "fleet-729c70b8-7f13-4775-a9fb-a997a32bb428",
-  "sourceCommit": "a4df892b92fbb5e9b399527fa0aada80d79fe4d2",
+  "mode": "publish",
+  "requestId": "fleet-2129b367-c350-4e83-a2fa-71c0a58a2d8c",
+  "sourceCommit": "7aeba29872455b8c478e332723bc66c90ca3acaf",
   "releaseVersion": "5.67.5",
-  "requestedAt": "2026-11-23T23:57:59.159Z",
-  "reason": "Υπογεγραμμένη δοκιμή των καταχωρίσεων χιλιομέτρων, του ιστορικού, των έτοιμων εβδομάδων και της ενημέρωσης Android πριν από την κανονική κυκλοφορία"
+  "requestedAt": "2026-11-24T14:24:33.639Z",
+  "reason": "Ρητή εντολή ιδιοκτήτη για απευθείας δημοσίευση του Client 5.67.5 και του Server 2.16.4 στις Ενημερώσεις στις 24/11/2026"
 }
