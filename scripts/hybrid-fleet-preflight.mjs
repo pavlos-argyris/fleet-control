@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { stableReviewJson } from '../cloudflare-worker/src/invoice-review-store.js';
+import { fleetRecordId } from '../cloudflare-worker/src/snapshot-store.js';
 import '../cloudflare-worker/public/service-model.js';
 
 const APP_ID = 0x464c5450;
@@ -124,11 +125,12 @@ function inspectFleet(db, native, objects) {
   check(Array.isArray(fleet.bikes),'Invalid canonical Fleet snapshot');
   const model=globalThis.FleetServiceModel;
   function inspectEntry(bikeId, entry, group) {
-    check(typeof entry?.id==='string' && entry.id && ['service','check'].includes(entry.type),'Invalid Fleet history record');
-    inventory.put(group,[bikeId,entry.id],entry);
+    const entryId=fleetRecordId(entry?.id);
+    check(entryId && ['service','check'].includes(entry.type),'Invalid Fleet history record');
+    inventory.put(group,[bikeId,entryId],entry);
     collectFiles(entry,fileKeys);
     if (group!=='history' || entry.type!=='service') return;
-    serviceKeys.add(stableReviewJson([bikeId,entry.id]));
+    serviceKeys.add(stableReviewJson([bikeId,entryId]));
     const attachments=entry.attachments||[];
     if (!attachments.length) {
       const amount=model.cents(entry.cost);
@@ -145,15 +147,16 @@ function inspectFleet(db, native, objects) {
       totals.invoiceVatCents+=amounts.vat??0;
       if (amounts.gross===null) totals.missingInvoiceGross++;
       else { totals.invoiceGrossCents+=amounts.gross; totals.serviceCents+=amounts.gross; }
-      inventory.put('invoices',[bikeId,entry.id,attachment.key],attachment);
+      inventory.put('invoices',[bikeId,entryId,attachment.key],attachment);
     }
   }
   for (const bike of fleet.bikes) {
-    check(typeof bike?.id==='string' && bike.id && Array.isArray(bike.history),'Invalid Fleet machine record');
-    machineIds.add(bike.id);
+    const bikeId=fleetRecordId(bike?.id);
+    check(bikeId && Array.isArray(bike.history),'Invalid Fleet machine record');
+    machineIds.add(bikeId);
     const {history,...record}=bike;
-    inventory.put('machines',[bike.id],record);
-    for (const entry of history) inspectEntry(bike.id,entry,'history');
+    inventory.put('machines',[bikeId],record);
+    for (const entry of history) inspectEntry(bikeId,entry,'history');
   }
   for (const row of db.prepare('SELECT * FROM vehicle_archives ORDER BY bike_id').iterate()) {
     inventory.put('machineArchives',[row.bike_id],row);
@@ -164,7 +167,7 @@ function inspectFleet(db, native, objects) {
   }
   for (const row of db.prepare(`SELECT * FROM deleted_records WHERE record_type='fleet_history' ORDER BY id`).iterate()) {
     const {bikeId,entry}=JSON.parse(row.payload);
-    check(typeof bikeId==='string' && typeof entry?.id==='string','Invalid Fleet record in trash');
+    check(fleetRecordId(bikeId) && fleetRecordId(entry?.id),'Invalid Fleet record in trash');
     inventory.put('historyTrash',[row.id],row);
     collectFiles(entry,fileKeys);
   }
@@ -180,14 +183,13 @@ function inspectFleet(db, native, objects) {
     inventory.put('pendingInvoiceJobs',[row.id],row);
     const job=JSON.parse(row.payload);
     if (row.type==='service_document_render' &&
-      !(job.draftId ? draftIds.has(job.draftId) : serviceKeys.has(stableReviewJson([job.bikeId,job.entryId])))) unresolvedJobTargets++;
+      !(job.draftId ? draftIds.has(job.draftId) : serviceKeys.has(stableReviewJson([fleetRecordId(job.bikeId),fleetRecordId(job.entryId)])))) unresolvedJobTargets++;
   }
   for (const row of db.prepare(`SELECT * FROM audit_log WHERE object_type IN ('fleet','fleet_history','service_document','vehicle')
     ORDER BY id`).iterate()) inventory.put('fleetAudit',[row.id],row);
   const files=verifyFiles(db,native,objects,fileKeys,inventory);
   const blockingReasons=[];
   if (files.missing) blockingReasons.push('fleet_attachments_missing');
-  if (unresolvedJobTargets) blockingReasons.push('invoice_job_target_missing');
   if (totals.invoiceAmountDiscrepancies) blockingReasons.push('source_invoice_amount_mismatch');
   if (totals.duplicateInvoiceLinks) blockingReasons.push('duplicate_invoice_link');
   const inventoryProof=inventory.proof();
@@ -197,7 +199,7 @@ function inspectFleet(db, native, objects) {
 
 // Consumes the already authenticated, decrypted private copy produced by
 // NativeBackupReader. This tool never opens the running Android database.
-export function inspectNativeFleetBackup({database,manifest,objects}) {
+export function inspectNativeFleetBackup({database,manifest,objects}, inspectExtra) {
   for (const suffix of ['-wal','-shm','-journal']) check(!existsSync(database+suffix),'Expected a closed backup SQLite without sidecars');
   const before=fileProof(database);
   check(before.size===manifest.size && before.sha256===manifest.sha256,'Native backup SQLite checksum differs');
@@ -207,6 +209,7 @@ export function inspectNativeFleetBackup({database,manifest,objects}) {
     db.exec('PRAGMA query_only=ON; PRAGMA trusted_schema=OFF;');
     verifyNativeSchema(db,manifest);
     fleet=inspectFleet(db,manifest,objects);
+    if (inspectExtra) inspectExtra(db);
   } finally { db.close(); }
   check(fileProof(database).sha256===before.sha256,'Backup database changed during the rehearsal');
   return {...fleet,format:'fleet-scope-preflight-v1',capturedAt:manifest.capturedAt,sourceDatabaseSha256:before.sha256,

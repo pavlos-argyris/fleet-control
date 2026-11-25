@@ -29,7 +29,7 @@ const direct='https://fleet-control.duckdns.org';
 {
   const urls=[],states=[],notices=[];let failMerge=true;
   const remote=Array.from({length:29},(_,i)=>({id:'bike-'+i,name:'Fixture '+i,history:[]}));
-  const context={navigator:{onLine:true},syncRunning:false,syncQueued:false,fleetLoaded:false,webToken:'fixture',pendingFleetChange:false,
+  const context={navigator:{onLine:true},syncRunning:false,syncQueued:false,syncFlight:null,fleetLoaded:false,webToken:'fixture',pendingFleetChange:false,
     cloudSnapshotVersion:null,minimumFleetRevision:0,bikes:[],apiBase:direct,activeBikeId:null,config:{independent:true},
     window:{FleetServiceModel:globalThis.FleetServiceModel},setTimeout,Set,localStorage:{},sessionStorage:{},
     setSyncState:(state)=>states.push(state),fleetLoading:(message,failed)=>notices.push({message,failed}),

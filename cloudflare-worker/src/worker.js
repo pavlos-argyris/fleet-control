@@ -11,7 +11,7 @@ const ServiceModel = globalThis.FleetServiceModel;
 import '../public/fleet-operations-model.js';
 const OperationsModel = globalThis.FleetOperationsModel;
 import { INVOICE_IMPORT_SCHEMA, routeInvoiceImports, readImportDraftForJob, finishImportDraft, restartImportDraft, invoiceDuplicates } from './invoice-imports.js';
-import { visibleSnapshotRow, snapshotSummary, snapshotPage, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike, fleetCard, fleetCardRow, fleetQrCandidates } from "./snapshot-store.js";
+import { visibleSnapshotRow, snapshotSummary, snapshotPage, fleetRecordId, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike, fleetCard, fleetCardRow, fleetQrCandidates } from "./snapshot-store.js";
 import { routeServiceOperations } from './service-operations.js';
 import { stableReviewJson, readReviewReceipt, commitInvoiceReview } from './invoice-review-store.js';
 import { TARGETED_SERVICE_QR_SCHEMA, activeQrReservation, checkTargetedInvoiceRead, reserveTargetedQr, targetedQrReplay, validTargetedOperationId } from './targeted-service-qr.js';
@@ -182,6 +182,7 @@ async function route(request, env) {
   const invoiceImport=await routeInvoiceImports(request,env,{json,serverAuthorized,authenticateExternal,cleanText,qrUrlFromValue,isPublicExternalQrUrl,recordExternalAudit,fleetNames,readSnapshotBike,writeSnapshotBike,normalizeBike,attachServiceDocumentMetadata});
   if(invoiceImport)return invoiceImport;
   if (path === "/api/service-documents" && request.method === "POST") return uploadServiceDocument(request, env);
+  if (path === "/api/service-documents/target" && request.method === "GET") return serviceDocumentTarget(request, env);
   if (path === "/api/service-documents" && request.method === "DELETE") return deleteServiceDocument(request, env);
   if (path === "/api/service-documents/import-qr" && request.method === "POST") return importQrServiceDocument(request, env);
   if (path === "/api/service-documents/import-targeted-qr" && request.method === "POST") return importQrServiceDocument(request, env, true);
@@ -253,6 +254,22 @@ async function route(request, env) {
   return serveWeb(request, env);
 }
 
+function invoiceTargetMissing() {
+  return json({code:'invoice_target_missing',error:'Το επιλεγμένο σέρβις χρειάζεται επαλήθευση στον Server πριν συνδεθεί το τιμολόγιο.'},404);
+}
+
+async function serviceDocumentTarget(request, env) {
+  let actor;
+  try { actor = await authenticateExternal(request, env, 'fleet.manage'); }
+  catch (error) { return json({error:error?.message || 'Χρειάζεται σύνδεση διαχείρισης.'},Number(error?.status) || 401); }
+  if (!isManagementActor(actor)) return json({error:'Χρειάζεται πρόσβαση διαχείρισης.'},403);
+  const params = new URL(request.url).searchParams;
+  const bikeId=fleetRecordId(params.get('bikeId')), entryId=fleetRecordId(params.get('entryId'));
+  if (!bikeId || !entryId) return json({error:'Μη έγκυρη σύνδεση σέρβις.'},400);
+  const target=await readServiceEntry(env,bikeId,entryId);
+  return target?.entry.type==='service' ? json({bikeId,entryId,version:target.version}) : invoiceTargetMissing();
+}
+
 async function uploadServiceDocument(request, env) {
   let actor;
   try { actor = await authenticateExternal(request, env, "fleet.manage"); }
@@ -261,8 +278,8 @@ async function uploadServiceDocument(request, env) {
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > 16 * 1024 * 1024) return json({ error: "Το τιμολόγιο δεν μπορεί να ξεπερνά τα 16 MB." }, 413);
   const form = await request.formData();
-  const bikeId = cleanText(form.get("bikeId"), 80);
-  const entryId = cleanText(form.get("entryId"), 120);
+  const bikeId = fleetRecordId(form.get("bikeId"));
+  const entryId = fleetRecordId(form.get("entryId"));
   const qrValue = normalizeQrValue(form.get("qrValue"));
   const file = form.get("file");
   if (!bikeId || !entryId || !file || typeof file.arrayBuffer !== "function") return json({ error: "Λείπει το αρχείο ή η σύνδεση με το service." }, 400);
@@ -273,10 +290,8 @@ async function uploadServiceDocument(request, env) {
   const allowed = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
   if (!allowed.has(type)) return json({ error: "Υποστηρίζονται μόνο PDF, JPG, PNG ή WEBP." }, 415);
   if (Number(file.size || 0) > 15 * 1024 * 1024) return json({ error: "Το τιμολόγιο δεν μπορεί να ξεπερνά τα 15 MB." }, 413);
-  const snapshot = await readSnapshot(env);
-  const bike = (snapshot.data.bikes || []).find((item) => String(item.id) === bikeId);
-  const entry = bike && (bike.history || []).find((item) => String(item.id) === entryId);
-  if (!entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε. Αποθήκευσε πρώτα το service και ξαναδοκίμασε." }, 404);
+  const entry = (await readServiceEntry(env,bikeId,entryId))?.entry;
+  if (!entry || entry.type === "check") return invoiceTargetMissing();
   const uploadId = cleanText(form.get("uploadId"), 100);
   if (uploadId && !/^[a-zA-Z0-9_-]{16,100}$/.test(uploadId)) return json({ error: "Μη έγκυρος κωδικός αποστολής." }, 400);
   const existing = uploadId && (entry.attachments || []).find(item => item.uploadId === uploadId);
@@ -745,8 +760,8 @@ async function importQrServiceDocument(request, env, targeted = false) {
   catch (error) { return json({ error: error?.message || "Χρειάζεται σύνδεση διαχείρισης." }, Number(error?.status) || 401); }
   if (!isManagementActor(actor)) return json({ error: "Η εισαγωγή τιμολογίου επιτρέπεται μόνο σε λογαριασμό διαχείρισης." }, 403);
   const body = await request.json().catch(() => ({}));
-  const bikeId = cleanText(body.bikeId, 80);
-  const entryId = cleanText(body.entryId, 120);
+  const bikeId = fleetRecordId(body.bikeId);
+  const entryId = fleetRecordId(body.entryId);
   const qrValue = normalizeQrValue(body.value);
   const qrUrl = qrUrlFromValue(qrValue);
   const targetedOperationId = targeted ? body.targetedOperationId : '';
@@ -756,7 +771,7 @@ async function importQrServiceDocument(request, env, targeted = false) {
   if (targeted && new URL(qrUrl).protocol !== 'https:') return json({error:'Ο σύνδεσμος QR πρέπει να χρησιμοποιεί HTTPS.'},422);
   const located = await readServiceEntry(env, bikeId, entryId);
   const entry = located?.entry;
-  if (!entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε. Αποθήκευσε πρώτα το service και ξαναδοκίμασε." }, 404);
+  if (!entry || entry.type === "check") return invoiceTargetMissing();
   const sourcePhotoKey=cleanText(body.sourcePhotoKey,500);
   const photo=sourcePhotoKey?(entry.attachments||[]).flatMap(file=>[file,file.sourcePhoto]).find(file=>file?.key===sourcePhotoKey&&ServiceModel.sourcePhoto(file)):null;
   if(sourcePhotoKey&&!photo)return json({error:"Η αρχική φωτογραφία δεν βρέθηκε στο service."},404);
@@ -778,29 +793,7 @@ async function importQrServiceDocument(request, env, targeted = false) {
   if(duplicateMatches.length&&!body.allowDuplicate)return json({error:"Το τιμολόγιο υπάρχει ήδη σε άλλο service.",code:"duplicate_invoice",matches:duplicateMatches},409);
   const pending = await findPendingServiceRender(env, bikeId, entryId, qrUrl);
   if (!pending && !photo && (entry.attachments || []).length >= MAX_SERVICE_ATTACHMENTS) return json({ error: "Μπορείς να κρατήσεις έως 10 τιμολόγια σε ένα service. Τα υπάρχοντα αρχεία διατηρούνται." }, 409);
-  if (pending) {
-    if(photo&&!pending.payload.sourcePhotoKey){const updated={...pending.payload,sourcePhotoKey};await env.DB.prepare("UPDATE fleet_operations SET payload=? WHERE id=? AND status='pending' AND payload=?").bind(JSON.stringify(updated),pending.id,JSON.stringify(pending.payload)).run();pending.payload=updated;}
-    await updateServiceDocumentProcessingSnapshot(env, pending.payload, {
-      jobId: pending.id,
-      status: "processing",
-      progress: pending.payload.progress || 5,
-      stage: pending.payload.progressStage || "Αναμονή από τον Server",
-      error: pending.payload.lastError || "",
-      attempts: Number(pending.payload.attemptCount || 0)
-    });
-    return json({
-      ok: true,
-      queued: true,
-      jobId: pending.id,
-      progress: Number(pending.payload.progress || 5),
-      stage: pending.payload.progressStage || "Αναμονή από τον Server",
-      documentAvailable: false,
-      qrValue,
-      qrUrl,
-      code: "server_render_queued",
-      message: "Το QR στάλθηκε στον Server για δημιουργία PDF."
-    }, 202);
-  }
+  if (pending) return respondToQueuedRender(env,pending,qrValue,qrUrl,sourcePhotoKey);
   const jobId = crypto.randomUUID();
   const payload = {
     bikeId,
@@ -819,23 +812,35 @@ async function importQrServiceDocument(request, env, targeted = false) {
   const inserted = await env.DB.prepare(`INSERT INTO fleet_operations(id,source,type,payload,status,created_at)
     SELECT ?,'authenticated-client','service_document_render',?,'pending',?
     WHERE NOT EXISTS (SELECT 1 FROM fleet_operations WHERE type='service_document_render' AND status IN ('pending','error')
-      AND json_extract(payload,'$.qrUrl')=? AND json_extract(payload,'$.targetedOperationId') IS NOT NULL)`)
-    .bind(jobId, JSON.stringify(payload), new Date().toISOString(), qrUrl).run();
-  if (!inserted.meta?.changes) return json({error:'Το QR εκκρεμεί σε ρητά επιλεγμένο σέρβις.',code:'targeted_qr_reserved'},409);
-  await updateServiceDocumentProcessingSnapshot(env, payload, {
-    jobId,
-    status: "processing",
-    progress: 5,
-    stage: payload.progressStage,
-    error: "",
-    attempts: 0
-  });
+      AND json_extract(payload,'$.qrUrl')=? AND (json_extract(payload,'$.targetedOperationId') IS NOT NULL OR
+        (status='pending' AND CAST(json_extract(payload,'$.bikeId') AS TEXT)=? AND CAST(json_extract(payload,'$.entryId') AS TEXT)=?)))`)
+    .bind(jobId, JSON.stringify(payload), new Date().toISOString(), qrUrl, bikeId, entryId).run();
+  if (inserted.meta?.changes) return respondToQueuedRender(env,{id:jobId,payload},qrValue,qrUrl,sourcePhotoKey);
+  const concurrent = await findPendingServiceRender(env,bikeId,entryId,qrUrl);
+  if (concurrent) return respondToQueuedRender(env,concurrent,qrValue,qrUrl,sourcePhotoKey);
+  return json({error:'Το QR εκκρεμεί σε ρητά επιλεγμένο σέρβις.',code:'targeted_qr_reserved'},409);
+}
+
+async function respondToQueuedRender(env,job,qrValue,qrUrl,sourcePhotoKey) {
+  let {payload}=job;
+  if (sourcePhotoKey && !payload.sourcePhotoKey && !payload.targetedOperationId) {
+    const updated={...payload,sourcePhotoKey};
+    const saved=await env.DB.prepare("UPDATE fleet_operations SET payload=? WHERE id=? AND status='pending' AND payload=?")
+      .bind(JSON.stringify(updated),job.id,JSON.stringify(payload)).run();
+    if (saved.meta.changes) payload=updated;
+  }
+  if (sourcePhotoKey && sourcePhotoKey!==payload.sourcePhotoKey) {
+    return json({error:'Το QR εκκρεμεί με διαφορετικό αρχικό αρχείο. Η φωτογραφία διατηρείται.',code:'qr_source_conflict'},409);
+  }
+  const progress=Number(payload.progress||5),stage=payload.progressStage||'Αναμονή από τον Server';
+  await updateServiceDocumentProcessingSnapshot(env,payload,{jobId:job.id,status:'processing',progress,stage,
+    error:payload.lastError||'',attempts:Number(payload.attemptCount||0)});
   return json({
     ok: true,
     queued: true,
-    jobId,
-    progress: 5,
-    stage: payload.progressStage,
+    jobId:job.id,
+    progress,
+    stage,
     documentAvailable: false,
     qrValue,
     qrUrl,
@@ -871,16 +876,10 @@ async function enqueueTargetedQr(env, input, entry, actor, replay) {
 }
 
 async function findPendingServiceRender(env, bikeId, entryId, qrUrl) {
-  const result = await env.DB.prepare("SELECT id, payload FROM fleet_operations WHERE type = 'service_document_render' AND status = 'pending' ORDER BY created_at DESC LIMIT 100").all();
-  for (const row of result.results || []) {
-    try {
-      const payload = JSON.parse(row.payload || "{}");
-      if (String(payload.bikeId) === String(bikeId) && String(payload.entryId) === String(entryId) && String(payload.qrUrl) === String(qrUrl)) {
-        return { id: row.id, payload };
-      }
-    } catch {}
-  }
-  return null;
+  const row=await env.DB.prepare(`SELECT id,payload FROM fleet_operations WHERE type='service_document_render' AND status='pending'
+    AND json_extract(payload,'$.qrUrl')=? AND CAST(json_extract(payload,'$.bikeId') AS TEXT)=?
+    AND CAST(json_extract(payload,'$.entryId') AS TEXT)=? ORDER BY created_at,id LIMIT 1`).bind(qrUrl,String(bikeId),String(entryId)).first();
+  return row?{id:row.id,payload:JSON.parse(row.payload)}:null;
 }
 
 async function serviceDocumentJobStatus(request, env) {
@@ -1026,7 +1025,7 @@ async function restartServiceDocument(request, env) {
     if(!restarted)return json({error:"Το προσχέδιο έχει ήδη ολοκληρωθεί ή άλλαξε. Ανανέωσε τη λίστα."},409);
     return json({ok:true,restarted:true,jobId:restarted.jobId,previousJobId:jobId,status:"processing"});
   }
-  const located = await readServiceEntry(env,payload.bikeId || cleanText(body.bikeId,80),payload.entryId || cleanText(body.entryId,120));
+  const located = await readServiceEntry(env,payload.bikeId ?? body.bikeId,payload.entryId ?? body.entryId);
   if (!located || located.entry.type === "check") return json({error:"Το service δεν βρέθηκε."},404);
   if(payload.documentKey){await env.DB.prepare("UPDATE fleet_operations SET status='cancelled',applied_at=? WHERE id=? AND status IN ('pending','error')").bind(new Date().toISOString(),jobId).run();return queueStoredAnalysis(env,payload.documentKey,{});}
   const qrUrl = qrUrlFromValue(payload.qrUrl || body.qrUrl || located.entry.invoiceData?.qrUrl);
@@ -1205,7 +1204,7 @@ function adminServiceDocumentRecord(bike, entry, attachment, pending = null, all
 async function invoiceTransferOptions(request, env) {
   if (!await authorizedFor(request, env, "fleet.view")) return json({ error: "Χρειάζεται σύνδεση διαχείρισης." }, 401);
   const url = new URL(request.url);
-  const located = await readServiceEntry(env, cleanText(url.searchParams.get("bikeId"), 100), cleanText(url.searchParams.get("entryId"), 120));
+  const located = await readServiceEntry(env,url.searchParams.get("bikeId"),url.searchParams.get("entryId"));
   const key = cleanText(url.searchParams.get("key"), 500);
   const attachment = located?.entry.attachments?.find(item => String(item.key) === key);
   if (!located || !attachment) return json({ error: "Το τιμολόγιο δεν βρέθηκε." }, 404);
@@ -2207,7 +2206,7 @@ function strictCalendarDate(value) {
 
 function normalizeDeletedHistoryIds(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((id) => cleanText(id, 100)).filter(Boolean))].slice(0, MAX_HISTORY);
+  return [...new Set(value.map(fleetRecordId).filter(Boolean))].slice(0, MAX_HISTORY);
 }
 
 function normalizeQrValue(value) {
@@ -2584,7 +2583,7 @@ function normalizeHistory(value) {
   const seen = new Set();
   return value.slice(0, MAX_HISTORY).flatMap((item) => {
     if (!item || typeof item !== "object") return [];
-    const id = cleanText(item.id, 100);
+    const id = fleetRecordId(item.id);
     if (!id || seen.has(id)) return [];
     seen.add(id);
     let tasks = Array.isArray(item.tasks)
@@ -2670,7 +2669,7 @@ function correctedMetrics(history, odometerFloorKm = 0) {
 
 function normalizeBike(value) {
   if (!value || typeof value !== "object") return null;
-  const id = cleanText(value.id, 100);
+  const id = fleetRecordId(value.id);
   const name = cleanText(value.name, 40);
   if (!id || !name) return null;
   const now = new Date().toISOString();
@@ -3661,8 +3660,8 @@ async function uploadServerRenderedServiceDocument(request, env) {
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > 16 * 1024 * 1024) return json({ error: "Το τιμολόγιο δεν μπορεί να ξεπερνά τα 16 MB." }, 413);
   const url = new URL(request.url);
-  const bikeId = cleanText(url.searchParams.get("bikeId"), 80);
-  const entryId = cleanText(url.searchParams.get("entryId"), 120);
+  const bikeId = fleetRecordId(url.searchParams.get("bikeId"));
+  const entryId = fleetRecordId(url.searchParams.get("entryId"));
   const jobId = cleanText(url.searchParams.get("jobId"), 120);
   const qrValue = normalizeQrValue(url.searchParams.get("qrValue"));
   const qrUrl = qrUrlFromValue(url.searchParams.get("qrUrl") || qrValue);

@@ -45,6 +45,7 @@
   let toastTimer = null;
   let syncTimer = null;
   let syncRunning = false;
+  let syncFlight = null;
   let fleetLoaded = false;
   let cloudSnapshotVersion = null;
   let projectedFleet = false;
@@ -1287,10 +1288,15 @@
   }
 
   async function syncNow() {
-    if (syncRunning) {
+    if (syncFlight) {
       syncQueued = true;
-      return;
+      return syncFlight;
     }
+    syncFlight = runFleetSync().finally(() => { syncFlight = null; });
+    return syncFlight;
+  }
+
+  async function runFleetSync() {
     if (navigator.onLine === false) {
       setSyncState("offline", "Χωρίς σύνδεση");
       if (!fleetLoaded) fleetLoading("Χωρίς σύνδεση με τον Server.", true);
@@ -4715,10 +4721,11 @@
     } catch (error) { elements.historyEntryError.textContent=error.message; }
     finally { button.disabled=elements.historyEntryQrScanButton.disabled=false; }
   }
-  async function processTargetedQrOutbox(scope, row, manualRetry) {
+  async function processTargetedQrOutbox(scope, row, active, manualRetry) {
     const job=row.data;
     if (job.retryAt > Date.now() && !manualRetry) return;
     try {
+      if (!await verifyQueuedServiceTarget(job,active)) return;
       const item=job.items[0];
       const response=await fetch(apiBase+'/api/service-documents/import-targeted-qr',{
         method:'POST',headers:requestHeaders(true),cache:'no-store',
@@ -4742,15 +4749,103 @@
       if (firstError && scope===serviceStorageScope()) showToast(job.error);
     }
   }
+
+  async function verifyQueuedServiceTarget(job, active) {
+    const bikeId=String(job.bikeId), entryId=String(job.entryId);
+    // The running sync may have started before this service was written.
+    if (dirtyBikeIds.has(bikeId)) await syncNow();
+    if (active() && dirtyBikeIds.has(bikeId)) await syncNow();
+    if (!active()) return false;
+    if (dirtyBikeIds.has(bikeId)) {
+      throw new Error('Το σέρβις περιμένει επιβεβαίωση αποθήκευσης από τον Server.');
+    }
+    const query=new URLSearchParams({bikeId,entryId});
+    const response=await fetch(apiBase+'/api/service-documents/target?'+query,{
+      headers:requestHeaders(false),cache:'no-store'
+    });
+    const value=await response.json().catch(()=>({}));
+    if (!active()) return false;
+    if (response.ok && value.bikeId===bikeId && value.entryId===entryId && Number.isSafeInteger(value.version)) return true;
+    if (response.status===404 && value.code!=='invoice_target_missing') {
+      // An older Server can still prove the target through its committed history view.
+      const history=await fetch(apiBase+'/api/sync/bike?view=history&id='+encodeURIComponent(bikeId),{
+        headers:requestHeaders(false),cache:'no-store'
+      });
+      const proof=await history.json().catch(()=>({}));
+      if (!active()) return false;
+      if (history.ok && Number.isSafeInteger(proof.version) && String(proof.bike?.id)===bikeId &&
+          proof.bike?.history?.filter(entry=>String(entry.id)===entryId && entry.type==='service').length===1) return true;
+    }
+    throw Object.assign(new Error(value.error||'Ο Server δεν επιβεβαίωσε το συγκεκριμένο σέρβις. Η εκκρεμότητα διατηρείται.'),{
+      status:value.code==='invoice_target_missing'?404:undefined
+    });
+  }
+
+  async function processLegacyServiceOutbox(scope, row, active, manualRetry) {
+    const job=row.data;
+    if (job.retryAt > Date.now() && !manualRetry) return;
+    const storage=window.FleetServiceStorage;
+    try {
+      if (!await verifyQueuedServiceTarget(job,active)) return;
+      const entry=getHistoryEntry(await loadBikeRecord(String(job.bikeId)),String(job.entryId));
+      if (!active()) return;
+      if (!entry || entry.type!=='service') throw new Error('Το ιστορικό του επιβεβαιωμένου σέρβις δεν φορτώθηκε. Το τιμολόγιο διατηρείται στην ουρά.');
+      for (const item of job.items) {
+        if (!active()) return;
+        if (item.done) continue;
+        const attached=(entry.attachments||[]).find(file=>item.uploadId&&file.uploadId===item.uploadId);
+        if (attached && item.qr && !attached.renderJobId && !attached.ocr?.confirmedAt &&
+            String(attached.contentType||'').startsWith('image/')) {
+          const imported=await importQrDocument(job.bikeId,job.entryId,item.qr,false,attached.key);
+          if (!imported?.attachment?.key && !(imported?.queued && imported.jobId)) {
+            throw new Error(imported?.error||'Η αρχική εικόνα παραμένει αποθηκευμένη και η λήψη μέσω QR εκκρεμεί.');
+          }
+        } else if (!attached) {
+          const file=item.file;
+          if (file) file.fleetUploadId=item.uploadId;
+          const result=await attachInvoicesToEntry(job.bikeId,job.entryId,file?[file]:[],item.qr,{background:true,deferQrCompletion:true});
+          if (result.failures.length) throw new Error(result.failures[0].error);
+          if (item.qr && result.attachments.some(attachment=>attachment.pendingPdfError)) {
+            throw new Error(result.attachments.find(attachment=>attachment.pendingPdfError).pendingPdfError);
+          }
+        }
+        item.done=true;
+        delete job.error;
+        delete job.retryAt;
+        await storage.put(scope,'outbox',row.key,job);
+      }
+      await storage.remove(scope,'outbox',row.key);
+      if (active()) { renderHome(); if (activeBikeId===job.bikeId) renderDetail(); }
+    } catch (error) {
+      const message=String(error.message||error).slice(0,400);
+      const changed=job.error!==message;
+      job.error=message;
+      job.attempts=(job.attempts||0)+1;
+      job.retryAt=Date.now()+Math.min(300000,5000*2**Math.min(job.attempts,6));
+      await storage.put(scope,'outbox',row.key,job);
+      if (changed && active()) showToast('Εκκρεμεί τιμολόγιο: '+message);
+    }
+  }
+
   async function processServiceOutbox(manualRetry = false) {
     if(outboxRunning||!webToken||!canManageHistory()||navigator.onLine===false||!window.FleetServiceStorage)return;
     outboxRunning=true;const scope=serviceStorageScope();
-    try{const rows=await window.FleetServiceStorage.list(scope,'outbox');if(!rows.length)return;if(rows.some(row=>!row.data.items?.[0]?.targetedOperationId))await syncNow();
-      for(const row of rows){if(scope!==serviceStorageScope()||!webToken||!canManageHistory()||navigator.onLine===false)break;const job=row.data;const currentGeneration=window.FleetPrimary?.generation(new URL(apiBase||location.href).origin)||'';if((job.authorityGeneration||'')!==currentGeneration){job.error='Άλλαξε ο κύριος Server. Έλεγξε την καταχώριση πριν επαναλάβεις τα εκκρεμή τιμολόγια.';await window.FleetServiceStorage.put(scope,'outbox',row.key,job);continue;}
-        if(job.items?.[0]?.targetedOperationId){await processTargetedQrOutbox(scope,row,manualRetry===true);continue;}
-        const entry=getHistoryEntry(await loadBikeRecord(job.bikeId),job.entryId);if(!entry)continue;
-        try{for(const item of job.items){if(item.done)continue;const existing=item.uploadId&&(entry.attachments||[]).some(f=>f.uploadId===item.uploadId);if(!existing){const file=item.file;if(file)file.fleetUploadId=item.uploadId;const result=await attachInvoicesToEntry(job.bikeId,job.entryId,file?[file]:[],item.qr,{background:true,deferQrCompletion:true});if(result.failures.length)throw new Error(result.failures[0].error);}item.done=true;await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);}await window.FleetServiceStorage.remove(scope,'outbox',job.entryId);renderHome();if(activeBikeId===job.bikeId)renderDetail();}
-        catch(error){job.error=String(error.message||error).slice(0,400);await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);showToast('Το service αποθηκεύτηκε. Εκκρεμεί τιμολόγιο: '+job.error);}
+    const token=webToken;
+    const generation=()=>window.FleetPrimary?.generation(new URL(apiBase||location.href).origin)||'';
+    try {
+      const rows=await window.FleetServiceStorage.list(scope,'outbox');
+      for (const row of rows) {
+        if(scope!==serviceStorageScope()||token!==webToken||!canManageHistory()||navigator.onLine===false)break;
+        const job=row.data;
+        const expected=job.authorityGeneration||'';
+        if(expected!==generation()){
+          const message='Άλλαξε ο κύριος Server. Έλεγξε την καταχώριση πριν επαναλάβεις τα εκκρεμή τιμολόγια.';
+          if(job.error!==message){job.error=message;await window.FleetServiceStorage.put(scope,'outbox',row.key,job);}
+          continue;
+        }
+        const active=()=>scope===serviceStorageScope()&&token===webToken&&canManageHistory()&&navigator.onLine!==false&&expected===generation();
+        if(job.items?.[0]?.targetedOperationId) await processTargetedQrOutbox(scope,row,active,manualRetry===true);
+        else await processLegacyServiceOutbox(scope,row,active,manualRetry===true);
       }
     }catch(error){console.warn('Δεν ολοκληρώθηκε η ουρά τιμολογίων.');}finally{outboxRunning=false;}
   }

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { compareFleetPreflights, inspectNativeFleetBackup } from './hybrid-fleet-preflight.mjs';
+import { prepareNativeInvoicePlan } from './hybrid-fleet-invoice-plan.mjs';
 
 const folder=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-private-preflight-'));
 const database=path.join(folder,'snapshot.sqlite');
@@ -72,6 +73,14 @@ try {
   const native=manifest(database);
   const options={database,manifest:native,objects:folder};
   const original=inspectNativeFleetBackup(options);
+  const invoicePlan=await prepareNativeInvoicePlan(options);
+  assert.equal(invoicePlan.count,2);
+  assert.match(invoicePlan.manifestHash,/^[a-f0-9]{64}$/);
+  assert.deepEqual(invoicePlan.jobs.map(job=>job.source),['legacy-operation','legacy-draft']);
+  assert.equal(invoicePlan.jobs[0].machineId,machine.id);
+  assert.equal(invoicePlan.jobs[0].serviceId,service.id);
+  assert.equal(invoicePlan.jobs[1].reviewReason,'original_service_not_verified');
+  assert.doesNotMatch(JSON.stringify(invoicePlan),/private-fixture-user|private-fixture-shift/);
   assert.equal(original.integrityVerified,true);
   assert.equal(original.cutoverVerified,false);
   assert.equal(original.inventory.history.count,3);
@@ -86,6 +95,7 @@ try {
   fs.copyFileSync(database,copied);
   const restored=inspectNativeFleetBackup({...options,database:copied});
   assert.deepEqual(compareFleetPreflights(original,restored),{matches:true,mismatches:[]});
+  assert.equal((await prepareNativeInvoicePlan({...options,database:copied})).manifestHash,invoicePlan.manifestHash);
   db=new DatabaseSync(copied);
   fleet.bikes[0].history[0].attachments[0].ocr.totalAmount='127,00';
   db.prepare('UPDATE fleet_snapshot SET data=? WHERE id=1').run(JSON.stringify(fleet));

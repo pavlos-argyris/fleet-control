@@ -31,7 +31,7 @@ export async function commitInvoiceReview(env, options) {
     const located = update.located;
     if (!Number.isInteger(located.bikeIndex) || !Number.isInteger(located.entryIndex)) throw new Error('Invalid review location');
     const bikePath = '$.bikes[' + located.bikeIndex + ']', entryPath = bikePath + '.history[' + located.entryIndex + ']';
-    guards.push('json_extract(s.data,?)=?','json_extract(s.data,?)=?',
+    guards.push('CAST(json_extract(s.data,?) AS TEXT)=?','json_extract(s.data,?)=?',
       'NOT EXISTS (SELECT 1 FROM vehicle_archives WHERE bike_id=? AND active=1)');
     args.push(bikePath+'.id',String(located.bike.id),entryPath,located.entryJson,String(located.bike.id));
     if (update.bikeJson) { guards.push('json_extract(s.data,?)=?'); args.push(bikePath,update.bikeJson); }
@@ -84,14 +84,14 @@ export async function commitInvoiceReview(env, options) {
     for (const [bikeId,bike] of options.syncBike===false?[]:bikes) {
       statements.push(env.DB.prepare(`INSERT INTO vehicle_registry(bike_id,name,odometer,status,version,updated_at)
         SELECT ?,json_extract(b.value,'$.name'),json_extract(b.value,'$.currentKm'),'available',1,?
-        FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? AND ${marker}
+        FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND CAST(json_extract(b.value,'$.id') AS TEXT)=? AND ${marker}
         ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,odometer=excluded.odometer,
         version=vehicle_registry.version+1,updated_at=excluded.updated_at`).bind(bikeId,now,bikeId,...markerArgs));
       // Serialize affected bikes inside D1. Queue by DB commit time (rowid
       // breaks timestamp ties), not by the earlier request start time.
       statements.push(env.DB.prepare(`INSERT INTO fleet_operations(id,source,type,payload,status,created_at)
         SELECT ?,'authenticated-client','snapshot_replace_bike',json_object('bike',json(b.value)),'pending',strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? AND ${marker}`)
+        FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND CAST(json_extract(b.value,'$.id') AS TEXT)=? AND ${marker}`)
         .bind(bike.operationId,bikeId,...markerArgs));
     }
     if(audit!==false)statements.push(env.DB.prepare(`INSERT INTO audit_log

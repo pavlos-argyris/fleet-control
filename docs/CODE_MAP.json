@@ -791,11 +791,16 @@
       "paths": [
         "cloudflare-worker/hybrid-fleet/",
         "cloudflare-worker/wrangler.hybrid-rehearsal.example.jsonc",
-        "scripts/hybrid-fleet-preflight.mjs"
+        "scripts/hybrid-fleet-*.mjs",
+        "server-android/assets/www/fleet-cloud-setup.js",
+        "unified-android/src/gr/argyrismitsos/fleetdirect/FleetCloudSetup.java"
       ],
       "tests": [
         "scripts/test-hybrid-fleet-ledger.mjs",
-        "scripts/test-hybrid-fleet-preflight.mjs"
+        "scripts/test-hybrid-fleet-preflight.mjs",
+        "scripts/test-hybrid-fleet-invoice-recovery.mjs",
+        "scripts/test-targeted-service-qr-d1.mjs",
+        "scripts/test-service-workflow.mjs"
       ],
       "related": [
         "invoices",

@@ -44,9 +44,12 @@ try {
   const stamp = date + 'T11:00:00.000Z';
   const service = { id:'s',type:'service',date,km:9000,workshop:'',cost:'55,00',
     tasks:['Χειροκίνητη εργασία'],notes:'Σημειώσεις πριν από την επισκευή',attachments:[],createdAt:stamp,updatedAt:stamp };
+  const longBike='machine-'+ 'b'.repeat(92),longService='service-'+ 's'.repeat(92);
   const fleet = {bikes:[
     { id:'one',name:'BTO-756',currentKm:9100,intervalKm:3000,history:[service,{...service,id:'another'},{...service,id:'check',type:'check'}] },
-    { id:'two',name:'HTP-527',currentKm:9900,intervalKm:3000,history:[{...service,id:'other'}] }
+    { id:'two',name:'HTP-527',currentKm:9900,intervalKm:3000,history:[{...service,id:'other'}] },
+    { id:longBike,name:'Synthetic long',history:[{...service,id:longService},{...service,id:'deleted'}],historyDeletedIds:['deleted'] },
+    { id:123,name:'Synthetic legacy',history:[{...service,id:456}] }
   ]};
   await db.prepare('UPDATE fleet_snapshot SET data=?,version=200 WHERE id=1').bind(JSON.stringify(fleet)).run();
   const inspect = async () => JSON.parse((await db.prepare('SELECT data FROM fleet_snapshot WHERE id=1').first()).data);
@@ -124,7 +127,36 @@ try {
   const genericDocument = expect(genericInvoice,201);
   assert.equal(genericDocument.requiresConfirmation,true);
   assert.equal(genericDocument.attachment.ocr.reviewStatus,'needs_review');
-  console.log('PASS Workerd/D1 explicit existing service QR, persisted retry target, preserved service and raw invoice, duplicates, and general matching.');
+
+  const probe=(bikeId,entryId,token)=>call('/api/service-documents/target?'+new URLSearchParams({bikeId,entryId}),{token});
+  expect(await probe(longBike,longService),401);
+  assert.equal(expect(await probe(longBike,longService,owner),200).entryId,longService);
+  assert.equal(expect(await probe('123','456',owner),200).bikeId,'123');
+  assert.equal(expect(await probe('one',longService,owner),404).code,'invoice_target_missing');
+  expect(await probe(longBike,'deleted',owner),404);
+  expect(await probe(longBike+'x',longService,owner),400);
+  const oldBody={bikeId:longBike,entryId:longService,value:qr+'-old-recovery'};
+  const oldEndpoint='/api/service-documents/import-qr';
+  const oldScans=await Promise.all([call(oldEndpoint,{token:owner,body:oldBody}),call(oldEndpoint,{token:owner,body:oldBody})]);
+  assert.equal(expect(oldScans[0],202).jobId,expect(oldScans[1],202).jobId);
+  expect(await call(oldEndpoint,{token:owner,body:{...oldBody,bikeId:longBike.slice(0,80)}}),404);
+  expect(await call(scanPath,{token:owner,body:{...body,bikeId:123,entryId:456,value:qr+'-numeric-legacy',targetedOperationId:'synthetic-numeric-legacy'}}),202);
+  async function multipart(bikeId,entryId,uploadId) {
+    const form=new FormData();
+    form.set('bikeId',bikeId);
+    form.set('entryId',entryId);
+    form.set('uploadId',uploadId);
+    form.set('file',new File(['%PDF-1.4\nSynthetic original\n%%EOF'],'original.pdf',{type:'application/pdf'}));
+    const encoded=new Response(form);
+    return call('/api/service-documents',{token:owner,method:'POST',
+      headers:{'Content-Type':encoded.headers.get('Content-Type')},bytes:new Uint8Array(await encoded.arrayBuffer())});
+  }
+  expect(await multipart('one',longService,'synthetic-multipart-one'),404);
+  const stored=expect(await multipart(longBike,longService,'synthetic-multipart-one'),201).attachment;
+  assert.equal(expect(await multipart(longBike,longService,'synthetic-multipart-one'),200).attachment.key,stored.key);
+  expect(await multipart('123','456','synthetic-multipart-two'),201);
+  assert.equal((await inspect()).bikes.find(bike=>bike.id===longBike).history[0].attachments.length,1);
+  console.log('PASS Workerd/D1 existing service QR, full IDs and legacy numeric IDs, preserved history, persisted targets, duplicates, and general matching.');
 } finally {
   if (runtime) await runtime.dispose();
   fs.rmSync(directory,{recursive:true,force:true});

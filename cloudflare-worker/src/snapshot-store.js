@@ -88,23 +88,36 @@ export async function snapshotPage(env, cursor = '') {
     offset, hasMore: next < summary.bikes, nextCursor: next < summary.bikes ? summary.version + ':' + next : '' };
 }
 
+// Invoice targets use the same 100-character IDs as the Fleet snapshot.
+// Some restored snapshots contain numeric IDs. Compare their complete text
+// representation without ever resolving a truncated ID or guessing a parent.
+export function fleetRecordId(value) {
+  const id = typeof value === 'string' ? value : Number.isSafeInteger(value) ? String(value) : '';
+  return id.length <= 100 && id === id.trim() ? id : '';
+}
+
 export async function readServiceEntry(env, bikeId, entryId) {
-  const row = await env.DB.prepare(`SELECT s.version, b.key AS bike_index, h.key AS entry_index,
+  bikeId=fleetRecordId(bikeId);entryId=fleetRecordId(entryId);
+  if (!bikeId || !entryId) return null;
+  const {results}=await env.DB.prepare(`SELECT s.version, b.key AS bike_index, h.key AS entry_index,
     json_extract(b.value,'$.id') AS bike_id, json_extract(b.value,'$.name') AS bike_name, json_extract(b.value,'$.currentKm') AS current_km, h.value AS entry_json
     FROM fleet_snapshot s, json_each(s.data,'$.bikes') b, json_each(b.value,'$.history') h
-    WHERE s.id=1 AND json_extract(b.value,'$.id')=? AND json_extract(h.value,'$.id')=?
-    AND NOT EXISTS (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=json_extract(b.value,'$.id')) LIMIT 1`)
-    .bind(String(bikeId), String(entryId)).first();
-  if (!row) return null;
+    WHERE s.id=1 AND json_type(b.value,'$.id') IN ('text','integer') AND CAST(json_extract(b.value,'$.id') AS TEXT)=?
+    AND json_type(h.value,'$.id') IN ('text','integer') AND CAST(json_extract(h.value,'$.id') AS TEXT)=?
+    AND NOT EXISTS (SELECT 1 FROM json_each(b.value,'$.historyDeletedIds') d WHERE CAST(d.value AS TEXT)=?)
+    AND NOT EXISTS (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=?) LIMIT 2`)
+    .bind(bikeId, entryId, entryId, bikeId).all();
+  if (results.length!==1) return null;
+  const [row]=results;
   return { version: Number(row.version), bikeIndex: Number(row.bike_index), entryIndex: Number(row.entry_index),
-    bike: { id: row.bike_id, name: row.bike_name, currentKm: Number(row.current_km || 0) }, entryJson: row.entry_json, entry: JSON.parse(row.entry_json) };
+    bike: { id: bikeId, name: row.bike_name, currentKm: Number(row.current_km || 0) }, entryJson: row.entry_json, entry: JSON.parse(row.entry_json) };
 }
 
 export async function writeServiceEntry(env, located, entry, source, now, renderJobId = "") {
   const entryPath = `$.bikes[${located.bikeIndex}].history[${located.entryIndex}]`;
   const bikeTimePath = `$.bikes[${located.bikeIndex}].updatedAt`;
   const result = await env.DB.prepare(`UPDATE fleet_snapshot SET data=json_set(data, ?, json(?), ?, ?),
-    version=version+1, source=?, updated_at=? WHERE id=1 AND json_extract(data,?)=? AND json_extract(data,?)=? AND (?='' OR NOT EXISTS (SELECT 1 FROM fleet_operations WHERE id=? AND status='cancelled'))`)
+    version=version+1, source=?, updated_at=? WHERE id=1 AND CAST(json_extract(data,?) AS TEXT)=? AND json_extract(data,?)=? AND (?='' OR NOT EXISTS (SELECT 1 FROM fleet_operations WHERE id=? AND status='cancelled'))`)
     .bind(entryPath, JSON.stringify(entry), bikeTimePath, now, source, now,
       `$.bikes[${located.bikeIndex}].id`, String(located.bike.id), entryPath, located.entryJson,renderJobId,renderJobId).run();
   if (!Number(result.meta?.changes || 0)) return 0;
@@ -139,11 +152,16 @@ export async function fleetRegistrySnapshot(env) {
 }
 
 export async function readSnapshotBike(env, id, { activeOnly = false } = {}) {
-  const row = await env.DB.prepare(`SELECT s.version, b.key AS bike_index, b.value AS bike_json
-    FROM fleet_snapshot s, json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=?
-    ${activeOnly ? "AND NOT EXISTS (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=json_extract(b.value,'$.id'))" : ''}
-    LIMIT 1`).bind(id).first();
-  return row ? { version:Number(row.version), index:Number(row.bike_index), json:row.bike_json, bike:JSON.parse(row.bike_json) } : null;
+  id=fleetRecordId(id);
+  if (!id) return null;
+  const {results}=await env.DB.prepare(`SELECT s.version, b.key AS bike_index, b.value AS bike_json
+    FROM fleet_snapshot s, json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_type(b.value,'$.id') IN ('text','integer')
+    AND CAST(json_extract(b.value,'$.id') AS TEXT)=?
+    ${activeOnly ? "AND NOT EXISTS (SELECT 1 FROM vehicle_archives a WHERE a.active=1 AND a.bike_id=CAST(json_extract(b.value,'$.id') AS TEXT))" : ''}
+    LIMIT 2`).bind(id).all();
+  if (results.length!==1) return null;
+  const [row]=results;
+  return { version:Number(row.version), index:Number(row.bike_index), json:row.bike_json, bike:{...JSON.parse(row.bike_json),id} };
 }
 
 export async function writeSnapshotBike(env, located, bike, source, now) {
@@ -156,7 +174,7 @@ export async function writeSnapshotBike(env, located, bike, source, now) {
   } else {
     result=await env.DB.prepare(`UPDATE fleet_snapshot SET data=json_insert(data,'$.bikes[#]',json(?)), version=version+1, source=?, updated_at=?
       WHERE id=1 AND json_array_length(data,'$.bikes') < 40
-      AND NOT EXISTS (SELECT 1 FROM json_each(data,'$.bikes') b WHERE json_extract(b.value,'$.id')=?)
+      AND NOT EXISTS (SELECT 1 FROM json_each(data,'$.bikes') b WHERE CAST(json_extract(b.value,'$.id') AS TEXT)=?)
       AND NOT EXISTS (SELECT 1 FROM vehicle_archives WHERE active=1 AND bike_id=?)`)
       .bind(JSON.stringify(bike),source,now,bike.id,bike.id).run();
   }

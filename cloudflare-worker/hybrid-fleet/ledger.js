@@ -5,7 +5,7 @@ export const MAX_BYTES = 192 * 1024;
 const MAX_OPERATIONS = 12;
 const PAGE_SIZE = 24;
 const kinds = {
-  machine: { name:'text', brand:'text', model:'text', currentKm:'int', intervalKm:'int', lastServiceKm:'int', nextServiceKm:'int',
+  machine: { name:'text', plateKey:'text', brand:'text', model:'text', currentKm:'int', intervalKm:'int', lastServiceKm:'int', nextServiceKm:'int',
     lastCheckedAt:'text', availability:'text', notes:'text', createdAt:'text', updatedAt:'text' },
   mileage: { km:'int', date:'text', notes:'text', createdAt:'text', updatedAt:'text' },
   service: { km:'int', date:'text', notes:'text', tasks:'lines', workshop:'text', cost:'text', oilChanged:'boolean',

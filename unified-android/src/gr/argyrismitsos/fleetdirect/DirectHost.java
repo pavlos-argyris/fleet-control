@@ -52,6 +52,7 @@ public final class DirectHost {
     }
     static void maintenance(Context c)throws Exception{
         if(NativeColdRuntime.blocked(c)||NativeRecoveryController.replacing()||c.getSharedPreferences(BackupManager.PREFS,0).getBoolean("native_recovery_pending",false))return;
+        FleetCloudSetup.schedule(c);
         if(resumed.compareAndSet(false,true))OtaManager.resumeAfterRestart(c);
         OtaManager.check(c,false);
         try(FleetDataStore store=new FleetDataStore(c)){
