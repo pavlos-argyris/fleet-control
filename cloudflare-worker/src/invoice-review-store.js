@@ -48,12 +48,12 @@ export async function commitInvoiceReview(env, options) {
     // transaction guard closes the race between two different invoices.
     guards.push(`NOT EXISTS(SELECT 1 FROM json_each(s.data,'$.bikes') ab,
       json_each(ab.value,'$.history') ah,json_each(ah.value,'$.attachments') aa
-      WHERE json_extract(aa.value,'$.key')!=? AND
+      WHERE json_extract(aa.value,'$.key')!=? AND json_extract(aa.value,'$.key')!=? AND
       ((?!='' AND COALESCE(json_extract(aa.value,'$.qrUrl'),json_extract(aa.value,'$.qrValue'))=?)
        OR (?!='' AND ?!='' AND lower(trim(json_extract(aa.value,'$.ocr.supplier')))=lower(trim(?))
            AND upper(trim(json_extract(aa.value,'$.ocr.invoiceNumber')))=upper(trim(?))))
-      AND NOT EXISTS(SELECT 1 FROM vehicle_archives av WHERE av.active=1 AND av.bike_id=json_extract(ab.value,'$.id')))`);
-    args.push(String(identity.key),String(identity.qrUrl||''),String(identity.qrUrl||''),String(identity.supplier||''),String(identity.invoiceNumber||''),String(identity.supplier||''),String(identity.invoiceNumber||''));
+      AND (?=1 OR NOT EXISTS(SELECT 1 FROM vehicle_archives av WHERE av.active=1 AND av.bike_id=json_extract(ab.value,'$.id'))))`);
+    args.push(String(identity.key),String(identity.excludeSourcePhoto||''),String(identity.qrUrl||''),String(identity.qrUrl||''),String(identity.supplier||''),String(identity.invoiceNumber||''),String(identity.supplier||''),String(identity.invoiceNumber||''),identity.includeArchived?1:0);
   }
   const destination = String(initialResult.document.bikeId);
   const result = { ...initialResult, operationId: changed && options.syncBike!==false ? bikes.get(destination).operationId : '' };

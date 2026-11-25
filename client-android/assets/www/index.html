@@ -11,14 +11,14 @@
   <title>Fleet Control</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./assets/v5.67.5/styles.css">
-  <link rel="stylesheet" href="./assets/v5.67.5/scroll-stability.css">
-  <link rel="stylesheet" href="./assets/v5.67.5/fleet-motion.css">
-  <link rel="stylesheet" href="./assets/v5.67.5/client-ota.css">
-  <script src="./assets/v5.67.5/client-ota.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.67.5/service-tools.css">
-  <link rel="stylesheet" href="./assets/v5.67.5/service-followup.css">
-  <link rel="stylesheet" href="./assets/v5.67.5/ui-system.css">
+  <link rel="stylesheet" href="./assets/v5.67.6/styles.css">
+  <link rel="stylesheet" href="./assets/v5.67.6/scroll-stability.css">
+  <link rel="stylesheet" href="./assets/v5.67.6/fleet-motion.css">
+  <link rel="stylesheet" href="./assets/v5.67.6/client-ota.css">
+  <script src="./assets/v5.67.6/client-ota.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.67.6/service-tools.css">
+  <link rel="stylesheet" href="./assets/v5.67.6/service-followup.css">
+  <link rel="stylesheet" href="./assets/v5.67.6/ui-system.css">
 </head>
 <body>
   <div class="app-shell">
@@ -711,7 +711,7 @@
         <span>Προσθήκη τιμολογίων <small>(προαιρετικά)</small></span>
         <span class="invoice-picker">
           <input id="historyEntryInvoiceFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif" multiple>
-          <input id="historyEntryInvoiceQrValue" type="hidden">
+          <input id="historyEntryInvoiceQrValue" type="url" inputmode="url" maxlength="2000" aria-label="Σύνδεσμος QR τιμολογίου" placeholder="Σύνδεσμος QR τιμολογίου">
           <div class="invoice-picker-actions">
             <button id="historyEntryQrScanButton" class="invoice-qr-button" type="button">⌁ <span>Σκάναρε QR</span></button>
           <label class="invoice-picker-button" for="historyEntryInvoiceFile">
@@ -720,9 +720,10 @@
           </label>
           </div>
           <span id="historyEntryInvoiceQrStatus" class="invoice-qr-status" role="status"></span>
+          <button id="saveExistingServiceQr" class="secondary-button" type="button">Προσθήκη QR στο σέρβις</button>
           <span id="historyEntryInvoiceFileName" class="invoice-file-name">Δεν έχει επιλεγεί αρχείο</span>
         </span>
-        <small>Πρόσθεσε QR ή πολλά PDF/φωτογραφίες και σε παλιό service, έως 10 τιμολόγια συνολικά. Η αποστολή συνεχίζεται στο παρασκήνιο μετά την αποθήκευση.</small>
+        <small>Το QR συνδέεται με αυτό το σέρβις μετά την ανάγνωση του τιμολογίου.</small>
       </div>
       <label class="field">
         <span>Σημείωση διόρθωσης <small>(προαιρετικό)</small></span>
@@ -825,29 +826,29 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./assets/v5.67.5/scroll-stability.js" defer></script>
+  <script src="./assets/v5.67.6/scroll-stability.js" defer></script>
   <script src="./fleet-config.js?v=5.53.0" defer></script>
-  <link rel="stylesheet" href="./assets/v5.67.5/backend-mode.css">
-  <script src="./assets/v5.67.5/backend-mode.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.67.6/backend-mode.css">
+  <script src="./assets/v5.67.6/backend-mode.js" defer></script>
   <script src="./vendor/jsQR.js?v=5.53.0" defer></script>
   <script src="./vendor/qrcode-generator.js?v=5.53.0" defer></script>
-  <script src="./assets/v5.67.5/service-model.js" defer></script>
-  <script src="./assets/v5.67.5/fleet-operations-model.js" defer></script>
-  <script src="./assets/v5.67.5/fleet-navigation.js" defer></script>
-  <script src="./assets/v5.67.5/fleet-motion.js" defer></script>
-  <script src="./assets/v5.67.5/service-tools.js" defer></script>
-  <script src="./assets/v5.67.5/service-storage.js" defer></script>
-  <script src="./assets/v5.67.5/service-export.js" defer></script>
-  <link rel="stylesheet" href="./assets/v5.67.5/primary-transport.css">
-  <script src="./assets/v5.67.5/primary-crypto.js" defer></script>
-  <script src="./assets/v5.67.5/primary-storage.js" defer></script>
-  <script src="./assets/v5.67.5/primary-transport.js" defer></script>
-  <script src="./assets/v5.67.5/primary-pending.js" defer></script>
-  <script src="./assets/v5.67.5/shared-requests.js" defer></script>
-  <script src="./assets/v5.67.5/live-changes.js" defer></script>
-  <script src="./assets/v5.67.5/local-view-cache.js" defer></script>
-  <script src="./assets/v5.67.5/app.js" defer></script>
-  <script src="./assets/v5.67.5/service-followup.js" defer></script>
-  <script src="./assets/v5.67.5/fleet-operations.js" defer></script>
+  <script src="./assets/v5.67.6/service-model.js" defer></script>
+  <script src="./assets/v5.67.6/fleet-operations-model.js" defer></script>
+  <script src="./assets/v5.67.6/fleet-navigation.js" defer></script>
+  <script src="./assets/v5.67.6/fleet-motion.js" defer></script>
+  <script src="./assets/v5.67.6/service-tools.js" defer></script>
+  <script src="./assets/v5.67.6/service-storage.js" defer></script>
+  <script src="./assets/v5.67.6/service-export.js" defer></script>
+  <link rel="stylesheet" href="./assets/v5.67.6/primary-transport.css">
+  <script src="./assets/v5.67.6/primary-crypto.js" defer></script>
+  <script src="./assets/v5.67.6/primary-storage.js" defer></script>
+  <script src="./assets/v5.67.6/primary-transport.js" defer></script>
+  <script src="./assets/v5.67.6/primary-pending.js" defer></script>
+  <script src="./assets/v5.67.6/shared-requests.js" defer></script>
+  <script src="./assets/v5.67.6/live-changes.js" defer></script>
+  <script src="./assets/v5.67.6/local-view-cache.js" defer></script>
+  <script src="./assets/v5.67.6/app.js" defer></script>
+  <script src="./assets/v5.67.6/service-followup.js" defer></script>
+  <script src="./assets/v5.67.6/fleet-operations.js" defer></script>
 </body>
 </html>

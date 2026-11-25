@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fleet-control-hybrid-rehearsal",
+  "main": "hybrid-fleet/worker.js",
+  "compatibility_date": "2026-09-05",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "vars": { "FLEET_REHEARSAL_ENABLED": "0" },
+  "d1_databases": [{
+    "binding": "FLEET_DB",
+    "database_name": "fleet-control-hybrid-rehearsal",
+    "database_id": "00000000-0000-0000-0000-000000000000",
+    "migrations_dir": "hybrid-fleet/migrations"
+  }]
+}

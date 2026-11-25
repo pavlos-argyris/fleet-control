@@ -751,7 +751,7 @@
     if (target.qrInput) target.qrInput.value = qrUrl || normalizeQrValue(value);
     if (target.status) {
       target.status.textContent = qrUrl
-        ? "✓ QR διαβάστηκε. Θα γίνει αυτόματη άντληση και, αν αποτύχει, μπορείς να ανεβάσεις φωτογραφία/PDF."
+        ? context === "history" ? "Το QR διαβάστηκε." : "✓ QR διαβάστηκε. Θα γίνει αυτόματη άντληση και, αν αποτύχει, μπορείς να ανεβάσεις φωτογραφία/PDF."
         : "";
       target.status.classList.toggle("has-qr", Boolean(qrUrl));
     }
@@ -819,7 +819,8 @@
         const value = normalizeQrValue(result.data);
         setInvoiceQrStatus(qrScannerContext, value);
         stopQrScanner(true);
-        showToast("Το QR διαβάστηκε και το παράθυρο έκλεισε. Με την καταχώρηση θα ξεκινήσει η άντληση στο παρασκήνιο.");
+        if (qrScannerContext === "history") saveExistingServiceQr();
+        else showToast("Το QR διαβάστηκε και το παράθυρο έκλεισε. Με την καταχώρηση θα ξεκινήσει η άντληση στο παρασκήνιο.");
         return;
       }
     } catch (error) {}
@@ -863,7 +864,7 @@
   function normalizeInvoiceData(value) {
     if (!value || typeof value !== "object") return null;
     const result = {};
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "targetedOperationId", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"].forEach(function (field) {
       if (value[field] != null && String(value[field]).trim()) result[field] = String(value[field]).trim().slice(0, ["rawText","workPerformed"].includes(field) ? 128000 : 2000);
     });
     ["analysisEngine","analysisVersion"].forEach(function(field){if(value[field])result[field]=String(value[field]).slice(0,100);});
@@ -884,7 +885,7 @@
     const first = normalizeInvoiceData(primary) || {};
     const second = normalizeInvoiceData(fallback) || {};
     const merged = { ...second, ...first };
-    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"].forEach(function (field) {
+    ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "rawText", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "targetedOperationId", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"].forEach(function (field) {
       if (!String(first[field] || "").trim() && String(second[field] || "").trim()) merged[field] = second[field];
     });
     if (!Array.isArray(first.parts) && Array.isArray(second.parts)) merged.parts = second.parts;
@@ -3550,7 +3551,8 @@
     }
     const invoiceFiles = isService ? selectedInvoiceFiles(elements.historyEntryInvoiceFile) : [];
     const invoiceQrValue = isService && elements.historyEntryInvoiceQrValue ? elements.historyEntryInvoiceQrValue.value : "";
-    const selectionError = invoiceSelectionError(entry, invoiceFiles, invoiceQrValue);
+    const targetedQr = invoiceQrValue && !invoiceFiles.length;
+    const selectionError = invoiceSelectionError(entry, invoiceFiles, invoiceQrValue, targetedQr);
     if (selectionError) {
       elements.historyEntryError.textContent = selectionError;
       return;
@@ -3564,6 +3566,11 @@
       reason: elements.historyEntryReason.value.trim().slice(0, 500)
     };
     if(typeof confirmServiceImpact==='function'&&!await confirmServiceImpact(bike,entry,'edit',payload))return;
+    if (targetedQr) {
+      try { await queueExistingServiceQr(bike,entry,invoiceQrValue); }
+      catch (error) { elements.historyEntryError.textContent=error.message;return; }
+      processServiceOutbox();
+    }
     if (navigator.onLine === false) {
       localHistoryEdit(bike, entry.id, payload);
       saveBikes();
@@ -3573,7 +3580,7 @@
       showToast("Η διόρθωση αποθηκεύτηκε και θα συγχρονιστεί.");
       return;
     }
-    const job = { id: uid(), bikeId: bike.id, entryId: entry.id, payload: payload, files: invoiceFiles.slice(), qrValue: String(invoiceQrValue || ""), saved: false, label: bike.name + " · " + formatDate(date) };
+    const job = { id: uid(), bikeId: bike.id, entryId: entry.id, payload: payload, files: invoiceFiles.slice(), qrValue: targetedQr ? "" : String(invoiceQrValue || ""), saved: false, label: bike.name + " · " + formatDate(date) };
     elements.historyEntryDialog.close();
     showToast("Οι αλλαγές αποθηκεύονται στο παρασκήνιο. Μπορείς να συνεχίσεις στο επόμενο service.");
     enqueueHistoryEntrySave(job);
@@ -4676,11 +4683,72 @@
     const items=files.length?files.map((file,i)=>({file,qr:i===0?qr:'',uploadId:crypto.randomUUID(),done:false})):[{file:null,qr,uploadId:'',done:false}];
     await window.FleetServiceStorage.put(serviceStorageScope(),'outbox',entryId,{bikeId,entryId,items,authorityGeneration:window.FleetPrimary?.generation(new URL(apiBase||location.href).origin)||''});
   }
-  async function processServiceOutbox() {
+  async function queueExistingServiceQr(bike, entry, value) {
+    const qr = normalizeQrUrl(value);
+    if (!qr || !qr.startsWith('https://')) throw new Error('Σκάναρε ένα QR ή γράψε τον σύνδεσμο HTTPS του τιμολογίου.');
+    const scope = serviceStorageScope();
+    const authorityGeneration = window.FleetPrimary?.generation(new URL(apiBase||location.href).origin) || '';
+    const targetedOperationId = crypto.randomUUID();
+    await window.FleetServiceStorage.put(scope,'outbox',targetedOperationId,{
+      bikeId:bike.id,entryId:entry.id,authorityGeneration,items:[{qr,targetedOperationId,done:false}]
+    });
+    if (scope !== serviceStorageScope()) throw new Error('Το QR αποθηκεύτηκε στην ουρά του αρχικού λογαριασμού.');
+  }
+  async function saveExistingServiceQr() {
+    const button=document.getElementById("saveExistingServiceQr");
+    const bike=getBike(elements.historyEntryBikeId.value),entry=getHistoryEntry(bike,elements.historyEntryId.value);
+    if (!button || !bike || entry?.type!=='service' || !canManageHistory() || button.disabled) return;
+    const input=elements.historyEntryInvoiceQrValue;
+    const value=input.value;
+    const errorMessage=invoiceSelectionError(entry,[],input.value,true);
+    elements.historyEntryError.textContent=errorMessage;
+    if (errorMessage) return;
+    button.disabled=elements.historyEntryQrScanButton.disabled=true;
+    try {
+      await queueExistingServiceQr(bike,entry,value);
+      if (elements.historyEntryBikeId.value===bike.id && elements.historyEntryId.value===entry.id && input.value===value) {
+        clearInvoiceQrStatus("history");
+        elements.historyEntryInvoiceQrStatus.textContent='Το QR αποθηκεύτηκε στην ουρά.';
+        elements.historyEntryInvoiceQrStatus.classList.add('has-qr');
+      }
+      processServiceOutbox();
+    } catch (error) { elements.historyEntryError.textContent=error.message; }
+    finally { button.disabled=elements.historyEntryQrScanButton.disabled=false; }
+  }
+  async function processTargetedQrOutbox(scope, row, manualRetry) {
+    const job=row.data;
+    if (job.retryAt > Date.now() && !manualRetry) return;
+    try {
+      const item=job.items[0];
+      const response=await fetch(apiBase+'/api/service-documents/import-targeted-qr',{
+        method:'POST',headers:requestHeaders(true),cache:'no-store',
+        body:JSON.stringify({bikeId:job.bikeId,entryId:job.entryId,value:item.qr,targetedOperationId:item.targetedOperationId})
+      });
+      const accepted=await response.json().catch(()=>({}));
+      if (!response.ok || !accepted.ok || !(accepted.attachment?.key || accepted.queued && accepted.jobId)) {
+        const error=new Error(accepted.error||'Ο Server δεν επιβεβαίωσε την παραλαβή του QR.');
+        error.status=response.status;
+        throw error;
+      }
+      await window.FleetServiceStorage.remove(scope,'outbox',row.key);
+      if (scope===serviceStorageScope()) syncNow().catch(()=>{});
+    } catch(error) {
+      const firstError=!job.error;
+      job.error=String(error.message||error).slice(0,400);
+      job.attempts=(job.attempts||0)+1;
+      const retryable=!error.status||error.status===408||error.status===429||error.status>=500;
+      job.retryAt=retryable?Date.now()+Math.min(300000,5000*2**Math.min(job.attempts,6)):Number.MAX_SAFE_INTEGER;
+      await window.FleetServiceStorage.put(scope,'outbox',row.key,job);
+      if (firstError && scope===serviceStorageScope()) showToast(job.error);
+    }
+  }
+  async function processServiceOutbox(manualRetry = false) {
     if(outboxRunning||!webToken||!canManageHistory()||navigator.onLine===false||!window.FleetServiceStorage)return;
     outboxRunning=true;const scope=serviceStorageScope();
-    try{const rows=await window.FleetServiceStorage.list(scope,'outbox');if(!rows.length)return;await syncNow();
-      for(const row of rows){if(scope!==serviceStorageScope()||!webToken||!canManageHistory()||navigator.onLine===false)break;const job=row.data,entry=getHistoryEntry(await loadBikeRecord(job.bikeId),job.entryId);if(!entry)continue;const currentGeneration=window.FleetPrimary?.generation(new URL(apiBase||location.href).origin)||'';if((job.authorityGeneration||'')!==currentGeneration){job.error='Άλλαξε ο κύριος Server. Έλεγξε την καταχώριση πριν επαναλάβεις τα εκκρεμή τιμολόγια.';await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);continue;}
+    try{const rows=await window.FleetServiceStorage.list(scope,'outbox');if(!rows.length)return;if(rows.some(row=>!row.data.items?.[0]?.targetedOperationId))await syncNow();
+      for(const row of rows){if(scope!==serviceStorageScope()||!webToken||!canManageHistory()||navigator.onLine===false)break;const job=row.data;const currentGeneration=window.FleetPrimary?.generation(new URL(apiBase||location.href).origin)||'';if((job.authorityGeneration||'')!==currentGeneration){job.error='Άλλαξε ο κύριος Server. Έλεγξε την καταχώριση πριν επαναλάβεις τα εκκρεμή τιμολόγια.';await window.FleetServiceStorage.put(scope,'outbox',row.key,job);continue;}
+        if(job.items?.[0]?.targetedOperationId){await processTargetedQrOutbox(scope,row,manualRetry===true);continue;}
+        const entry=getHistoryEntry(await loadBikeRecord(job.bikeId),job.entryId);if(!entry)continue;
         try{for(const item of job.items){if(item.done)continue;const existing=item.uploadId&&(entry.attachments||[]).some(f=>f.uploadId===item.uploadId);if(!existing){const file=item.file;if(file)file.fleetUploadId=item.uploadId;const result=await attachInvoicesToEntry(job.bikeId,job.entryId,file?[file]:[],item.qr,{background:true,deferQrCompletion:true});if(result.failures.length)throw new Error(result.failures[0].error);}item.done=true;await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);}await window.FleetServiceStorage.remove(scope,'outbox',job.entryId);renderHome();if(activeBikeId===job.bikeId)renderDetail();}
         catch(error){job.error=String(error.message||error).slice(0,400);await window.FleetServiceStorage.put(scope,'outbox',job.entryId,job);showToast('Το service αποθηκεύτηκε. Εκκρεμεί τιμολόγιο: '+job.error);}
       }
@@ -4691,7 +4759,7 @@
     canManage:canManageHistory,context:serviceStorageScope,toast:showToast,getBikes:()=>bikes,
     loadBikes:keys=>loadFleetRecords(keys ? bikes.filter(bike => [...keys].some(key => String(key).startsWith(bike.id + ':'))).map(bike => bike.id) : undefined),
     getOutbox:async()=>currentUser&&window.FleetServiceStorage?window.FleetServiceStorage.list(serviceStorageScope(),'outbox'):[],
-    retryOutbox:processServiceOutbox,
+    retryOutbox:()=>processServiceOutbox(true),
     getPdfBlob:record=>servicePdfBlob(record.key),
     exportNativeZip:files=>window.AndroidFleet.exportInvoiceZip(JSON.stringify({files}),webToken),
     localDiagnostics:async()=>({outbox:(await window.FleetServiceStorage?.list(serviceStorageScope(),'outbox')||[]).length,failedSaves:Array.from(backgroundHistorySaves.values()).filter(j=>j.status==='error').length}),
@@ -4926,6 +4994,7 @@
     });
   });
   elements.historyEntryForm.addEventListener("submit", handleHistoryEntrySubmit);
+  document.getElementById("saveExistingServiceQr")?.addEventListener("click", saveExistingServiceQr);
   elements.historyEntryInvoiceFile.addEventListener("change", function () {
     updateInvoiceFileName(elements.historyEntryInvoiceFile, elements.historyEntryInvoiceFileName);
   });

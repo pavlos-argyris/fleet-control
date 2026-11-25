@@ -17,7 +17,7 @@ const invoices=Array.from({length:57},(_,i)=>({id:'invoice-'+i,key:'service-docu
 const browser=await chromium.launch({headless:true,executablePath:process.env.FLEET_CHROMIUM_PATH||undefined});
 try{for(const width of [390,1280]){
   const context=await browser.newContext({viewport:{width,height:900},locale:'el-GR',timezoneId:'Europe/Athens',serviceWorkers:'block'}),page=await context.newPage();
-  const bikes=structuredClone(fixtureBikes),mileageReceipts=new Map(),mileageAttempts=[];
+  const bikes=structuredClone(fixtureBikes),mileageReceipts=new Map(),mileageAttempts=[],targetedScans=[];
   const requests=[],backgroundHistoryRequests=[],errors=[],missing=[],management=managementData();
   let logged=false,invoiceRequests=0,adminAvailable=false,adminPosts=0,fleetRevision=10,writeOffline=false,dropAcknowledgment=false;
   page.on('pageerror',error=>errors.push(error.message));
@@ -105,6 +105,11 @@ try{for(const width of [390,1280]){
         return route.fulfill({json:{documents:invoices.slice(offset,offset+32),serverVersion:10,hasMore:offset===0,nextCursor:offset===0?'10:32':''}});
       }
       if(url.pathname==='/api/admin/service-documents/reprocess-batch')return route.fulfill({json:{batch:null}});
+      if(url.pathname==='/api/service-documents/import-targeted-qr'){
+        const body=request.postDataJSON();
+        targetedScans.push(body);
+        return route.fulfill({status:202,json:{ok:true,queued:true,jobId:'fixture-targeted-job'}});
+      }
       const result=management({url:request.url(),method:request.method(),body:request.postData()||''},{result:(value,code=200)=>({value,code})});
       if(result&&result.code!==404)return route.fulfill({status:result.code,json:result.value});
       return route.fulfill({json:{configured:true,user,serverVersion:1,employees:[],vehicles:[],today:{vehicles:{}},currentWeek:{startDate:'2026-11-09',endDate:'2026-11-15'},realtime:[],dailySchedule:[],actionGroups:{},summary:{},alerts:[]}});
@@ -152,6 +157,21 @@ try{for(const width of [390,1280]){
     await embedded.locator('#historyCount').filter({hasText:'2 εγγραφές'}).waitFor();
     assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history-preview&id=bike-28').length,1);
     assert.equal(requests.filter(p=>p==='/api/sync/bike?view=history&id=bike-28').length,0);
+    await embedded.locator('[data-edit-history="e-0"]').click();
+    await embedded.locator('#historyEntryDialog').waitFor({state:'visible'});
+    const invoiceUrl='https://einvoice.impact.gr/p/SYNTHETIC-BROWSER';
+    await embedded.locator('#historyEntryInvoiceQrValue').fill(invoiceUrl);
+    const accepted=page.waitForResponse(res=>new URL(res.url()).pathname==='/api/service-documents/import-targeted-qr');
+    await embedded.locator('#saveExistingServiceQr').click();
+    assert.equal((await accepted).status(),202);
+    await embedded.locator('#historyEntryInvoiceQrStatus').getByText('Το QR αποθηκεύτηκε στην ουρά.').waitFor();
+    assert.equal(targetedScans.length,1);
+    assert.equal(targetedScans[0].bikeId,'bike-28');
+    assert.equal(targetedScans[0].entryId,'e-0');
+    assert.equal(targetedScans[0].value,invoiceUrl);
+    assert.match(targetedScans[0].targetedOperationId,/^[0-9a-f-]{36}$/);
+    assert.equal(requests.some(url=>url.includes('/history/e-0/edit')),false,'a targeted scan never writes the service edit form');
+    await embedded.locator('#historyEntryDialog [data-close-dialog]').first().click();
     await embedded.getByRole('button',{name:'Σύνοψη',exact:true}).click();
     await embedded.locator('#detailCheckButton').click();
     await embedded.locator('#quickBikePicker').click();
@@ -189,6 +209,14 @@ try{for(const width of [390,1280]){
     await embedded.locator('#quickCheckBackButton').click();
     await embedded.locator('#detailBackButton').click();
     await embedded.locator('#homeView').waitFor({state:'visible'});
+    if(width===1280){
+      await embedded.locator('#exportFleetButton').click();
+      await embedded.locator('#fleetExportList [value="bike-28"]').check();
+      await embedded.locator('#createFleetExportButton').click();
+      await embedded.locator('#historyReportBody').getByText(/Τιμολόγιο: 11\/11\/2026/).waitFor();
+      await embedded.locator('#historyReportBody').getByText('10/11/2026',{exact:true}).first().waitFor();
+      await embedded.locator('#historyReportCloseButton').click();
+    }
     const documents=page.locator('#bottomNav [data-go="invoices"]');if(await documents.isVisible())await documents.click();else await page.locator('#sideNav [data-go="invoices"]').click();
     await page.locator('[data-invoice-card]').first().waitFor();await page.locator('#invoiceLoadProgress').waitFor({state:'hidden'});
     assert.equal(invoiceRequests,2,'full 57-invoice fixture needs only two requests');
@@ -213,4 +241,4 @@ try{for(const width of [390,1280]){
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);assert.deepEqual(errors,[]);assert.deepEqual(missing,[]);
   }catch(error){fs.writeFileSync(path.join(out,'error-'+width+'.json'),JSON.stringify({requests,errors,missing},null,2));await page.screenshot({path:path.join(out,'error-'+width+'.png'),fullPage:true});throw error;}finally{await context.close();}
 }}finally{await browser.close();}
-console.log('PASS Direct Portal/Fleet/Invoices at 390/1280: all 29 compact histories before opening, two offline mileage checks survive reload and replay the lost acknowledgment, and all 57 invoices arrive in two reads. Physical Android and network timing are separate.');
+console.log('PASS Direct Portal/Fleet/Invoices at 390/1280: compact histories, targeted existing-service QR, separate invoice and service dates, two offline mileage checks survive reload and replay, and 57 invoices arrive in two reads.');

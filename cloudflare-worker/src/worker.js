@@ -14,6 +14,7 @@ import { INVOICE_IMPORT_SCHEMA, routeInvoiceImports, readImportDraftForJob, fini
 import { visibleSnapshotRow, snapshotSummary, snapshotPage, readServiceEntry, writeServiceEntry, fleetNames, readServiceDocument, fleetRegistrySnapshot, readSnapshotBike, writeSnapshotBike, fleetCard, fleetCardRow, fleetQrCandidates } from "./snapshot-store.js";
 import { routeServiceOperations } from './service-operations.js';
 import { stableReviewJson, readReviewReceipt, commitInvoiceReview } from './invoice-review-store.js';
+import { TARGETED_SERVICE_QR_SCHEMA, activeQrReservation, checkTargetedInvoiceRead, reserveTargetedQr, targetedQrReplay, validTargetedOperationId } from './targeted-service-qr.js';
 import { parseInvoiceText, enrichInvoiceExtraction, evaluateInvoiceConfirmation, INVOICE_RULES_VERSION, MAX_INVOICE_TEXT, MAX_INVOICE_ITEMS } from './invoice-extraction.js';
 import { routeReleases } from "./releases.js";
 import {
@@ -46,7 +47,7 @@ const SERVICE_RENDER_MAX_ATTEMPTS = 3;
 const INVOICE_REPROCESS_BATCH_SETTING = "service_invoice_reprocess_batch";
 const INVOICE_REPROCESS_BATCH_STALE_MS = 20 * 60 * 1000;
 const INVOICE_REPROCESS_BATCH_RESULT_TTL_MS = 30 * 1000;
-const RUNTIME_SCHEMA_VERSION = "store-billing-aggregate-v2";
+const RUNTIME_SCHEMA_VERSION = "store-billing-aggregate-v2-targeted-qr-v1";
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fleet_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'canonical', updated_at TEXT NOT NULL);
@@ -57,6 +58,7 @@ CREATE INDEX IF NOT EXISTS fleet_releases_kind_created ON fleet_releases(kind, c
 CREATE TABLE IF NOT EXISTS fleet_sessions (token_hash TEXT PRIMARY KEY NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS fleet_pin_attempts (fingerprint TEXT PRIMARY KEY NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, window_started INTEGER NOT NULL, blocked_until INTEGER NOT NULL DEFAULT 0);
 ${INVOICE_IMPORT_SCHEMA}
+${TARGETED_SERVICE_QR_SCHEMA}
 INSERT OR IGNORE INTO fleet_snapshot (id, version, data, source, updated_at) VALUES (1, 0, '{"bikes":[]}', 'canonical', datetime('now'));
 `;
 
@@ -182,6 +184,7 @@ async function route(request, env) {
   if (path === "/api/service-documents" && request.method === "POST") return uploadServiceDocument(request, env);
   if (path === "/api/service-documents" && request.method === "DELETE") return deleteServiceDocument(request, env);
   if (path === "/api/service-documents/import-qr" && request.method === "POST") return importQrServiceDocument(request, env);
+  if (path === "/api/service-documents/import-targeted-qr" && request.method === "POST") return importQrServiceDocument(request, env, true);
   if (path.startsWith("/api/service-documents/jobs/") && request.method === "POST" && path.endsWith("/retry")) return retryServiceDocumentJob(request, env);
   if (path.startsWith("/api/service-documents/jobs/") && request.method === "GET") return serviceDocumentJobStatus(request, env);
   if (path === "/api/service-documents/resolve-qr" && request.method === "POST") return resolveQrServiceDocument(request, env);
@@ -293,10 +296,11 @@ async function uploadServiceDocument(request, env) {
   return json({ ok: true, attachment: stored.attachment || attachment }, 201);
 }
 
-async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
-  const names = await fleetNames(env);
+async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment, targeted = null) {
+  const names = targeted ? [] : await fleetNames(env);
   const proof = attachment.ocr ? parseInvoiceText(attachment.ocr.rawText) : null;
-  const extracted = attachment.ocr ? refineInvoicePlateForFleet(normalizeServiceDocumentOcr(enrichInvoiceExtraction(attachment.ocr,proof)), names) : null;
+  const extracted = attachment.ocr ? normalizeServiceDocumentOcr(enrichInvoiceExtraction(attachment.ocr,proof)) : null;
+  const read = targeted ? extracted : refineInvoicePlateForFleet(extracted, names);
   for (let attempt = 0; attempt < 5; attempt++) {
     if (attachment.renderJobId && await renderJobCancelled(env,attachment.renderJobId)) return {attached:false,status:410,error:"Η παλιά προσπάθεια διακόπηκε."};
     const located = await readServiceEntry(env, bikeId, entryId);
@@ -311,27 +315,44 @@ async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
     mergeServiceQrMetadata(entry, attachment.qrValue, attachment.qrUrl, attachment.renderJobId ? {
       jobId: attachment.renderJobId, status: "completed", progress: 100, stage: "Ολοκληρώθηκε", error: ""
     } : null);
-    attachment.name = uniqueInvoiceDisplayName(buildInvoiceDisplayName(bike.name, attachment.invoiceDate || attachment.ocr?.invoiceDate || "", entry.date, attachment.name), attachments, attachment.key);
+    attachment.name = uniqueInvoiceDisplayName(buildInvoiceDisplayName(bike.name, attachment.invoiceDate || read?.invoiceDate || attachment.ocr?.invoiceDate || "", entry.date, attachment.name), attachments, attachment.key);
     entry.attachments = [...attachments.filter(file=>file.key!==attachment.sourcePhoto?.key), attachment];
     const now = new Date().toISOString();
-    if (extracted) {
+    if (read) {
       const before = ServiceModel.state(entry, {}), oldTasks = (entry.tasks || []).join('\n');
-      const decision = await decideInvoiceRead(env, bike, entry, attachment, extracted, names, {}, attachment.ocrError || '',proof);
+      const decision = targeted
+        ? await decideTargetedInvoiceRead(env, bike, entry, attachment, read, proof, targeted, now)
+        : await decideInvoiceRead(env, bike, entry, attachment, read, names, {}, attachment.ocrError || '',proof);
+      if (decision.rejection) return {attached:false,...decision.rejection};
       attachment.ocr = normalizeServiceDocumentOcr(decision.data);
       if (!attachment.ocrError) {
-        if(decision.tasks)entry.tasks = decision.tasks;
-        if (!entry.notes || entry.notes === oldTasks) entry.notes = entry.tasks.join('\n');
-        if (attachment.ocr.supplier && !entry.workshop) entry.workshop = attachment.ocr.supplier;
+        if (!targeted) {
+          if(decision.tasks)entry.tasks = decision.tasks;
+          if (!entry.notes || entry.notes === oldTasks) entry.notes = entry.tasks.join('\n');
+          if (attachment.ocr.supplier && !entry.workshop) entry.workshop = attachment.ocr.supplier;
+        }
         entry.invoiceData = attachment.ocr;
       }
-      if (decision.automatic) ServiceModel.decision(entry,attachment.key,before,attachment.ocr,'Αυτόματος έλεγχος · '+INVOICE_RULES_VERSION,now,false);
+      if (decision.automatic || targeted) ServiceModel.decision(entry,attachment.key,before,attachment.ocr,targeted?.requestedBy || 'Αυτόματος έλεγχος · '+INVOICE_RULES_VERSION,now,false);
       entry.updatedAt = now;
-      const normalized=normalizeHistory([entry])[0],storedFile=normalized.attachments.find(item=>item.key===attachment.key);
-      const result=await commitInvoiceReview(env,{actor:{id:'invoice-reader',username:'invoice-reader',role:'system'},requestId:'attach-'+(attachment.renderJobId||attachment.id),hash:await sha256(attachment.key),
+      const normalized=targeted ? {...entry,attachments:normalizeServiceAttachments(entry.attachments)} : normalizeHistory([entry])[0];
+      const storedFile=normalized.attachments.find(item=>item.key===attachment.key);
+      const result=await commitInvoiceReview(env,{actor:{id:'invoice-reader',username:'invoice-reader',role:'system'},requestId:'attach-'+(attachment.renderJobId||attachment.id),hash:await sha256(targeted?.targetedOperationId || attachment.key),
         updates:[{located,entry:normalized,bikePatch:{updatedAt:now}}],result:{attached:true,automaticConfirmed:decision.automatic,document:adminServiceDocumentRecord(bike,normalized,storedFile,null,[],true)},now,changed:true,
-        source:'service-document-upload',renderJobId:attachment.renderJobId||'',autoConfirmation:decision.automatic?{...attachment.ocr,key:attachment.key,qrUrl:attachment.qrUrl||''}:null,audit:{action:decision.automatic?'service_document_auto_confirmed':'service_document_read',before,after:ServiceModel.state(normalized,attachment.ocr),reason:decision.automatic?attachment.ocr.confirmationReason:'Το τιμολόγιο αποθηκεύτηκε με τις αιτίες ελέγχου.'}});
+        source:'service-document-upload',renderJobId:attachment.renderJobId||'',
+        autoConfirmation:decision.automatic||targeted?{...attachment.ocr,key:attachment.key,qrUrl:attachment.qrUrl||'',includeArchived:Boolean(targeted),excludeSourcePhoto:targeted?attachment.sourcePhoto?.key||'':''}:null,
+        audit:{action:targeted?'service_document_targeted_qr':decision.automatic?'service_document_auto_confirmed':'service_document_read',before,
+          after:{...ServiceModel.state(normalized,attachment.ocr),...(targeted?{bikeId,entryId,operationId:targeted.targetedOperationId,selectedBy:targeted.requestedBy}:{})},
+          reason:decision.automatic||targeted?attachment.ocr.confirmationReason:'Το τιμολόγιο αποθηκεύτηκε με τις αιτίες ελέγχου.'}});
       if (!result) continue;
       if (result.conflict) return {attached:false,status:409,error:'Το τιμολόγιο έχει ήδη διαφορετικό αποτέλεσμα.'};
+      if (targeted && result.reused && result.document?.key !== attachment.key) {
+        const latest = await readServiceEntry(env, bikeId, entryId);
+        const saved = latest?.entry.attachments.find(file => file.key === result.document?.key);
+        if (!saved) return {attached:false,status:409,error:'Η σύνδεση του τιμολογίου έχει αλλάξει.'};
+        await resolveServiceDocumentFailure(env,attachment.renderJobId);
+        return {attached:true,duplicate:true,version:latest.version,attachment:saved};
+      }
       if (!attachment.ocrError) await resolveServiceDocumentFailure(env,attachment.renderJobId);
       return {...result,attachment:storedFile};
     }
@@ -341,6 +362,29 @@ async function attachServiceDocumentMetadata(env, bikeId, entryId, attachment) {
     if (version) { if(!attachment.ocrError)await resolveServiceDocumentFailure(env, attachment.renderJobId); return { attached: true, version }; }
   }
   return { attached: false, status: 409, error: "Το service ενημερώθηκε ταυτόχρονα. Δοκίμασε ξανά την προσθήκη του τιμολογίου." };
+}
+
+async function decideTargetedInvoiceRead(env, bike, entry, attachment, read, proof, targeted, now) {
+  const reasons = checkTargetedInvoiceRead(read, {bike,entry,bikes:[],readError:attachment.ocrError,proof});
+  if (reasons.length) return {rejection:{status:422,error:'Η ανάγνωση του τιμολογίου δεν ολοκληρώθηκε: '+reasons[0].message}};
+  const duplicates = await invoiceDuplicates(env,{
+    qrUrl:attachment.qrUrl,supplier:read.supplier,invoiceNumber:read.invoiceNumber,excludeKey:attachment.sourcePhoto?.key||'',includeArchived:true
+  });
+  if (duplicates.length) return {rejection:{status:409,error:'Το παραστατικό έχει ήδη καταχωρηθεί. Οι υπάρχουσες συνδέσεις διατηρούνται.'}};
+  const plate = invoicePlateKey(read.plate);
+  const km = invoiceOdometer(read.odometerKm);
+  const fingerprint=await sha256(stableReviewJson(invoiceReadComparison(read,ServiceModel.cents)));
+  return {automatic:false,data:{...read,
+    confirmedAt:now,reviewStatus:'confirmed',reviewedBy:targeted.requestedBy,
+    confirmationMethod:'targeted-qr',confirmationRuleVersion:INVOICE_RULES_VERSION,
+    confirmationReason:'Ρητή επιλογή υπάρχοντος σέρβις κατά τη σάρωση QR.',
+    targetedOperationId:targeted.targetedOperationId,reviewDocumentKey:attachment.key,reviewIssues:[],
+    lastReadCanonicalFingerprint:fingerprint,acknowledgedReadCanonicalFingerprint:fingerprint,
+    qrUrl:attachment.qrUrl,qrJobId:attachment.renderJobId,qrProcessingStatus:'completed',qrProcessingProgress:'100',
+    qrProcessingStage:'Ολοκληρώθηκε',qrProcessingUpdatedAt:now,
+    ...(plate?{plateResolution:'kept-current',plateResolutionBikeId:String(bike.id),plateResolutionPlate:invoicePlateKey(bike.name),plateResolutionRead:plate}:{}),
+    ...(km?{mileageResolution:'keep',mileageResolutionEntryId:String(entry.id),mileageResolutionRead:String(km),mileageResolutionServiceKm:String(entry.km)}:{})
+  }};
 }
 
 function mergeServiceQrMetadata(entry, qrValue, qrUrl, processing) {
@@ -695,7 +739,7 @@ async function extractQrPdfPayload(env, response, qrValue, qrUrl, sourceUrl) {
   return { bytes, filename, type: "application/pdf", extracted, extractionError, qrValue, qrUrl, sourceUrl };
 }
 
-async function importQrServiceDocument(request, env) {
+async function importQrServiceDocument(request, env, targeted = false) {
   let actor;
   try { actor = await authenticateExternal(request, env, "fleet.manage"); }
   catch (error) { return json({ error: error?.message || "Χρειάζεται σύνδεση διαχείρισης." }, Number(error?.status) || 401); }
@@ -705,17 +749,31 @@ async function importQrServiceDocument(request, env) {
   const entryId = cleanText(body.entryId, 120);
   const qrValue = normalizeQrValue(body.value);
   const qrUrl = qrUrlFromValue(qrValue);
+  const targetedOperationId = targeted ? body.targetedOperationId : '';
+  if (targeted && !validTargetedOperationId(targetedOperationId)) return json({error:'Μη έγκυρος κωδικός σάρωσης.'},400);
   if (!bikeId || !entryId || !qrValue) return json({ error: "Λείπει το μηχανάκι, το service ή το QR." }, 400);
   if (!qrUrl || !isPublicExternalQrUrl(qrUrl)) return json({ ok: false, qrValue, qrUrl, code: "invalid_qr_url", error: "Το QR δεν περιέχει ασφαλή δημόσιο σύνδεσμο." }, 422);
+  if (targeted && new URL(qrUrl).protocol !== 'https:') return json({error:'Ο σύνδεσμος QR πρέπει να χρησιμοποιεί HTTPS.'},422);
   const located = await readServiceEntry(env, bikeId, entryId);
   const entry = located?.entry;
   if (!entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε. Αποθήκευσε πρώτα το service και ξαναδοκίμασε." }, 404);
   const sourcePhotoKey=cleanText(body.sourcePhotoKey,500);
   const photo=sourcePhotoKey?(entry.attachments||[]).flatMap(file=>[file,file.sourcePhoto]).find(file=>file?.key===sourcePhotoKey&&ServiceModel.sourcePhoto(file)):null;
   if(sourcePhotoKey&&!photo)return json({error:"Η αρχική φωτογραφία δεν βρέθηκε στο service."},404);
+  const replay = targetedOperationId ? await targetedQrReplay(env,targetedOperationId) : null;
+  if (replay && (replay.payload.bikeId !== bikeId || replay.payload.entryId !== entryId ||
+      replay.payload.qrUrl !== qrUrl || (replay.payload.sourcePhotoKey || '') !== sourcePhotoKey)) {
+    return json({error:'Ο κωδικός σάρωσης ανήκει σε διαφορετική καταχώρηση.',code:'qr_operation_conflict'},409);
+  }
   const existing = (entry.attachments || []).find(item => item.contentType==='application/pdf' && String(item.qrUrl || item.qrValue) === qrUrl);
+  if (targeted && existing?.ocrError) {
+    return json({error:'Το PDF έχει καταχωρηθεί και η ανάγνωση χρειάζεται επανάληψη από τα Τιμολόγια.',code:'existing_qr_read_failure'},409);
+  }
   if(existing&&photo&&!existing.sourcePhoto){existing.sourcePhoto=ServiceModel.sourcePhoto(photo);existing.uploadId=existing.uploadId||photo.uploadId||"";entry.attachments=entry.attachments.filter(file=>file.key!==photo.key);entry.updatedAt=new Date().toISOString();const saved=await writeServiceEntry(env,located,entry,'invoice-photo-link',entry.updatedAt);if(!saved)return json({error:"Το service άλλαξε. Δοκίμασε ξανά."},409);}
-  if (existing) return json({ ok: true, duplicate: true, documentAvailable: true, attachment: existing, extracted: existing.ocr || null, qrValue, qrUrl, requiresConfirmation: Boolean(existing.ocr) });
+  if (existing) return json({ ok: true, duplicate: true, documentAvailable: true, attachment: existing, extracted: existing.ocr || null, qrValue, qrUrl, requiresConfirmation: Boolean(existing.ocr && (!targeted || !existing.ocr.confirmedAt)) });
+  if (targeted) {
+    return enqueueTargetedQr(env, {bikeId,entryId,qrValue,qrUrl,sourcePhotoKey,targetedOperationId}, entry, actor, replay);
+  }
   const duplicateMatches=(await invoiceDuplicates(env,{qrUrl})).filter(match=>String(match.bikeId)!==bikeId||String(match.entryId)!==entryId);
   if(duplicateMatches.length&&!body.allowDuplicate)return json({error:"Το τιμολόγιο υπάρχει ήδη σε άλλο service.",code:"duplicate_invoice",matches:duplicateMatches},409);
   const pending = await findPendingServiceRender(env, bikeId, entryId, qrUrl);
@@ -758,8 +816,12 @@ async function importQrServiceDocument(request, env) {
     progress: 5,
     progressStage: "QR αποθηκεύτηκε · αναμονή Server"
   };
-  await env.DB.prepare("INSERT INTO fleet_operations (id, source, type, payload, status, created_at) VALUES (?, 'authenticated-client', 'service_document_render', ?, 'pending', ?)")
-    .bind(jobId, JSON.stringify(payload), new Date().toISOString()).run();
+  const inserted = await env.DB.prepare(`INSERT INTO fleet_operations(id,source,type,payload,status,created_at)
+    SELECT ?,'authenticated-client','service_document_render',?,'pending',?
+    WHERE NOT EXISTS (SELECT 1 FROM fleet_operations WHERE type='service_document_render' AND status IN ('pending','error')
+      AND json_extract(payload,'$.qrUrl')=? AND json_extract(payload,'$.targetedOperationId') IS NOT NULL)`)
+    .bind(jobId, JSON.stringify(payload), new Date().toISOString(), qrUrl).run();
+  if (!inserted.meta?.changes) return json({error:'Το QR εκκρεμεί σε ρητά επιλεγμένο σέρβις.',code:'targeted_qr_reserved'},409);
   await updateServiceDocumentProcessingSnapshot(env, payload, {
     jobId,
     status: "processing",
@@ -780,6 +842,32 @@ async function importQrServiceDocument(request, env) {
     code: "server_render_queued",
     message: "Το QR στάλθηκε στον Server για δημιουργία PDF."
   }, 202);
+}
+
+async function enqueueTargetedQr(env, input, entry, actor, replay) {
+  const reply = job => json({ok:true,queued:true,jobId:job.id,status:job.status,
+    progress:job.payload.progress||5,stage:job.payload.progressStage,documentAvailable:false},202);
+  if (replay) {
+    if (['pending','error'].includes(replay.status)) return reply(replay);
+    return json({error:'Η σάρωση έχει τερματιστεί. Έλεγξε την κατάστασή της στο υπάρχον σέρβις.'},409);
+  }
+  if ((entry.attachments || []).length >= MAX_SERVICE_ATTACHMENTS && !input.sourcePhotoKey) {
+    return json({error:'Το σέρβις έχει ήδη 10 τιμολόγια. Τα υπάρχοντα αρχεία διατηρούνται.'},409);
+  }
+  const alreadyLinked = await invoiceDuplicates(env,{qrUrl:input.qrUrl,excludeKey:input.sourcePhotoKey,includeArchived:true});
+  if (alreadyLinked.length) return json({error:'Το QR είναι ήδη συνδεδεμένο με τιμολόγιο.',code:'targeted_qr_duplicate'},409);
+  const payload={...input,requestedAt:new Date().toISOString(),requestedBy:cleanText(actor.id||actor.username,120),
+    attemptCount:0,progress:5,progressStage:'QR αποθηκεύτηκε · αναμονή Server'};
+  const id=crypto.randomUUID();
+  if (await reserveTargetedQr(env,id,payload)) {
+    await updateServiceDocumentProcessingSnapshot(env,payload,{jobId:id,status:'processing',progress:5,stage:payload.progressStage});
+    return reply({id,status:'pending',payload});
+  }
+  const reserved = await targetedQrReplay(env,input.targetedOperationId) || await activeQrReservation(env,input.qrUrl);
+  if (reserved?.payload.targetedOperationId && ['pending','error'].includes(reserved.status) &&
+      reserved.payload.bikeId===input.bikeId && reserved.payload.entryId===input.entryId &&
+      reserved.payload.qrUrl===input.qrUrl && (reserved.payload.sourcePhotoKey||'')===input.sourcePhotoKey) return reply(reserved);
+  return json({error:'Το QR ανήκει σε άλλη εργασία τιμολογίου. Η υπάρχουσα καταχώρηση διατηρείται.',code:'targeted_qr_reserved'},409);
 }
 
 async function findPendingServiceRender(env, bikeId, entryId, qrUrl) {
@@ -944,7 +1032,7 @@ async function restartServiceDocument(request, env) {
   const qrUrl = qrUrlFromValue(payload.qrUrl || body.qrUrl || located.entry.invoiceData?.qrUrl);
   if (!qrUrl || !isPublicExternalQrUrl(qrUrl)) return json({error:"Δεν υπάρχει έγκυρο QR. Σκάναρε ξανά το τιμολόγιο."},400);
   const photo=located.entry.attachments?.find(file=>String(file.qrUrl||file.qrValue)===qrUrl&&ServiceModel.sourcePhoto(file));
-  const sourcePhotoKey=payload.sourcePhotoKey||photo?.key||'';
+  const sourcePhotoKey=payload.sourcePhotoKey||(payload.targetedOperationId?'':photo?.key)||'';
   const existing = located.entry.attachments?.find(x => x.key!==sourcePhotoKey && (String(x.qrUrl || x.qrValue) === qrUrl || (jobId && String(x.renderJobId) === jobId)));
   if (existing) {
     if (existing.ocrError) {
@@ -963,7 +1051,9 @@ async function restartServiceDocument(request, env) {
   }
   const newId = crypto.randomUUID(), now = new Date().toISOString();
   const next = { bikeId:located.bike.id,entryId:located.entry.id,qrUrl,qrValue:payload.qrValue || qrUrl,
-    ...(sourcePhotoKey?{sourcePhotoKey}:{}),requestedAt:now,attemptCount:0,progress:5,progressStage:"Νέα προσπάθεια · αναμονή Server",replacesJobId:jobId };
+    ...(sourcePhotoKey?{sourcePhotoKey}:{}),
+    ...(payload.targetedOperationId?{targetedOperationId:payload.targetedOperationId,requestedBy:payload.requestedBy}:{}),
+    requestedAt:now,attemptCount:0,progress:5,progressStage:"Νέα προσπάθεια · αναμονή Server",replacesJobId:jobId };
   const insert = row
     ? env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) SELECT ?,'manual-retry','service_document_render',?,'pending',? WHERE EXISTS (SELECT 1 FROM fleet_operations WHERE id=? AND status IN ('pending','error','applied') AND payload=?)").bind(newId,JSON.stringify(next),now,jobId,row.payload)
     : env.DB.prepare("INSERT INTO fleet_operations (id,source,type,payload,status,created_at) SELECT ?,'manual-retry','service_document_render',?,'pending',? WHERE NOT EXISTS (SELECT 1 FROM fleet_operations WHERE type='service_document_render' AND status='pending' AND json_extract(payload,'$.bikeId')=? AND json_extract(payload,'$.entryId')=? AND json_extract(payload,'$.qrUrl')=?)").bind(newId,JSON.stringify(next),now,located.bike.id,located.entry.id,qrUrl);
@@ -988,6 +1078,7 @@ async function retryServiceDocumentJob(request, env) {
   if (!row || row.type !== "service_document_render") return json({ error: "Η εργασία τιμολογίου δεν βρέθηκε." }, 404);
   let payload = {};
   try { payload = JSON.parse(row.payload || "{}"); } catch {}
+  if (row.status==='cancelled' && payload.targetedOperationId) return json({error:'Έχει ήδη ξεκινήσει νεότερη προσπάθεια ή η σάρωση ακυρώθηκε.'},409);
   const located = await readServiceEntry(env, payload.bikeId, payload.entryId);
   if(payload.documentKey){await env.DB.prepare("UPDATE fleet_operations SET status='cancelled',applied_at=? WHERE id=? AND status IN ('pending','error')").bind(new Date().toISOString(),jobId).run();return queueStoredAnalysis(env,payload.documentKey,{});}
   const existing = (located?.entry.attachments || []).find(item => jobAttachmentMatches(item,payload,jobId));
@@ -1051,7 +1142,7 @@ function invoiceDataForServiceDocument(entry, attachment) {
   const fallback = !attachment || (entry?.attachments || []).length <= 1 ? entry?.invoiceData : null;
   const data = mergeServerInvoiceData(fallback, attachment?.qrData, attachment?.ocr);
   if(attachment?.key&&data.reviewDocumentKey&&data.reviewDocumentKey!==attachment.key){
-    for(const field of ['confirmedAt','reviewedBy','confirmationMethod','confirmationRuleVersion','confirmationReason','correctedByUserAt','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','lastReadFingerprint','acknowledgedReadFingerprint','lastReadCanonicalFingerprint','acknowledgedReadCanonicalFingerprint','lastReadFields','acknowledgedReadFields','reviewDocumentKey'])delete data[field];
+    for(const field of ['confirmedAt','reviewedBy','confirmationMethod','confirmationRuleVersion','confirmationReason','targetedOperationId','correctedByUserAt','plateResolution','plateResolutionBikeId','plateResolutionPlate','plateResolutionRead','mileageResolution','mileageResolutionEntryId','mileageResolutionRead','mileageResolutionServiceKm','lastReadFingerprint','acknowledgedReadFingerprint','lastReadCanonicalFingerprint','acknowledgedReadCanonicalFingerprint','lastReadFields','acknowledgedReadFields','reviewDocumentKey'])delete data[field];
     data.reviewStatus='needs_review';
   }
   return data.confirmedAt ? data : normalizeServiceDocumentOcr(data) || {};
@@ -2367,7 +2458,7 @@ function normalizeInvoiceWorkPerformed(value, limit = MAX_INVOICE_TEXT, structur
 function normalizeServiceInvoiceData(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = {};
-  for (const field of ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"]) {
+  for (const field of ["supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "targetedOperationId", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"]) {
     if (value[field] == null) continue;
     if (field === "qrProcessingProgress") {
       result[field] = String(cleanInteger(value[field], 0, 100, 5));
@@ -2425,7 +2516,7 @@ function normalizeInvoiceAnalysis(value,result) {
 function normalizeServiceDocumentOcr(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = {};
-  for (const field of ["rawText", "supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"]) {
+  for (const field of ["rawText", "supplier", "invoiceNumber", "invoiceDate", "mark", "plate", "odometerKm", "workPerformed", "comments", "laborAmount", "netAmount", "vatAmount", "totalAmount", "notes", "source", "qrUrl", "confirmedAt", "reviewedBy", "reviewStatus", "ocrReprocessedAt", "ocrSource", "ocrFallbackUsed", "ocrFallbackReason", "ocrFallbackError", "localReadStatus", "localReadAt", "ocrConfidence", "qrJobId", "qrProcessingStatus", "qrProcessingStartedAt", "qrProcessingUpdatedAt", "qrProcessingError", "qrProcessingAttempts", "qrProcessingProgress", "qrProcessingStage", "reviewSeenAt", "plateResolution", "plateResolutionBikeId", "plateResolutionPlate", "plateResolutionRead", "correctedByUserAt", "serviceKmBeforeCorrection", "serviceKmAfterCorrection", "mileageResolution", "mileageResolutionEntryId", "mileageResolutionRead", "mileageResolutionServiceKm", "plateAutoCorrectedFrom", "confirmationMethod", "confirmationRuleVersion", "confirmationReason", "targetedOperationId", "lastReadFingerprint", "acknowledgedReadFingerprint", "lastReadCanonicalFingerprint", "acknowledgedReadCanonicalFingerprint", "lastReadFields", "acknowledgedReadFields", "reviewDocumentKey"]) {
     if (value[field] == null) continue;
     if (field === "qrProcessingProgress") {
       result[field] = String(cleanInteger(value[field], 0, 100, 5));
@@ -3583,6 +3674,13 @@ async function uploadServerRenderedServiceDocument(request, env) {
     return json({ error: "Λείπουν ή δεν είναι έγκυρα τα στοιχεία του τιμολογίου." }, 400);
   }
   if (await renderJobCancelled(env, jobId)) return json({ error: "Η παλιά προσπάθεια διακόπηκε.", cancelled: true }, 410);
+  const jobRow=await env.DB.prepare("SELECT payload FROM fleet_operations WHERE id=? AND type='service_document_render'").bind(jobId).first();
+  let renderPayload={};try{renderPayload=JSON.parse(jobRow?.payload||'{}');}catch{}
+  const targeted = renderPayload.targetedOperationId ? renderPayload : null;
+  if (targeted && (targeted.bikeId !== bikeId || targeted.entryId !== entryId ||
+      targeted.qrUrl !== qrUrl || targeted.qrValue !== qrValue)) {
+    return json({error:'Η ανάγνωση δεν αντιστοιχεί στη ρητή επιλογή σέρβις.'},409);
+  }
   const bucket = env.SERVICE_DOCS || env.RELEASES;
   if (!bucket) return json({ error: "Δεν έχει συνδεθεί χώρος αποθήκευσης τιμολογίων." }, 503);
   let bytes, bodyAnalysis = null;
@@ -3600,8 +3698,6 @@ async function uploadServerRenderedServiceDocument(request, env) {
   const bike = located?.bike;
   const entry = located?.entry;
   if (!bike || !entry || entry.type === "check") return json({ error: "Το service δεν βρέθηκε ή διαγράφηκε." }, 404);
-  const jobRow=await env.DB.prepare("SELECT payload FROM fleet_operations WHERE id=? AND type='service_document_render'").bind(jobId).first();
-  let renderPayload={};try{renderPayload=JSON.parse(jobRow?.payload||'{}');}catch{}
   const photo=renderPayload.sourcePhotoKey?(entry.attachments||[]).find(file=>file.key===renderPayload.sourcePhotoKey):null;
   if(renderPayload.sourcePhotoKey&&!photo&&!entry.attachments?.some(file=>file.sourcePhoto?.key===renderPayload.sourcePhotoKey))return json({error:"Η αρχική φωτογραφία αφαιρέθηκε. Η παλιά προσπάθεια σταμάτησε.",cancelled:true},410);
   const existing = (Array.isArray(entry.attachments) ? entry.attachments : []).find((item) =>
@@ -3665,6 +3761,7 @@ async function uploadServerRenderedServiceDocument(request, env) {
   }
 
   if (await renderJobCancelled(env, jobId)) return json({ error: "Η παλιά προσπάθεια διακόπηκε.", cancelled: true }, 410);
+  if (targeted && (!extracted || ocrError)) return json({error:'Δεν ολοκληρώθηκε η ανάγνωση του τιμολογίου.'},422);
   // Drafts need the same complete deterministic fields in their preview.
   // Confirmation still waits for the manager's explicit service selection.
   if(draft&&extracted)extracted=normalizeServiceDocumentOcr(enrichInvoiceExtraction(extracted));
@@ -3690,7 +3787,7 @@ async function uploadServerRenderedServiceDocument(request, env) {
     ocrError,
     ocr: extracted || null
   };
-  const stored = draft ? await finishImportDraft(env,draft,attachment) : await attachServiceDocumentMetadata(env, bikeId, entryId, attachment);
+  const stored = draft ? await finishImportDraft(env,draft,attachment) : await attachServiceDocumentMetadata(env, bikeId, entryId, attachment, targeted);
   if (!stored.attached) {
     await bucket.delete(key);
     return json({ error: stored.error || "Το service δεν βρέθηκε ή διαγράφηκε." }, stored.status || 404);

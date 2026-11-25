@@ -155,7 +155,7 @@ console.log("OK invoice batch: all files, QR belongs to first file, partial fail
   const { ctx, elements, trace } = fixture();
   const first = deferred();
   const requests = [];
-  const imported = [];
+  const queued = [];
   ctx.remoteHistoryAction = async (bikeId, entryId, _action, payload) => {
     requests.push({ bikeId, entryId, payload: plain(payload) });
     if (requests.length === 1) await first.promise;
@@ -163,15 +163,20 @@ console.log("OK invoice batch: all files, QR belongs to first file, partial fail
     Object.assign(result.history.find((entry) => entry.id === entryId), payload, { updatedAt: new Date().toISOString() });
     return { bike: result };
   };
-  ctx.importQrDocument = async (bikeId, entryId, value) => {
-    imported.push({ bikeId, entryId, value });
-    return { queued: true, jobId: "qr-" + entryId, progress: 5 };
+  const firstStored=deferred();
+  ctx.queueExistingServiceQr = async (bike, entry, value) => {
+    if (!queued.length) await firstStored.promise;
+    queued.push({bikeId:bike.id,entryId:entry.id,value});
   };
+  ctx.processServiceOutbox=()=>{};
+  ctx.importQrDocument=()=>{throw new Error("An existing service scan bypassed the durable QR queue.");};
   ctx.waitForQrDocumentJob = () => { throw new Error("Form saves must not wait for Server rendering."); };
   elements.historyEntryInvoiceQrValue.value = "https://einvoice.example/first";
   const submit = ctx.handleHistoryEntrySubmit(event);
-  assert.equal(trace.includes("close-history"), true, "Dialog closes before an API request completes.");
+  assert.equal(trace.includes("close-history"), false, "The service stays open until the QR is stored on the device.");
+  firstStored.resolve();
   await submit;
+  assert.equal(trace.includes("close-history"), true, "The dialog closes after local storage and before the remote edit completes.");
   assert.equal(requests.length, 1);
   elements.historyEntryId.value = "entry-2";
   elements.historyEntryKm.value = "9100";
@@ -186,7 +191,7 @@ console.log("OK invoice batch: all files, QR belongs to first file, partial fail
   assert.deepEqual(requests.map((item) => item.entryId), ["entry-1", "entry-2"]);
   assert.equal(requests[0].payload.km, 9000);
   assert.equal(requests[1].payload.km, 9100);
-  assert.deepEqual(imported.map((item) => [item.entryId, item.value]), [
+  assert.deepEqual(queued.map((item) => [item.entryId, item.value]), [
     ["entry-1", "https://einvoice.example/first"], ["entry-2", "https://einvoice.example/second"]]);
   assert.equal(ctx.backgroundHistorySaves.size, 0);
 }
