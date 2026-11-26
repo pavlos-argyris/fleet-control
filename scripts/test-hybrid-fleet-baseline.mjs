@@ -28,7 +28,10 @@ const confirmedKey='service-documents/fixture/confirmed.pdf';
 const confirmedBytes=Buffer.from('%PDF-1.4\nSynthetic historically confirmed invoice\n%%EOF');
 const archivedKey='service-documents/fixture/archived.pdf';
 const archivedBytes=Buffer.from('%PDF-1.4\nSynthetic confirmed invoice from archived vehicle\n%%EOF');
-const packages=[[fileKey,fileBytes,'image/jpeg'],[confirmedKey,confirmedBytes,'application/pdf'],[archivedKey,archivedBytes,'application/pdf']];
+const foreignKey='service-documents/fixture/other-original.jpg';
+const foreignBytes=Buffer.from('Original photo from a different synthetic service');
+const packages=[[fileKey,fileBytes,'image/jpeg'],[confirmedKey,confirmedBytes,'application/pdf'],
+  [archivedKey,archivedBytes,'application/pdf'],[foreignKey,foreignBytes,'image/jpeg']];
 const confirmed=key=>({id:key===confirmedKey?'confirmed-original-id':'archived-original-id',key,name:key.split('/').at(-1),
   contentType:'application/pdf',qrUrl:'https://invoice.fixture.invalid/'+(key===confirmedKey?'paid':'archive-paid'),
   ocr:{confirmedAt:'2026-11-25T08:00:00Z',supplier:'Ελεγμένος προμηθευτής',invoiceNumber:'INV-OLD',
@@ -48,10 +51,12 @@ const records=[snapshot,machine,{kind:'machine',machineId:otherId,data:{id:42,na
   service,historyOnly,{...service,machineId:otherId,data:{...service.data,notes:'Άλλο σέρβις',invoiceData:null,attachments:[]}},
   {...service,recordId:deletedId,data:{...service.data,id:deletedId,invoiceData:null,attachments:[]}},
   {kind:'machine-archive',machineId:otherId,data:{machine:{id:42,name:'Μηχανή Β'},active:true}},
-  {kind:'archived-history',machineId:otherId,recordId:serviceId,data:{...service.data,invoiceData:null,attachments:[confirmed(archivedKey)]}},
+  {kind:'archived-history',machineId:otherId,recordId:serviceId,data:{...service.data,invoiceData:null,
+    attachments:[confirmed(archivedKey),{id:'foreign-original',key:foreignKey}]}},
   legacy('legacy-job',{documentKey:fileKey,qrUrl:invoiceOrigin+'123',targetedOperationId:'manual-legacy-operation-stored'}),
   legacy('archived-job',{bikeId:otherId,qrUrl:invoiceOrigin+'archive-unconfirmed'}),
   legacy('unverified-file',{documentKey:'service-documents/unverified.jpg',qrUrl:invoiceOrigin+'not-fetched'}),
+  legacy('foreign-file',{documentKey:foreignKey,qrUrl:invoiceOrigin+'foreign-source'}),
   legacy('previously-confirmed',{qrUrl:invoiceOrigin+'paid'}),
   legacy('previously-archived',{qrUrl:invoiceOrigin+'archive-paid'}),
   legacy('old-batch',{batchId:'persisted-direct-batch'},'service_document_reprocess_batch'),
@@ -185,6 +190,7 @@ try {
   await runtime.dispose();
   await start(true);
   assert.equal(expect(await request(api+'/state'),200).baselineVersion,1);
+  assert.equal(expect(await request(api+'/state'),200).baselineProgress,null);
   expect(await request(api+'/baseline',{token:''}),401);
   expect(await request(api+'/baseline',{sendEpoch:'changed'}),409);
   assert.equal(expect(await request(api+'/baseline'),200).phase,'empty');
@@ -350,18 +356,23 @@ try {
   await Promise.all([tick(),tick()]);
   assert.equal(readJobs.length,0,'the concurrent import pages must still be sealed before any reader starts');
   for(let page=0;page<9&&(await invoiceImport()).state==='loading';page++) await tick();
-  assert.deepEqual(await invoiceImport(),{state:'ready',reason:'',jobCount:8});
+  assert.deepEqual(await invoiceImport(),{state:'ready',reason:'',jobCount:9});
   assert.equal(readJobs.length,0,'unsealed jobs remain idle');
   const queued=expect(await request(api+'/invoice-status'),200);
-  assert.deepEqual(queued.counts,{already_confirmed:1,queued:2,review:5});
+  assert.deepEqual(queued.counts,{already_confirmed:1,queued:2,review:6});
   const reason=queued.review.map(item=>item.reason).sort();
-  assert.deepEqual(reason,['invoice_attached_elsewhere','legacy_batch_needs_review','original_attachment_unverified',
+  assert.deepEqual(reason,['invoice_attached_elsewhere','legacy_batch_needs_review','original_attachment_target_conflict','original_attachment_unverified',
     'original_service_not_verified','original_service_not_verified']);
   expect(await post('/invoice-jobs',{jobs:[manual]}),200);
   await Promise.all([tick(),tick(),tick(),tick()]);
   assert.deepEqual(readJobs.toSorted(),[job.qrValue,invoiceOrigin+'history-only',manual.qrValue].toSorted());
   const status=expect(await request(api+'/invoice-status'),200);
-  assert.deepEqual(status.counts,{already_confirmed:1,completed:3,review:5});
+  assert.deepEqual(status.counts,{already_confirmed:1,completed:3,review:6});
+  const overview=expect(await request(api+'/state',{token:ro}),200).baselineProgress;
+  assert.deepEqual(overview.invoices,status.counts);
+  assert.deepEqual(overview.invoiceImport,{state:'ready',reason:'',jobCount:9});
+  assert(!JSON.stringify(overview).includes(invoiceOrigin)&&!JSON.stringify(overview).includes(machineId),
+    'The installation status reports aggregate progress and leaves receipt and target details private');
   const updated=expect(await request(api+'/delta?cursor='+initial.nextCursor,{token:ro}),200).changes;
   assert.equal(updated.length,3);
   for (const invoice of updated) {

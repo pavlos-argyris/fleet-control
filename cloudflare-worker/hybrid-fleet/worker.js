@@ -3,7 +3,7 @@ import { routePin } from './pin.js';
 import { invoiceQueueStatus, runInvoiceQueue, sealInvoiceStage, stageInvoiceJobs } from './invoice-jobs.js';
 import { readInvoiceFile, storeInvoiceFile } from './invoice-files.js';
 import { routeFleetSetup } from './setup.js';
-import { baselineEnabled, baselineReadyForQueue, routeBaseline } from './baseline.js';
+import { baselineEnabled, baselineOverview, baselineReadyForQueue, routeBaseline } from './baseline.js';
 import { advanceBaselineProjection } from './baseline-projection.js';
 import { advanceBaselineLedger } from './baseline-ledger.js';
 import { advanceBaselineInvoiceImport, baselineInvoiceImportReady } from './baseline-invoice-import.js';
@@ -52,7 +52,7 @@ export default {
       const credential=await authorizeSync(request,db);
       const epoch=await currentEpoch(db);
       if (url.pathname.endsWith('/state')) return response({epoch,schemaVersion:1,mode:'rehearsal',
-        ...(baselineEnabled(env)?{baselineVersion:1}:{})});
+        ...(baselineEnabled(env)?{baselineVersion:1,baselineProgress:await baselineOverview(db,epoch)}:{})});
       if (request.headers.get('X-Fleet-Epoch')!==epoch) throw fleetError(409,'epoch_changed');
       if (baseline) return await routeBaseline(request,env,credential,epoch,response)||response({error:'unavailable'},404);
       if (['/api/fleet-sync/v1/mutations','/api/fleet-sync/v1/delta','/api/fleet-sync/v1/invoice-document'].includes(url.pathname)&&

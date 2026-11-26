@@ -48,7 +48,9 @@ final class FleetCloudSetup {
         // DirectControlProvider has checked the active local owner session.
         JSONObject state = stored(context);
         if ("interval".equals(action)) {
-            if (minutes != 5 && minutes != 15 && minutes != 30 && minutes != 60) throw new IOException("Η συχνότητα Fleet δεν αναγνωρίστηκε.");
+            if (minutes != 5 && minutes != 15 && minutes != 30 && minutes != 60 && minutes != 1440) {
+                throw new IOException("Η συχνότητα Fleet δεν αναγνωρίστηκε.");
+            }
             state.put("minutes",minutes);
             SealedLocalState.write(context, STORE, KEY, state);
             return status(state);
@@ -270,6 +272,11 @@ final class FleetCloudSetup {
         JSONObject candidate = state.optJSONObject("candidate");
         JSONObject active = state.optJSONObject("active"), credential = candidate == null ? active : candidate;
         long interval=state.optInt("minutes", DEFAULT_MINUTES) * 60000L;
+        JSONObject progress=state.optJSONObject("baselineProgress");
+        JSONObject invoiceImport=progress==null?null:progress.optJSONObject("invoiceImport");
+        boolean preparing=state.optInt("baselineVersion")==1&&
+                (invoiceImport==null||!"ready".equals(invoiceImport.optString("state")));
+        if (candidate!=null||preparing||"offline".equals(state.optString("connection"))) interval=Math.min(interval,300000L);
         if (credential == null || (!manual && System.currentTimeMillis() - state.optLong("lastCheckedAt") < interval)) return;
         long started = System.currentTimeMillis();
         state.put("lastCheckedAt", started);
@@ -288,7 +295,8 @@ final class FleetCloudSetup {
                     state.remove("candidate");
                 }
                 state.put("epoch", epoch).put("connection", "approved").put("lastContactAt", started)
-                        .put("baselineVersion",remote.optInt("baselineVersion",0));
+                        .put("baselineVersion",remote.optInt("baselineVersion",0))
+                        .put("baselineProgress",remote.optJSONObject("baselineProgress"));
             }
         } catch (Rejected unapproved) {
             state.put("connection", candidate == null ? "revoked" : "awaiting_approval");
@@ -307,7 +315,8 @@ final class FleetCloudSetup {
                 .put("minutes", state.optInt("minutes",DEFAULT_MINUTES)).put("migration", state.optString("migration","pending_reconciliation"))
                 .put("backupVerifiedAt",state.optLong("backupVerifiedAt")).put("baselineStagedAt",state.optLong("baselineStagedAt"))
                 .put("lastReplicaAt",state.optLong("lastReplicaAt")).put("replicaCursor",state.optLong("replicaCursor"))
-                .put("replicaPending",state.optBoolean("replicaPending"));
+                .put("replicaPending",state.optBoolean("replicaPending"))
+                .put("baselineProgress",state.optJSONObject("baselineProgress"));
     }
 
     private static void requireDeployment() throws Exception {

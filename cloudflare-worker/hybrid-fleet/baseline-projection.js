@@ -24,7 +24,7 @@ function fileKeys(data) {
 
 function historyDetails(data) {
   const saved=data.invoiceData||{},invoiceJobId=identity(saved.qrJobId);
-  return {type:data.type,files:fileKeys(data),invoiceJobId,invoiceQr:documentQr(saved.qrUrl||saved.qrValue),
+  return {type:data.type,serviceId:identity(data.id),files:fileKeys(data),invoiceJobId,invoiceQr:documentQr(saved.qrUrl||saved.qrValue),
     pendingInvoice:data.type==='service'&&['processing','pending','error'].includes(saved.qrProcessingStatus)&&
       Boolean(saved.qrUrl||saved.qrValue||invoiceJobId)};
 }
@@ -153,6 +153,12 @@ async function savePage(db,state,page) {
       AND NOT EXISTS(SELECT 1 FROM json_each(?) p JOIN fleet_baseline_rows r
         ON r.kind=json_extract(p.value,'$.kind') AND r.machine_id=json_extract(p.value,'$.machineId') AND r.record_id=json_extract(p.value,'$.recordId'))`)
       .bind(rows,...bound,rows),
+    db.prepare(`INSERT INTO fleet_baseline_document_links(file_key,machine_id,service_id)
+      SELECT f.value,r.machine_id,json_extract(r.details,'$.serviceId')
+      FROM fleet_baseline_rows r,json_each(r.details,'$.files') f WHERE r.ordinal>=? AND r.ordinal<?
+      AND EXISTS(SELECT 1 FROM fleet_baseline_projection WHERE ${checkpoint})
+      ON CONFLICT(file_key,machine_id,service_id) DO NOTHING`)
+      .bind(state.next_row,last,...bound),
     db.prepare(`UPDATE fleet_baseline_projection SET next_byte=?,next_row=?,documents=? WHERE ${checkpoint}
       AND (SELECT count(*) FROM fleet_baseline_rows WHERE ordinal>=? AND ordinal<?)=?`)
       .bind(page.next,last,page.documents,...bound,state.next_row,last,page.rows.length),
@@ -210,11 +216,12 @@ export function findVerifiedBaselineService(db,epoch,machineId,serviceId) {
     .bind(epoch,machineId,serviceId).first();
 }
 
-export function verifiedBaselineDocument(db,epoch,key,hash) {
-  return db.prepare(`SELECT 1 AS found FROM fleet_baseline_rows AS d
+export function verifiedBaselineDocument(db,epoch,key,hash,machineId,serviceId) {
+  return db.prepare(`SELECT EXISTS(SELECT 1 FROM fleet_baseline_document_links a WHERE a.file_key=d.record_id
+    AND (a.machine_id<>? OR a.service_id<>?)) AS conflict FROM fleet_baseline_rows AS d
     JOIN fleet_baseline_projection p ON p.id=1 AND p.epoch=? AND p.state='verified'
     WHERE d.kind='document' AND d.machine_id='' AND d.record_id=? AND json_extract(d.details,'$.sha256')=?`)
-    .bind(epoch,key,hash).first('found');
+    .bind(machineId,serviceId,epoch,key,hash).first();
 }
 
 export async function verifiedBaselineService(db,epoch,machineId,serviceId) {

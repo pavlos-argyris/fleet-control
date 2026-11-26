@@ -66,7 +66,11 @@ async function baselineJobProblem(env,epoch,job) {
   if (env.FLEET_BASELINE_TRANSFER!=='1'||!backupSources.has(job.source)) return '';
   const db=env.FLEET_DB;
   if (!await findVerifiedBaselineService(db,epoch,job.machineId,job.serviceId)) return 'original_service_not_verified';
-  if (job.sourceKey&&!await verifiedBaselineDocument(db,epoch,job.sourceKey,job.sourceSha256)) return 'original_attachment_unverified';
+  if (job.sourceKey) {
+    const proof=await verifiedBaselineDocument(db,epoch,job.sourceKey,job.sourceSha256,job.machineId,job.serviceId);
+    if (!proof) return 'original_attachment_unverified';
+    if (proof.conflict) return 'original_attachment_target_conflict';
+  }
   return '';
 }
 

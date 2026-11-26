@@ -49,22 +49,37 @@ function progress(db,stream) {
   return db.prepare(`SELECT ordinal,end_offset,chain FROM fleet_baseline_parts WHERE stream=? ORDER BY ordinal DESC LIMIT 1`).bind(stream);
 }
 
-async function status(db,epoch) {
-  const [header,records,files]=await db.batch([
-    db.prepare(`SELECT b.manifest,b.verified_at,p.state,p.reason,p.next_row,l.state AS ledger_state,l.reason AS ledger_reason,l.seeded_rows,
+function baselineHeader(db,epoch) {
+  return db.prepare(`SELECT b.manifest,b.verified_at,p.state,p.reason,p.next_row,l.state AS ledger_state,l.reason AS ledger_reason,l.seeded_rows,
       q.state AS invoice_state,q.reason AS invoice_reason,q.job_count
       FROM fleet_baseline b LEFT JOIN fleet_baseline_projection p ON p.id=b.id AND p.epoch=b.epoch
       LEFT JOIN fleet_baseline_ledger l ON l.id=b.id AND l.epoch=b.epoch
-      LEFT JOIN fleet_baseline_invoice_import q ON q.id=b.id AND q.epoch=b.epoch WHERE b.id=1 AND b.epoch=?`).bind(epoch),
-    progress(db,'records'),progress(db,'files')
-  ]);
+      LEFT JOIN fleet_baseline_invoice_import q ON q.id=b.id AND q.epoch=b.epoch WHERE b.id=1 AND b.epoch=?`).bind(epoch);
+}
+
+function statusSummary(row) {
+  return {projection:{state:row.state||'waiting',reason:row.reason||'',indexedRows:row.next_row||0},
+    ledger:{state:row.ledger_state||'waiting',reason:row.ledger_reason||'',seededRows:row.seeded_rows||0},
+    invoiceImport:{state:row.invoice_state||'waiting',reason:row.invoice_reason||'',jobCount:row.job_count||0}};
+}
+
+export async function baselineOverview(db,epoch) {
+  const row=await baselineHeader(db,epoch).first();
+  if (!row) return null;
+  const result={archive:row.verified_at?'staged':'copying',...statusSummary(row)};
+  if (result.invoiceImport.state==='ready') {
+    const counts=await db.prepare('SELECT status,count(*) AS count FROM fleet_invoice_jobs GROUP BY status').all();
+    result.invoices=Object.fromEntries(counts.results.map(item=>[item.status,item.count]));
+  }
+  return result;
+}
+
+async function status(db,epoch) {
+  const [header,records,files]=await db.batch([baselineHeader(db,epoch),progress(db,'records'),progress(db,'files')]);
   const headerRow=header.results[0];
   if (!headerRow) return {epoch,phase:'empty',records:emptyProgress(),files:emptyProgress()};
   return {epoch,phase:headerRow.verified_at?'staged':'copying',manifest:JSON.parse(headerRow.manifest),
-    records:offset(records),files:offset(files),projection:{state:headerRow.state||'waiting',reason:headerRow.reason||'',
-      indexedRows:headerRow.next_row||0},ledger:{state:headerRow.ledger_state||'waiting',reason:headerRow.ledger_reason||'',
-      seededRows:headerRow.seeded_rows||0},invoiceImport:{state:headerRow.invoice_state||'waiting',reason:headerRow.invoice_reason||'',
-      jobCount:headerRow.job_count||0}};
+    records:offset(records),files:offset(files),...statusSummary(headerRow)};
 }
 const emptyProgress=()=>({next:0,bytes:0,chain:EMPTY_CHAIN});
 const offset=result=>{

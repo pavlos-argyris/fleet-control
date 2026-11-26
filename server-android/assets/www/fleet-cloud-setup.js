@@ -26,6 +26,28 @@
     waiting_for_backup_slot:'Η προετοιμασία περιμένει να ολοκληρωθεί το τρέχον backup.',
     backup_verification_failed:'Χρειάζεται νέος έλεγχος του τοπικού backup.'
   };
+  const migrationProblems={
+    baseline_duplicate_record:'Βρέθηκαν διπλά αναγνωριστικά.',
+    baseline_parent_missing:'Λείπει η μηχανή στην οποία ανήκει εγγραφή ιστορικού.',
+    baseline_document_missing:'Λείπει συνημμένο από την απογραφή.',
+    baseline_document_proof_mismatch:'Το αποτύπωμα ενός συνημμένου δεν συμφωνεί.',
+    baseline_working_ledger_not_empty:'Η βάση δοκιμής έχει ήδη δεδομένα.',
+    baseline_working_count_mismatch:'Το πλήθος των εγγραφών στη βάση δοκιμής δεν συμφωνεί.',
+    baseline_invoice_queue_not_empty:'Βρέθηκαν προϋπάρχουσες εργασίες στην ουρά δοκιμής.',
+    invoice_manifest_mismatch:'Το πλήθος ή το αποτύπωμα των εκκρεμοτήτων δεν συμφωνεί.'
+  };
+  function cloudProgress(progress) {
+    if (progress?.archive!=='staged') return '';
+    const {projection,ledger,invoiceImport,invoices}=progress;
+    const blocked=[projection,ledger,invoiceImport].find(stage=>stage?.state==='blocked');
+    if (blocked) return ' '+(migrationProblems[blocked.reason]||'Η προετοιμασία της απογραφής χρειάζεται έλεγχο.');
+    if (projection?.state!=='verified') return ' Ελέγχεται η πληρότητα της απογραφής.';
+    if (ledger?.state!=='ready') return ' Προετοιμάζεται η βάση δοκιμής.';
+    if (invoiceImport?.state!=='ready') return ' Ανακτώνται οι παλιές εκκρεμότητες τιμολογίων.';
+    const pending=(Number(invoices?.queued)||0)+(Number(invoices?.running)||0), review=Number(invoices?.review)||0;
+    if (!pending&&!review) return ' Η δοκιμαστική ουρά τιμολογίων είναι ενημερωμένη.';
+    return ' Τιμολόγια σε αναμονή επεξεργασίας '+pending+', για έλεγχο '+review+'.';
+  }
   let pending=false;
   const request=(action,value=0)=>{
     if (pending) return;
@@ -51,7 +73,8 @@
     const stagedAt=payload.migration==='baseline_staged'&&payload.lastReplicaAt?
       ' Τελευταία ενημέρωση αντιγράφου '+new Date(payload.lastReplicaAt).toLocaleString('el-GR')+'.':'';
     const pendingReplica=payload.replicaPending?' Εκκρεμούν αλλαγές στο δοκιμαστικό αντίγραφο.':'';
-    migration.textContent=(migrationMessages[payload.migration]||'Μετάβαση δεδομένων σε αναμονή επαλήθευσης.')+backupAt+stagedAt+pendingReplica;
+    migration.textContent=(migrationMessages[payload.migration]||'Μετάβαση δεδομένων σε αναμονή επαλήθευσης.')+
+      cloudProgress(payload.baselineProgress)+backupAt+stagedAt+pendingReplica;
     minutes.value=String(payload.minutes||15);
     approve.hidden=payload.approved&&!payload.pendingApproval;
     rotate.hidden=!payload.approved||payload.pendingApproval;
