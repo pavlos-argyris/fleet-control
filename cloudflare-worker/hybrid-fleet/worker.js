@@ -1,7 +1,7 @@
 import { authorizeSync, currentEpoch, fleetError, pullMutations, pushMutations, readBody } from './ledger.js';
 import { routePin } from './pin.js';
 import { invoiceQueueStatus, runInvoiceQueue, sealInvoiceStage, stageInvoiceJobs } from './invoice-jobs.js';
-import { storeInvoiceFile } from './invoice-files.js';
+import { readInvoiceFile, storeInvoiceFile } from './invoice-files.js';
 import { routeFleetSetup } from './setup.js';
 import { baselineEnabled, baselineReadyForQueue, routeBaseline } from './baseline.js';
 import { advanceBaselineProjection } from './baseline-projection.js';
@@ -15,6 +15,7 @@ const routes = new Map([
   ['/api/fleet-sync/v1/invoice-jobs','POST'],
   ['/api/fleet-sync/v1/invoice-stage','POST'],
   ['/api/fleet-sync/v1/invoice-file','PUT'],
+  ['/api/fleet-sync/v1/invoice-document','GET'],
   ['/api/fleet-sync/v1/invoice-status','GET']
 ]);
 const response = (value, status=200) => Response.json(value,{
@@ -54,7 +55,8 @@ export default {
         ...(baselineEnabled(env)?{baselineVersion:1}:{})});
       if (request.headers.get('X-Fleet-Epoch')!==epoch) throw fleetError(409,'epoch_changed');
       if (baseline) return await routeBaseline(request,env,credential,epoch,response)||response({error:'unavailable'},404);
-      if (['/api/fleet-sync/v1/mutations','/api/fleet-sync/v1/delta'].includes(url.pathname)&&!await baselineReadyForQueue(env)) {
+      if (['/api/fleet-sync/v1/mutations','/api/fleet-sync/v1/delta','/api/fleet-sync/v1/invoice-document'].includes(url.pathname)&&
+          !await baselineReadyForQueue(env)) {
         throw fleetError(409,'baseline_working_ledger_unready');
       }
       if (url.pathname.endsWith('/mutations')) {
@@ -64,6 +66,7 @@ export default {
       if (url.pathname.endsWith('/invoice-jobs')) return response(await stageInvoiceJobs(env,credential,epoch,await readBody(request)));
       if (url.pathname.endsWith('/invoice-stage')) return response(await sealInvoiceStage(env,credential,epoch,await readBody(request)));
       if (url.pathname.endsWith('/invoice-file')) return response(await storeInvoiceFile(request,env,credential,url.searchParams.get('sha256')));
+      if (url.pathname.endsWith('/invoice-document')) return await readInvoiceFile(env,url.searchParams.get('sha256'));
       if (url.pathname.endsWith('/invoice-status')) return response(await invoiceQueueStatus(db));
       const value=url.searchParams.get('cursor') ?? '0';
       const cursor=Number(value);

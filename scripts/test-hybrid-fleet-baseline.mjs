@@ -375,6 +375,27 @@ try {
     const updatedFile=await (await runtime.getR2Bucket('FLEET_DOCUMENTS')).get('sha256/'+invoice.data.sha256);
     assert.equal(digest(Buffer.from(await updatedFile.arrayBuffer())),invoice.data.sha256);
   }
+  const document=sha=>api+'/invoice-document?sha256='+sha;
+  expect(await request(document(digest(confirmedBytes)),{token:''}),401);
+  expect(await request(document(digest(confirmedBytes)),{sendEpoch:'old',token:ro}),409);
+  expect(await request(document(digest(archivedBytes)),{token:ro}),404);
+  const replicaDownload=async sha=>{
+    const result=await runtime.dispatchFetch(origin+document(sha),{headers:{Authorization:'Bearer '+ro,'X-Fleet-Epoch':epoch}});
+    assert.equal(result.status,200);
+    assert.equal(result.headers.get('X-Fleet-Sha256'),sha);
+    assert.equal(result.headers.get('Cache-Control'),'no-store');
+    const bytes=Buffer.from(await result.arrayBuffer());
+    assert.equal(result.headers.get('Content-Length'),String(bytes.length));
+    assert.equal(digest(bytes),sha);
+    return bytes;
+  };
+  assert.deepEqual(await replicaDownload(digest(confirmedBytes)),confirmedBytes);
+  assert.deepEqual(await replicaDownload(fileSha),fileBytes,'an original photograph may be replayed with its invoice');
+  const existing=initial.changes[2];
+  const removed={operationId:'fixture-replica-tombstone',kind:'invoice',machineId,recordId:existing.recordId,
+    serviceId,expectedRevision:1,deleted:true,data:null};
+  assert.equal(expect(await post('/mutations',{operations:[removed]}),200).operations[0].status,'committed');
+  assert.deepEqual(await replicaDownload(digest(confirmedBytes)),confirmedBytes,'a previous verified page remains restorable');
   const compactMachine={...machine,data:{id:machineId,name:'Μηχανή Α'}};
   await testBlocked('missing-document',[snapshot,compactMachine,service],'baseline_document_missing',3);
   await testBlocked('duplicate-record',[snapshot,compactMachine,compactMachine],'baseline_duplicate_record',0);

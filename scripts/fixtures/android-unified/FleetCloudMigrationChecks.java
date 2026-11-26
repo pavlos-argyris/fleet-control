@@ -7,6 +7,9 @@ import org.sqlite.database.sqlite.SQLiteDatabase;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Set;
 
@@ -53,6 +56,8 @@ final class FleetCloudMigrationChecks {
         String epoch="1234567890abcdef1234567890abcdef";
         String legacyMachineId="Μηχανή / 7";
         File location=new File(cache,"fleet-replica-fixture.db");
+        File documents=new File(cache,"fleet-replica-documents");
+        FleetCloudReplica.DocumentPull noFiles=(sha,size,output)->{throw new AssertionError("Unexpected document");};
         JSONObject data=new JSONObject().put("name","Συνθετικό μηχανάκι").put("currentKm",9400);
         JSONObject machine=new JSONObject().put("kind","machine").put("machineId",legacyMachineId)
                 .put("recordId",legacyMachineId).put("serviceId","").put("revision",1).put("cursor",2)
@@ -61,7 +66,8 @@ final class FleetCloudMigrationChecks {
                 .put("changes",new JSONArray().put(machine)).put("nextCursor",2);
         try (SQLiteDatabase stored=SQLiteDatabase.openDatabase(location.getPath(),null,SQLiteDatabase.CREATE_IF_NECESSARY)) {
             FleetCloudReplica.initialize(stored,epoch);
-            check(FleetCloudReplica.apply(stored,epoch,0L,page)==2L,"A real SQLite transaction advances to the exact cloud cursor");
+            check(FleetCloudReplica.apply(stored,epoch,0L,page,documents,noFiles)==2L,
+                    "A real SQLite transaction advances to the exact cloud cursor");
             check(legacyMachineId.equals(IndependentSqlite.text(stored,"SELECT machine_id FROM fleet_cloud_replica")),
                     "SQLite preserves the legacy Fleet ID exactly");
         }
@@ -70,18 +76,44 @@ final class FleetCloudMigrationChecks {
             JSONObject wrong=new JSONObject(machine.toString()).put("revision",4).put("cursor",4);
             page.put("changes",new JSONArray().put(update).put(wrong)).put("nextCursor",4);
             try {
-                FleetCloudReplica.apply(stored,epoch,2L,page);
+                FleetCloudReplica.apply(stored,epoch,2L,page,documents,noFiles);
                 throw new AssertionError("A partial schema/revision conflict was accepted");
             } catch (IOException expected) { }
             check(IndependentSqlite.text(stored,"SELECT cursor FROM fleet_cloud_checkpoint").equals("2")&&
                     IndependentSqlite.text(stored,"SELECT revision FROM fleet_cloud_replica").equals("1"),
                     "The malformed page leaves no partial record, and restart retains the last cursor");
             page.put("changes",new JSONArray().put(update)).put("nextCursor",3);
-            check(FleetCloudReplica.apply(stored,epoch,2L,page)==3L,"Correct journal page resumes after rollback");
+            check(FleetCloudReplica.apply(stored,epoch,2L,page,documents,noFiles)==3L,"Correct journal page resumes after rollback");
             try {
                 FleetCloudReplica.initialize(stored,"fedcba0987654321fedcba0987654321");
                 throw new AssertionError("A different epoch was accepted");
             } catch (IOException expected) { }
+            byte[] pdf="%PDF-1.4\nSynthetic invoice\n%%EOF".getBytes(StandardCharsets.UTF_8);
+            byte[] photo="Synthetic original Greek photo".getBytes(StandardCharsets.UTF_8);
+            String invoiceSha=FleetCloudBaseline.digest(pdf),photoSha=FleetCloudBaseline.digest(photo);
+            JSONObject invoice=new JSONObject().put("kind","invoice").put("machineId",legacyMachineId).put("recordId","fixture-invoice")
+                    .put("serviceId","fixture-service").put("revision",1).put("cursor",4).put("deleted",false)
+                    .put("data",new JSONObject().put("sha256",invoiceSha).put("size",pdf.length).put("sourceSha256",photoSha));
+            page.put("changes",new JSONArray().put(invoice)).put("nextCursor",4);
+            try {
+                FleetCloudReplica.apply(stored,epoch,3L,page,documents,(sha,size,output)->{
+                    if (sha.equals(invoiceSha)) output.write(pdf);
+                    else output.write(new byte[]{1,2,3});
+                });
+                throw new AssertionError("An invalid original was accepted");
+            } catch (IOException expected) { }
+            check(IndependentSqlite.text(stored,"SELECT cursor FROM fleet_cloud_checkpoint").equals("3")&&
+                    IndependentSqlite.text(stored,"SELECT count(*) FROM fleet_cloud_replica WHERE kind='invoice'").equals("0"),
+                    "An invalid original leaves the invoice and cursor unapplied");
+            check(new File(documents,invoiceSha).isFile()&&!new File(documents,photoSha).exists(),
+                    "Previously verified bytes remain reusable after a different file fails");
+            check(FleetCloudReplica.apply(stored,epoch,3L,page,documents,(sha,size,output)->{
+                check(sha.equals(photoSha)&&size==0,"Only the unfinished original is downloaded again");
+                output.write(photo);
+            })==4L,"Invoice fields and cursor commit after the two files verify");
+            check(Arrays.equals(Files.readAllBytes(new File(documents,invoiceSha).toPath()),pdf)&&
+                    Arrays.equals(Files.readAllBytes(new File(documents,photoSha).toPath()),photo),
+                    "The private Android replica preserves exact PDF and original photograph bytes");
         }
     }
     private static void check(boolean value,String message) {

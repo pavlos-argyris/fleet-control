@@ -30,6 +30,7 @@ final class FleetCloudSetup {
     private static final String SETUP = "/fleet-cloud/setup";
     private static final String STATE = "/api/fleet-sync/v1/state";
     private static final String DELTA = "/api/fleet-sync/v1/delta?cursor=";
+    private static final String DOCUMENT = "/api/fleet-sync/v1/invoice-document?sha256=";
     private static final int DEFAULT_MINUTES = 15;
     private static final int RESPONSE_LIMIT = 4096;
     private static final SecureRandom random = new SecureRandom();
@@ -232,6 +233,9 @@ final class FleetCloudSetup {
             JSONObject progress=FleetCloudReplica.sync(context,epoch,cursor->{
                 if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
                 return request(DELTA+cursor,credential,epoch,"GET",null,0,null);
+            },(sha,size,output)->{
+                if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
+                downloadDocument(credential,epoch,sha,size,output);
             });
             completeReplay(context,epoch,progress);
         } catch (Exception failure) {
@@ -317,17 +321,51 @@ final class FleetCloudSetup {
         return request(path,credential,"","GET",null,0,null);
     }
 
-    private static JSONObject request(String path,JSONObject credential,String epoch,String method,String type,long size,InputStream upload) throws Exception {
+    private static HttpsURLConnection connection(String path,JSONObject credential,String epoch,String method,String accept) throws Exception {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(BASE + path).openConnection();
         connection.setConnectTimeout(5000);
         connection.setReadTimeout(5000);
         connection.setInstanceFollowRedirects(false);
         connection.setUseCaches(false);
         connection.setRequestMethod(method);
-        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("Accept", accept);
         if (!epoch.isEmpty()) connection.setRequestProperty("X-Fleet-Epoch",epoch);
         if (credential != null) connection.setRequestProperty("Authorization", "Bearer " +
                 credential.getString("id") + "." + credential.getString("secret"));
+        return connection;
+    }
+
+    private static void requireResponse(HttpsURLConnection connection) throws Exception {
+        int status=connection.getResponseCode();
+        if (status==401||status==403) throw new Rejected();
+        if (status!=200) throw new IOException("Εκκρεμεί η διαθεσιμότητα του Cloudflare Fleet.");
+    }
+
+    private static void downloadDocument(JSONObject credential,String epoch,String sha,long expectedSize,OutputStream output) throws Exception {
+        if (!sha.matches("[a-f0-9]{64}")) throw new IOException("Μη έγκυρο αποτύπωμα Fleet.");
+        HttpsURLConnection connection=connection(DOCUMENT+sha,credential,epoch,"GET","*/*");
+        connection.setRequestProperty("Accept-Encoding","identity");
+        try {
+            requireResponse(connection);
+            long size=connection.getContentLength();
+            if (!sha.equals(connection.getHeaderField("X-Fleet-Sha256"))||size<=0||size>FleetCloudReplica.MAX_DOCUMENT_BYTES||
+                    (expectedSize!=0&&size!=expectedSize)) throw new IOException("Δεν επιβεβαιώθηκε το μέγεθος του αρχείου Fleet.");
+            try (InputStream input=connection.getInputStream()) {
+                byte[] block=new byte[8192];
+                long copied=0;
+                for (int count;(count=input.read(block))!=-1;) {
+                    if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException();
+                    copied+=count;
+                    if (copied>size) throw new IOException("Το αρχείο Fleet υπερβαίνει το επιβεβαιωμένο μέγεθος.");
+                    output.write(block,0,count);
+                }
+                if (copied!=size) throw new IOException("Η λήψη του αρχείου Fleet δεν ολοκληρώθηκε.");
+            }
+        } finally { connection.disconnect(); }
+    }
+
+    private static JSONObject request(String path,JSONObject credential,String epoch,String method,String type,long size,InputStream upload) throws Exception {
+        HttpsURLConnection connection=connection(path,credential,epoch,method,"application/json");
         try {
             if (upload!=null) {
                 connection.setDoOutput(true);
@@ -341,9 +379,7 @@ final class FleetCloudSetup {
                     }
                 }
             }
-            int status = connection.getResponseCode();
-            if (status == 401 || status == 403) throw new Rejected();
-            if (status != 200) throw new IOException("Εκκρεμεί η διαθεσιμότητα του Cloudflare Fleet.");
+            requireResponse(connection);
             try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
                 byte[] block = new byte[1024];
                 for (int length; (length = input.read(block)) >= 0;) {
