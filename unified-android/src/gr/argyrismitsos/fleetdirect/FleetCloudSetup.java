@@ -356,9 +356,13 @@ final class FleetCloudSetup {
         connection.setRequestProperty("Accept-Encoding","identity");
         try {
             requireResponse(connection);
-            long size=connection.getContentLength();
+            String sizeHeader=connection.getHeaderField("X-Fleet-Size");
+            long size=sizeHeader!=null&&sizeHeader.matches("[0-9]{1,8}")?Long.parseLong(sizeHeader):0;
+            int transportSize=connection.getContentLength();
             if (!sha.equals(connection.getHeaderField("X-Fleet-Sha256"))||size<=0||size>FleetCloudReplica.MAX_DOCUMENT_BYTES||
-                    (expectedSize!=0&&size!=expectedSize)) throw new IOException("Δεν επιβεβαιώθηκε το μέγεθος του αρχείου Fleet.");
+                    (transportSize>=0&&transportSize!=size)||(expectedSize!=0&&size!=expectedSize)) {
+                throw new IOException("Δεν επιβεβαιώθηκε το μέγεθος του αρχείου Fleet.");
+            }
             try (InputStream input=connection.getInputStream()) {
                 byte[] block=new byte[8192];
                 long copied=0;

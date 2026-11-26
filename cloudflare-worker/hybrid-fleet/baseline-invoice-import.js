@@ -12,6 +12,7 @@ const validId=value=>{
 };
 const string=value=>typeof value==='string'?value:'';
 const MAX_PAGE_BYTES=300*1024;
+const MAX_PAGE_JOBS=3;
 const checkpoint=`id=1 AND epoch=? AND state='loading' AND next_row=?
   AND EXISTS(SELECT 1 FROM fleet_rehearsal_state e WHERE e.id=1 AND e.epoch=fleet_baseline_invoice_import.epoch)`;
 const cursor=state=>[state.epoch,state.next_row];
@@ -104,7 +105,7 @@ export async function advanceBaselineInvoiceImport(env) {
   try {
     const candidates=await db.prepare(`SELECT ordinal,kind,machine_id,record_id,start_byte,end_byte,digest FROM fleet_baseline_rows
       WHERE ordinal>=? AND (kind IN ('invoice-job','invoice-draft') OR json_extract(details,'$.pendingInvoice')=1)
-      ORDER BY ordinal LIMIT 2`).bind(state.next_row).all();
+      ORDER BY ordinal LIMIT ?`).bind(state.next_row,MAX_PAGE_JOBS).all();
     if (!candidates.results.length) {
       await sealInvoiceStage(env,null,state.epoch,{count:state.job_count});
       await db.prepare(`UPDATE fleet_baseline_invoice_import SET state='ready' WHERE ${checkpoint}`).bind(...cursor(state)).run();

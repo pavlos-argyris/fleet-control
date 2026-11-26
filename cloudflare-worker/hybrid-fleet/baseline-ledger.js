@@ -7,6 +7,7 @@ import { baselineReader, BASELINE_HISTORY_VISIBLE, BASELINE_MACHINE_VISIBLE, rea
 const encoder=new TextEncoder();
 const MAX_RECORD_BYTES=160*1024;
 const MAX_BATCH_BYTES=300*1024;
+const MAX_BATCH_ROWS=24;
 const copyFields=(data,fields)=>Object.fromEntries(fields.filter(key=>Object.hasOwn(data,key)).map(key=>[key,data[key]]));
 const compactInvoiceFields=['supplier','invoiceNumber','invoiceDate','mark','plate','odometerKm','totalAmount','netAmount','vatAmount',
   'laborAmount','comments','currency','issuedBy','lineItems','workPerformed'];
@@ -64,7 +65,7 @@ async function prepareSeeds(db,state) {
     AND (h.kind='machine' OR ${BASELINE_HISTORY_VISIBLE}) THEN 1 ELSE 0 END AS visible
     FROM fleet_baseline_rows h
     LEFT JOIN fleet_baseline_rows m ON m.kind='machine' AND m.machine_id=h.machine_id AND m.record_id=''
-    WHERE h.ordinal>=? ORDER BY h.ordinal LIMIT 8`).bind(state.next_row).all();
+    WHERE h.ordinal>=? ORDER BY h.ordinal LIMIT ?`).bind(state.next_row,MAX_BATCH_ROWS).all();
   let sourceBytes=0,writeBytes=0;
   for (const row of indexed.results) {
     const bytes=row.end_byte-row.start_byte;

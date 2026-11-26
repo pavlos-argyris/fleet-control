@@ -49,7 +49,7 @@ export async function readInvoiceFile(env,sha256) {
   }
   const type=object.httpMetadata?.contentType;
   return new Response(object.body,{headers:{'Content-Type':contentTypes.has(type)?type:'application/octet-stream',
-    'Content-Length':String(object.size),'X-Fleet-Sha256':sha256,'Cache-Control':'no-store',
+    'X-Fleet-Size':String(object.size),'X-Fleet-Sha256':sha256,'Cache-Control':'no-store',
     'Content-Disposition':'attachment','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff',
     'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"}});
 }

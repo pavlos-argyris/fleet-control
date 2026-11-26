@@ -343,8 +343,8 @@ try {
   assert.equal(expect(await post('/invoice-stage',{count:0,manifestHash:'0'.repeat(64)}),409).error,'baseline_invoice_import_automatic');
   await tick();
   const partialImport=await invoiceImport();
-  assert.deepEqual(partialImport,{state:'loading',reason:'',jobCount:1});
-  assert.equal(expect(await request(api+'/invoice-status'),200).counts.queued,1);
+  assert.deepEqual(partialImport,{state:'loading',reason:'',jobCount:2});
+  assert.equal(expect(await request(api+'/invoice-status'),200).counts.queued,2);
   // The job receipt survives even when the scheduler restarts before it records
   // the completed page. Replaying the same page must not insert another job.
   await db.prepare('UPDATE fleet_baseline_invoice_import SET next_row=0,job_count=0 WHERE id=1').run();
@@ -352,7 +352,7 @@ try {
   await start(true);
   await tick();
   assert.deepEqual(await invoiceImport(),partialImport);
-  assert.equal(expect(await request(api+'/invoice-status'),200).counts.queued,1);
+  assert.equal(expect(await request(api+'/invoice-status'),200).counts.queued,2);
   await Promise.all([tick(),tick()]);
   assert.equal(readJobs.length,0,'the concurrent import pages must still be sealed before any reader starts');
   for(let page=0;page<9&&(await invoiceImport()).state==='loading';page++) await tick();
@@ -396,7 +396,7 @@ try {
     assert.equal(result.headers.get('X-Fleet-Sha256'),sha);
     assert.equal(result.headers.get('Cache-Control'),'no-store');
     const bytes=Buffer.from(await result.arrayBuffer());
-    assert.equal(result.headers.get('Content-Length'),String(bytes.length));
+    assert.equal(result.headers.get('X-Fleet-Size'),String(bytes.length));
     assert.equal(digest(bytes),sha);
     return bytes;
   };
