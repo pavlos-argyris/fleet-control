@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 import { inspectNativeFleetBackup } from './hybrid-fleet-preflight.mjs';
 import { invoiceStageProof } from '../cloudflare-worker/hybrid-fleet/invoice-jobs.js';
 import { confirmedAttachment, documentQr as link } from '../cloudflare-worker/hybrid-fleet/invoice-identity.js';
+import { resolveLegacyInvoiceTarget } from '../cloudflare-worker/hybrid-fleet/legacy-invoice-target.js';
 import { validTargetedOperationId } from '../cloudflare-worker/src/targeted-service-qr.js';
 
 const stableId=value=>typeof value==='string'||Number.isSafeInteger(value)?String(value):'';
@@ -50,7 +51,7 @@ function extractBacklog(db) {
       const saved=entry.invoiceData||{};
       if (saved.qrJobId && link(saved.qrUrl||saved.qrValue)) {
         const links=historyJobLinks.get(stableId(saved.qrJobId))||[];
-        links.push({target,qr:link(saved.qrUrl||saved.qrValue)});
+        links.push({machineId:stableId(bike.id),serviceId:stableId(entry.id),qr:link(saved.qrUrl||saved.qrValue)});
         historyJobLinks.set(stableId(saved.qrJobId),links);
       }
     }
@@ -68,23 +69,12 @@ function extractBacklog(db) {
   function add(source,sourceId,payload,original) {
     const sourceKey=String(payload.sourcePhotoKey||payload.documentKey||payload.attachment?.key||'');
     const qrValue=String(payload.qrValue||payload.qrUrl||payload.attachment?.qrUrl||'');
-    let machineId=stableId(payload.bikeId);
+    const savedMachineId=stableId(payload.bikeId);
     const serviceId=stableId(payload.entryId),qr=link(qrValue);
-    let target=identity(machineId,serviceId);
-    // A legacy operation may contain a truncated machine ID. Its own job
-    // receipt plus the same QR and service ID can prove the canonical link.
-    const historyLinks=historyJobLinks.get(sourceId)||[];
-    if (source==='legacy-operation' && !payload.draftId && !payload.targetedOperationId && !byTarget.has(target) &&
-        historyLinks.length===1 && qr && historyLinks[0].qr===qr) {
-      const [canonicalMachine,canonicalService]=JSON.parse(historyLinks[0].target);
-      if (canonicalService===serviceId) {
-        machineId=canonicalMachine;
-        target=historyLinks[0].target;
-      }
-    }
-    const conflictingTarget=historyLinks.length>0 &&
-      (historyLinks.length!==1 || historyLinks[0].target!==target || historyLinks[0].qr!==qr);
-    const linked=new Set([sourceId,sourceKey,link(qrValue)].flatMap(value=>[...(invoiceLinks.get(value)||[])]));
+    const {machineId,conflict:conflictingTarget}=resolveLegacyInvoiceTarget({source,payload,machineId:savedMachineId,serviceId,
+      targetExists:byTarget.has(identity(savedMachineId,serviceId)),links:historyJobLinks.get(sourceId)||[]});
+    const target=identity(machineId,serviceId);
+    const linked=new Set([sourceId,sourceKey,qr].flatMap(value=>[...(invoiceLinks.get(value)||[])]));
     originals.push({source,sourceId,record:original});
     if (linked.size===1 && linked.has(target)) {
       excludedConfirmed.push({source,sourceId});

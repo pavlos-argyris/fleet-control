@@ -6,6 +6,7 @@ import { routeFleetSetup } from './setup.js';
 import { baselineEnabled, baselineReadyForQueue, routeBaseline } from './baseline.js';
 import { advanceBaselineProjection } from './baseline-projection.js';
 import { advanceBaselineLedger } from './baseline-ledger.js';
+import { advanceBaselineInvoiceImport, baselineInvoiceImportReady } from './baseline-invoice-import.js';
 
 const routes = new Map([
   ['/api/fleet-sync/v1/state','GET'],
@@ -25,7 +26,11 @@ const response = (value, status=200) => Response.json(value,{
 export default {
   async scheduled(controller,env) {
     if (env.FLEET_REHEARSAL_ENABLED!=='1') return;
-    if (baselineEnabled(env) && (await advanceBaselineProjection(env.FLEET_DB)||await advanceBaselineLedger(env.FLEET_DB))) return;
+    if (baselineEnabled(env)) {
+      const db=env.FLEET_DB;
+      if (await advanceBaselineProjection(db)||await advanceBaselineLedger(db)||await advanceBaselineInvoiceImport(env)) return;
+      if (!await baselineInvoiceImportReady(db)) return;
+    }
     if (env.FLEET_INVOICE_PROCESSING==='1'&&await baselineReadyForQueue(env)) {
       await runInvoiceQueue(env);
     }

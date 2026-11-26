@@ -1,5 +1,6 @@
 import { fleetRecordId } from '../src/snapshot-store.js';
 import { fleetError, sha256, validFleetRecordId } from './ledger.js';
+import { documentQr } from './invoice-identity.js';
 
 export const BASELINE_CHUNK_BYTES=48*1024;
 const MAX_LINE_BYTES=16*1024*1024;
@@ -19,6 +20,13 @@ function fileKeys(data) {
   const keys=files.flatMap(file=>file?.sourcePhoto?[file.key,file.sourcePhoto.key]:[file?.key]);
   if (keys.some(key=>!validKey(key))) throw invalid();
   return [...new Set(keys)];
+}
+
+function historyDetails(data) {
+  const saved=data.invoiceData||{},invoiceJobId=identity(saved.qrJobId);
+  return {type:data.type,files:fileKeys(data),invoiceJobId,invoiceQr:documentQr(saved.qrUrl||saved.qrValue),
+    pendingInvoice:data.type==='service'&&['processing','pending','error'].includes(saved.qrProcessingStatus)&&
+      Boolean(saved.qrUrl||saved.qrValue||invoiceJobId)};
 }
 
 function recordIdentity(row,first) {
@@ -51,16 +59,17 @@ function recordIdentity(row,first) {
     case 'archived-history':
       if (!validFleetRecordId(machineId)||!validFleetRecordId(recordId)||
           identity(data.id)!==recordId||!['service','check'].includes(data.type)) throw invalid();
-      details={type:data.type,files:fileKeys(data)};
+      details=historyDetails(data);
       break;
     case 'history-trash':
       if (!validFleetRecordId(machineId)||!validFleetRecordId(recordId)||!isObject(data.entry)||
           !identity(data.entry.id)||identity(data.recordId)!==identity(data.entry.id)) throw invalid();
-      details.files=fileKeys(data.entry);
+      details=historyDetails(data.entry);
       break;
     case 'invoice-job':
     case 'invoice-draft':
       if (machineId||!validFleetRecordId(recordId)) throw invalid();
+      if (kind==='invoice-draft') details.invoiceJobId=identity(data.draft?.jobId);
       break;
     case 'document':
       if (machineId||!validKey(recordId)||typeof data.sha256!=='string'||!hex.test(data.sha256)||

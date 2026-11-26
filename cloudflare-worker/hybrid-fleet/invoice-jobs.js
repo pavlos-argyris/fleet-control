@@ -10,7 +10,8 @@ const proofId = /^[a-f0-9]{64}$/;
 const sourceKinds = ['legacy-operation','legacy-draft','service-history','client-outbox','targeted-scan'];
 const backupSources = new Set(['legacy-operation','legacy-draft','service-history']);
 const fields = ['operationId','machineId','serviceId','qrValue','sourceKey','sourceSha256','explicitId','source','sourceId'];
-const importedReasons = ['invoice_attached_elsewhere','original_service_not_verified','original_target_conflict'];
+const importedReasons = ['invoice_attached_elsewhere','original_service_not_verified','original_target_conflict',
+  'legacy_batch_needs_review','legacy_source_needs_review'];
 const PDF_CAP = 8 * 1024 * 1024;
 const REPORT_CAP = Math.ceil(PDF_CAP / 3) * 4 + 1024 * 1024;
 const MAX_ATTEMPTS = 8;
@@ -52,6 +53,11 @@ function invoiceStageDigest(rows) {
 const AUTHORIZED = `EXISTS (SELECT 1 FROM fleet_sync_credentials WHERE id=? AND secret_sha256=?
   AND scope='sync-read-write' AND revoked_at IS NULL AND expires_at>?)
   AND EXISTS (SELECT 1 FROM fleet_rehearsal_state WHERE id=1 AND epoch=?)`;
+const BASELINE_IMPORTING = `EXISTS (SELECT 1 FROM fleet_baseline_invoice_import i JOIN fleet_rehearsal_state e
+  ON e.id=i.id AND e.epoch=i.epoch JOIN fleet_baseline_ledger l ON l.id=i.id AND l.epoch=i.epoch AND l.state='ready'
+  WHERE i.id=1 AND i.epoch=? AND i.state='loading')`;
+const importAuthority=(credential,epoch,now)=>credential
+  ?[credential.id,credential.hash,now,epoch]:[epoch];
 const ACTIVE_TARGET = `EXISTS (SELECT 1 FROM fleet_records s JOIN fleet_records b ON b.kind='machine'
   AND b.machine_id=s.machine_id AND b.record_id=s.machine_id AND b.deleted=0
   WHERE s.kind='service' AND s.machine_id=? AND s.record_id=? AND s.deleted=0)`;
@@ -65,13 +71,17 @@ async function baselineJobProblem(env,epoch,job) {
 }
 
 export async function stageInvoiceJobs(env,credential,epoch,input) {
-  if (credential.scope !== 'sync-read-write') throw fleetError(403,'sync_write_scope_required');
   const verifyingBaseline=env.FLEET_BASELINE_TRANSFER==='1';
+  if (credential ? credential.scope!=='sync-read-write':!verifyingBaseline) throw fleetError(403,'sync_write_scope_required');
   if (!Array.isArray(input?.jobs) || !input.jobs.length || input.jobs.length>(verifyingBaseline?6:12)) {
     throw fleetError(400,'invalid_job_batch');
   }
   const jobs=await Promise.all(input.jobs.map(normalizeJob));
   if (!await baselineReadyForQueue(env)) throw fleetError(409,'baseline_projection_unverified');
+  if (!credential&&jobs.some(({job})=>!backupSources.has(job.source))) throw fleetError(403,'baseline_invoice_source_required');
+  if (verifyingBaseline&&credential&&jobs.some(({job})=>job.source!=='targeted-scan')) {
+    throw fleetError(409,'baseline_invoice_import_automatic');
+  }
   const hostnames=(env.FLEET_INVOICE_HOSTS||'').split(',').map(host=>host.trim().toLowerCase()).filter(Boolean);
   const db=env.FLEET_DB;
   const receipts=[];
@@ -105,11 +115,11 @@ export async function stageInvoiceJobs(env,credential,epoch,input) {
     const now=Date.now();
     const [written,receipt]=await db.batch([
       db.prepare(`INSERT INTO fleet_invoice_jobs(operation_id,fingerprint,machine_id,service_id,qr_hash,input,status,reason,available_at,initial_import)
-        SELECT ?,?,?,?,?,?,?,?,?,? WHERE ${AUTHORIZED}
+        SELECT ?,?,?,?,?,?,?,?,?,? WHERE ${credential?AUTHORIZED:BASELINE_IMPORTING}
         AND ?=(CASE WHEN EXISTS(SELECT 1 FROM fleet_invoice_stage WHERE id=1) THEN 0 ELSE 1 END)
         AND (?=0 OR ${ACTIVE_TARGET}) ON CONFLICT(operation_id) DO NOTHING`).bind(
         job.operationId,fingerprint,job.machineId,job.serviceId,qrHash,input,status,reason,now,manual?0:1,
-        credential.id,credential.hash,now,epoch,manual?0:1,manual?1:0,job.machineId,job.serviceId),
+        ...importAuthority(credential,epoch,now),manual?0:1,manual?1:0,job.machineId,job.serviceId),
       db.prepare('SELECT fingerprint,status,reason FROM fleet_invoice_jobs WHERE operation_id=?').bind(job.operationId)
     ]);
     const saved=receipt.results[0];
@@ -121,24 +131,27 @@ export async function stageInvoiceJobs(env,credential,epoch,input) {
 }
 
 export async function sealInvoiceStage(env,credential,epoch,input) {
-  if (credential.scope !== 'sync-read-write') throw fleetError(403,'sync_write_scope_required');
+  const automatic=env.FLEET_BASELINE_TRANSFER==='1';
+  if (credential ? credential.scope!=='sync-read-write':!automatic) throw fleetError(403,'sync_write_scope_required');
+  if (automatic&&credential) throw fleetError(409,'baseline_invoice_import_automatic');
   const {count,manifestHash}=input||{};
-  if (!Number.isSafeInteger(count) || count<0 || count>5000 || typeof manifestHash!=='string'||!proofId.test(manifestHash)) {
+  if (!Number.isSafeInteger(count)||count<0||count>5000||(credential&&(typeof manifestHash!=='string'||!proofId.test(manifestHash)))) {
     throw fleetError(400,'invalid_invoice_manifest');
   }
   if (!await baselineReadyForQueue(env)) throw fleetError(409,'baseline_projection_unverified');
   const db=env.FLEET_DB;
   const rows=await db.prepare('SELECT operation_id,fingerprint FROM fleet_invoice_jobs WHERE initial_import=1 LIMIT 5001').all();
-  if (rows.results.length!==count || await invoiceStageDigest(rows.results)!==manifestHash) throw fleetError(409,'invoice_manifest_mismatch');
+  const digest=await invoiceStageDigest(rows.results);
+  if (rows.results.length!==count||(credential&&digest!==manifestHash)) throw fleetError(409,'invoice_manifest_mismatch');
   const now=Date.now();
   const [,stored]=await db.batch([
     db.prepare(`INSERT INTO fleet_invoice_stage(id,manifest_hash,job_count,verified_at)
-      SELECT 1,?,?,? WHERE ${AUTHORIZED} AND (SELECT count(*) FROM fleet_invoice_jobs WHERE initial_import=1)=?
-      ON CONFLICT(id) DO NOTHING`).bind(manifestHash,count,now,credential.id,credential.hash,now,epoch,count),
+      SELECT 1,?,?,? WHERE ${credential?AUTHORIZED:BASELINE_IMPORTING} AND (SELECT count(*) FROM fleet_invoice_jobs WHERE initial_import=1)=?
+      ON CONFLICT(id) DO NOTHING`).bind(digest,count,now,...importAuthority(credential,epoch,now),count),
     db.prepare('SELECT manifest_hash,job_count FROM fleet_invoice_stage WHERE id=1')
   ]);
-  if (stored.results[0]?.manifest_hash!==manifestHash || stored.results[0]?.job_count!==count) throw fleetError(409,'invoice_manifest_mismatch');
-  return {verified:true,count,manifestHash};
+  if (stored.results[0]?.manifest_hash!==digest || stored.results[0]?.job_count!==count) throw fleetError(409,'invoice_manifest_mismatch');
+  return {verified:true,count,manifestHash:digest};
 }
 
 export async function invoiceQueueStatus(db) {
