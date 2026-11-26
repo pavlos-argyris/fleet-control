@@ -123,6 +123,11 @@ final class FleetCloudArchive {
             JSONObject bike=machine(new JSONObject(row.getString(1)),generation);
             emit(output,record("machine",identifier(row.getString(0)),null,bike));
         });
+        exportRows(source,"SELECT bike_id,name,odometer,status,version,updated_at FROM vehicle_registry ORDER BY bike_id",(row)->{
+            JSONObject registry=new JSONObject().put("name",row.getString(1)).put("odometer",row.getLong(2))
+                    .put("status",row.getString(3)).put("version",row.getLong(4)).put("updatedAt",row.getString(5));
+            emit(output,record("machine-registry",row.getString(0),null,registry));
+        });
         exportRows(source,"SELECT json_extract(b.value,'$.id') bike_id,h.value payload "+
                 "FROM fleet_snapshot s,json_each(s.data,'$.bikes') b,json_each(b.value,'$.history') h "+
                 "WHERE s.id=1 ORDER BY bike_id,h.key",(row)->{

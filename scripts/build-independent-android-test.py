@@ -20,6 +20,9 @@ if unified:
         if source.name=='AndroidSqliteChecks.java':
             text=text.replace('final Context target=getTargetContext();','final Context base=getTargetContext();final Context target=new ScopedContext(base);check(!base.getDatabasePath(NativeColdRestore.DATABASE_NAME).equals(target.getDatabasePath(NativeColdRestore.DATABASE_NAME)),"Cloud and Direct database paths must differ");base.getSharedPreferences("issue95_sentinel",0).edit().putString("keep","cloud-preserved").commit();')
             text=text.replace('IndependentSqlite.requireReady();','IndependentSqlite.requireReady();UnifiedNativeChecks.checkFreshDashboard(base,target);',1)
+            schema_check='                check(request(engine,"/api/status","GET",null,null,false).getInt("status")==200,"Actual Rhino engine creates full schema on Android");'
+            assert text.count(schema_check)==1
+            text=text.replace(schema_check,schema_check+'\n                FleetCloudMigrationChecks.checkFleetBaselineScope(db,GENERATION);\n                FleetCloudMigrationChecks.checkFleetReplica(source.getCacheDir());')
             start=text.index('        // Real Activity lifecycle/preferences notification')
             end=text.index('\n    private static Object readField',start)
             text=text[:start]+'''        check(base.getSharedPreferences("issue95_sentinel",0).getString("keep","").equals("cloud-preserved"),"Direct restore preserves unscoped Cloud preferences");
