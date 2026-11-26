@@ -39,8 +39,10 @@ try {
   const attachment={id:'doc',key,ocr:{invoiceNumber:'synthetic-private-number',invoiceDate:'2026-12-02',plate:'EXAMPLE',
     totalAmount:'124,00',netAmount:'100,00',vatAmount:'24,00',targetedOperationId:'synthetic-op'}};
   const service={id:'service',type:'service',km:4500,date:'2026-11-25',tasks:['Έλεγχος'],notes:'Synthetic',attachments:[attachment]};
+  const knownQr='https://einvoice.impact.gr/p/SYNTHETIC-RECOVERY';
   const machine={id:'synthetic-machine',name:'Synthetic machine',createdAt:stamp,history:[service,
-    {id:'other',type:'service',cost:'30,00',attachments:[]},{id:'shift-private-fixture-shift',type:'check',km:4501}]};
+    {id:'other',type:'service',cost:'30,00',attachments:[],invoiceData:{qrJobId:'synthetic-truncated',qrUrl:knownQr,qrProcessingStatus:'error'}},
+    {id:'shift-private-fixture-shift',type:'check',km:4501}]};
   const fleet={bikes:[machine]};
   db.prepare('INSERT INTO fleet_snapshot VALUES(1,37,?,?)').run(JSON.stringify(fleet),stamp);
   db.prepare('INSERT INTO vehicle_registry VALUES(?,?,?)').run(machine.id,4501,'private-fixture-shift');
@@ -50,6 +52,8 @@ try {
   db.prepare('INSERT INTO invoice_import_drafts VALUES(?,?,?)').run('synthetic-draft','{}','ready');
   db.prepare('INSERT INTO fleet_operations VALUES(?,?,?,?)').run('synthetic-job','service_document_render',
     JSON.stringify({bikeId:machine.id,entryId:service.id,targetedOperationId:'synthetic-op'}),'pending');
+  db.prepare('INSERT INTO fleet_operations VALUES(?,?,?,?)').run('synthetic-truncated','service_document_render',
+    JSON.stringify({bikeId:'synthetic-mach',entryId:'other',qrUrl:knownQr}),'error');
   db.prepare('INSERT INTO audit_log VALUES(?,?,?)').run('synthetic-audit','service_document','{"safe":"fixture"}');
   db.prepare('INSERT INTO audit_log VALUES(?,?,?)').run('private-fixture-audit','employee','{"private":"private-fixture-user"}');
   db.prepare('INSERT INTO native_objects VALUES(?,?,?,?,?,?,NULL)').run(key,filename,'synthetic.pdf','application/pdf',content.length,hash(content));
@@ -74,12 +78,16 @@ try {
   const options={database,manifest:native,objects:folder};
   const original=inspectNativeFleetBackup(options);
   const invoicePlan=await prepareNativeInvoicePlan(options);
-  assert.equal(invoicePlan.count,2);
+  assert.equal(invoicePlan.count,3);
   assert.match(invoicePlan.manifestHash,/^[a-f0-9]{64}$/);
-  assert.deepEqual(invoicePlan.jobs.map(job=>job.source),['legacy-operation','legacy-draft']);
+  assert.deepEqual(invoicePlan.jobs.map(job=>job.source),['legacy-operation','legacy-operation','legacy-draft']);
   assert.equal(invoicePlan.jobs[0].machineId,machine.id);
   assert.equal(invoicePlan.jobs[0].serviceId,service.id);
-  assert.equal(invoicePlan.jobs[1].reviewReason,'original_service_not_verified');
+  assert.equal(invoicePlan.jobs[1].machineId,machine.id);
+  assert.equal(invoicePlan.jobs[1].serviceId,'other');
+  assert.equal(invoicePlan.jobs[1].reviewReason,undefined);
+  assert.equal(JSON.parse(invoicePlan.originals[1].record.payload).bikeId,'synthetic-mach');
+  assert.equal(invoicePlan.jobs[2].reviewReason,'original_service_not_verified');
   assert.doesNotMatch(JSON.stringify(invoicePlan),/private-fixture-user|private-fixture-shift/);
   assert.equal(original.integrityVerified,true);
   assert.equal(original.cutoverVerified,false);
@@ -87,7 +95,7 @@ try {
   assert.equal(original.inventory.machineArchives.count,1);
   assert.equal(original.inventory.historyTrash.count,1);
   assert.equal(original.inventory.fleetAudit.count,1);
-  assert.equal(original.inventory.pendingInvoiceJobs.count,1);
+  assert.equal(original.inventory.pendingInvoiceJobs.count,2);
   assert.equal(original.totals.invoiceGrossCents,12400);
   assert.equal(original.totals.serviceCents,15400);
   assert.equal(original.files.missing,0);

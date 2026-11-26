@@ -28,7 +28,7 @@ export async function prepareNativeInvoicePlan(options) {
 
 function extractBacklog(db) {
   const bikes=JSON.parse(db.prepare('SELECT data FROM fleet_snapshot WHERE id=1').get().data).bikes;
-  const byTarget=new Map(), invoiceLinks=new Map(), seenSources=new Set();
+  const byTarget=new Map(), invoiceLinks=new Map(), historyJobLinks=new Map(), seenSources=new Set();
   const hasArchiveState=db.prepare("SELECT 1 FROM pragma_table_info('vehicle_archives') WHERE name='active'").get();
   const archives=db.prepare(hasArchiveState?'SELECT * FROM vehicle_archives WHERE active=1':'SELECT * FROM vehicle_archives').all();
   const archiveIds=new Set(archives.map(archive=>stableId(archive.bike_id)));
@@ -49,7 +49,14 @@ function extractBacklog(db) {
     for (const entry of bike.history) {
       indexInvoices(bike.id,entry);
       if (entry.type!=='service'||deleted.has(stableId(entry.id))||archiveIds.has(stableId(bike.id))) continue;
-      byTarget.set(identity(bike.id,entry.id),entry);
+      const target=identity(bike.id,entry.id);
+      byTarget.set(target,entry);
+      const saved=entry.invoiceData||{};
+      if (saved.qrJobId && link(saved.qrUrl||saved.qrValue)) {
+        const links=historyJobLinks.get(stableId(saved.qrJobId))||[];
+        links.push({target,qr:link(saved.qrUrl||saved.qrValue)});
+        historyJobLinks.set(stableId(saved.qrJobId),links);
+      }
     }
   }
   for (const archive of archives) {
@@ -65,7 +72,22 @@ function extractBacklog(db) {
   function add(source,sourceId,payload,original) {
     const sourceKey=String(payload.sourcePhotoKey||payload.documentKey||payload.attachment?.key||'');
     const qrValue=String(payload.qrValue||payload.qrUrl||payload.attachment?.qrUrl||'');
-    const machineId=stableId(payload.bikeId),serviceId=stableId(payload.entryId),target=identity(machineId,serviceId);
+    let machineId=stableId(payload.bikeId);
+    const serviceId=stableId(payload.entryId),qr=link(qrValue);
+    let target=identity(machineId,serviceId);
+    // A legacy operation may contain a truncated machine ID. Its own job
+    // receipt plus the same QR and service ID can prove the canonical link.
+    const historyLinks=historyJobLinks.get(sourceId)||[];
+    if (source==='legacy-operation' && !payload.draftId && !payload.targetedOperationId && !byTarget.has(target) &&
+        historyLinks.length===1 && qr && historyLinks[0].qr===qr) {
+      const [canonicalMachine,canonicalService]=JSON.parse(historyLinks[0].target);
+      if (canonicalService===serviceId) {
+        machineId=canonicalMachine;
+        target=historyLinks[0].target;
+      }
+    }
+    const conflictingTarget=historyLinks.length>0 &&
+      (historyLinks.length!==1 || historyLinks[0].target!==target || historyLinks[0].qr!==qr);
     const linked=new Set([sourceId,sourceKey,link(qrValue)].flatMap(value=>[...(invoiceLinks.get(value)||[])]));
     originals.push({source,sourceId,record:original});
     if (linked.size===1 && linked.has(target)) {
@@ -75,7 +97,8 @@ function extractBacklog(db) {
     const file=available.get(sourceKey);
     if (file) objects.set(sourceKey,file);
     // A draft/archived record cannot supply permission to attach a second copy.
-    const reviewReason=linked.size?'invoice_attached_elsewhere':!byTarget.has(target)?'original_service_not_verified':'';
+    const reviewReason=linked.size?'invoice_attached_elsewhere':conflictingTarget?'original_target_conflict':
+      !byTarget.has(target)?'original_service_not_verified':'';
     const explicitId=validTargetedOperationId(payload.targetedOperationId)?payload.targetedOperationId:'';
     jobs.push({operationId:'legacy:'+hash(JSON.stringify([source,sourceId])),machineId,serviceId,qrValue,sourceKey,
       sourceSha256:file?.sha256||'',source,sourceId,explicitId,...(reviewReason?{reviewReason}:{})});

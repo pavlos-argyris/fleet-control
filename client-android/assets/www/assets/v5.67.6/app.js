@@ -4761,7 +4761,7 @@
     }
     const query=new URLSearchParams({bikeId,entryId});
     const response=await fetch(apiBase+'/api/service-documents/target?'+query,{
-      headers:requestHeaders(false),cache:'no-store'
+      headers:requestHeaders(true),cache:'no-store'
     });
     const value=await response.json().catch(()=>({}));
     if (!active()) return false;
@@ -4769,7 +4769,7 @@
     if (response.status===404 && value.code!=='invoice_target_missing') {
       // An older Server can still prove the target through its committed history view.
       const history=await fetch(apiBase+'/api/sync/bike?view=history&id='+encodeURIComponent(bikeId),{
-        headers:requestHeaders(false),cache:'no-store'
+        headers:requestHeaders(true),cache:'no-store'
       });
       const proof=await history.json().catch(()=>({}));
       if (!active()) return false;

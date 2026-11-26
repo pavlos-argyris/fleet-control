@@ -105,6 +105,13 @@ try{for(const width of [390,1280]){
         return route.fulfill({json:{documents:invoices.slice(offset,offset+32),serverVersion:10,hasMore:offset===0,nextCursor:offset===0?'10:32':''}});
       }
       if(url.pathname==='/api/admin/service-documents/reprocess-batch')return route.fulfill({json:{batch:null}});
+      if(url.pathname==='/api/service-documents/target'){
+        assert.equal(request.headers().authorization,'Bearer unified-fixture-token');
+        const bikeId=url.searchParams.get('bikeId'),entryId=url.searchParams.get('entryId');
+        if(width===390)return route.fulfill({status:404,json:{error:'Legacy fixture route unavailable'}});
+        const found=bikes.find(bike=>bike.id===bikeId)?.history?.some(entry=>entry.id===entryId&&entry.type==='service');
+        return found?route.fulfill({json:{bikeId,entryId,version:fleetRevision}}):route.fulfill({status:404,json:{code:'invoice_target_missing'}});
+      }
       if(url.pathname==='/api/service-documents/import-targeted-qr'){
         const body=request.postDataJSON();
         targetedScans.push(body);
@@ -170,6 +177,10 @@ try{for(const width of [390,1280]){
     assert.equal(targetedScans[0].entryId,'e-0');
     assert.equal(targetedScans[0].value,invoiceUrl);
     assert.match(targetedScans[0].targetedOperationId,/^[0-9a-f-]{36}$/);
+    const targetProof=requests.indexOf('/api/service-documents/target?bikeId=bike-28&entryId=e-0');
+    const targetedPost=requests.indexOf('/api/service-documents/import-targeted-qr');
+    assert(targetProof>=0&&targetProof<targetedPost,'an exact target is checked before a QR leaves the outbox');
+    if(width===390)assert(requests.slice(targetProof,targetedPost).includes('/api/sync/bike?view=history&id=bike-28'));
     assert.equal(requests.some(url=>url.includes('/history/e-0/edit')),false,'a targeted scan never writes the service edit form');
     await embedded.locator('#historyEntryDialog [data-close-dialog]').first().click();
     await embedded.getByRole('button',{name:'Σύνοψη',exact:true}).click();

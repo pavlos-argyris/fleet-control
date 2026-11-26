@@ -30,6 +30,7 @@ public final class BackupJobs {
     private static final AtomicBoolean recovered=new AtomicBoolean(false);
     public static void recoverAfterRestart(Context c){if(!recovered.compareAndSet(false,true))return;JSONObject old=BackupStatus.get(c);if(BackupStatus.active(c))BackupStatus.failure(c,old.optString("id"),"Η προηγούμενη διαδικασία διακόπηκε από επανεκκίνηση. Το τελευταίο ολοκληρωμένο backup διατηρείται. Αν υπάρχει τοπικό αντίγραφο, η αποστολή θα επαναληφθεί.",false);}
     private static final String LAST_JOB="backup_checkpoint_job",PAUSED="backup_export_paused_for_update";
+    private static final String FLEET_MIGRATION_JOB="fleet_cloud_migration_baseline_job";
     private static final String AUTO_DAY = "backup_automatic_slot_day", AUTO_JOB = "backup_automatic_slot_job";
     private static final long[] AUTO_DELAYS = { 5 * 60000L, 60 * 60000L };
     private BackupJobs(){}
@@ -43,7 +44,21 @@ public final class BackupJobs {
     private static synchronized void cleanupLocal(Context c){
         File[] files=root(c).listFiles();if(files==null)return;Arrays.sort(files,new Comparator<File>(){public int compare(File a,File b){return Long.compare(b.lastModified(),a.lastModified());}});
         Set<String> references=new HashSet<String>();List<JSONObject> discarded=new ArrayList<JSONObject>();int retained=0,localRetained=0;
-        for(File f:files)if(f.getName().matches("[a-f0-9-]{36}\\.json"))try{JSONObject j=ServiceDocumentArchive.readJson(f);if(j.optBoolean("localOnly")&&!j.optBoolean("exported")?localRetained++<2:!j.optBoolean("exported")||retained++<2){references.add(j.optString("dataPath"));references.add(j.optString("docsPath"));references.add(j.optString("databasePath"));}else discarded.add(j);}catch(Exception ignored){}
+        String fleetBaseline=prefs(c).getString(FLEET_MIGRATION_JOB,"");
+        for (File file : files) {
+            if (!file.getName().matches("[a-f0-9-]{36}\\.json")) continue;
+            try {
+                JSONObject job=ServiceDocumentArchive.readJson(file);
+                boolean exported=job.optBoolean("exported");
+                boolean pinned=!fleetBaseline.isEmpty()&&fleetBaseline.equals(job.optString("id"));
+                boolean keep=pinned || (job.optBoolean("localOnly")&&!exported ? localRetained++<2 : !exported||retained++<2);
+                if (keep) {
+                    references.add(job.optString("dataPath"));
+                    references.add(job.optString("docsPath"));
+                    references.add(job.optString("databasePath"));
+                } else discarded.add(job);
+            } catch (Exception ignored) { }
+        }
         for(JSONObject j:discarded)try{for(String k:new String[]{"dataPath","docsPath","databasePath"}){String name=j.optString(k);if(name.length()>0&&!references.contains(name)){File f=local(c,name);f.delete();new File(f.getPath()+".json").delete();}}journal(c,j.getString("id")).delete();}catch(Exception ignored){}
         // Only disposable files inside safe-backups; never service originals.
         for(File f:files){String name=f.getName();if(f.isFile()&&(name.endsWith(".part")||((name.endsWith(".fcbackup")||name.endsWith(".fcdocs")||name.endsWith(".fcdb"))&&!references.contains(name)))){f.delete();new File(f.getPath()+".json").delete();}}
@@ -102,6 +117,25 @@ public final class BackupJobs {
 
     public static JSONObject createLocalAutomatic(Context c, FleetDataStore store) throws Exception {
         return keepLocal(c, prepare(c, store, "automatic", ""));
+    }
+
+    /** A single private, restart-safe baseline for a verified Fleet migration target. */
+    public static JSONObject fleetMigrationBaseline(Context c, FleetDataStore store, String id) throws Exception {
+        File entry = journal(c,id);
+        if (prefs(c).getBoolean(PAUSED,false) || BackupStatus.active(c) || !preparing.compareAndSet(false,true)) return null;
+        try {
+            if (!prefs(c).edit().putString(FLEET_MIGRATION_JOB,id).commit()) throw new IOException("Δεν καταγράφηκε η εργασία backup Fleet.");
+            JSONObject job=entry.isFile()?load(c,id):prepareLocked(c,store,"fleet-cloud-baseline","",null,id);
+            if (!"fleet-cloud-baseline".equals(job.optString("kind"))) throw new IOException("Μη έγκυρο σημείο επανεκκίνησης backup Fleet.");
+            JSONObject proof=job.optJSONObject("nativeProof");
+            if (job.optLong("databaseBytes")<=0 || proof==null || !proof.optBoolean("restoreVerified") ||
+                    !proof.optBoolean("documentsVerified") || job.optInt("missingDocuments")!=0 || !localReady(c,job)) {
+                throw new IOException("Δεν επιβεβαιώθηκε το πλήρες backup Fleet και η απομονωμένη ανάκτησή του.");
+            }
+            if (!job.optBoolean("localOnly")) keepLocal(c,job);
+            return new JSONObject().put("id",id).put("verifiedAt",System.currentTimeMillis())
+                    .put("databaseSha256",proof.getString("databaseSha256"));
+        } finally { preparing.set(false); }
     }
 
     private static JSONObject keepLocal(Context c, JSONObject job) throws Exception {

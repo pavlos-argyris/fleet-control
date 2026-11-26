@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -81,7 +82,12 @@ final class FleetCloudSetup {
     static void schedule(Context context) {
         if (!checking.compareAndSet(false,true)) return;
         worker.execute(() -> {
-            try { if (!DirectHost.paused(context)) refreshIfDue(context); }
+            try {
+                if (!DirectHost.paused(context)) {
+                    refreshIfDue(context);
+                    prepareBaselineIfDue(context);
+                }
+            }
             finally { checking.set(false); }
         });
     }
@@ -93,6 +99,52 @@ final class FleetCloudSetup {
         } catch (Exception unavailable) {
             // Old installations and locked/offline devices keep serving Direct.
         }
+    }
+
+    private static void prepareBaselineIfDue(Context context) {
+        String checkpoint = null;
+        try {
+            checkpoint = reserveBaseline(context);
+            if (checkpoint == null) return;
+            try (FleetDataStore store = new FleetDataStore(context)) {
+                JSONObject proof = BackupJobs.fleetMigrationBaseline(context, store, checkpoint);
+                completeBaseline(context, checkpoint, proof, false);
+            }
+        } catch (Exception failure) {
+            if (checkpoint != null) try { completeBaseline(context, checkpoint, null, true); }
+            catch (Exception unavailable) { }
+        }
+    }
+
+    private static synchronized String reserveBaseline(Context context) throws Exception {
+        JSONObject state=stored(context);
+        long now=System.currentTimeMillis();
+        if (!state.has("active") || !state.optString("connection").equals("approved") ||
+                now-state.optLong("lastContactAt") > (state.optInt("minutes",DEFAULT_MINUTES)+1)*60000L ||
+                !DirectHost.primary(context).optBoolean("ready") || DirectHost.paused(context)) return null;
+        String generation=IndependentConfig.read(context).optString("generation");
+        if (generation.isEmpty()) return null;
+        String key=state.getString("epoch")+":"+generation;
+        String checkpoint=UUID.nameUUIDFromBytes(("fleet-cloud-baseline:"+key).getBytes(StandardCharsets.UTF_8)).toString();
+        if (checkpoint.equals(state.optString("backupJob")) &&
+                (state.has("backupSha256") || state.optLong("nextBackupAt")>now)) return null;
+        if (!checkpoint.equals(state.optString("backupJob"))) state.remove("backupSha256");
+        state.put("backupJob",checkpoint).put("migration","preparing_backup").put("nextBackupAt",now+300000L);
+        SealedLocalState.write(context, STORE, KEY, state);
+        return checkpoint;
+    }
+
+    private static synchronized void completeBaseline(Context context,String checkpoint,JSONObject proof,boolean failed) throws Exception {
+        JSONObject state=stored(context);
+        if (!checkpoint.equals(state.optString("backupJob"))) return;
+        if (proof!=null && checkpoint.equals(proof.optString("id")) && proof.getString("databaseSha256").matches("[a-f0-9]{64}")) {
+            state.put("backupSha256",proof.getString("databaseSha256"));
+            state.put("migration","backup_verified").put("backupVerifiedAt",proof.getLong("verifiedAt"));
+        } else {
+            state.put("migration",failed?"backup_verification_failed":"waiting_for_backup_slot");
+            state.put("nextBackupAt",System.currentTimeMillis()+(failed?3600000L:60000L));
+        }
+        SealedLocalState.write(context, STORE, KEY, state);
     }
 
     private static void refresh(Context context, JSONObject state, boolean manual) throws Exception {
@@ -132,7 +184,8 @@ final class FleetCloudSetup {
                 candidate == null ? "waiting_for_setup" : "awaiting_approval");
         return new JSONObject().put("connection", connection).put("approved", state.has("active"))
                 .put("pendingApproval", candidate != null).put("lastContactAt", state.optLong("lastContactAt"))
-                .put("minutes", state.optInt("minutes",DEFAULT_MINUTES)).put("migration", "pending_reconciliation");
+                .put("minutes", state.optInt("minutes",DEFAULT_MINUTES)).put("migration", state.optString("migration","pending_reconciliation"))
+                .put("backupVerifiedAt",state.optLong("backupVerifiedAt"));
     }
 
     private static void requireDeployment() throws Exception {

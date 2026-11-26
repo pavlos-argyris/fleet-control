@@ -16,6 +16,12 @@
     waiting_for_setup:'Ο Server περιμένει έγκριση.',
     epoch_changed:'Άλλαξε το περιβάλλον του Cloudflare. Απαιτείται έλεγχος του αντιγράφου.'
   };
+  const migrationMessages={
+    preparing_backup:'Δημιουργείται και ελέγχεται το τοπικό backup.',
+    backup_verified:'Το τοπικό backup επαληθεύτηκε. Εκκρεμεί η συμφιλίωση της μεταφοράς.',
+    waiting_for_backup_slot:'Η προετοιμασία περιμένει να ολοκληρωθεί το τρέχον backup.',
+    backup_verification_failed:'Χρειάζεται νέος έλεγχος του τοπικού backup.'
+  };
   let pending=false;
   const request=(action,value=0)=>{
     if (pending) return;
@@ -36,7 +42,9 @@
     controls.hidden=false;
     const last=payload.lastContactAt?'\nΤελευταία επικοινωνία '+new Date(payload.lastContactAt).toLocaleString('el-GR'):'';
     status.textContent=(connectionMessages[payload.connection]||'Εκκρεμεί έλεγχος σύνδεσης.')+last;
-    migration.textContent='Μετάβαση δεδομένων σε αναμονή επαλήθευσης.';
+    const backupAt=payload.migration==='backup_verified'&&payload.backupVerifiedAt?
+      ' Έλεγχος '+new Date(payload.backupVerifiedAt).toLocaleString('el-GR')+'.':'';
+    migration.textContent=(migrationMessages[payload.migration]||'Μετάβαση δεδομένων σε αναμονή επαλήθευσης.')+backupAt;
     minutes.value=String(payload.minutes||15);
     approve.hidden=payload.approved&&!payload.pendingApproval;
     rotate.hidden=!payload.approved||payload.pendingApproval;
