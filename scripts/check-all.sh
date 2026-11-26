@@ -108,6 +108,7 @@ node scripts/test-targeted-service-qr-d1.mjs
 node scripts/test-hybrid-fleet-ledger.mjs
 node scripts/test-hybrid-fleet-preflight.mjs
 node scripts/test-hybrid-fleet-invoice-recovery.mjs
+node scripts/test-hybrid-fleet-baseline.mjs
 node scripts/test-invoice-recovery-ui.mjs
 node scripts/test-invoice-recovery-d1.mjs
 node scripts/test-invoice-imports.mjs

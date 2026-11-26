@@ -66,6 +66,10 @@ public final class AndroidSqliteChecks extends Instrumentation {
             JSONObject config=new JSONObject().put("standalone",true).put("realm",REALM).put("generation",GENERATION).put("serverKey",FIXTURE_KEY).put("authPepper",PEPPER).put("eventSigningKey","synthetic-events-key-2026");
             try(NativeBusinessEngine engine=new NativeBusinessEngine(db,new File(source.getFilesDir(),"service-documents"),new File(source.getCacheDir(),"temporary"),config,IndependentRuntime.asset(target,"business-runtime/runtime.js"),new JSONObject(IndependentRuntime.asset(target,"business-runtime/manifest.json")).getString("bundleSha256"),new NativeBusinessEngine.Authority(){public void beforeRequest(JSONObject r,boolean internal){}public void beforeCommit(JSONObject r,boolean internal){}},(command,value,objects)->{if(command.equals("health.snapshot"))return new JSONObject();if(command.equals("store.context"))return new JSONObject().put("configured",false);throw new IOException("Unexpected outbound capability: "+command);})){
                 check(request(engine,"/api/status","GET",null,null,false).getInt("status")==200,"Actual Rhino engine creates full schema on Android");
+                if (getClass().getName().startsWith("gr.argyrismitsos.fleetdirect.")) {
+                    checkFleetBaselineScope(db);
+                    checkFleetReplica(source.getCacheDir());
+                }
                 JSONObject bootstrap=request(engine,"/api/auth/bootstrap","POST",owner,null,true);check(bootstrap.getInt("status")<300,"Synthetic owner bootstrap: "+bootstrap);
                 JSONObject login=request(engine,"/api/auth/user-login","POST",owner,null,false);check(login.getInt("status")==200,"Synthetic owner login");String ownerId=new JSONObject(login.getString("body")).getJSONObject("user").getString("id");
                 NativePrimaryState.phase(db,"active",REALM,GENERATION,ownerId,"");
@@ -117,6 +121,73 @@ public final class AndroidSqliteChecks extends Instrumentation {
         try{String diagnostic="Synthetic certificate progress CERT_ORDER_CAA";target.getSharedPreferences("independent_ui",Context.MODE_PRIVATE).edit().putString("certificate",diagnostic).commit();waitForIdleSync();
             java.lang.reflect.Field field=IndependentActivity.class.getDeclaredField("status");field.setAccessible(true);final String[] displayed={""};runOnMainSync(()->displayed[0]=((android.widget.TextView)readField(field,activity)).getText().toString());check(displayed[0].contains(diagnostic),"Actual owner Activity refreshes certificate progress without manual action");
         }finally{runOnMainSync(()->activity.finish());waitForIdleSync();}
+    }
+    private void checkFleetBaselineScope(SQLiteDatabase db) throws Exception {
+        String shiftId="shift-private-fixture-workforce-id";
+        JSONObject service=new JSONObject().put("id","synthetic-service").put("type","service").put("km",9300)
+                .put("notes","Διατηρημένες εργασίες").put("date","2026-11-20").put("cost","30,00")
+                .put("attachments",new JSONArray().put(new JSONObject().put("key","service-documents/probe")));
+        JSONObject shift=new JSONObject().put("id",shiftId).put("type","check").put("km",9500).put("date","2026-11-21")
+                .put("notes","secret synthetic shift detail");
+        JSONObject machine=new JSONObject().put("id","synthetic-machine").put("name","Μηχανάκι").put("history",new JSONArray().put(service).put(shift))
+                .put("historyDeletedIds",new JSONArray().put(shiftId));
+        JSONObject fixture=new JSONObject().put("bikes",new JSONArray().put(machine)).put("payroll","secret synthetic salary");
+        ByteArrayOutputStream staged=new ByteArrayOutputStream();
+        java.lang.reflect.Method project=Class.forName("gr.argyrismitsos.fleetdirect.FleetCloudArchive")
+                .getDeclaredMethod("project",SQLiteDatabase.class,OutputStream.class,String.class);
+        project.setAccessible(true);
+        db.beginTransaction();
+        try {
+            db.execSQL("UPDATE fleet_snapshot SET data=? WHERE id=1",new Object[]{fixture.toString()});
+            Object selected=project.invoke(null,db,staged,GENERATION);
+            check(selected.equals(Collections.singleton("service-documents/probe")),"Exact source attachment associated with staged service");
+        } finally { db.endTransaction(); }
+        String contents=staged.toString("UTF-8");
+        check(contents.contains("Διατηρημένες εργασίες")&&contents.contains("9300")&&contents.contains("30,00"),"Real SQLite export preserves service details");
+        check(contents.contains("9500")&&contents.contains("check:")&&!contents.contains(shiftId)&&!contents.contains("secret synthetic"),
+                "Shift mileage crosses the boundary without workforce identifiers, notes or salary");
+    }
+
+    private void checkFleetReplica(File cache) throws Exception {
+        String epoch="1234567890abcdef1234567890abcdef";
+        Class<?> replica=Class.forName("gr.argyrismitsos.fleetdirect.FleetCloudReplica");
+        java.lang.reflect.Method initialize=replica.getDeclaredMethod("initialize",SQLiteDatabase.class,String.class);
+        java.lang.reflect.Method apply=replica.getDeclaredMethod("apply",SQLiteDatabase.class,String.class,long.class,JSONObject.class);
+        initialize.setAccessible(true);
+        apply.setAccessible(true);
+        File location=new File(cache,"fleet-replica-fixture.db");
+        JSONObject data=new JSONObject().put("name","Συνθετικό μηχανάκι").put("currentKm",9400);
+        JSONObject machine=new JSONObject().put("kind","machine").put("machineId","synthetic-machine")
+                .put("recordId","synthetic-machine").put("serviceId","").put("revision",1).put("cursor",2)
+                .put("deleted",false).put("data",data);
+        JSONObject page=new JSONObject().put("epoch",epoch).put("hasMore",false)
+                .put("changes",new JSONArray().put(machine)).put("nextCursor",2);
+        try (SQLiteDatabase stored=SQLiteDatabase.openDatabase(location.getPath(),null,SQLiteDatabase.CREATE_IF_NECESSARY)) {
+            initialize.invoke(null,stored,epoch);
+            check(apply.invoke(null,stored,epoch,0L,page).equals(2L),"A real SQLite transaction advances to the exact cloud cursor");
+        }
+        try (SQLiteDatabase stored=SQLiteDatabase.openDatabase(location.getPath(),null,SQLiteDatabase.OPEN_READWRITE)) {
+            JSONObject update=new JSONObject(machine.toString()).put("revision",2).put("cursor",3);
+            JSONObject wrong=new JSONObject(machine.toString()).put("revision",4).put("cursor",4);
+            page.put("changes",new JSONArray().put(update).put(wrong)).put("nextCursor",4);
+            try {
+                apply.invoke(null,stored,epoch,2L,page);
+                throw new AssertionError("A partial schema/revision conflict was accepted");
+            } catch (java.lang.reflect.InvocationTargetException failure) {
+                check(failure.getCause() instanceof IOException,"Conflict results from a rejected revision");
+            }
+            check(IndependentSqlite.text(stored,"SELECT cursor FROM fleet_cloud_checkpoint").equals("2")&&
+                    IndependentSqlite.text(stored,"SELECT revision FROM fleet_cloud_replica").equals("1"),
+                    "The malformed page leaves no partial record, and restart retains the last cursor");
+            page.put("changes",new JSONArray().put(update)).put("nextCursor",3);
+            check(apply.invoke(null,stored,epoch,2L,page).equals(3L),"Correct journal page resumes after rollback");
+            try {
+                initialize.invoke(null,stored,"fedcba0987654321fedcba0987654321");
+                throw new AssertionError("A different epoch was accepted");
+            } catch (java.lang.reflect.InvocationTargetException failure) {
+                check(failure.getCause() instanceof IOException,"Epoch guard rejects a second remote source");
+            }
+        }
     }
     private static Object readField(java.lang.reflect.Field field,Object value){try{return field.get(value);}catch(Exception error){throw new AssertionError(error);}}
 }

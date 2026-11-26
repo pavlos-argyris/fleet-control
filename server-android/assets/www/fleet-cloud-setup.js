@@ -8,6 +8,7 @@
   section.hidden=false;
   const status=element('fleetCloudStatus'),migration=element('fleetCloudMigration'),minutes=element('fleetCloudMinutes');
   const approve=element('fleetCloudApprove'),rotate=element('fleetCloudRotate');
+  const replay=element('fleetCloudReplay');
   const connectionMessages={
     approved:'Επιβεβαιώθηκε η σύνδεση του Server.',
     offline:'Εκκρεμεί επικοινωνία με το Cloudflare.',
@@ -19,6 +20,9 @@
   const migrationMessages={
     preparing_backup:'Δημιουργείται και ελέγχεται το τοπικό backup.',
     backup_verified:'Το τοπικό backup επαληθεύτηκε. Εκκρεμεί η συμφιλίωση της μεταφοράς.',
+    copying_baseline:'Μεταφέρονται τα επαληθευμένα δεδομένα των μηχανών στο δοκιμαστικό Cloudflare.',
+    baseline_retry:'Η μεταφορά διακόπηκε. Θα συνεχιστεί από την τελευταία επιβεβαιωμένη παρτίδα.',
+    baseline_staged:'Η δοκιμαστική μεταφορά της αρχικής απογραφής επαληθεύτηκε.',
     waiting_for_backup_slot:'Η προετοιμασία περιμένει να ολοκληρωθεί το τρέχον backup.',
     backup_verification_failed:'Χρειάζεται νέος έλεγχος του τοπικού backup.'
   };
@@ -44,16 +48,21 @@
     status.textContent=(connectionMessages[payload.connection]||'Εκκρεμεί έλεγχος σύνδεσης.')+last;
     const backupAt=payload.migration==='backup_verified'&&payload.backupVerifiedAt?
       ' Έλεγχος '+new Date(payload.backupVerifiedAt).toLocaleString('el-GR')+'.':'';
-    migration.textContent=(migrationMessages[payload.migration]||'Μετάβαση δεδομένων σε αναμονή επαλήθευσης.')+backupAt;
+    const stagedAt=payload.migration==='baseline_staged'&&payload.lastReplicaAt?
+      ' Τελευταία ενημέρωση αντιγράφου '+new Date(payload.lastReplicaAt).toLocaleString('el-GR')+'.':'';
+    const pendingReplica=payload.replicaPending?' Εκκρεμούν αλλαγές στο δοκιμαστικό αντίγραφο.':'';
+    migration.textContent=(migrationMessages[payload.migration]||'Μετάβαση δεδομένων σε αναμονή επαλήθευσης.')+backupAt+stagedAt+pendingReplica;
     minutes.value=String(payload.minutes||15);
     approve.hidden=payload.approved&&!payload.pendingApproval;
     rotate.hidden=!payload.approved||payload.pendingApproval;
+    replay.hidden=payload.migration!=='baseline_staged'||payload.connection!=='approved';
   };
   section.addEventListener('toggle',()=>{if(section.open)request('status');});
   approve.addEventListener('click',()=>request('approve'));
   rotate.addEventListener('click',()=>request('rotate'));
   element('fleetCloudPin').addEventListener('click',()=>request('settings'));
   element('fleetCloudRefresh').addEventListener('click',()=>request('status'));
+  replay.addEventListener('click',()=>request('replay'));
   minutes.addEventListener('change',()=>request('interval',Number(minutes.value)));
   window.addEventListener('focus',()=>{if(section.open)request('status');});
 }());

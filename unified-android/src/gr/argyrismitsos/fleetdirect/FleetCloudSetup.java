@@ -11,6 +11,8 @@ import javax.net.ssl.HttpsURLConnection;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
+import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -27,6 +29,7 @@ final class FleetCloudSetup {
     private static final String BASE = ServerConfig.DEFAULT_WORKER_URL;
     private static final String SETUP = "/fleet-cloud/setup";
     private static final String STATE = "/api/fleet-sync/v1/state";
+    private static final String DELTA = "/api/fleet-sync/v1/delta?cursor=";
     private static final int DEFAULT_MINUTES = 15;
     private static final int RESPONSE_LIMIT = 4096;
     private static final SecureRandom random = new SecureRandom();
@@ -74,6 +77,13 @@ final class FleetCloudSetup {
             return status(state).put("setupUrl", BASE + SETUP + "#" + fragment.build().getEncodedQuery())
                     .put("approvalCode", digest.substring(0, 8).toUpperCase(Locale.ROOT));
         }
+        if ("replay".equals(action)) {
+            if (!isStaged(state)) throw new IOException("Εκκρεμεί η δοκιμαστική μεταφορά Fleet.");
+            state.put("nextReplayAt",0);
+            SealedLocalState.write(context,STORE,KEY,state);
+            schedule(context);
+            return status(state);
+        }
         if (!"status".equals(action)) throw new IOException("Η ενέργεια Fleet δεν αναγνωρίστηκε.");
         refresh(context, state, true);
         return status(state);
@@ -86,6 +96,8 @@ final class FleetCloudSetup {
                 if (!DirectHost.paused(context)) {
                     refreshIfDue(context);
                     prepareBaselineIfDue(context);
+                    stageBaselineIfDue(context);
+                    replayIfDue(context);
                 }
             }
             finally { checking.set(false); }
@@ -147,6 +159,109 @@ final class FleetCloudSetup {
         SealedLocalState.write(context, STORE, KEY, state);
     }
 
+    private static void stageBaselineIfDue(Context context) {
+        JSONObject transfer=null;
+        try {
+            transfer=reserveTransfer(context);
+            if (transfer==null) return;
+            JSONObject credential=transfer.getJSONObject("credential");
+            String epoch=transfer.getString("epoch");
+            FleetCloudArchive.stage(context,transfer.getString("job"),transfer.getString("source"),transfer.getString("generation"),
+                    epoch,new FleetCloudBaseline.Transport() {
+                @Override public JSONObject send(String path,JSONObject payload) throws Exception {
+                    if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
+                    byte[] bytes=payload.toString().getBytes(StandardCharsets.UTF_8);
+                    return request(path,credential,epoch,"POST","application/json",bytes.length,new ByteArrayInputStream(bytes));
+                }
+                @Override public JSONObject putFile(String sha,String type,long size,InputStream input) throws Exception {
+                    if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
+                    return request("/api/fleet-sync/v1/invoice-file?sha256="+sha,credential,epoch,"PUT",type,size,input);
+                }
+            });
+            completeTransfer(context,transfer,true);
+        } catch (Exception failure) {
+            if (transfer!=null) try { completeTransfer(context,transfer,false); }
+            catch (Exception unavailable) { }
+        }
+    }
+
+    private static synchronized JSONObject reserveTransfer(Context context) throws Exception {
+        JSONObject state=stored(context);
+        long now=System.currentTimeMillis();
+        if (state.optInt("baselineVersion")!=1||!state.has("active")||!state.has("backupSha256")||
+                !"approved".equals(state.optString("connection"))||state.has("candidate")||DirectHost.paused(context)||
+                now-state.optLong("lastContactAt")>(state.optInt("minutes",DEFAULT_MINUTES)+1)*60000L||
+                state.optLong("nextTransferAt")>now) return null;
+        String job=state.getString("backupJob");
+        if (job.equals(state.optString("stagedBackupJob"))) return null;
+        String generation=IndependentConfig.read(context).optString("generation");
+        if (generation.isEmpty()) return null;
+        state.put("migration","copying_baseline").put("nextTransferAt",now+60000L);
+        SealedLocalState.write(context,STORE,KEY,state);
+        return new JSONObject().put("job",job).put("source",state.getString("backupSha256"))
+                .put("generation",generation).put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"));
+    }
+
+    private static synchronized void completeTransfer(Context context,JSONObject transfer,boolean saved) throws Exception {
+        JSONObject state=stored(context);
+        String job=transfer.getString("job");
+        if (!job.equals(state.optString("backupJob"))||!transfer.getString("epoch").equals(state.optString("epoch"))) return;
+        if (saved) {
+            state.put("migration","baseline_staged").put("stagedBackupJob",job).put("baselineStagedAt",System.currentTimeMillis());
+            state.remove("transferFailures");
+        } else {
+            int attempts=Math.min(10,state.optInt("transferFailures")+1);
+            state.put("migration","baseline_retry").put("transferFailures",attempts)
+                    .put("nextTransferAt",System.currentTimeMillis()+Math.min(3600000L,30000L<<attempts));
+        }
+        SealedLocalState.write(context,STORE,KEY,state);
+    }
+
+    private static boolean isStaged(JSONObject state) {
+        String job=state.optString("backupJob");
+        return !job.isEmpty()&&job.equals(state.optString("stagedBackupJob"))&&state.optInt("baselineVersion")==1;
+    }
+
+    private static void replayIfDue(Context context) {
+        JSONObject replica=null;
+        try {
+            replica=reserveReplay(context);
+            if (replica==null) return;
+            String epoch=replica.getString("epoch");
+            JSONObject credential=replica.getJSONObject("credential");
+            JSONObject progress=FleetCloudReplica.sync(context,epoch,cursor->{
+                if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
+                return request(DELTA+cursor,credential,epoch,"GET",null,0,null);
+            });
+            completeReplay(context,epoch,progress);
+        } catch (Exception failure) {
+            if (replica!=null) try { completeReplay(context,replica.getString("epoch"),null); }
+            catch (Exception unavailable) { }
+        }
+    }
+
+    private static synchronized JSONObject reserveReplay(Context context) throws Exception {
+        JSONObject state=stored(context);
+        long now=System.currentTimeMillis();
+        if (!isStaged(state)||!state.has("active")||!"approved".equals(state.optString("connection"))||
+                state.has("candidate")||state.optLong("nextReplayAt")>now||DirectHost.paused(context)) return null;
+        state.put("nextReplayAt",now+60000L);
+        SealedLocalState.write(context,STORE,KEY,state);
+        return new JSONObject().put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"));
+    }
+
+    private static synchronized void completeReplay(Context context,String epoch,JSONObject progress) throws Exception {
+        JSONObject state=stored(context);
+        if (!epoch.equals(state.optString("epoch"))||!isStaged(state)) return;
+        long now=System.currentTimeMillis();
+        state.put("replicaPending",progress==null||progress.optBoolean("hasMore"));
+        if (progress!=null) {
+            state.put("replicaCursor",progress.getLong("cursor")).put("lastReplicaAt",now);
+            if (!progress.optBoolean("hasMore")) state.put("nextReplayAt",now+state.optInt("minutes",DEFAULT_MINUTES)*60000L);
+        }
+        SealedLocalState.write(context,STORE,KEY,state);
+    }
+
     private static void refresh(Context context, JSONObject state, boolean manual) throws Exception {
         JSONObject candidate = state.optJSONObject("candidate");
         JSONObject active = state.optJSONObject("active"), credential = candidate == null ? active : candidate;
@@ -168,7 +283,8 @@ final class FleetCloudSetup {
                     state.put("active", candidate);
                     state.remove("candidate");
                 }
-                state.put("epoch", epoch).put("connection", "approved").put("lastContactAt", started);
+                state.put("epoch", epoch).put("connection", "approved").put("lastContactAt", started)
+                        .put("baselineVersion",remote.optInt("baselineVersion",0));
             }
         } catch (Rejected unapproved) {
             state.put("connection", candidate == null ? "revoked" : "awaiting_approval");
@@ -185,7 +301,9 @@ final class FleetCloudSetup {
         return new JSONObject().put("connection", connection).put("approved", state.has("active"))
                 .put("pendingApproval", candidate != null).put("lastContactAt", state.optLong("lastContactAt"))
                 .put("minutes", state.optInt("minutes",DEFAULT_MINUTES)).put("migration", state.optString("migration","pending_reconciliation"))
-                .put("backupVerifiedAt",state.optLong("backupVerifiedAt"));
+                .put("backupVerifiedAt",state.optLong("backupVerifiedAt")).put("baselineStagedAt",state.optLong("baselineStagedAt"))
+                .put("lastReplicaAt",state.optLong("lastReplicaAt")).put("replicaCursor",state.optLong("replicaCursor"))
+                .put("replicaPending",state.optBoolean("replicaPending"));
     }
 
     private static void requireDeployment() throws Exception {
@@ -196,22 +314,41 @@ final class FleetCloudSetup {
     }
 
     private static JSONObject request(String path, JSONObject credential) throws Exception {
+        return request(path,credential,"","GET",null,0,null);
+    }
+
+    private static JSONObject request(String path,JSONObject credential,String epoch,String method,String type,long size,InputStream upload) throws Exception {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(BASE + path).openConnection();
         connection.setConnectTimeout(5000);
         connection.setReadTimeout(5000);
         connection.setInstanceFollowRedirects(false);
         connection.setUseCaches(false);
+        connection.setRequestMethod(method);
         connection.setRequestProperty("Accept", "application/json");
+        if (!epoch.isEmpty()) connection.setRequestProperty("X-Fleet-Epoch",epoch);
         if (credential != null) connection.setRequestProperty("Authorization", "Bearer " +
                 credential.getString("id") + "." + credential.getString("secret"));
         try {
+            if (upload!=null) {
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Content-Type",type);
+                connection.setFixedLengthStreamingMode(size);
+                try (OutputStream output=connection.getOutputStream()) {
+                    byte[] block=new byte[8192];
+                    for (int count;(count=upload.read(block))!=-1;) {
+                        if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException();
+                        output.write(block,0,count);
+                    }
+                }
+            }
             int status = connection.getResponseCode();
             if (status == 401 || status == 403) throw new Rejected();
             if (status != 200) throw new IOException("Εκκρεμεί η διαθεσιμότητα του Cloudflare Fleet.");
             try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
                 byte[] block = new byte[1024];
                 for (int length; (length = input.read(block)) >= 0;) {
-                    if (output.size() + length > RESPONSE_LIMIT) throw new IOException("Μη έγκυρη απάντηση Fleet.");
+                    int limit=path.startsWith(DELTA)?512*1024:RESPONSE_LIMIT;
+                    if (output.size() + length > limit) throw new IOException("Μη έγκυρη απάντηση Fleet.");
                     output.write(block, 0, length);
                 }
                 return new JSONObject(new String(output.toByteArray(), StandardCharsets.UTF_8));
