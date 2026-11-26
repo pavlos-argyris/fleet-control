@@ -1,4 +1,5 @@
 import { stableReviewJson } from '../src/invoice-review-store.js';
+import { fleetRecordId } from '../src/snapshot-store.js';
 
 const encoder = new TextEncoder();
 export const MAX_BYTES = 192 * 1024;
@@ -15,7 +16,9 @@ const kinds = {
     netAmount:'text', vatAmount:'text', laborAmount:'text', comments:'text', rawText:'text', lineItems:'lines', reviewedAt:'text',
     targetedOperationId:'text', createdAt:'text', updatedAt:'text' }
 };
-const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,159}$/.test(value);
+export const validOperationId = value => typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{15,159}$/.test(value);
+export const validFleetRecordId = value => typeof value === 'string' && !value.includes('\0') &&
+  (Boolean(fleetRecordId(value)) || validOperationId(value));
 const isObject = value => value && typeof value === 'object' && !Array.isArray(value);
 const isInteger = value => Number.isSafeInteger(value) && value >= 0;
 function valueMatches(value, kind) {
@@ -37,10 +40,10 @@ export async function sha256(value) {
 
 async function mutation(input) {
   const { operationId, kind, machineId, recordId, serviceId = '', expectedRevision, deleted, data } = input ?? {};
-  if (!identifier(operationId) || operationId.length < 16 || !Object.hasOwn(kinds, kind) ||
-      !identifier(machineId) || !identifier(recordId) || !isInteger(expectedRevision) || expectedRevision >= Number.MAX_SAFE_INTEGER ||
+  if (!validOperationId(operationId) || !Object.hasOwn(kinds, kind) ||
+      !validFleetRecordId(machineId) || !validFleetRecordId(recordId) || !isInteger(expectedRevision) || expectedRevision >= Number.MAX_SAFE_INTEGER ||
       typeof deleted !== 'boolean' || (kind === 'machine' && machineId !== recordId) ||
-      (kind === 'invoice' ? !identifier(serviceId) : serviceId !== '')) throw fleetError(400,'invalid_mutation');
+      (kind === 'invoice' ? !validFleetRecordId(serviceId) : serviceId !== '')) throw fleetError(400,'invalid_mutation');
   if (input && Object.keys(input).some(key => !['operationId','kind','machineId','recordId','serviceId','expectedRevision','deleted','data'].includes(key))) {
     throw fleetError(400,'invalid_mutation_field');
   }

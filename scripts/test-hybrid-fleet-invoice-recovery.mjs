@@ -91,16 +91,17 @@ try {
   expect(await approval(devices[1]),409);
   ticket=token(devices[0]);
   epoch=expect(await call(sync+'/state'),200).epoch;
+  const originalMachine='Μηχανή / 7', sharedService='σέρβις 01';
   const ops=[
-    {kind:'machine',machineId:'original-machine',recordId:'original-machine',data:{name:'BTO-756',plateKey:'BTO756',currentKm:9500}},
+    {kind:'machine',machineId:originalMachine,recordId:originalMachine,data:{name:'BTO-756',plateKey:'BTO756',currentKm:9500}},
     {kind:'machine',machineId:'other-machine',recordId:'other-machine',data:{name:'HTP-527',plateKey:'HTP527'}},
-    {kind:'service',machineId:'original-machine',recordId:'same-id',data:{date:'2026-11-18',km:9000,notes:'Σημειώσεις πριν από το σέρβις',tasks:['Έλεγχος κινητήρα'],cost:'55,00'}},
-    {kind:'service',machineId:'other-machine',recordId:'same-id',data:{date:'2026-11-20',km:9500,notes:'Άλλο μηχανάκι'}},
-    {kind:'invoice',machineId:'original-machine',recordId:'existing',serviceId:'same-id',data:{qrUrl:base+'CONFIRMED',invoiceNumber:'OLD',totalAmount:'124,00',reviewedAt:'2026-11-21T08:00:00Z'}}
+    {kind:'service',machineId:originalMachine,recordId:sharedService,data:{date:'2026-11-18',km:9000,notes:'Σημειώσεις πριν από το σέρβις',tasks:['Έλεγχος κινητήρα'],cost:'55,00'}},
+    {kind:'service',machineId:'other-machine',recordId:sharedService,data:{date:'2026-11-20',km:9500,notes:'Άλλο μηχανάκι'}},
+    {kind:'invoice',machineId:originalMachine,recordId:'existing',serviceId:sharedService,data:{qrUrl:base+'CONFIRMED',invoiceNumber:'OLD',totalAmount:'124,00',reviewedAt:'2026-11-21T08:00:00Z'}}
   ];
   const operations=ops.map((op,i)=>({...op,operationId:'seed-operation-'+i+'-invoice',expectedRevision:0,deleted:false}));
   assert(expect(await call(sync+'/mutations',{method:'POST',body:{operations}}),200).operations.every(op=>op.status==='committed'));
-  const job=(tag,other={})=>({operationId:'synthetic-invoice-'+tag,machineId:'original-machine',serviceId:'same-id',qrValue:base+tag,
+  const job=(tag,other={})=>({operationId:'synthetic-invoice-'+tag,machineId:originalMachine,serviceId:sharedService,qrValue:base+tag,
     sourceKey:'',sourceSha256:'',source:'legacy-operation',sourceId:'old-'+tag,explicitId:'',...other});
   const fileBytes=Buffer.from('synthetic private photo');
   const photo={key:'service-documents/original-machine/same-id/photograph',local_name:'a'.repeat(64)+'-'+'b'.repeat(64)+'.jpg',
@@ -135,6 +136,7 @@ try {
   assert.equal((await transfer(false)).verified,true);
   expect(await stage([job('TOO-LATE')]),409);
   const newScan=job('NEW',{source:'targeted-scan',explicitId:'synthetic-invoice-NEW'});
+  expect(await stage([{...newScan,serviceId:sharedService+' '}]),422);
   expect(await stage([{...newScan,serviceId:'missing'}]),404);
   expect(await stage([newScan]),200);
   // A lost worker lease is recovered after restart. The durable mutation and
@@ -164,8 +166,8 @@ try {
   const restoredPhoto=await (await runtime.getR2Bucket('FLEET_DOCUMENTS')).get('sha256/'+photo.sha256);
   assert.deepEqual(Buffer.from(await restoredPhoto.arrayBuffer()),fileBytes);
   for (const row of invoices.filter(row=>JSON.parse(row.data).sha256)) {
-    assert.equal(row.machine_id,'original-machine');
-    assert.equal(row.service_id,'same-id');
+    assert.equal(row.machine_id,originalMachine);
+    assert.equal(row.service_id,sharedService);
     const invoice=JSON.parse(row.data);
     assert.equal(invoice.invoiceDate,'2026-11-25');
     assert.equal(invoice.odometerKm,'12456');
@@ -173,7 +175,7 @@ try {
     assert.equal(invoice.totalAmount,'124,00');
     assert((await (await runtime.getR2Bucket('FLEET_DOCUMENTS')).head('sha256/'+invoice.sha256)).size>0);
   }
-  const service=await db.prepare("SELECT data,revision FROM fleet_records WHERE kind='service' AND machine_id='original-machine'").first();
+  const service=await db.prepare("SELECT data,revision FROM fleet_records WHERE kind='service' AND machine_id=?").bind(originalMachine).first();
   assert.deepEqual(JSON.parse(service.data),ops[2].data);
   assert.equal(service.revision,1);
   await login('0384');

@@ -79,15 +79,19 @@ try {
     operationId:'synthetic-operation-'+(++index),kind:'machine',machineId,recordId:machineId,expectedRevision:0,deleted:false,
     data:{name:'Synthetic '+machineId,currentKm:3000},...overrides
   });
-  const sources = Array.from({length:40},(_,i)=>make('machine-'+i));
+  const legacyMachineId = 'Μηχανή / 7';
+  const legacyServiceId = 'σέρβις 01';
+  const sources = Array.from({length:40},(_,i)=>make(i===0?legacyMachineId:i===1?'728013':'machine-'+i));
   for (let i=0;i<sources.length;i+=12) {
     const result=expect(await push(sources.slice(i,i+12)),200);
     assert(result.operations.every(operation=>operation.status==='committed'));
   }
   expect(await push([make('private',{data:{name:'Synthetic',employeeId:'fixture'}})]),400);
+  expect(await push([make(legacyMachineId+' ')]),400);
+  expect(await push([make(legacyMachineId,{operationId:'invalid ταυτότητα'})]),400);
   expect(await push([make('private',{data:{name:'Synthetic',notes:'x'.repeat(200000)}})]),413);
   const first = sources[0];
-  const service=make(first.machineId,{kind:'service',recordId:'service-1',
+  const service=make(first.machineId,{kind:'service',recordId:legacyServiceId,
     data:{km:3030,date:'2026-11-25',notes:'Synthetic Greek note',tasks:['Έλεγχος'],cost:'30,00'}});
   const orphan=make(first.machineId,{kind:'invoice',recordId:'invoice-x',serviceId:'missing-service',
     data:{invoiceNumber:'NO-TARGET'}});
@@ -118,6 +122,8 @@ try {
     events=events.concat(page.changes);
   }
   assert.equal(events.length,44);
+  assert(events.some(event=>event.machineId===legacyMachineId&&event.recordId===legacyServiceId));
+  assert(events.some(event=>event.machineId==='728013'&&event.recordId==='728013'));
   assert.equal(events.at(-1).deleted,true);
   assert.equal(events.at(-1).data,null);
   const idle=expect(await pull(page.nextCursor),200);

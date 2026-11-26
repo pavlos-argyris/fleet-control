@@ -122,7 +122,7 @@ final class FleetCloudReplica {
     }
 
     private static String id(String value) throws IOException {
-        if (!value.matches("[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,159}")) throw invalidDelta();
+        if (value.isEmpty()||value.length()>160||value.indexOf(0)>=0) throw invalidDelta();
         return value;
     }
 

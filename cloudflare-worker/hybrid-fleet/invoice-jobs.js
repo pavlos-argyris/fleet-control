@@ -1,10 +1,9 @@
 import { stableReviewJson } from '../src/invoice-review-store.js';
 import { evaluateInvoiceConfirmation, invoiceCents, invoicePlate, MAX_INVOICE_TEXT, parseInvoiceText } from '../src/invoice-extraction.js';
 import { checkTargetedInvoiceRead, validTargetedOperationId } from '../src/targeted-service-qr.js';
-import { fleetError, sha256 } from './ledger.js';
+import { fleetError, sha256, validFleetRecordId, validOperationId } from './ledger.js';
 
 const proofId = /^[a-f0-9]{64}$/;
-const fleetId = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,159}$/;
 const sourceKinds = ['legacy-operation','legacy-draft','service-history','client-outbox','targeted-scan'];
 const fields = ['operationId','machineId','serviceId','qrValue','sourceKey','sourceSha256','explicitId','source','sourceId'];
 const importedReasons = ['invoice_attached_elsewhere','original_service_not_verified','original_target_conflict'];
@@ -25,7 +24,7 @@ function safeQr(value, hosts) {
 
 async function normalizeJob(job) {
   if (!job || Array.isArray(job) || typeof job !== 'object' || Object.keys(job).some(key => !fields.includes(key)&&key!=='reviewReason') ||
-      fields.some(key => typeof job[key] !== 'string') || !fleetId.test(job.operationId) || job.operationId.length < 16 ||
+      fields.some(key => typeof job[key] !== 'string') || !validOperationId(job.operationId) ||
       !sourceKinds.includes(job.source) || !job.sourceId || job.sourceId.length > 240 || job.qrValue.length > 4096 ||
       job.machineId.length > 160 || job.serviceId.length > 160 || job.sourceKey.length > 520 ||
       (job.sourceSha256 && (!job.sourceKey || !proofId.test(job.sourceSha256))) ||
@@ -63,7 +62,7 @@ export async function stageInvoiceJobs(env,credential,epoch,input) {
   for (const {job,input,fingerprint} of jobs) {
     const qr=safeQr(job.qrValue,hostnames),qrHash=qr?await sha256(qr):'';
     const manual=job.source==='targeted-scan';
-    if (manual && (!qr || !fleetId.test(job.machineId) || !fleetId.test(job.serviceId))) throw fleetError(422,'invalid_targeted_scan');
+    if (manual && (!qr || !validFleetRecordId(job.machineId) || !validFleetRecordId(job.serviceId))) throw fleetError(422,'invalid_targeted_scan');
     const source=job.sourceSha256 ? await env.FLEET_DOCUMENTS?.head('sha256/'+job.sourceSha256) : null;
     const confirmed=qr && await db.prepare(`SELECT machine_id,service_id FROM fleet_records WHERE kind='invoice' AND deleted=0
       AND json_extract(data,'$.qrUrl')=? AND COALESCE(json_extract(data,'$.reviewedAt'),'')<>'' LIMIT 1`).bind(qr).first();

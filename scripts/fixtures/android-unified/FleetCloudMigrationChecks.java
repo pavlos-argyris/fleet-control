@@ -16,12 +16,13 @@ final class FleetCloudMigrationChecks {
 
     static void checkFleetBaselineScope(SQLiteDatabase db,String generation) throws Exception {
         String shiftId="shift-private-fixture-workforce-id";
-        JSONObject service=new JSONObject().put("id","synthetic-service").put("type","service").put("km",9300)
+        String machineId="Μηχανή / 7";
+        JSONObject service=new JSONObject().put("id",728013).put("type","service").put("km",9300)
                 .put("notes","Διατηρημένες εργασίες").put("date","2026-11-20").put("cost","30,00")
                 .put("attachments",new JSONArray().put(new JSONObject().put("key","service-documents/probe")));
         JSONObject shift=new JSONObject().put("id",shiftId).put("type","check").put("km",9500).put("date","2026-11-21")
                 .put("notes","secret synthetic shift detail");
-        JSONObject machine=new JSONObject().put("id","synthetic-machine").put("name","Μηχανάκι").put("history",new JSONArray().put(service).put(shift))
+        JSONObject machine=new JSONObject().put("id",machineId).put("name","Μηχανάκι").put("history",new JSONArray().put(service).put(shift))
                 .put("historyDeletedIds",new JSONArray().put(shiftId));
         JSONObject fixture=new JSONObject().put("bikes",new JSONArray().put(machine)).put("payroll","secret synthetic salary");
         ByteArrayOutputStream staged=new ByteArrayOutputStream();
@@ -29,11 +30,19 @@ final class FleetCloudMigrationChecks {
         try {
             db.execSQL("UPDATE fleet_snapshot SET data=? WHERE id=1",new Object[]{fixture.toString()});
             db.execSQL("INSERT INTO vehicle_registry(bike_id,name,odometer,status,active_shift_id,version,updated_at) "+
-                    "VALUES (?,?,?,'in_use',?,2,'2026-11-21')",new Object[]{"synthetic-machine","Μηχανάκι",9500,shiftId});
+                    "VALUES (?,?,?,'in_use',?,2,'2026-11-21')",new Object[]{machineId,"Μηχανάκι",9500,shiftId});
             Set<String> selected=FleetCloudArchive.project(db,staged,generation);
             check(selected.equals(Collections.singleton("service-documents/probe")),"Exact source attachment associated with staged service");
         } finally { db.endTransaction(); }
         String contents=staged.toString("UTF-8");
+        boolean exactServiceId=false;
+        for (String line:contents.split("\n")) {
+            JSONObject row=new JSONObject(line);
+            if (row.optString("kind").equals("history")&&row.optString("recordId").equals("728013")) {
+                exactServiceId=row.getString("machineId").equals(machineId);
+            }
+        }
+        check(exactServiceId,"The scope export retains the complete machine and original numeric service identifiers");
         check(contents.contains("Διατηρημένες εργασίες")&&contents.contains("9300")&&contents.contains("30,00"),"Real SQLite export preserves service details");
         check(contents.contains("machine-registry")&&contents.contains("in_use"),"Fleet registry status survives projection");
         check(contents.contains("9500")&&contents.contains("check:")&&!contents.contains(shiftId)&&!contents.contains("secret synthetic"),
@@ -42,16 +51,19 @@ final class FleetCloudMigrationChecks {
 
     static void checkFleetReplica(File cache) throws Exception {
         String epoch="1234567890abcdef1234567890abcdef";
+        String legacyMachineId="Μηχανή / 7";
         File location=new File(cache,"fleet-replica-fixture.db");
         JSONObject data=new JSONObject().put("name","Συνθετικό μηχανάκι").put("currentKm",9400);
-        JSONObject machine=new JSONObject().put("kind","machine").put("machineId","synthetic-machine")
-                .put("recordId","synthetic-machine").put("serviceId","").put("revision",1).put("cursor",2)
+        JSONObject machine=new JSONObject().put("kind","machine").put("machineId",legacyMachineId)
+                .put("recordId",legacyMachineId).put("serviceId","").put("revision",1).put("cursor",2)
                 .put("deleted",false).put("data",data);
         JSONObject page=new JSONObject().put("epoch",epoch).put("hasMore",false)
                 .put("changes",new JSONArray().put(machine)).put("nextCursor",2);
         try (SQLiteDatabase stored=SQLiteDatabase.openDatabase(location.getPath(),null,SQLiteDatabase.CREATE_IF_NECESSARY)) {
             FleetCloudReplica.initialize(stored,epoch);
             check(FleetCloudReplica.apply(stored,epoch,0L,page)==2L,"A real SQLite transaction advances to the exact cloud cursor");
+            check(legacyMachineId.equals(IndependentSqlite.text(stored,"SELECT machine_id FROM fleet_cloud_replica")),
+                    "SQLite preserves the legacy Fleet ID exactly");
         }
         try (SQLiteDatabase stored=SQLiteDatabase.openDatabase(location.getPath(),null,SQLiteDatabase.OPEN_READWRITE)) {
             JSONObject update=new JSONObject(machine.toString()).put("revision",2).put("cursor",3);
