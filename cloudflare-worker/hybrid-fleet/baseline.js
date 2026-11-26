@@ -1,8 +1,9 @@
 import { fleetError, readBody, sha256 } from './ledger.js';
 import { stableReviewJson } from '../src/invoice-review-store.js';
+import { BASELINE_CHUNK_BYTES, verifiedBaselineService } from './baseline-projection.js';
 
 const EMPTY_CHAIN='0'.repeat(64);
-export const BASELINE_CHUNK_BYTES=48*1024;
+export { BASELINE_CHUNK_BYTES } from './baseline-projection.js';
 const MAX_RECORD_BYTES=512*1024*1024;
 const MAX_FILE_BYTES=15*1024*1024;
 const MAX_FILES=30000;
@@ -10,7 +11,7 @@ const HEX=/^[a-f0-9]{64}$/;
 const schema='fleet-baseline-v1';
 const prefix='/api/fleet-sync/v1/baseline';
 const routes=new Map([[prefix,'GET'],[prefix+'/begin','POST'],[prefix+'/records','POST'],[prefix+'/files','POST'],
-  [prefix+'/seal','POST'],[prefix+'/page','GET']]);
+  [prefix+'/seal','POST'],[prefix+'/page','GET'],[prefix+'/service','GET']]);
 
 const grant=`EXISTS (SELECT 1 FROM fleet_sync_credentials WHERE id=? AND secret_sha256=? AND scope='sync-read-write'
   AND revoked_at IS NULL AND expires_at>?) AND EXISTS (SELECT 1 FROM fleet_rehearsal_state WHERE id=1 AND epoch=?)`;
@@ -26,7 +27,8 @@ export async function baselineReadyForQueue(env) {
   if (env.FLEET_BASELINE_TRANSFER!=='1') return true;
   if (!baselineEnabled(env)) return false;
   const validated=await env.FLEET_DB.prepare(`SELECT 1 AS ready FROM fleet_baseline b JOIN fleet_rehearsal_state e
-    ON e.id=1 AND e.epoch=b.epoch WHERE b.id=1 AND b.verified_at IS NOT NULL`).first();
+    ON e.id=1 AND e.epoch=b.epoch JOIN fleet_baseline_projection p ON p.id=b.id AND p.epoch=b.epoch
+    AND p.state='verified' WHERE b.id=1 AND b.verified_at IS NOT NULL`).first();
   return Boolean(validated);
 }
 
@@ -48,13 +50,15 @@ function progress(db,stream) {
 
 async function status(db,epoch) {
   const [header,records,files]=await db.batch([
-    db.prepare('SELECT manifest,verified_at FROM fleet_baseline WHERE id=1 AND epoch=?').bind(epoch),
+    db.prepare(`SELECT b.manifest,b.verified_at,p.state,p.reason,p.next_row FROM fleet_baseline b
+      LEFT JOIN fleet_baseline_projection p ON p.id=b.id AND p.epoch=b.epoch WHERE b.id=1 AND b.epoch=?`).bind(epoch),
     progress(db,'records'),progress(db,'files')
   ]);
   const headerRow=header.results[0];
   if (!headerRow) return {epoch,phase:'empty',records:emptyProgress(),files:emptyProgress()};
   return {epoch,phase:headerRow.verified_at?'staged':'copying',manifest:JSON.parse(headerRow.manifest),
-    records:offset(records),files:offset(files)};
+    records:offset(records),files:offset(files),projection:{state:headerRow.state||'waiting',reason:headerRow.reason||'',
+      indexedRows:headerRow.next_row||0}};
 }
 const emptyProgress=()=>({next:0,bytes:0,chain:EMPTY_CHAIN});
 const offset=result=>{
@@ -166,7 +170,10 @@ export async function routeBaseline(request,env,credential,epoch,respond) {
   if (!baselineEnabled(env)) throw fleetError(404,'baseline_unavailable');
   if (request.method!==method) throw fleetError(405,'method_not_allowed');
   let value;
-  if (method==='GET') value=url.pathname===prefix?await status(env.FLEET_DB,epoch):await readPage(env.FLEET_DB,epoch,url.searchParams.get('ordinal'));
+  if (url.pathname===prefix) value=await status(env.FLEET_DB,epoch);
+  else if (url.pathname===prefix+'/page') value=await readPage(env.FLEET_DB,epoch,url.searchParams.get('ordinal'));
+  else if (url.pathname===prefix+'/service') value=await verifiedBaselineService(env.FLEET_DB,epoch,
+    url.searchParams.get('machineId'),url.searchParams.get('serviceId'));
   else {
     if (credential.scope!=='sync-read-write') throw fleetError(403,'sync_write_scope_required');
     if (url.pathname.endsWith('/seal')) value=await seal(env.FLEET_DB,credential,epoch);

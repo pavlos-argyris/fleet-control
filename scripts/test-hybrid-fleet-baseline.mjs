@@ -19,15 +19,30 @@ const rw='fixture-baseline-writer.'+'W'.repeat(43), ro='fixture-baseline-reader.
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const hashChain=items=>items.reduce((chain,hash)=>digest(chain+':'+hash),'0'.repeat(64));
 const fileBytes=Buffer.from('Synthetic private photo bytes', 'utf8'), fileSha=digest(fileBytes);
-const scoped=Buffer.from(JSON.stringify({kind:'machine',machineId:'synthetic-van',data:{notes:'δοκιμή '.repeat(20000)}})+'\n','utf8');
+const machineId='Μηχανή / 21',otherId='42',serviceId='712389',deletedId='old-service';
+const fileKey='service-documents/fixture/original.jpg';
+const snapshot={kind:'snapshot',version:19,updatedAt:'2026-11-24T10:00:00Z'};
+const machine={kind:'machine',machineId,data:{id:machineId,name:'Μηχανή Α',historyDeletedIds:[deletedId],notes:'δοκιμή '.repeat(20000)}};
+const service={kind:'history',machineId,recordId:serviceId,data:{id:serviceId,type:'service',km:16550,date:'2026-11-24',
+  notes:'Αλλαγή λαδιών',tasks:['Λάδια','Έλεγχος φρένων'],cost:'52,20',attachments:[{key:fileKey,renderJobId:'legacy-job'}]}};
+const records=[snapshot,machine,{kind:'machine',machineId:otherId,data:{id:42,name:'Μηχανή Β'}},
+  {kind:'machine-registry',machineId,data:{name:'Μηχανή Α',odometer:16550,status:'available'}},
+  service,{...service,machineId:otherId,data:{...service.data,notes:'Άλλο σέρβις',attachments:[]}},
+  {...service,recordId:deletedId,data:{...service.data,id:deletedId,attachments:[]}},
+  {kind:'machine-archive',machineId:otherId,data:{machine:{id:42,name:'Μηχανή Β'},active:true}},
+  {kind:'archived-history',machineId:otherId,recordId:serviceId,data:{...service.data,attachments:[]}},
+  {kind:'invoice-job',recordId:'legacy-job',data:{type:'service_document_render',status:'error',input:{bikeId:machineId,entryId:serviceId,documentKey:fileKey}}},
+  {kind:'document',recordId:fileKey,data:{name:'original.jpg',contentType:'image/jpeg',size:fileBytes.length,sha256:fileSha}}];
+const encodeRows=rows=>Buffer.from(rows.map(row=>JSON.stringify(row)).join('\n')+'\n','utf8');
+const scoped=encodeRows(records);
 let runtime,db,epoch;
 
-async function start(enabled) {
+async function start(enabled,workspace='state') {
   runtime=new Miniflare(convertV4MiniflareOptions({
     modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-09-05',
     d1Databases:{FLEET_DB:'fleet-baseline-fixture'},r2Buckets:['FLEET_DOCUMENTS'],
-    resourcePersistencePath:path.join(dir,'state'),
-    bindings:{FLEET_REHEARSAL_ENABLED:'1',FLEET_BASELINE_TRANSFER:enabled?'1':'0'}
+    resourcePersistencePath:path.join(dir,workspace),
+    bindings:{FLEET_REHEARSAL_ENABLED:'1',FLEET_BASELINE_TRANSFER:enabled?'1':'0',FLEET_INVOICE_HOSTS:'invoice.fixture.invalid'}
   }));
   db=await runtime.getD1Database('FLEET_DB');
 }
@@ -42,6 +57,46 @@ async function post(url,value,overrides) {
 function expect(reply,status) {
   assert.equal(reply.status,status,JSON.stringify(reply.data));
   return reply.data;
+}
+async function install() {
+  for (const file of fs.readdirSync('cloudflare-worker/hybrid-fleet/migrations').sort()) {
+    const sql=fs.readFileSync('cloudflare-worker/hybrid-fleet/migrations/'+file,'utf8').replace(/^--.*$/gm,'');
+    const trigger=sql.indexOf('CREATE TRIGGER'),list=(trigger===-1?sql:sql.slice(0,trigger)).split(';').filter(s=>s.trim());
+    if (trigger!==-1) list.push(sql.slice(trigger));
+    await db.batch(list.map(s=>db.prepare(s)));
+  }
+  for(const [credential,scope] of [[rw,'sync-read-write'],[ro,'sync-read']]) {
+    const [id,secret]=credential.split('.');
+    await db.prepare('INSERT INTO fleet_sync_credentials(id,secret_sha256,scope,expires_at) VALUES(?,?,?,?)')
+      .bind(id,await sha256(secret),scope,Date.now()+600000).run();
+  }
+  epoch=expect(await request(api+'/state'),200).epoch;
+}
+async function tick() {
+  const outcome=await (await runtime.getWorker()).scheduled({cron:'* * * * *'});
+  assert.equal(outcome.outcome,'ok');
+}
+const servicePath=(machine,service)=>api+'/baseline/service?'+new URLSearchParams({machineId:machine,serviceId:service});
+const projection=async()=>expect(await request(api+'/baseline',{token:ro}),200).projection;
+
+async function testBlocked(workspace,fixture,reason,retainedRows) {
+  await runtime.dispose();
+  await start(true,workspace);
+  await install();
+  const raw=encodeRows(fixture),chunks=[];
+  for(let start=0;start<raw.length;start+=BASELINE_CHUNK_BYTES) chunks.push(raw.subarray(start,start+BASELINE_CHUNK_BYTES));
+  expect(await post('/baseline/begin',{format:'fleet-baseline-v1',sourceSha256:sourceSha,dataBytes:raw.length,
+    dataChain:hashChain(chunks.map(digest)),files:0,fileBytes:0,fileChain:hashChain([])}),200);
+  for(const [ordinal,chunk] of chunks.entries()) {
+    expect(await post('/baseline/records',{ordinal,sha256:digest(chunk),data:chunk.toString('base64')}),200);
+  }
+  expect(await post('/baseline/seal',{}),200);
+  for(let page=0;page<6&&(await projection()).state!=='blocked';page++) await tick();
+  assert.deepEqual(await projection(),{state:'blocked',reason,indexedRows:retainedRows});
+  assert.equal(expect(await request(servicePath(machineId,serviceId),{token:ro}),409).error,'baseline_projection_unverified');
+  assert.equal(expect(await request(api+'/baseline/page?ordinal=0',{token:ro}),200).sha256,digest(chunks[0]));
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_baseline_rows').first()).n,retainedRows);
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_records').first()).n,0);
 }
 
 async function runJava({lose,expectedUpload}={}) {
@@ -86,18 +141,7 @@ const sourceSha=digest('synthetic verified backup');
 try {
   await build({entryPoints:['cloudflare-worker/hybrid-fleet/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
   await start(false);
-  for (const file of fs.readdirSync('cloudflare-worker/hybrid-fleet/migrations').sort()) {
-    const sql=fs.readFileSync('cloudflare-worker/hybrid-fleet/migrations/'+file,'utf8').replace(/^--.*$/gm,'');
-    const trigger=sql.indexOf('CREATE TRIGGER'),list=(trigger===-1?sql:sql.slice(0,trigger)).split(';').filter(s=>s.trim());
-    if (trigger!==-1) list.push(sql.slice(trigger));
-    await db.batch(list.map(s=>db.prepare(s)));
-  }
-  for(const [credential,scope] of [[rw,'sync-read-write'],[ro,'sync-read']]) {
-    const [id,secret]=credential.split('.');
-    await db.prepare('INSERT INTO fleet_sync_credentials(id,secret_sha256,scope,expires_at) VALUES(?,?,?,?)')
-      .bind(id,await sha256(secret),scope,Date.now()+600000).run();
-  }
-  epoch=expect(await request(api+'/state'),200).epoch;
+  await install();
   expect(await request(api+'/baseline'),404);
   await runtime.dispose();
   await start(true);
@@ -162,6 +206,8 @@ try {
   assert.equal(interrupted.phase,'copying');
   assert.equal(interrupted.records.next,1);
   assert.equal(interrupted.files.next,1);
+  await tick();
+  assert.equal((await projection()).state,'waiting','unsealed bytes cannot be indexed');
   expect(await post('/baseline/seal',{}),409);
   expect(await request(api+'/baseline/page?ordinal=0'),404);
   expect(await post('/baseline/begin',{...interrupted.manifest,sourceSha256:'f'.repeat(64)}),409);
@@ -192,8 +238,51 @@ try {
   assert.equal(state.manifest.fileChain,hashChain([digest(fileSha+':'+fileBytes.length)]));
   const file=await (await runtime.getR2Bucket('FLEET_DOCUMENTS')).get('sha256/'+fileSha);
   assert.deepEqual(Buffer.from(await file.arrayBuffer()),fileBytes);
+  const target=servicePath(machineId,serviceId);
+  const job={operationId:'fixture-legacy-invoice',machineId,serviceId,qrValue:'https://invoice.fixture.invalid/123',
+    sourceKey:fileKey,sourceSha256:fileSha,source:'legacy-operation',sourceId:'legacy-job',explicitId:''};
+  expect(await request(target,{token:''}),401);
+  expect(await request(target,{sendEpoch:'superseded',token:ro}),409);
+  assert.equal(expect(await request(target,{token:ro}),409).error,'baseline_projection_unverified');
+  assert.equal(expect(await post('/invoice-jobs',{jobs:[job]}),409).error,'baseline_projection_unverified');
+  await tick();
+  const partial=await projection();
+  assert.equal(partial.state,'indexing');
+  assert(partial.indexedRows>0&&partial.indexedRows<records.length);
+  await runtime.dispose();
+  await start(true);
+  assert.deepEqual(await projection(),partial,'projection checkpoint survives restart');
+  for(let page=0;page<6&&(await projection()).state==='indexing';page++) await Promise.all([tick(),tick()]);
+  assert.deepEqual(await projection(),{state:'verified',reason:'',indexedRows:records.length});
+  const exact=expect(await request(target,{token:ro}),200);
+  assert.equal(exact.recordSha256,digest(JSON.stringify(service)));
+  assert.deepEqual(exact.service,service.data);
+  expect(await request(servicePath(otherId,serviceId),{token:ro}),404);
+  expect(await request(servicePath(machineId,deletedId),{token:ro}),404);
+  expect(await request(servicePath(machineId+' ',serviceId),{token:ro}),400);
+  const rows=await db.prepare('SELECT ordinal,digest FROM fleet_baseline_rows ORDER BY ordinal').all();
+  assert.deepEqual(rows.results.map(row=>row.digest),records.map(row=>digest(JSON.stringify(row))));
+  await tick();
+  assert.deepEqual(await projection(),{state:'verified',reason:'',indexedRows:records.length});
   assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_records').first()).n,0,'staging cannot change the current writer');
-  console.log('PASS actual Android transfer class with Workerd/D1/R2: guarded scope, lost ACK, JVM and Worker restart, prefix proof, full multibyte read-back and preserved bytes.');
+  const workingRows=[{kind:'machine',machineId,recordId:machineId,data:{name:'Fixture first'}},
+    {kind:'machine',machineId:otherId,recordId:otherId,data:{name:'Fixture other'}},
+    {kind:'service',machineId,recordId:serviceId,data:{date:'2026-11-24',km:16550}},
+    {kind:'service',machineId:otherId,recordId:serviceId,data:{date:'2026-11-24',km:16550}}];
+  const operations=workingRows.map((record,index)=>({...record,operationId:'fixture-ledger-seed-'+index,expectedRevision:0,deleted:false}));
+  assert(expect(await post('/mutations',{operations}),200).operations.every(op=>op.status==='committed'));
+  const queued=expect(await post('/invoice-jobs',{jobs:[job,
+    {...job,operationId:'fixture-archived-invoice',machineId:otherId},
+    {...job,operationId:'fixture-unverified-file',sourceKey:'service-documents/unverified.jpg'}]}),200).jobs;
+  assert.deepEqual(queued.map(job=>[job.status,job.reason]),
+    [['queued',''],['review','original_service_not_verified'],['review','original_attachment_unverified']]);
+  const compactMachine={...machine,data:{id:machineId,name:'Μηχανή Α'}};
+  await testBlocked('missing-document',[snapshot,compactMachine,service],'baseline_document_missing',3);
+  await testBlocked('duplicate-record',[snapshot,compactMachine,compactMachine],'baseline_duplicate_record',0);
+  await testBlocked('duplicate-after-progress',[snapshot,machine,compactMachine],'baseline_duplicate_record',2);
+  await testBlocked('missing-parent',[snapshot,{...service,data:{...service.data,attachments:[]}}],'baseline_parent_missing',2);
+  await testBlocked('missing-file-proof',[snapshot,records.at(-1)],'baseline_document_proof_mismatch',0);
+  console.log('PASS actual Android transfer with Workerd/D1/R2: lost ACK, restart, verified bytes and files, resumable typed index, exact service scope and rejected missing or duplicate records.');
 } finally {
   if(runtime) await runtime.dispose();
   fs.rmSync(dir,{recursive:true,force:true});

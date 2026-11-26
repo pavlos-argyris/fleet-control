@@ -1,10 +1,13 @@
 import { stableReviewJson } from '../src/invoice-review-store.js';
 import { evaluateInvoiceConfirmation, invoiceCents, invoicePlate, MAX_INVOICE_TEXT, parseInvoiceText } from '../src/invoice-extraction.js';
 import { checkTargetedInvoiceRead, validTargetedOperationId } from '../src/targeted-service-qr.js';
-import { fleetError, sha256, validFleetRecordId, validOperationId } from './ledger.js';
+import { currentEpoch, fleetError, sha256, validFleetRecordId, validOperationId } from './ledger.js';
+import { baselineReadyForQueue } from './baseline.js';
+import { findVerifiedBaselineService, verifiedBaselineDocument } from './baseline-projection.js';
 
 const proofId = /^[a-f0-9]{64}$/;
 const sourceKinds = ['legacy-operation','legacy-draft','service-history','client-outbox','targeted-scan'];
+const backupSources = new Set(['legacy-operation','legacy-draft','service-history']);
 const fields = ['operationId','machineId','serviceId','qrValue','sourceKey','sourceSha256','explicitId','source','sourceId'];
 const importedReasons = ['invoice_attached_elsewhere','original_service_not_verified','original_target_conflict'];
 const PDF_CAP = 8 * 1024 * 1024;
@@ -52,10 +55,19 @@ const ACTIVE_TARGET = `EXISTS (SELECT 1 FROM fleet_records s JOIN fleet_records 
   AND b.machine_id=s.machine_id AND b.record_id=s.machine_id AND b.deleted=0
   WHERE s.kind='service' AND s.machine_id=? AND s.record_id=? AND s.deleted=0)`;
 
+async function baselineJobProblem(env,epoch,job) {
+  if (env.FLEET_BASELINE_TRANSFER!=='1'||!backupSources.has(job.source)) return '';
+  const db=env.FLEET_DB;
+  if (!await findVerifiedBaselineService(db,epoch,job.machineId,job.serviceId)) return 'original_service_not_verified';
+  if (job.sourceKey&&!await verifiedBaselineDocument(db,epoch,job.sourceKey,job.sourceSha256)) return 'original_attachment_unverified';
+  return '';
+}
+
 export async function stageInvoiceJobs(env,credential,epoch,input) {
   if (credential.scope !== 'sync-read-write') throw fleetError(403,'sync_write_scope_required');
   if (!Array.isArray(input?.jobs) || !input.jobs.length || input.jobs.length>12) throw fleetError(400,'invalid_job_batch');
   const jobs=await Promise.all(input.jobs.map(normalizeJob));
+  if (!await baselineReadyForQueue(env)) throw fleetError(409,'baseline_projection_unverified');
   const hostnames=(env.FLEET_INVOICE_HOSTS||'').split(',').map(host=>host.trim().toLowerCase()).filter(Boolean);
   const db=env.FLEET_DB;
   const receipts=[];
@@ -66,12 +78,15 @@ export async function stageInvoiceJobs(env,credential,epoch,input) {
     const source=job.sourceSha256 ? await env.FLEET_DOCUMENTS?.head('sha256/'+job.sourceSha256) : null;
     const confirmed=qr && await db.prepare(`SELECT machine_id,service_id FROM fleet_records WHERE kind='invoice' AND deleted=0
       AND json_extract(data,'$.qrUrl')=? AND COALESCE(json_extract(data,'$.reviewedAt'),'')<>'' LIMIT 1`).bind(qr).first();
+    const baselineProblem=job.reviewReason||confirmed?'':await baselineJobProblem(env,epoch,job);
     let status='queued',reason='';
     if (job.reviewReason) {
       status='review'; reason=job.reviewReason;
     } else if (confirmed) {
       status=confirmed.machine_id===job.machineId && confirmed.service_id===job.serviceId?'already_confirmed':'review';
       reason=status==='review'?'invoice_attached_elsewhere':'';
+    } else if (baselineProblem) {
+      status='review'; reason=baselineProblem;
     } else if (!await db.prepare('SELECT '+ACTIVE_TARGET+' AS found').bind(job.machineId,job.serviceId).first('found')) {
       if (manual) throw fleetError(404,'invoice_target_missing');
       status='review'; reason='original_service_not_verified';
@@ -104,6 +119,7 @@ export async function sealInvoiceStage(env,credential,epoch,input) {
   if (!Number.isSafeInteger(count) || count<0 || count>5000 || typeof manifestHash!=='string'||!proofId.test(manifestHash)) {
     throw fleetError(400,'invalid_invoice_manifest');
   }
+  if (!await baselineReadyForQueue(env)) throw fleetError(409,'baseline_projection_unverified');
   const db=env.FLEET_DB;
   const rows=await db.prepare('SELECT operation_id,fingerprint FROM fleet_invoice_jobs WHERE initial_import=1 LIMIT 5001').all();
   if (rows.results.length!==count || await invoiceStageDigest(rows.results)!==manifestHash) throw fleetError(409,'invoice_manifest_mismatch');
@@ -254,6 +270,10 @@ export async function runInvoiceQueue(env) {
   try {
     const job=JSON.parse(row.input);
     if (row.attempts>MAX_ATTEMPTS) throw fleetError(422,'invoice_attempts_exhausted');
+    if (env.FLEET_BASELINE_TRANSFER==='1'&&backupSources.has(job.source)) {
+      const problem=await baselineJobProblem(env,await currentEpoch(db),job);
+      if (problem) throw fleetError(422,problem);
+    }
     const target=await db.prepare(`SELECT s.data AS service,s.revision,b.data AS machine FROM fleet_records s JOIN fleet_records b ON b.kind='machine'
       AND b.machine_id=s.machine_id AND b.record_id=s.machine_id AND b.deleted=0
       WHERE s.kind='service' AND s.machine_id=? AND s.record_id=? AND s.deleted=0`).bind(job.machineId,job.serviceId).first();

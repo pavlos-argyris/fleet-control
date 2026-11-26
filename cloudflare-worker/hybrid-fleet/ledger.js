@@ -34,7 +34,7 @@ export function fleetError(status, code) {
 }
 
 export async function sha256(value) {
-  const bytes = await crypto.subtle.digest('SHA-256', encoder.encode(value));
+  const bytes = await crypto.subtle.digest('SHA-256', typeof value==='string'?encoder.encode(value):value);
   return Array.from(new Uint8Array(bytes), number => number.toString(16).padStart(2, '0')).join('');
 }
 

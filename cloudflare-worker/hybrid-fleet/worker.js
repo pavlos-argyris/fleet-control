@@ -4,6 +4,7 @@ import { invoiceQueueStatus, runInvoiceQueue, sealInvoiceStage, stageInvoiceJobs
 import { storeInvoiceFile } from './invoice-files.js';
 import { routeFleetSetup } from './setup.js';
 import { baselineEnabled, baselineReadyForQueue, routeBaseline } from './baseline.js';
+import { advanceBaselineProjection } from './baseline-projection.js';
 
 const routes = new Map([
   ['/api/fleet-sync/v1/state','GET'],
@@ -22,7 +23,9 @@ const response = (value, status=200) => Response.json(value,{
 // Staging API only. The production redirect never imports this entry point.
 export default {
   async scheduled(controller,env) {
-    if (env.FLEET_REHEARSAL_ENABLED==='1'&&env.FLEET_INVOICE_PROCESSING==='1'&&await baselineReadyForQueue(env)) {
+    if (env.FLEET_REHEARSAL_ENABLED!=='1') return;
+    if (baselineEnabled(env)) await advanceBaselineProjection(env.FLEET_DB);
+    if (env.FLEET_INVOICE_PROCESSING==='1'&&await baselineReadyForQueue(env)) {
       await runInvoiceQueue(env);
     }
   },
