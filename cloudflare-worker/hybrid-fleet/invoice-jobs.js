@@ -4,6 +4,7 @@ import { checkTargetedInvoiceRead, validTargetedOperationId } from '../src/targe
 import { currentEpoch, fleetError, sha256, validFleetRecordId, validOperationId } from './ledger.js';
 import { baselineReadyForQueue } from './baseline.js';
 import { findVerifiedBaselineService, verifiedBaselineDocument } from './baseline-projection.js';
+import { baselineInvoiceLinks, fiscalIdentities, invoiceNumberParts } from './invoice-identity.js';
 
 const proofId = /^[a-f0-9]{64}$/;
 const sourceKinds = ['legacy-operation','legacy-draft','service-history','client-outbox','targeted-scan'];
@@ -65,7 +66,10 @@ async function baselineJobProblem(env,epoch,job) {
 
 export async function stageInvoiceJobs(env,credential,epoch,input) {
   if (credential.scope !== 'sync-read-write') throw fleetError(403,'sync_write_scope_required');
-  if (!Array.isArray(input?.jobs) || !input.jobs.length || input.jobs.length>12) throw fleetError(400,'invalid_job_batch');
+  const verifyingBaseline=env.FLEET_BASELINE_TRANSFER==='1';
+  if (!Array.isArray(input?.jobs) || !input.jobs.length || input.jobs.length>(verifyingBaseline?6:12)) {
+    throw fleetError(400,'invalid_job_batch');
+  }
   const jobs=await Promise.all(input.jobs.map(normalizeJob));
   if (!await baselineReadyForQueue(env)) throw fleetError(409,'baseline_projection_unverified');
   const hostnames=(env.FLEET_INVOICE_HOSTS||'').split(',').map(host=>host.trim().toLowerCase()).filter(Boolean);
@@ -76,14 +80,17 @@ export async function stageInvoiceJobs(env,credential,epoch,input) {
     const manual=job.source==='targeted-scan';
     if (manual && (!qr || !validFleetRecordId(job.machineId) || !validFleetRecordId(job.serviceId))) throw fleetError(422,'invalid_targeted_scan');
     const source=job.sourceSha256 ? await env.FLEET_DOCUMENTS?.head('sha256/'+job.sourceSha256) : null;
-    const confirmed=qr && await db.prepare(`SELECT machine_id,service_id FROM fleet_records WHERE kind='invoice' AND deleted=0
+    const previous=verifyingBaseline?await baselineInvoiceLinks(db,[...(qrHash?['qr:'+qrHash]:[]),
+      ...(job.sourceSha256?['pdf:'+job.sourceSha256]:[]),...(job.sourceKey?['file:'+await sha256(job.sourceKey)]:[])]):[];
+    const confirmed=qr&&await db.prepare(`SELECT machine_id,service_id FROM fleet_records WHERE kind='invoice' AND deleted=0
       AND json_extract(data,'$.qrUrl')=? AND COALESCE(json_extract(data,'$.reviewedAt'),'')<>'' LIMIT 1`).bind(qr).first();
-    const baselineProblem=job.reviewReason||confirmed?'':await baselineJobProblem(env,epoch,job);
+    if (confirmed) previous.push(confirmed);
+    const baselineProblem=job.reviewReason||previous.length?'':await baselineJobProblem(env,epoch,job);
     let status='queued',reason='';
     if (job.reviewReason) {
       status='review'; reason=job.reviewReason;
-    } else if (confirmed) {
-      status=confirmed.machine_id===job.machineId && confirmed.service_id===job.serviceId?'already_confirmed':'review';
+    } else if (previous.length) {
+      status=previous.every(item=>item.machine_id===job.machineId&&item.service_id===job.serviceId)?'already_confirmed':'review';
       reason=status==='review'?'invoice_attached_elsewhere':'';
     } else if (baselineProblem) {
       status='review'; reason=baselineProblem;
@@ -206,18 +213,12 @@ async function applyInvoice(env,row,job,target,read) {
     if (!decision.eligible) throw fleetError(422,'original_match_needs_review');
   }
   const binaryHash=crypto.subtle.digest('SHA-256',pdf);
-  const issuer=String(invoice.supplier||'').normalize('NFKC').trim().toLowerCase().replace(/\s+/g,' ');
-  const number=String(invoice.invoiceNumber||'').normalize('NFKC').trim().toUpperCase();
-  const mark=String(invoice.mark||'');
+  const {issuer,number,mark}=invoiceNumberParts(invoice);
   if (!number || (!issuer && !mark) || invoiceCents(invoice.totalAmount)===null) throw fleetError(422,'invoice_identity_unverified');
   const sha=Array.from(new Uint8Array(await binaryHash),byte=>byte.toString(16).padStart(2,'0')).join('');
-  const identity=[
-    'pdf:'+sha,
-    ...(row.qr_hash?['qr:'+row.qr_hash]:[]),
-    ...(/^\d{6,24}$/.test(mark)?['mark:'+mark]:[]),
-    ...(issuer?['issuer:'+await sha256(issuer+'\0'+number)]:[])
-  ];
+  const identity=await fiscalIdentities({issuer,number,mark},sha,row.qr_hash);
   const db=env.FLEET_DB,invoiceId='pdf:'+sha,opId='invoice:'+await sha256(row.operation_id);
+  if (env.FLEET_BASELINE_TRANSFER==='1'&&(await baselineInvoiceLinks(db,identity)).length) throw fleetError(409,'possible_duplicate_invoice');
   const exists=await db.prepare(`SELECT 1 AS found FROM fleet_records WHERE kind='invoice' AND deleted=0 AND (
     json_extract(data,'$.sha256')=? OR (?<>'' AND json_extract(data,'$.qrUrl')=?) OR
     (?<>'' AND json_extract(data,'$.mark')=?) OR (?<>'' AND lower(trim(json_extract(data,'$.supplier')))=? AND upper(trim(json_extract(data,'$.invoiceNumber')))=?)) LIMIT 1`)

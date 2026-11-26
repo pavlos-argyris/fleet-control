@@ -5,6 +5,7 @@ import { storeInvoiceFile } from './invoice-files.js';
 import { routeFleetSetup } from './setup.js';
 import { baselineEnabled, baselineReadyForQueue, routeBaseline } from './baseline.js';
 import { advanceBaselineProjection } from './baseline-projection.js';
+import { advanceBaselineLedger } from './baseline-ledger.js';
 
 const routes = new Map([
   ['/api/fleet-sync/v1/state','GET'],
@@ -24,7 +25,7 @@ const response = (value, status=200) => Response.json(value,{
 export default {
   async scheduled(controller,env) {
     if (env.FLEET_REHEARSAL_ENABLED!=='1') return;
-    if (baselineEnabled(env)) await advanceBaselineProjection(env.FLEET_DB);
+    if (baselineEnabled(env) && (await advanceBaselineProjection(env.FLEET_DB)||await advanceBaselineLedger(env.FLEET_DB))) return;
     if (env.FLEET_INVOICE_PROCESSING==='1'&&await baselineReadyForQueue(env)) {
       await runInvoiceQueue(env);
     }
@@ -48,6 +49,9 @@ export default {
         ...(baselineEnabled(env)?{baselineVersion:1}:{})});
       if (request.headers.get('X-Fleet-Epoch')!==epoch) throw fleetError(409,'epoch_changed');
       if (baseline) return await routeBaseline(request,env,credential,epoch,response)||response({error:'unavailable'},404);
+      if (['/api/fleet-sync/v1/mutations','/api/fleet-sync/v1/delta'].includes(url.pathname)&&!await baselineReadyForQueue(env)) {
+        throw fleetError(409,'baseline_working_ledger_unready');
+      }
       if (url.pathname.endsWith('/mutations')) {
         const operations=await pushMutations(db,credential,epoch,await readBody(request));
         return response({epoch,operations});

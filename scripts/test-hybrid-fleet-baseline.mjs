@@ -8,7 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { BASELINE_CHUNK_BYTES } from '../cloudflare-worker/hybrid-fleet/baseline.js';
+import { invoiceStageProof } from '../cloudflare-worker/hybrid-fleet/invoice-jobs.js';
 import { sha256 } from '../cloudflare-worker/hybrid-fleet/ledger.js';
+import { invoiceText } from './fixtures/invoice-layout.mjs';
 
 const require=createRequire(new URL('../cloudflare-worker/package.json',import.meta.url));
 const {Miniflare,convertV4MiniflareOptions}=require('miniflare');
@@ -21,28 +23,48 @@ const hashChain=items=>items.reduce((chain,hash)=>digest(chain+':'+hash),'0'.rep
 const fileBytes=Buffer.from('Synthetic private photo bytes', 'utf8'), fileSha=digest(fileBytes);
 const machineId='Μηχανή / 21',otherId='42',serviceId='712389',deletedId='old-service';
 const fileKey='service-documents/fixture/original.jpg';
+const confirmedKey='service-documents/fixture/confirmed.pdf';
+const confirmedBytes=Buffer.from('%PDF-1.4\nSynthetic historically confirmed invoice\n%%EOF');
+const archivedKey='service-documents/fixture/archived.pdf';
+const archivedBytes=Buffer.from('%PDF-1.4\nSynthetic confirmed invoice from archived vehicle\n%%EOF');
+const packages=[[fileKey,fileBytes,'image/jpeg'],[confirmedKey,confirmedBytes,'application/pdf'],[archivedKey,archivedBytes,'application/pdf']];
+const confirmed=key=>({id:key===confirmedKey?'confirmed-original-id':'archived-original-id',key,name:key.split('/').at(-1),
+  contentType:'application/pdf',qrUrl:'https://invoice.fixture.invalid/'+(key===confirmedKey?'paid':'archive-paid'),
+  ocr:{confirmedAt:'2026-11-25T08:00:00Z',supplier:'Ελεγμένος προμηθευτής',invoiceNumber:'INV-OLD',
+    invoiceDate:'2026-11-25',totalAmount:'67,94',netAmount:'54,79',vatAmount:'13,15',plate:'ΑΒΤ 001'}});
 const snapshot={kind:'snapshot',version:19,updatedAt:'2026-11-24T10:00:00Z'};
-const machine={kind:'machine',machineId,data:{id:machineId,name:'Μηχανή Α',historyDeletedIds:[deletedId],notes:'δοκιμή '.repeat(20000)}};
+const machine={kind:'machine',machineId,data:{id:machineId,name:'ΑΒΤ 001',historyDeletedIds:[deletedId],notes:'δοκιμή '.repeat(8200)}};
 const service={kind:'history',machineId,recordId:serviceId,data:{id:serviceId,type:'service',km:16550,date:'2026-11-24',
-  notes:'Αλλαγή λαδιών',tasks:['Λάδια','Έλεγχος φρένων'],cost:'52,20',attachments:[{key:fileKey,renderJobId:'legacy-job'}]}};
+  notes:'Αλλαγή λαδιών',tasks:['Λάδια','Έλεγχος φρένων'],cost:'52,20',attachments:[{key:fileKey,renderJobId:'legacy-job'},
+    confirmed(confirmedKey)]}};
 const records=[snapshot,machine,{kind:'machine',machineId:otherId,data:{id:42,name:'Μηχανή Β'}},
   {kind:'machine-registry',machineId,data:{name:'Μηχανή Α',odometer:16550,status:'available'}},
   service,{...service,machineId:otherId,data:{...service.data,notes:'Άλλο σέρβις',attachments:[]}},
   {...service,recordId:deletedId,data:{...service.data,id:deletedId,attachments:[]}},
   {kind:'machine-archive',machineId:otherId,data:{machine:{id:42,name:'Μηχανή Β'},active:true}},
-  {kind:'archived-history',machineId:otherId,recordId:serviceId,data:{...service.data,attachments:[]}},
+  {kind:'archived-history',machineId:otherId,recordId:serviceId,data:{...service.data,attachments:[confirmed(archivedKey)]}},
   {kind:'invoice-job',recordId:'legacy-job',data:{type:'service_document_render',status:'error',input:{bikeId:machineId,entryId:serviceId,documentKey:fileKey}}},
-  {kind:'document',recordId:fileKey,data:{name:'original.jpg',contentType:'image/jpeg',size:fileBytes.length,sha256:fileSha}}];
+  ...packages.map(([key,bytes,type])=>({kind:'document',recordId:key,data:{name:key.split('/').at(-1),
+    contentType:type,size:bytes.length,sha256:digest(bytes)}}))];
 const encodeRows=rows=>Buffer.from(rows.map(row=>JSON.stringify(row)).join('\n')+'\n','utf8');
 const scoped=encodeRows(records);
-let runtime,db,epoch;
+let runtime,db,epoch;const readJobs=[];
 
 async function start(enabled,workspace='state') {
   runtime=new Miniflare(convertV4MiniflareOptions({
     modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-09-05',
     d1Databases:{FLEET_DB:'fleet-baseline-fixture'},r2Buckets:['FLEET_DOCUMENTS'],
     resourcePersistencePath:path.join(dir,workspace),
-    bindings:{FLEET_REHEARSAL_ENABLED:'1',FLEET_BASELINE_TRANSFER:enabled?'1':'0',FLEET_INVOICE_HOSTS:'invoice.fixture.invalid'}
+    bindings:{FLEET_REHEARSAL_ENABLED:'1',FLEET_BASELINE_TRANSFER:enabled?'1':'0',FLEET_INVOICE_PROCESSING:'1',
+      FLEET_INVOICE_HOSTS:'invoice.fixture.invalid'},
+    serviceBindings:{FLEET_INVOICE_READER:async request=>{
+      const {qrUrl}=await request.json();
+      readJobs.push(qrUrl);
+      assert.equal(qrUrl,'https://invoice.fixture.invalid/123','only recoverable unconfirmed invoices may reach the reader');
+      const rawText=invoiceText({number:'ΤΔΑ0000341',plate:'ΗΤΡ 527',km:'12456',date:'25/11/2026'});
+      const pdfBase64=Buffer.from('%PDF-1.4\nSynthetic converted QR invoice\n%%EOF').toString('base64');
+      return Response.json({rawText,pdfBase64});
+    }}
   }));
   db=await runtime.getD1Database('FLEET_DB');
 }
@@ -78,6 +100,7 @@ async function tick() {
 }
 const servicePath=(machine,service)=>api+'/baseline/service?'+new URLSearchParams({machineId:machine,serviceId:service});
 const projection=async()=>expect(await request(api+'/baseline',{token:ro}),200).projection;
+const working=async()=>expect(await request(api+'/baseline',{token:ro}),200).ledger;
 
 async function testBlocked(workspace,fixture,reason,retainedRows) {
   await runtime.dispose();
@@ -102,7 +125,8 @@ async function testBlocked(workspace,fixture,reason,retainedRows) {
 async function runJava({lose,expectedUpload}={}) {
   const jar=path.resolve('vendor/json-java/json-20240303.jar');
   const child=spawn('java',['-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetdirect.Fixture',
-    path.join(dir,'records.ndjson'),epoch,sourceSha],{stdio:['pipe','pipe','inherit']});
+    path.join(dir,'records.ndjson'),epoch,sourceSha,...packages.flatMap(([,bytes,type])=>[bytes.toString('base64'),type])],
+  {stdio:['pipe','pipe','inherit']});
   const completion=once(child,'exit');
   let uploads=0,pages=0,files=0,injected=false,marker='';
   try {
@@ -165,7 +189,6 @@ try {
     'public class Fixture {',
     '  public static void main(String[] args) throws Exception {',
     '    BufferedReader replies=new BufferedReader(new InputStreamReader(System.in,StandardCharsets.UTF_8));',
-    '    byte[] file="Synthetic private photo bytes".getBytes(StandardCharsets.UTF_8);',
     '    FleetCloudBaseline.Transport fixture=new FleetCloudBaseline.Transport(){',
     '      private JSONObject relay(JSONObject request)throws Exception{',
     '        System.out.println(request); System.out.flush();',
@@ -181,9 +204,12 @@ try {
     '          .put("upload",java.util.Base64.getEncoder().encodeToString(input.readAllBytes())));',
     '      }',
     '    };',
-    '    FleetCloudBaseline.Document doc=new FleetCloudBaseline.Document(',
-    '      FleetCloudBaseline.digest(file),"image/jpeg",file.length,()->new ByteArrayInputStream(file));',
-    '    try { FleetCloudBaseline.stage(args[1],args[2],new File(args[0]),java.util.Collections.singletonList(doc),fixture);',
+    '    java.util.List<FleetCloudBaseline.Document> docs=new java.util.ArrayList<>();',
+    '    for(int n=3;n<args.length;n+=2) {',
+    '      byte[] bytes=java.util.Base64.getDecoder().decode(args[n]);',
+    '      docs.add(new FleetCloudBaseline.Document(FleetCloudBaseline.digest(bytes),args[n+1],bytes.length,()->new ByteArrayInputStream(bytes)));',
+    '    }',
+    '    try { FleetCloudBaseline.stage(args[1],args[2],new File(args[0]),docs,fixture);',
     '      System.out.println("RESULT staged");',
     '    } catch(IOException error){System.out.println("RESULT interrupted");System.exit(2);}',
     '  }',
@@ -198,14 +224,15 @@ try {
 
   const expectedHashes=[];
   for (let i=0;i<scoped.length;i+=BASELINE_CHUNK_BYTES) expectedHashes.push(digest(scoped.subarray(i,i+BASELINE_CHUNK_BYTES)));
+  const fileChain=hashChain(packages.map(([,bytes])=>digest(digest(bytes)+':'+bytes.length)));
   expect(await post('/baseline/begin',{format:'fleet-baseline-v1',sourceSha256:sourceSha,dataBytes:scoped.length,
-    dataChain:hashChain(expectedHashes),files:1,fileBytes:fileBytes.length,fileChain:hashChain([digest(fileSha+':'+fileBytes.length)])}),200);
+    dataChain:hashChain(expectedHashes),files:packages.length,fileBytes:packages.reduce((size,[,bytes])=>size+bytes.length,0),fileChain}),200);
   expect(await post('/baseline/files',{ordinal:0,size:fileBytes.length,sha256:fileSha}),409,'file must already exist');
-  assert.deepEqual(await runJava({lose:'/records',expectedUpload:1}),{pages:1,files:1});
+  assert.deepEqual(await runJava({lose:'/records',expectedUpload:packages.length}),{pages:1,files:packages.length});
   const interrupted=expect(await request(api+'/baseline'),200);
   assert.equal(interrupted.phase,'copying');
   assert.equal(interrupted.records.next,1);
-  assert.equal(interrupted.files.next,1);
+  assert.equal(interrupted.files.next,packages.length);
   await tick();
   assert.equal((await projection()).state,'waiting','unsealed bytes cannot be indexed');
   expect(await post('/baseline/seal',{}),409);
@@ -235,12 +262,12 @@ try {
   }
   assert.deepEqual(Buffer.concat(restored),scoped);
   assert.equal(state.manifest.dataChain,hashChain(restored.map(digest)));
-  assert.equal(state.manifest.fileChain,hashChain([digest(fileSha+':'+fileBytes.length)]));
+  assert.equal(state.manifest.fileChain,fileChain);
   const file=await (await runtime.getR2Bucket('FLEET_DOCUMENTS')).get('sha256/'+fileSha);
   assert.deepEqual(Buffer.from(await file.arrayBuffer()),fileBytes);
   const target=servicePath(machineId,serviceId);
   const job={operationId:'fixture-legacy-invoice',machineId,serviceId,qrValue:'https://invoice.fixture.invalid/123',
-    sourceKey:fileKey,sourceSha256:fileSha,source:'legacy-operation',sourceId:'legacy-job',explicitId:''};
+    sourceKey:fileKey,sourceSha256:fileSha,source:'legacy-operation',sourceId:'legacy-job',explicitId:'manual-legacy-operation-stored'};
   expect(await request(target,{token:''}),401);
   expect(await request(target,{sendEpoch:'superseded',token:ro}),409);
   assert.equal(expect(await request(target,{token:ro}),409).error,'baseline_projection_unverified');
@@ -262,27 +289,63 @@ try {
   expect(await request(servicePath(machineId+' ',serviceId),{token:ro}),400);
   const rows=await db.prepare('SELECT ordinal,digest FROM fleet_baseline_rows ORDER BY ordinal').all();
   assert.deepEqual(rows.results.map(row=>row.digest),records.map(row=>digest(JSON.stringify(row))));
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_records').first()).n,0,'indexing does not change the trial ledger');
+  assert.equal(expect(await request(api+'/delta',{token:ro}),409).error,'baseline_working_ledger_unready');
+  expect(await post('/mutations',{operations:[]}),409);
   await tick();
-  assert.deepEqual(await projection(),{state:'verified',reason:'',indexedRows:records.length});
-  assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_records').first()).n,0,'staging cannot change the current writer');
-  const workingRows=[{kind:'machine',machineId,recordId:machineId,data:{name:'Fixture first'}},
-    {kind:'machine',machineId:otherId,recordId:otherId,data:{name:'Fixture other'}},
-    {kind:'service',machineId,recordId:serviceId,data:{date:'2026-11-24',km:16550}},
-    {kind:'service',machineId:otherId,recordId:serviceId,data:{date:'2026-11-24',km:16550}}];
-  const operations=workingRows.map((record,index)=>({...record,operationId:'fixture-ledger-seed-'+index,expectedRevision:0,deleted:false}));
-  assert(expect(await post('/mutations',{operations}),200).operations.every(op=>op.status==='committed'));
-  const queued=expect(await post('/invoice-jobs',{jobs:[job,
-    {...job,operationId:'fixture-archived-invoice',machineId:otherId},
-    {...job,operationId:'fixture-unverified-file',sourceKey:'service-documents/unverified.jpg'}]}),200).jobs;
+  const partialLedger=await working();
+  assert.equal(partialLedger.state,'loading');
+  assert.equal(partialLedger.seededRows,3);
+  expect(await request(api+'/delta',{token:ro}),409);
+  expect(await post('/invoice-jobs',{jobs:[job]}),409);
+  await runtime.dispose();
+  await start(true);
+  assert.deepEqual(await working(),partialLedger);
+  for(let page=0;page<5&&(await working()).state==='loading';page++) await Promise.all([tick(),tick()]);
+  assert.deepEqual(await working(),{state:'ready',reason:'',seededRows:3});
+  const initial=expect(await request(api+'/delta',{token:ro}),200);
+  assert.deepEqual(initial.changes.map(change=>[change.kind,change.machineId,change.recordId]),
+    [['machine',machineId,machineId],['service',machineId,serviceId],['invoice',machineId,'confirmed-original-id']]);
+  const stagedService=initial.changes[1].data;
+  assert.equal(stagedService.notes,service.data.notes);
+  assert.deepEqual(stagedService.tasks,service.data.tasks);
+  assert.equal(stagedService.date,service.data.date);
+  assert.equal(stagedService.km,service.data.km);
+  assert.equal(initial.changes[2].data.totalAmount,'67,94');
+  assert.equal(initial.changes[2].data.sha256,digest(confirmedBytes));
+  const jobs=[job,{...job,operationId:'fixture-archived-invoice',machineId:otherId},
+    {...job,operationId:'fixture-unverified-file',sourceKey:'service-documents/unverified.jpg'},
+    {...job,operationId:'fixture-previously-confirmed',qrValue:'https://invoice.fixture.invalid/paid',sourceKey:'',sourceSha256:''},
+    {...job,operationId:'fixture-archived-confirmed',qrValue:'https://invoice.fixture.invalid/archive-paid',sourceKey:'',sourceSha256:''}];
+  const queued=expect(await post('/invoice-jobs',{jobs}),200).jobs;
   assert.deepEqual(queued.map(job=>[job.status,job.reason]),
-    [['queued',''],['review','original_service_not_verified'],['review','original_attachment_unverified']]);
+    [['queued',''],['review','original_service_not_verified'],['review','original_attachment_unverified'],
+      ['already_confirmed',''],['review','invoice_attached_elsewhere']]);
+  await tick();
+  assert.equal(readJobs.length,0,'unsealed jobs remain idle');
+  expect(await post('/invoice-stage',{count:jobs.length,manifestHash:await invoiceStageProof(jobs)}),200);
+  await Promise.all([tick(),tick()]);
+  assert.deepEqual(readJobs,[job.qrValue]);
+  const status=expect(await request(api+'/invoice-status'),200);
+  assert.deepEqual(status.counts,{already_confirmed:1,completed:1,review:3});
+  const updated=expect(await request(api+'/delta?cursor='+initial.nextCursor,{token:ro}),200).changes;
+  assert.equal(updated.length,1);
+  assert.equal(updated[0].kind,'invoice');
+  assert.equal(updated[0].machineId,machineId);
+  assert.equal(updated[0].serviceId,serviceId);
+  assert.equal(updated[0].data.plate,'HTP-527');
+  assert.equal(updated[0].data.invoiceDate,'2026-11-25');
+  assert.equal(updated[0].data.odometerKm,'12456');
+  assert.equal(updated[0].data.totalAmount,'124,00');
+  const updatedFile=await (await runtime.getR2Bucket('FLEET_DOCUMENTS')).get('sha256/'+updated[0].data.sha256);
+  assert.equal(digest(Buffer.from(await updatedFile.arrayBuffer())),updated[0].data.sha256);
   const compactMachine={...machine,data:{id:machineId,name:'Μηχανή Α'}};
   await testBlocked('missing-document',[snapshot,compactMachine,service],'baseline_document_missing',3);
   await testBlocked('duplicate-record',[snapshot,compactMachine,compactMachine],'baseline_duplicate_record',0);
   await testBlocked('duplicate-after-progress',[snapshot,machine,compactMachine],'baseline_duplicate_record',2);
   await testBlocked('missing-parent',[snapshot,{...service,data:{...service.data,attachments:[]}}],'baseline_parent_missing',2);
   await testBlocked('missing-file-proof',[snapshot,records.at(-1)],'baseline_document_proof_mismatch',0);
-  console.log('PASS actual Android transfer with Workerd/D1/R2: lost ACK, restart, verified bytes and files, resumable typed index, exact service scope and rejected missing or duplicate records.');
+  console.log('PASS actual Android transfer with Workerd/D1/R2: lost ACK, restart, verified bytes, exact service scope, resumable trial ledger, preserved original invoice and recovered QR.');
 } finally {
   if(runtime) await runtime.dispose();
   fs.rmSync(dir,{recursive:true,force:true});

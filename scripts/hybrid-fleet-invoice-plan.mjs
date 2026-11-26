@@ -5,16 +5,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { inspectNativeFleetBackup } from './hybrid-fleet-preflight.mjs';
 import { invoiceStageProof } from '../cloudflare-worker/hybrid-fleet/invoice-jobs.js';
+import { confirmedAttachment, documentQr as link } from '../cloudflare-worker/hybrid-fleet/invoice-identity.js';
 import { validTargetedOperationId } from '../cloudflare-worker/src/targeted-service-qr.js';
 
 const stableId=value=>typeof value==='string'||Number.isSafeInteger(value)?String(value):'';
 const identity=(bikeId,entryId)=>JSON.stringify([stableId(bikeId),stableId(entryId)]);
 const hash=value=>createHash('sha256').update(value).digest('hex');
-const link=value=>{
-  try { const url=new URL(value); url.hash=''; return url.href; }
-  catch { return ''; }
-};
-const confirmed=file=>Boolean(file?.ocr?.confirmedAt||file?.invoiceData?.confirmedAt||file?.qrData?.confirmedAt);
 
 // Only jobs and verified file bytes go to the scoped staging API.
 // Original rows stay in the private plan for reconciliation.
@@ -35,7 +31,7 @@ function extractBacklog(db) {
   function indexInvoices(bikeId,entry) {
     const key=identity(bikeId,entry.id);
     for (const file of entry.attachments||[]) {
-      if (!confirmed(file)) continue;
+      if (!confirmedAttachment(file)) continue;
       for (const value of [file.key,file.renderJobId,link(file.qrUrl||file.qrValue||file.ocr?.qrUrl)]) {
         if (!value) continue;
         const targets=invoiceLinks.get(String(value))||new Set();
@@ -121,7 +117,7 @@ function extractBacklog(db) {
     const [bikeId,entryId]=JSON.parse(key),info=entry.invoiceData||{};
     if (seenSources.has(stableId(info.qrJobId))) continue;
     if (!['processing','pending','error'].includes(info.qrProcessingStatus) || !(info.qrUrl||info.qrValue||info.qrJobId)) continue;
-    const file=entry.attachments?.find(file=>!confirmed(file) && info.qrJobId && file.renderJobId===info.qrJobId);
+    const file=entry.attachments?.find(file=>!confirmedAttachment(file) && info.qrJobId && file.renderJobId===info.qrJobId);
     const sourceId='history:'+hash(key);
     add('service-history',sourceId,{bikeId,entryId,qrUrl:info.qrUrl,qrValue:info.qrValue,
       targetedOperationId:info.targetedOperationId,sourcePhotoKey:file?.sourcePhoto?.key,documentKey:file?.key},info);

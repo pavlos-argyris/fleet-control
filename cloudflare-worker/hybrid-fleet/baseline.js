@@ -28,7 +28,8 @@ export async function baselineReadyForQueue(env) {
   if (!baselineEnabled(env)) return false;
   const validated=await env.FLEET_DB.prepare(`SELECT 1 AS ready FROM fleet_baseline b JOIN fleet_rehearsal_state e
     ON e.id=1 AND e.epoch=b.epoch JOIN fleet_baseline_projection p ON p.id=b.id AND p.epoch=b.epoch
-    AND p.state='verified' WHERE b.id=1 AND b.verified_at IS NOT NULL`).first();
+    AND p.state='verified' JOIN fleet_baseline_ledger l ON l.id=b.id AND l.epoch=b.epoch AND l.state='ready'
+    WHERE b.id=1 AND b.verified_at IS NOT NULL`).first();
   return Boolean(validated);
 }
 
@@ -50,15 +51,17 @@ function progress(db,stream) {
 
 async function status(db,epoch) {
   const [header,records,files]=await db.batch([
-    db.prepare(`SELECT b.manifest,b.verified_at,p.state,p.reason,p.next_row FROM fleet_baseline b
-      LEFT JOIN fleet_baseline_projection p ON p.id=b.id AND p.epoch=b.epoch WHERE b.id=1 AND b.epoch=?`).bind(epoch),
+    db.prepare(`SELECT b.manifest,b.verified_at,p.state,p.reason,p.next_row,l.state AS ledger_state,l.reason AS ledger_reason,l.seeded_rows
+      FROM fleet_baseline b LEFT JOIN fleet_baseline_projection p ON p.id=b.id AND p.epoch=b.epoch
+      LEFT JOIN fleet_baseline_ledger l ON l.id=b.id AND l.epoch=b.epoch WHERE b.id=1 AND b.epoch=?`).bind(epoch),
     progress(db,'records'),progress(db,'files')
   ]);
   const headerRow=header.results[0];
   if (!headerRow) return {epoch,phase:'empty',records:emptyProgress(),files:emptyProgress()};
   return {epoch,phase:headerRow.verified_at?'staged':'copying',manifest:JSON.parse(headerRow.manifest),
     records:offset(records),files:offset(files),projection:{state:headerRow.state||'waiting',reason:headerRow.reason||'',
-      indexedRows:headerRow.next_row||0}};
+      indexedRows:headerRow.next_row||0},ledger:{state:headerRow.ledger_state||'waiting',reason:headerRow.ledger_reason||'',
+      seededRows:headerRow.seeded_rows||0}};
 }
 const emptyProgress=()=>({next:0,bytes:0,chain:EMPTY_CHAIN});
 const offset=result=>{

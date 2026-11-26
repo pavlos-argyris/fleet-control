@@ -28,8 +28,8 @@ export async function stageNativeInvoicePlan(plan,objectFolder,stageRequest) {
     });
     if (receipt?.verified!==true||receipt.sha256!==file.sha256||receipt.size!==file.size) throw new Error('Attachment receipt differs');
   }
-  for (let index=0; index<plan.count; index+=12) {
-    const batch=plan.jobs.slice(index,index+12);
+  for (let index=0; index<plan.count; index+=6) {
+    const batch=plan.jobs.slice(index,index+6);
     const reply=await stageRequest('/invoice-jobs',jsonRequest({jobs:batch}));
     if (!Array.isArray(reply?.jobs)||reply.jobs.length!==batch.length||
         reply.jobs.some((item,i)=>item.operationId!==batch[i].operationId)) throw new Error('Invoice batch receipt differs');
