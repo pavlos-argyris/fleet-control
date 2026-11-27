@@ -2,7 +2,7 @@ import { fleetError, readBody, sha256 } from './ledger.js';
 import { stableReviewJson } from '../src/invoice-review-store.js';
 import { BASELINE_CHUNK_BYTES, verifiedBaselineService } from './baseline-projection.js';
 
-const EMPTY_CHAIN='0'.repeat(64);
+export const EMPTY_CHAIN='0'.repeat(64);
 export { BASELINE_CHUNK_BYTES } from './baseline-projection.js';
 const MAX_RECORD_BYTES=512*1024*1024;
 const MAX_FILE_BYTES=15*1024*1024;
@@ -13,9 +13,9 @@ const prefix='/api/fleet-sync/v1/baseline';
 const routes=new Map([[prefix,'GET'],[prefix+'/begin','POST'],[prefix+'/records','POST'],[prefix+'/files','POST'],
   [prefix+'/seal','POST'],[prefix+'/page','GET'],[prefix+'/service','GET']]);
 
-const grant=`EXISTS (SELECT 1 FROM fleet_sync_credentials WHERE id=? AND secret_sha256=? AND scope='sync-read-write'
+export const transferGrant=`EXISTS (SELECT 1 FROM fleet_sync_credentials WHERE id=? AND secret_sha256=? AND scope='sync-read-write'
   AND revoked_at IS NULL AND expires_at>?) AND EXISTS (SELECT 1 FROM fleet_rehearsal_state WHERE id=1 AND epoch=?)`;
-const grantArgs=(credential,epoch)=>[credential.id,credential.hash,Date.now(),epoch];
+export const transferGrantArgs=(credential,epoch)=>[credential.id,credential.hash,Date.now(),epoch];
 const validNumber=(value,max)=>Number.isSafeInteger(value)&&value>=0&&value<=max;
 const validDigest=value=>typeof value==='string'&&HEX.test(value);
 
@@ -33,9 +33,9 @@ export async function baselineReadyForQueue(env) {
   return Boolean(validated);
 }
 
-function readManifest(input) {
-  const keys=['format','sourceSha256','dataBytes','dataChain','files','fileBytes','fileChain'];
-  if (Object.keys(input||{}).length!==keys.length || keys.some(key=>!Object.hasOwn(input,key)) || input.format!==schema ||
+export function readTransferManifest(input,format,extraKeys=[]) {
+  const keys=['format','sourceSha256','dataBytes','dataChain','files','fileBytes','fileChain',...extraKeys];
+  if (Object.keys(input||{}).length!==keys.length || keys.some(key=>!Object.hasOwn(input,key)) || input.format!==format ||
       !validDigest(input.sourceSha256)||!validDigest(input.dataChain)||!validDigest(input.fileChain)||
       !validNumber(input.dataBytes,MAX_RECORD_BYTES)||input.dataBytes===0||
       !validNumber(input.files,MAX_FILES)||!validNumber(input.fileBytes,MAX_FILES*MAX_FILE_BYTES)||
@@ -79,18 +79,20 @@ async function status(db,epoch) {
   const headerRow=header.results[0];
   if (!headerRow) return {epoch,phase:'empty',records:emptyProgress(),files:emptyProgress()};
   return {epoch,phase:headerRow.verified_at?'staged':'copying',manifest:JSON.parse(headerRow.manifest),
-    records:offset(records),files:offset(files),...statusSummary(headerRow)};
+    records:transferOffset(records),files:transferOffset(files),...statusSummary(headerRow)};
 }
-const emptyProgress=()=>({next:0,bytes:0,chain:EMPTY_CHAIN});
-const offset=result=>{
+export const emptyProgress=()=>({next:0,bytes:0,chain:EMPTY_CHAIN});
+export const transferOffset=result=>{
   const row=result.results[0];
   return row?{next:row.ordinal+1,bytes:row.end_offset,chain:row.chain}:emptyProgress();
 };
 
 async function open(db,credential,epoch,input) {
-  const manifest=stableReviewJson(readManifest(input));
-  await db.prepare(`INSERT INTO fleet_baseline(id,epoch,manifest) SELECT 1,?,? WHERE ${grant}
-    ON CONFLICT(id) DO NOTHING`).bind(epoch,manifest,...grantArgs(credential,epoch)).run();
+  const scoped=Object.hasOwn(input??{},'sourceCursor');
+  if (scoped&&!validNumber(input.sourceCursor,Number.MAX_SAFE_INTEGER)) throw fleetError(400,'invalid_source_cursor');
+  const manifest=stableReviewJson(readTransferManifest(input,schema,scoped?['sourceCursor']:[]));
+  await db.prepare(`INSERT INTO fleet_baseline(id,epoch,manifest) SELECT 1,?,? WHERE ${transferGrant}
+    ON CONFLICT(id) DO NOTHING`).bind(epoch,manifest,...transferGrantArgs(credential,epoch)).run();
   const current=await status(db,epoch);
   if (!current.manifest || stableReviewJson(current.manifest)!==manifest) throw fleetError(409,'baseline_manifest_conflict');
   return current;
@@ -106,15 +108,11 @@ async function decodePart(value) {
   return {bytes,digest:Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('')};
 }
 
-async function append(env,credential,epoch,stream,input) {
+export async function readTransferPart(env,stream,input,manifest) {
   const ordinal=input?.ordinal;
   if (!validNumber(ordinal,Math.max(MAX_FILES,Math.ceil(MAX_RECORD_BYTES/BASELINE_CHUNK_BYTES)))) {
     throw fleetError(400,'invalid_baseline_ordinal');
   }
-  const db=env.FLEET_DB,current=await status(db,epoch),manifest=current.manifest;
-  if (!manifest) throw fleetError(409,'baseline_not_started');
-  const prior=current[stream];
-  if (ordinal>prior.next) throw fleetError(409,'baseline_out_of_order');
   if (stream==='records'?Object.keys(input).some(key=>!['ordinal','data','sha256'].includes(key)):
       Object.keys(input).some(key=>!['ordinal','size','sha256'].includes(key))) throw fleetError(400,'invalid_baseline_field');
 
@@ -138,6 +136,15 @@ async function append(env,credential,epoch,stream,input) {
     digest=await sha256(input.sha256+':'+size);
   }
 
+  return {ordinal,data,size,digest};
+}
+
+async function append(env,credential,epoch,stream,input) {
+  const db=env.FLEET_DB,current=await status(db,epoch),manifest=current.manifest;
+  if (!manifest) throw fleetError(409,'baseline_not_started');
+  const prior=current[stream];
+  if (input?.ordinal>prior.next) throw fleetError(409,'baseline_out_of_order');
+  const {ordinal,data,size,digest}=await readTransferPart(env,stream,input,manifest);
   const end=prior.bytes+size;
   const total=stream==='records'?manifest.dataBytes:manifest.fileBytes;
   const chain=await sha256(prior.chain+':'+digest);
@@ -145,10 +152,10 @@ async function append(env,credential,epoch,stream,input) {
   // advance the prefix between the guard and insertion in the same batch.
   const [,receipt]=await db.batch([
     db.prepare(`INSERT INTO fleet_baseline_parts(stream,ordinal,digest,end_offset,chain,data)
-      SELECT ?,?,?,?,?,? WHERE ${grant} AND ?<=? AND EXISTS(SELECT 1 FROM fleet_baseline WHERE id=1 AND epoch=? AND verified_at IS NULL)
+      SELECT ?,?,?,?,?,? WHERE ${transferGrant} AND ?<=? AND EXISTS(SELECT 1 FROM fleet_baseline WHERE id=1 AND epoch=? AND verified_at IS NULL)
       AND COALESCE((SELECT max(ordinal) FROM fleet_baseline_parts WHERE stream=?),-1)=?
       AND COALESCE((SELECT chain FROM fleet_baseline_parts WHERE stream=? AND ordinal=?),?)=?
-      ON CONFLICT(stream,ordinal) DO NOTHING`).bind(stream,ordinal,digest,end,chain,data,...grantArgs(credential,epoch),
+      ON CONFLICT(stream,ordinal) DO NOTHING`).bind(stream,ordinal,digest,end,chain,data,...transferGrantArgs(credential,epoch),
         end,total,epoch,stream,ordinal-1,stream,ordinal-1,EMPTY_CHAIN,prior.chain),
     db.prepare('SELECT ordinal,digest,end_offset,chain FROM fleet_baseline_parts WHERE stream=? AND ordinal=?').bind(stream,ordinal)
   ]);
@@ -159,18 +166,20 @@ async function append(env,credential,epoch,stream,input) {
 
 async function seal(db,credential,epoch) {
   const current=await status(db,epoch);
-  const {manifest,records,files}=current;
-  if (!manifest||records.bytes!==manifest.dataBytes||records.chain!==manifest.dataChain||
-      files.next!==manifest.files||files.bytes!==manifest.fileBytes||files.chain!==manifest.fileChain) {
-    throw fleetError(409,'baseline_reconciliation_failed');
-  }
-  await db.prepare(`UPDATE fleet_baseline SET verified_at=? WHERE id=1 AND epoch=? AND verified_at IS NULL AND ${grant}
+  const {records,files}=current;
+  if (!completeTransfer(current)) throw fleetError(409,'baseline_reconciliation_failed');
+  await db.prepare(`UPDATE fleet_baseline SET verified_at=? WHERE id=1 AND epoch=? AND verified_at IS NULL AND ${transferGrant}
     AND (SELECT max(ordinal) FROM fleet_baseline_parts WHERE stream='records')=?
     AND COALESCE((SELECT max(ordinal) FROM fleet_baseline_parts WHERE stream='files'),-1)=?`)
-    .bind(Date.now(),epoch,...grantArgs(credential,epoch),records.next-1,files.next-1).run();
+    .bind(Date.now(),epoch,...transferGrantArgs(credential,epoch),records.next-1,files.next-1).run();
   const verified=await status(db,epoch);
   if (verified.phase!=='staged') throw fleetError(409,'baseline_reconciliation_failed');
   return verified;
+}
+
+export function completeTransfer({manifest,records,files}) {
+  return Boolean(manifest&&records.bytes===manifest.dataBytes&&records.chain===manifest.dataChain&&
+    files.next===manifest.files&&files.bytes===manifest.fileBytes&&files.chain===manifest.fileChain);
 }
 
 async function readPage(db,epoch,raw) {

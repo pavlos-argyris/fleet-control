@@ -76,9 +76,15 @@
     const pendingInvoices=Number(payload.replicaPendingInvoices)||0;
     const source=payload.sourceJournal;
     const sourceChanges=source?.verified&&Number.isSafeInteger(source.pending)&&source.pending>0?
-      ' Τοπικές εγγραφές μετά την απογραφή '+source.pending+'.':'';
+      ' Τοπικές εγγραφές σε αναμονή αποστολής '+source.pending+'.':'';
+    const lastSource=source?.lastAcknowledgedAt?' Τελευταία επιβεβαιωμένη αποστολή '+new Date(source.lastAcknowledgedAt).toLocaleString('el-GR')+'.':'';
+    const sourceProgress=payload.sourceProgress?.state;
+    const sourceCheck=sourceProgress==='blocked'?' Οι αλλαγές της δοκιμής χρειάζονται έλεγχο λόγω ασυμφωνίας.':
+      source?.retry?' Η αποστολή αλλαγών θα επαναληφθεί.':
+      sourceProgress==='indexed'?' Επαληθεύτηκαν οι αλλαγές στο δοκιμαστικό αντίγραφο.':
+      sourceProgress?' Ελέγχονται οι αλλαγές στο δοκιμαστικό αντίγραφο.':'';
     migration.textContent=(migrationMessages[payload.migration]||'Μετάβαση δεδομένων σε αναμονή επαλήθευσης.')+
-      cloudProgress(payload.baselineProgress)+backupAt+stagedAt+pendingReplica+sourceChanges+
+      cloudProgress(payload.baselineProgress)+backupAt+stagedAt+pendingReplica+sourceChanges+lastSource+sourceCheck+
       (pendingInvoices>0?' Επαληθευμένα PDF σε αναμονή δοκιμαστικής καταχώρισης '+pendingInvoices+'.':'');
     minutes.value=String(payload.minutes||15);
     approve.hidden=payload.approved&&!payload.pendingApproval;

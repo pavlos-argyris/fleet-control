@@ -41,7 +41,7 @@ final class FleetCloudArchive {
 
     private FleetCloudArchive() { }
 
-    static long stage(Context context,String backupId,String sourceSha,String generation,String epoch,
+    static long stage(Context context,String backupId,String sourceSha,String generation,String epoch,boolean sourceDeltas,
                       FleetCloudBaseline.Transport transport) throws Exception {
         if (!ScopedContext.owns(context)||!backupId.matches("[a-f0-9-]{36}")||!generation.matches("[a-f0-9-]{36}")) {
             throw invalidSource();
@@ -68,7 +68,9 @@ final class FleetCloudArchive {
                 Set<String> keys=project(source,output,generation);
                 files=documents(backup.manifest,documents,output,keys);
             }
-            FleetCloudBaseline.stage(epoch,sourceSha,records,files,transport);
+            if (sourceDeltas&&sourceCursor<0) throw invalidSource();
+            FleetCloudBaseline.stage(epoch,sourceSha,sourceDeltas?sourceCursor:-1,records,files,transport);
+            if (sourceDeltas) FleetCloudCatchUp.seed(context.getNoBackupFilesDir(),epoch,sourceSha,sourceCursor,records);
             return sourceCursor;
         } finally {
             cleanup(workspace);
@@ -116,26 +118,32 @@ final class FleetCloudArchive {
     }
 
     static Set<String> project(SQLiteDatabase source,OutputStream output,String generation) throws Exception {
+        return project(source,generation,row->emit(output,row));
+    }
+
+    interface RecordSink { void write(JSONObject row) throws Exception; }
+
+    static Set<String> project(SQLiteDatabase source,String generation,RecordSink records) throws Exception {
         Set<String> referenced=new HashSet<>();
         try (Cursor row=source.rawQuery("SELECT version,updated_at FROM fleet_snapshot WHERE id=1 AND json_type(data,'$.bikes')='array'",null)) {
             if (!row.moveToFirst()) throw invalidSource();
-            emit(output,new JSONObject().put("kind","snapshot").put("version",row.getLong(0)).put("updatedAt",row.getString(1)));
+            records.write(new JSONObject().put("kind","snapshot").put("version",row.getLong(0)).put("updatedAt",row.getString(1)));
         }
         exportRows(source,"SELECT json_extract(b.value,'$.id') bike_id,json_remove(b.value,'$.history') payload "+
                 "FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 ORDER BY bike_id",(row)->{
             JSONObject bike=machine(new JSONObject(row.getString(1)),generation);
-            emit(output,record("machine",identifier(row.getString(0)),null,bike));
+            records.write(record("machine",identifier(row.getString(0)),null,bike));
         });
         exportRows(source,"SELECT bike_id,name,odometer,status,version,updated_at FROM vehicle_registry ORDER BY bike_id",(row)->{
             JSONObject registry=new JSONObject().put("name",row.getString(1)).put("odometer",row.getLong(2))
                     .put("status",row.getString(3)).put("version",row.getLong(4)).put("updatedAt",row.getString(5));
-            emit(output,record("machine-registry",row.getString(0),null,registry));
+            records.write(record("machine-registry",row.getString(0),null,registry));
         });
         exportRows(source,"SELECT json_extract(b.value,'$.id') bike_id,h.value payload "+
                 "FROM fleet_snapshot s,json_each(s.data,'$.bikes') b,json_each(b.value,'$.history') h "+
                 "WHERE s.id=1 ORDER BY bike_id,h.key",(row)->{
             JSONObject history=history(new JSONObject(row.getString(1)),generation,referenced);
-            emit(output,record("history",identifier(row.getString(0)),history.getString("id"),history));
+            records.write(record("history",identifier(row.getString(0)),history.getString("id"),history));
         });
         exportRows(source,"SELECT bike_id,json_remove(snapshot_json,'$.history'),name,odometer,original_status,active,"+
                 "archived_at,reason,restored_at,restore_reason FROM vehicle_archives ORDER BY bike_id",(row)->{
@@ -143,12 +151,12 @@ final class FleetCloudArchive {
                     .put("name",row.getString(2)).put("odometer",row.getLong(3)).put("status",row.getString(4))
                     .put("active",row.getInt(5)!=0).put("archivedAt",row.getString(6)).put("reason",row.getString(7))
                     .put("restoredAt",row.getString(8)).put("restoreReason",row.getString(9));
-            emit(output,record("machine-archive",row.getString(0),null,archive));
+            records.write(record("machine-archive",row.getString(0),null,archive));
         });
         exportRows(source,"SELECT a.bike_id,h.value FROM vehicle_archives a,json_each(a.snapshot_json,'$.history') h "+
                 "ORDER BY a.bike_id,h.key",(row)->{
             JSONObject history=history(new JSONObject(row.getString(1)),generation,referenced);
-            emit(output,record("archived-history",row.getString(0),history.getString("id"),history));
+            records.write(record("archived-history",row.getString(0),history.getString("id"),history));
         });
         exportRows(source,"SELECT id,payload,record_id,label,reason,deleted_at,restored_at,restore_reason "+
                 "FROM deleted_records WHERE record_type='fleet_history' ORDER BY id",(row)->{
@@ -157,20 +165,20 @@ final class FleetCloudArchive {
             JSONObject restored=new JSONObject().put("entry",entry).put("recordId",historyId(row.getString(2),generation))
                     .put("label",row.getString(3)).put("reason",row.getString(4)).put("deletedAt",row.getString(5))
                     .put("restoredAt",row.getString(6)).put("restoreReason",row.getString(7));
-            emit(output,record("history-trash",identifier(trash.get("bikeId")),row.getString(0),restored));
+            records.write(record("history-trash",identifier(trash.get("bikeId")),row.getString(0),restored));
         });
         exportRows(source,"SELECT id,type,payload,status,created_at FROM fleet_operations "+
                 "WHERE type IN ('service_document_render','service_document_reprocess_batch') AND status IN ('pending','error') ORDER BY id",(row)->{
             JSONObject payload=new JSONObject(row.getString(2));
             JSONObject pending=new JSONObject().put("type",row.getString(1)).put("status",row.getString(3)).put("createdAt",row.getString(4))
                     .put("input",payload);
-            emit(output,record("invoice-job",null,row.getString(0),pending));
+            records.write(record("invoice-job",null,row.getString(0),pending));
         });
         exportRows(source,"SELECT id,status,data,created_at,updated_at FROM invoice_import_drafts "+
                 "WHERE status IN ('processing','ready','committing','error') ORDER BY id",(row)->{
             JSONObject draft=new JSONObject().put("status",row.getString(1)).put("draft",new JSONObject(row.getString(2)))
                     .put("createdAt",row.getString(3)).put("updatedAt",row.getString(4));
-            emit(output,record("invoice-draft",null,row.getString(0),draft));
+            records.write(record("invoice-draft",null,row.getString(0),draft));
         });
         return referenced;
     }
@@ -263,11 +271,14 @@ final class FleetCloudArchive {
             if (entry==null||entry.isDirectory()||entry.getSize()!=size) throw invalidSource();
             String sha=object.getString("sha256"),type=object.getString("content_type");
             files.add(new FleetCloudBaseline.Document(sha,type,size,()->zip.getInputStream(entry)));
-            emit(output,record("document",null,key,new JSONObject().put("name",object.getString("name"))
-                    .put("contentType",type).put("size",size).put("sha256",sha)));
+            emit(output,document(key,object.getString("name"),type,size,sha));
         }
         if (!keys.containsAll(referenced)) throw invalidSource();
         return files;
+    }
+
+    static JSONObject document(String key,String name,String type,long size,String sha) throws Exception {
+        return record("document",null,key,new JSONObject().put("name",name).put("contentType",type).put("size",size).put("sha256",sha));
     }
 
     private static Map<String,String> archiveNames(ZipFile zip) throws Exception {

@@ -205,6 +205,18 @@ for name,p in sources.items():
             return FleetCloudSourceJournal.progress(db,epoch,generation,cursor);
         },2);
     }
+    void captureFleetCloudChanges(String epoch,String source,String generation,long initial)throws Exception{
+        serialized(()->{
+            try(BackendMode.Guard ignored=BackendMode.guard(context)){
+                checkAuthority();
+                if(!config.getString("generation").equals(generation)||!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context))
+                    throw new IOException("Η ενεργή βάση Android χρειάζεται επανέλεγχο πριν αντιγραφούν αλλαγές Fleet.");
+                FleetCloudCatchUp.capture(context.getNoBackupFilesDir(),db,new File(context.getFilesDir(),"service-documents"),
+                    epoch,source,generation,initial);
+            }
+            return null;
+        },2);
+    }
     JSONObject switchReadiness()throws Exception{return serialized(()->{
         JSONArray rows=query("SELECT created_at,actor_id FROM independent_readiness WHERE id=1");
         long now=System.currentTimeMillis();boolean ready=rows.length()==1&&rows.getJSONObject(0).optString("actor_id").equals(config.getString("ownerId"))&&now>=rows.getJSONObject(0).optLong("created_at")&&now-rows.getJSONObject(0).optLong("created_at")<600000;

@@ -16,6 +16,7 @@ const {Miniflare,convertV4MiniflareOptions}=require('miniflare');
 const {build}=require('esbuild');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-baseline-'));
 const api='/api/fleet-sync/v1', origin='https://fleet-baseline-fixture.invalid';
+const initialCursor=7;
 const rw='fixture-baseline-writer.'+'W'.repeat(43), ro='fixture-baseline-reader.'+'R'.repeat(43);
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const hashChain=items=>items.reduce((chain,hash)=>digest(chain+':'+hash),'0'.repeat(64));
@@ -72,7 +73,7 @@ async function start(enabled,workspace='state') {
     modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-09-05',
     d1Databases:{FLEET_DB:'fleet-baseline-fixture'},r2Buckets:['FLEET_DOCUMENTS'],
     resourcePersistencePath:path.join(dir,workspace),
-    bindings:{FLEET_REHEARSAL_ENABLED:'1',FLEET_BASELINE_TRANSFER:enabled?'1':'0',FLEET_INVOICE_PROCESSING:'1',
+    bindings:{FLEET_REHEARSAL_ENABLED:'1',FLEET_BASELINE_TRANSFER:enabled?'1':'0',FLEET_SOURCE_DELTA_TRANSFER:'1',FLEET_INVOICE_PROCESSING:'1',
       FLEET_INVOICE_HOSTS:'invoice.fixture.invalid'},
     serviceBindings:{FLEET_INVOICE_READER:async request=>{
       const {qrUrl}=await request.json();
@@ -142,10 +143,10 @@ async function testBlocked(workspace,fixture,reason,retainedRows) {
   assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_records').first()).n,0);
 }
 
-async function runJava({lose,expectedUpload}={}) {
+async function runJava({lose,expectedUpload,archive='records.ndjson',files:documents=packages,after=initialCursor,through=0}={}) {
   const jar=path.resolve('vendor/json-java/json-20240303.jar');
   const child=spawn('java',['-cp',dir+path.delimiter+jar,'gr.argyrismitsos.fleetdirect.Fixture',
-    path.join(dir,'records.ndjson'),epoch,sourceSha,...packages.flatMap(([,bytes,type])=>[bytes.toString('base64'),type])],
+    path.join(dir,archive),epoch,sourceSha,String(after),String(through),...documents.flatMap(([,bytes,type])=>[bytes.toString('base64'),type])],
   {stdio:['pipe','pipe','inherit']});
   const completion=once(child,'exit');
   let uploads=0,pages=0,files=0,injected=false,marker='';
@@ -181,6 +182,61 @@ async function runJava({lose,expectedUpload}={}) {
   return {pages,files};
 }
 
+function changed(before,after) {
+  const row=after??before,record=after&&JSON.stringify(after);
+  return {key:[row.kind,row.machineId||'',row.recordId||''],beforeSha256:before&&digest(JSON.stringify(before)),
+    sha256:record&&digest(record),record};
+}
+
+async function testSourceCatchUp() {
+  const pathname='/source-delta/13',after=initialCursor,through=13;
+  const deltaProgress=async()=>expect(await request(api+'/state',{token:ro}),200).sourceProgress;
+  const shadow=(cursor,bike=machineId)=>api+'/source-delta/'+cursor+'/service?'+new URLSearchParams({machineId:bike,serviceId});
+  const bytes=Buffer.from('%PDF-1.4\nSynthetic post-backup document\n%%EOF');
+  const key='service-documents/fixture/after-backup.pdf',sha=digest(bytes);
+  const file={kind:'document',recordId:key,data:{name:'after-backup.pdf',contentType:'application/pdf',size:bytes.length,sha256:sha}};
+  const later={...service,data:{...service.data,notes:service.data.notes+' · νεότερη σημείωση',attachments:[...service.data.attachments,{key}]}};
+  const old=records.find(row=>row.kind==='invoice-job'&&row.recordId==='legacy-job');
+  const body=encodeRows([{kind:'source-checkpoint',afterCursor:after,sourceCursor:through},changed(service,later),
+    changed(old,null),changed(null,file)]);
+  fs.writeFileSync(path.join(dir,'changes.ndjson'),body);
+  const args={archive:'changes.ndjson',files:[[key,bytes,'application/pdf']],after,through};
+  expect(await post(pathname+'/begin',{}, {token:ro}),403);
+  expect(await post(pathname+'/begin',{}, {sendEpoch:'wrong'}),409);
+  assert.deepEqual(await runJava({...args,lose:'/seal',expectedUpload:1}),{pages:1,files:1});
+  assert.deepEqual(await deltaProgress(),{cursor:through,state:'staged',indexedCursor:null,rows:0,reason:''});
+  expect(await request(shadow(through),{token:ro}),409);
+  await runtime.dispose();
+  await start(true);
+  assert.deepEqual(await runJava({...args,expectedUpload:0}),{pages:0,files:0});
+  await Promise.all([tick(),tick()]);
+  for(let i=0;i<4&&(await deltaProgress()).state!=='indexed';i++) await tick();
+  assert.deepEqual(await deltaProgress(),{cursor:through,state:'indexed',indexedCursor:through,rows:3,reason:''});
+  const stored=await db.prepare("SELECT data FROM fleet_source_delta_parts WHERE cursor=? AND stream='records' ORDER BY ordinal")
+    .bind(through).all();
+  assert.deepEqual(Buffer.concat(stored.results.map(row=>Buffer.from(row.data))),body);
+  const indexed=await db.prepare('SELECT kind,machine_id,record_id,sha256 FROM fleet_source_projection_rows WHERE cursor=? ORDER BY ordinal')
+    .bind(through).all();
+  assert.deepEqual(indexed.results.map(row=>[row.kind,row.machine_id,row.record_id,row.sha256]),
+    [['history',machineId,serviceId,digest(JSON.stringify(later))],['invoice-job','','legacy-job',null],['document','',key,digest(JSON.stringify(file))]]);
+  const object=await (await runtime.getR2Bucket('FLEET_DOCUMENTS')).get('sha256/'+sha);
+  assert.deepEqual(Buffer.from(await object.arrayBuffer()),bytes);
+  assert.deepEqual(expect(await request(servicePath(machineId,serviceId),{token:ro}),200).service,service.data,
+    'Staged changes leave the sealed recovery source available');
+  assert.deepEqual(expect(await request(shadow(through),{token:ro}),200),{epoch,cursor:through,machineId,serviceId,
+    service:later.data,recordSha256:digest(JSON.stringify(later))});
+  expect(await request(shadow(through),{token:''}),401);
+  expect(await request(shadow(through,otherId),{token:ro}),404);
+  const invalid=encodeRows([{kind:'source-checkpoint',afterCursor:through,sourceCursor:17},changed(service,{...later,data:{...later.data,km:9}})]);
+  fs.writeFileSync(path.join(dir,'conflict.ndjson'),invalid);
+  await runJava({archive:'conflict.ndjson',files:[],after:through,through:17,expectedUpload:0});
+  await tick();
+  assert.deepEqual(await deltaProgress(),{cursor:17,state:'blocked',indexedCursor:through,rows:0,reason:'source_delta_record_conflict'});
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_source_projection_rows WHERE cursor=17').first()).n,0);
+  expect(await request(shadow(17),{token:ro}),409);
+  assert.equal(expect(await request(shadow(through),{token:ro}),200).recordSha256,digest(JSON.stringify(later)));
+}
+
 const sourceSha=digest('synthetic verified backup');
 try {
   await build({entryPoints:['cloudflare-worker/hybrid-fleet/worker.js'],outfile:path.join(dir,'worker.mjs'),bundle:true,format:'esm',platform:'neutral'});
@@ -190,6 +246,7 @@ try {
   await runtime.dispose();
   await start(true);
   assert.equal(expect(await request(api+'/state'),200).baselineVersion,1);
+  assert.equal(expect(await request(api+'/state'),200).sourceDeltaVersion,1);
   assert.equal(expect(await request(api+'/state'),200).baselineProgress,null);
   expect(await request(api+'/baseline',{token:''}),401);
   expect(await request(api+'/baseline',{sendEpoch:'changed'}),409);
@@ -226,11 +283,14 @@ try {
     '      }',
     '    };',
     '    java.util.List<FleetCloudBaseline.Document> docs=new java.util.ArrayList<>();',
-    '    for(int n=3;n<args.length;n+=2) {',
+    '    long after=Long.parseLong(args[3]),through=Long.parseLong(args[4]);',
+    '    for(int n=5;n<args.length;n+=2) {',
     '      byte[] bytes=java.util.Base64.getDecoder().decode(args[n]);',
     '      docs.add(new FleetCloudBaseline.Document(FleetCloudBaseline.digest(bytes),args[n+1],bytes.length,()->new ByteArrayInputStream(bytes)));',
     '    }',
-    '    try { FleetCloudBaseline.stage(args[1],args[2],new File(args[0]),docs,fixture);',
+    '    try {',
+    '      if(through==0) FleetCloudBaseline.stage(args[1],args[2],after,new File(args[0]),docs,fixture);',
+    '      else FleetCloudBaseline.stageDelta(args[1],args[2],after,through,new File(args[0]),docs,fixture);',
     '      System.out.println("RESULT staged");',
     '    } catch(IOException error){System.out.println("RESULT interrupted");System.exit(2);}',
     '  }',
@@ -247,7 +307,7 @@ try {
   for (let i=0;i<scoped.length;i+=BASELINE_CHUNK_BYTES) expectedHashes.push(digest(scoped.subarray(i,i+BASELINE_CHUNK_BYTES)));
   const fileChain=hashChain(packages.map(([,bytes])=>digest(digest(bytes)+':'+bytes.length)));
   expect(await post('/baseline/begin',{format:'fleet-baseline-v1',sourceSha256:sourceSha,dataBytes:scoped.length,
-    dataChain:hashChain(expectedHashes),files:packages.length,fileBytes:packages.reduce((size,[,bytes])=>size+bytes.length,0),fileChain}),200);
+    dataChain:hashChain(expectedHashes),files:packages.length,fileBytes:packages.reduce((size,[,bytes])=>size+bytes.length,0),fileChain,sourceCursor:initialCursor}),200);
   expect(await post('/baseline/files',{ordinal:0,size:fileBytes.length,sha256:fileSha}),409,'file must already exist');
   assert.deepEqual(await runJava({lose:'/records',expectedUpload:packages.length}),{pages:1,files:packages.length});
   const interrupted=expect(await request(api+'/baseline'),200);
@@ -410,13 +470,14 @@ try {
     serviceId,expectedRevision:1,deleted:true,data:null};
   assert.equal(expect(await post('/mutations',{operations:[removed]}),200).operations[0].status,'committed');
   assert.deepEqual(await replicaDownload(digest(confirmedBytes)),confirmedBytes,'a previous verified page remains restorable');
+  await testSourceCatchUp();
   const compactMachine={...machine,data:{id:machineId,name:'Μηχανή Α'}};
   await testBlocked('missing-document',[snapshot,compactMachine,service],'baseline_document_missing',3);
   await testBlocked('duplicate-record',[snapshot,compactMachine,compactMachine],'baseline_duplicate_record',0);
   await testBlocked('duplicate-after-progress',[snapshot,machine,compactMachine],'baseline_duplicate_record',2);
   await testBlocked('missing-parent',[snapshot,{...service,data:{...service.data,attachments:[]}}],'baseline_parent_missing',2);
   await testBlocked('missing-file-proof',[snapshot,records.at(-1)],'baseline_document_proof_mismatch',0);
-  console.log('PASS actual Android transfer with Workerd/D1/R2: lost ACK, restart, verified bytes, exact service scope, resumable trial ledger, preserved original invoice and recovered QR.');
+  console.log('PASS actual Android transfer with Workerd/D1/R2: lost ACK, restart, verified baseline and source deltas, retained conflicts, exact service scope, preserved original invoice and recovered QR.');
 } finally {
   if(runtime) await runtime.dispose();
   fs.rmSync(dir,{recursive:true,force:true});

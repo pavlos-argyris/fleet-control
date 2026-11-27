@@ -7,6 +7,8 @@ import { baselineEnabled, baselineOverview, baselineReadyForQueue, routeBaseline
 import { advanceBaselineProjection } from './baseline-projection.js';
 import { advanceBaselineLedger } from './baseline-ledger.js';
 import { advanceBaselineInvoiceImport, baselineInvoiceImportReady } from './baseline-invoice-import.js';
+import { routeSourceDelta, SOURCE_DELTA_ROUTE, sourceDeltaEnabled } from './source-delta.js';
+import { advanceSourceProjection, sourceProjectionStatus } from './source-projection.js';
 
 const routes = new Map([
   ['/api/fleet-sync/v1/state','GET'],
@@ -31,6 +33,7 @@ export default {
       const db=env.FLEET_DB;
       if (await advanceBaselineProjection(db)||await advanceBaselineLedger(db)||await advanceBaselineInvoiceImport(env)) return;
       if (!await baselineInvoiceImportReady(db)) return;
+      if (sourceDeltaEnabled(env)&&await advanceSourceProjection(db)) return;
     }
     if (env.FLEET_INVOICE_PROCESSING==='1'&&await baselineReadyForQueue(env)) {
       await runInvoiceQueue(env);
@@ -46,15 +49,18 @@ export default {
       if (pin) return pin;
       const method=routes.get(url.pathname);
       const baseline=url.pathname==='/api/fleet-sync/v1/baseline'||url.pathname.startsWith('/api/fleet-sync/v1/baseline/');
-      if (!method&&!baseline) return response({error:'unavailable'},404);
+      const sourceDelta=url.pathname.startsWith(SOURCE_DELTA_ROUTE);
+      if (!method&&!baseline&&!sourceDelta) return response({error:'unavailable'},404);
       if (method&&request.method!==method) return response({error:'method_not_allowed'},405);
       const db=env.FLEET_DB;
       const credential=await authorizeSync(request,db);
       const epoch=await currentEpoch(db);
-      if (url.pathname.endsWith('/state')) return response({epoch,schemaVersion:1,mode:'rehearsal',
+      if (url.pathname==='/api/fleet-sync/v1/state') return response({epoch,schemaVersion:1,mode:'rehearsal',
+        ...(sourceDeltaEnabled(env)?{sourceDeltaVersion:1,sourceProgress:await sourceProjectionStatus(db,epoch)}:{}),
         ...(baselineEnabled(env)?{baselineVersion:1,baselineProgress:await baselineOverview(db,epoch)}:{})});
       if (request.headers.get('X-Fleet-Epoch')!==epoch) throw fleetError(409,'epoch_changed');
       if (baseline) return await routeBaseline(request,env,credential,epoch,response)||response({error:'unavailable'},404);
+      if (sourceDelta) return await routeSourceDelta(request,url.pathname,env,credential,epoch,response);
       if (['/api/fleet-sync/v1/mutations','/api/fleet-sync/v1/delta','/api/fleet-sync/v1/invoice-document'].includes(url.pathname)&&
           !await baselineReadyForQueue(env)) {
         throw fleetError(409,'baseline_working_ledger_unready');

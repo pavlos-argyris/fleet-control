@@ -151,6 +151,7 @@ final class FleetCloudSetup {
             state.remove("sourceCursor");
             state.remove("sourceGeneration");
             state.remove("sourceJournal");
+            state.remove("sourceDeltaPrepared");
         }
         state.put("backupJob",checkpoint).put("migration","preparing_backup").put("nextBackupAt",now+300000L);
         SealedLocalState.write(context, STORE, KEY, state);
@@ -176,24 +177,33 @@ final class FleetCloudSetup {
             transfer=reserveTransfer(context);
             if (transfer==null) return;
             JSONObject credential=transfer.getJSONObject("credential");
-            String epoch=transfer.getString("epoch");
-            long sourceCursor=FleetCloudArchive.stage(context,transfer.getString("job"),transfer.getString("source"),transfer.getString("generation"),
-                    epoch,new FleetCloudBaseline.Transport() {
-                @Override public JSONObject send(String path,JSONObject payload) throws Exception {
-                    if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
-                    byte[] bytes=payload.toString().getBytes(StandardCharsets.UTF_8);
-                    return request(path,credential,epoch,"POST","application/json",bytes.length,new ByteArrayInputStream(bytes));
-                }
-                @Override public JSONObject putFile(String sha,String type,long size,InputStream input) throws Exception {
-                    if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
-                    return request("/api/fleet-sync/v1/invoice-file?sha256="+sha,credential,epoch,"PUT",type,size,input);
-                }
-            });
+            String epoch=transfer.getString("epoch"),generation=transfer.getString("generation");
+            long sourceCursor=FleetCloudArchive.stage(context,transfer.getString("job"),transfer.getString("source"),generation,
+                    epoch,transfer.getBoolean("sourceDeltas"),transport(context,credential,epoch,generation));
             completeTransfer(context,transfer,sourceCursor,true);
         } catch (Exception failure) {
             if (transfer!=null) try { completeTransfer(context,transfer,-1,false); }
             catch (Exception unavailable) { }
         }
+    }
+
+    private static FleetCloudBaseline.Transport transport(Context context,JSONObject credential,String epoch,String generation) {
+        return new FleetCloudBaseline.Transport() {
+            private void check() throws Exception {
+                if (DirectHost.paused(context)||!generation.equals(IndependentConfig.read(context).optString("generation"))) {
+                    throw new java.io.InterruptedIOException();
+                }
+            }
+            @Override public JSONObject send(String path,JSONObject payload) throws Exception {
+                check();
+                byte[] bytes=payload.toString().getBytes(StandardCharsets.UTF_8);
+                return request(path,credential,epoch,"POST","application/json",bytes.length,new ByteArrayInputStream(bytes));
+            }
+            @Override public JSONObject putFile(String sha,String type,long size,InputStream input) throws Exception {
+                check();
+                return request("/api/fleet-sync/v1/invoice-file?sha256="+sha,credential,epoch,"PUT",type,size,input);
+            }
+        };
     }
 
     private static synchronized JSONObject reserveTransfer(Context context) throws Exception {
@@ -210,6 +220,7 @@ final class FleetCloudSetup {
         state.put("migration","copying_baseline").put("nextTransferAt",now+60000L);
         SealedLocalState.write(context,STORE,KEY,state);
         return new JSONObject().put("job",job).put("source",state.getString("backupSha256"))
+                .put("sourceDeltas",state.optInt("sourceDeltaVersion")==1)
                 .put("generation",generation).put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"));
     }
 
@@ -221,7 +232,8 @@ final class FleetCloudSetup {
                 !generation.equals(IndependentConfig.read(context).optString("generation"))) return;
         if (saved) {
             state.put("migration","baseline_staged").put("stagedBackupJob",job).put("baselineStagedAt",System.currentTimeMillis())
-                    .put("sourceGeneration",generation).put("sourceCursor",sourceCursor);
+                    .put("sourceGeneration",generation).put("sourceCursor",sourceCursor)
+                    .put("sourceDeltaPrepared",transfer.getBoolean("sourceDeltas"));
             state.remove("transferFailures");
         } else {
             int attempts=Math.min(10,state.optInt("transferFailures")+1);
@@ -251,10 +263,22 @@ final class FleetCloudSetup {
                 downloadDocument(credential,epoch,sha,size,output);
             });
             long sourceCursor=replica.getLong("sourceCursor");
+            String generation=replica.getString("sourceGeneration");
             JSONObject sourceProof=new JSONObject().put("verified",false);
             if (sourceCursor>=0) try {
-                sourceProof=IndependentRuntime.get(context).fleetCloudSourceProgress(epoch,replica.getString("sourceGeneration"),sourceCursor);
-            } catch (Exception unavailable) { }
+                IndependentRuntime direct=IndependentRuntime.get(context);
+                if (replica.getBoolean("sourceDeltas")) {
+                    String source=replica.getString("source");
+                    direct.captureFleetCloudChanges(epoch,source,generation,sourceCursor);
+                    JSONObject receipt=FleetCloudCatchUp.send(context.getNoBackupFilesDir(),epoch,source,sourceCursor,
+                            transport(context,credential,epoch,generation));
+                    long acknowledged=receipt.getLong("cursor");
+                    sourceProof=direct.fleetCloudSourceProgress(epoch,generation,acknowledged).put("acknowledgedCursor",acknowledged);
+                    if (receipt.getBoolean("acknowledged")) sourceProof.put("lastAcknowledgedAt",System.currentTimeMillis());
+                } else sourceProof=direct.fleetCloudSourceProgress(epoch,generation,sourceCursor);
+            } catch (Exception unavailable) {
+                sourceProof.put("retry",true);
+            }
             progress.put("sourceJournal",sourceProof);
             completeReplay(context,epoch,progress);
         } catch (Exception failure) {
@@ -271,7 +295,9 @@ final class FleetCloudSetup {
         state.put("nextReplayAt",now+60000L);
         SealedLocalState.write(context,STORE,KEY,state);
         return new JSONObject().put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"))
-                .put("sourceCursor",state.optLong("sourceCursor",-1)).put("sourceGeneration",state.optString("sourceGeneration"));
+                .put("sourceCursor",state.optLong("sourceCursor",-1)).put("sourceGeneration",state.optString("sourceGeneration"))
+                .put("source",state.optString("backupSha256"))
+                .put("sourceDeltas",state.optInt("sourceDeltaVersion")==1&&state.optBoolean("sourceDeltaPrepared"));
     }
 
     private static synchronized void completeReplay(Context context,String epoch,JSONObject progress) throws Exception {
@@ -280,10 +306,17 @@ final class FleetCloudSetup {
         long now=System.currentTimeMillis();
         state.put("replicaPending",progress==null||progress.optBoolean("hasMore"));
         if (progress!=null) {
+            JSONObject source=progress.getJSONObject("sourceJournal"),previous=state.optJSONObject("sourceJournal");
+            if (source.has("acknowledgedCursor")&&!source.has("lastAcknowledgedAt")&&previous!=null&&
+                    previous.optLong("acknowledgedCursor",-1)==source.optLong("acknowledgedCursor")) {
+                source.put("lastAcknowledgedAt",previous.optLong("lastAcknowledgedAt",0));
+            }
             state.put("replicaCursor",progress.getLong("cursor")).put("lastReplicaAt",now)
                     .put("replicaPendingInvoices",progress.getInt("pendingInvoices"))
-                    .put("sourceJournal",progress.getJSONObject("sourceJournal"));
-            if (!progress.optBoolean("hasMore")) state.put("nextReplayAt",now+state.optInt("minutes",DEFAULT_MINUTES)*60000L);
+                    .put("sourceJournal",source);
+            if (!progress.optBoolean("hasMore")&&!source.optBoolean("retry")&&source.optLong("pending",0)==0) {
+                state.put("nextReplayAt",now+state.optInt("minutes",DEFAULT_MINUTES)*60000L);
+            }
         }
         SealedLocalState.write(context,STORE,KEY,state);
     }
@@ -316,6 +349,8 @@ final class FleetCloudSetup {
                 }
                 state.put("epoch", epoch).put("connection", "approved").put("lastContactAt", started)
                         .put("baselineVersion",remote.optInt("baselineVersion",0))
+                        .put("sourceDeltaVersion",remote.optInt("sourceDeltaVersion",0))
+                        .put("sourceProgress",remote.optJSONObject("sourceProgress"))
                         .put("baselineProgress",remote.optJSONObject("baselineProgress"));
             }
         } catch (Rejected unapproved) {
@@ -338,6 +373,7 @@ final class FleetCloudSetup {
                 .put("replicaPending",state.optBoolean("replicaPending"))
                 .put("replicaPendingInvoices",state.optInt("replicaPendingInvoices"))
                 .put("sourceJournal",state.optJSONObject("sourceJournal"))
+                .put("sourceProgress",state.optJSONObject("sourceProgress"))
                 .put("baselineProgress",state.optJSONObject("baselineProgress"));
     }
 

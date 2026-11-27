@@ -14,7 +14,7 @@ import java.util.List;
 
 /** Copy a verified, Fleet-scoped archive by acknowledged chunks. */
 final class FleetCloudBaseline {
-    private static final String ROUTE="/api/fleet-sync/v1/baseline";
+    private static final String SYNC="/api/fleet-sync/v1/";
     private static final String ZERO="0000000000000000000000000000000000000000000000000000000000000000";
     private static final int CHUNK=48*1024;
 
@@ -66,26 +66,45 @@ final class FleetCloudBaseline {
     private FleetCloudBaseline() { }
 
     static void stage(String epoch,String sourceSha256,File records,List<Document> files,Transport transport) throws Exception {
+        stage(epoch,sourceSha256,-1,records,files,transport);
+    }
+
+    static void stage(String epoch,String sourceSha256,long sourceCursor,File records,List<Document> files,Transport transport) throws Exception {
+        JSONObject manifest=new JSONObject().put("format","fleet-baseline-v1").put("sourceSha256",sourceSha256);
+        if (sourceCursor>=0) manifest.put("sourceCursor",sourceCursor);
+        transfer(SYNC+"baseline",epoch,manifest,records,files,transport);
+    }
+
+    static void stageDelta(String epoch,String sourceSha256,long after,long cursor,File records,List<Document> files,
+                           Transport transport) throws Exception {
+        if (after<0||cursor<=after||cursor>9007199254740991L) throw invalidReceipt();
+        JSONObject manifest=new JSONObject().put("format","fleet-source-delta-v1").put("sourceSha256",sourceSha256)
+                .put("afterCursor",after).put("sourceCursor",cursor);
+        transfer(SYNC+"source-delta/"+cursor,epoch,manifest,records,files,transport);
+    }
+
+    private static void transfer(String route,String epoch,JSONObject manifest,File records,List<Document> files,
+                                 Transport transport) throws Exception {
+        String sourceSha256=manifest.getString("sourceSha256");
         if (!epoch.matches("[a-f0-9]{32}") || !sourceSha256.matches("[a-f0-9]{64}") ||
                 records.length()==0 || records.length()>512L*1024*1024 || files.size()>30000) throw invalidReceipt();
         Position expectedRecords=new Position(), expectedFiles=new Position();
         readRecords(records,(bytes)->expectedRecords.advance(bytes.length,digest(bytes)));
         for (Document file:files) expectedFiles.advance(file.size,file.fingerprint());
-        JSONObject manifest=new JSONObject().put("format","fleet-baseline-v1").put("sourceSha256",sourceSha256)
-                .put("dataBytes",expectedRecords.bytes).put("dataChain",expectedRecords.chain)
+        manifest.put("dataBytes",expectedRecords.bytes).put("dataChain",expectedRecords.chain)
                 .put("files",expectedFiles.next).put("fileBytes",expectedFiles.bytes).put("fileChain",expectedFiles.chain);
-        JSONObject started=transport.send(ROUTE+"/begin",manifest);
+        JSONObject started=transport.send(route+"/begin",manifest);
         requireManifest(started,manifest,epoch);
-        verifyFiles(files,started.getJSONObject("files"),transport);
-        verifyRecords(records,started.getJSONObject("records"),transport);
-        JSONObject reconciled=transport.send(ROUTE+"/seal",new JSONObject());
+        verifyFiles(route,files,started.getJSONObject("files"),transport);
+        verifyRecords(route,records,started.getJSONObject("records"),transport);
+        JSONObject reconciled=transport.send(route+"/seal",new JSONObject());
         requireManifest(reconciled,manifest,epoch);
         expectedRecords.require(reconciled.getJSONObject("records"));
         expectedFiles.require(reconciled.getJSONObject("files"));
         if (!"staged".equals(reconciled.getString("phase"))) throw invalidReceipt();
     }
 
-    private static void verifyRecords(File records,JSONObject saved,Transport transport) throws Exception {
+    private static void verifyRecords(String route,File records,JSONObject saved,Transport transport) throws Exception {
         int next=saved.getInt("next");
         if (next<0) throw invalidReceipt();
         Position position=new Position();
@@ -97,13 +116,13 @@ final class FleetCloudBaseline {
             if (ordinal<next) return;
             JSONObject page=new JSONObject().put("ordinal",ordinal).put("sha256",digest)
                     .put("data",Base64.encodeToString(bytes,Base64.NO_WRAP));
-            position.require(transport.send(ROUTE+"/records",page));
+            position.require(transport.send(route+"/records",page));
         });
         if (next>position.next) throw invalidReceipt();
         if (next==position.next) position.require(saved);
     }
 
-    private static void verifyFiles(List<Document> files,JSONObject saved,Transport transport) throws Exception {
+    private static void verifyFiles(String route,List<Document> files,JSONObject saved,Transport transport) throws Exception {
         int next=saved.getInt("next");
         if (next<0 || next>files.size()) throw invalidReceipt();
         Position position=new Position();
@@ -118,7 +137,7 @@ final class FleetCloudBaseline {
                     throw invalidReceipt();
                 }
             }
-            position.require(transport.send(ROUTE+"/files",new JSONObject().put("ordinal",ordinal)
+            position.require(transport.send(route+"/files",new JSONObject().put("ordinal",ordinal)
                     .put("size",file.size).put("sha256",file.sha256)));
         }
         if (next==position.next) position.require(saved);

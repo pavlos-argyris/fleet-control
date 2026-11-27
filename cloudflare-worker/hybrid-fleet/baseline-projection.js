@@ -29,7 +29,7 @@ function historyDetails(data) {
       Boolean(saved.qrUrl||saved.qrValue||invoiceJobId)};
 }
 
-function recordIdentity(row,first) {
+export function recordIdentity(row,first) {
   if (!isObject(row)) throw invalid();
   const {kind,machineId='',recordId='',data}=row;
   if (first) {
@@ -83,6 +83,11 @@ function recordIdentity(row,first) {
 }
 
 export function baselineReader(db,size) {
+  return archiveReader(size,ordinal=>db.prepare(`SELECT ordinal,data FROM fleet_baseline_parts WHERE stream='records'
+    AND ordinal>=? ORDER BY ordinal LIMIT 12`).bind(ordinal).all());
+}
+
+export function archiveReader(size,loadParts) {
   let parts=new Map();
   return async start=>{
     const views=[];
@@ -90,8 +95,7 @@ export function baselineReader(db,size) {
     while (position<size) {
       const ordinal=Math.floor(position/BASELINE_CHUNK_BYTES);
       if (!parts.has(ordinal)) {
-        const range=await db.prepare(`SELECT ordinal,data FROM fleet_baseline_parts WHERE stream='records'
-          AND ordinal>=? ORDER BY ordinal LIMIT 12`).bind(ordinal).all();
+        const range=await loadParts(ordinal);
         parts=new Map(range.results.map(part=>[part.ordinal,new Uint8Array(part.data)]));
       }
       const part=parts.get(ordinal);

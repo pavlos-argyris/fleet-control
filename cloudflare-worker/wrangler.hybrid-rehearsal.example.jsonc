@@ -6,7 +6,7 @@
   "workers_dev": false,
   "preview_urls": false,
   "observability": { "enabled": false },
-  "vars": { "FLEET_REHEARSAL_ENABLED": "0", "FLEET_BASELINE_TRANSFER": "0", "FLEET_INVOICE_PROCESSING": "0", "FLEET_INVOICE_HOSTS": "" },
+  "vars": { "FLEET_REHEARSAL_ENABLED": "0", "FLEET_BASELINE_TRANSFER": "0", "FLEET_SOURCE_DELTA_TRANSFER": "0", "FLEET_INVOICE_PROCESSING": "0", "FLEET_INVOICE_HOSTS": "" },
   "triggers": { "crons": ["* * * * *"] },
   "d1_databases": [{
     "binding": "FLEET_DB",
