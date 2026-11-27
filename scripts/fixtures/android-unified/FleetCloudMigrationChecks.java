@@ -90,14 +90,19 @@ final class FleetCloudMigrationChecks {
             FleetCloudCatchUp.capture(directory,db,objects,epoch,source,generation,0);
             check(FleetCloudCatchUp.send(directory,epoch,source,0,receiver).getLong("cursor")==older&&receiver.uploads==1,
                     "The durable pending batch resumes before staging later changes and does not upload the same file twice");
-            check(receiver.records.contains("Σημείωση μετά το αντίγραφο")&&receiver.records.contains("728014")&&
-                    receiver.records.contains("Μηχανή / 8")&&receiver.records.contains("legacy-job")&&
-                    !receiver.records.contains("unrelated synthetic salary")&&!receiver.records.contains("Η πιο πρόσφατη σημείωση"),
+            JSONObject staged=new JSONObject(receiver.change("history",machineId,"728014").getString("record"));
+            JSONObject data=staged.getJSONObject("data");
+            check(machineId.equals(staged.getString("machineId"))&&data.getString("id").equals("728014")&&
+                    data.getInt("km")==9300&&data.getString("date").equals("2026-11-20")&&
+                    data.getString("notes").equals("Σημείωση μετά το αντίγραφο")&&
+                    receiver.change("invoice-job","","legacy-job").isNull("record")&&
+                    !receiver.records.contains("unrelated synthetic salary"),
                     "Only expected Fleet data and the original stable IDs are staged");
             FleetCloudCatchUp.capture(directory,db,objects,epoch,source,generation,0);
             DeltaReceipts newer=new DeltaReceipts(false,pdf);
             check(FleetCloudCatchUp.send(directory,epoch,source,0,newer).getLong("cursor")>older&&newer.uploads==0&&
-                    newer.manifest.getLong("afterCursor")==older&&newer.records.contains("Η πιο πρόσφατη σημείωση"),
+                    newer.manifest.getLong("afterCursor")==older&&new JSONObject(newer.change("history",machineId,"728014").getString("record"))
+                        .getJSONObject("data").getString("notes").equals("Η πιο πρόσφατη σημείωση"),
                     "The next batch follows the committed cursor without resending unchanged attachments");
         }
     }
@@ -112,6 +117,15 @@ final class FleetCloudMigrationChecks {
         String records="";
 
         DeltaReceipts(boolean lose,byte[] pdf) { this.lose=lose; this.pdf=pdf; }
+
+        JSONObject change(String kind,String machine,String record) throws Exception {
+            for (String line:records.split("\n")) {
+                JSONObject change=new JSONObject(line);
+                JSONArray key=change.optJSONArray("key");
+                if (key!=null&&kind.equals(key.getString(0))&&machine.equals(key.getString(1))&&record.equals(key.getString(2))) return change;
+            }
+            throw new AssertionError("Expected Fleet record is missing from the transfer");
+        }
 
         @Override public JSONObject putFile(String sha,String type,long size,InputStream input) throws Exception {
             ByteArrayOutputStream bytes=new ByteArrayOutputStream();
