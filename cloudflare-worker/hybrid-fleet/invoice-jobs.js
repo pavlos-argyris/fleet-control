@@ -250,7 +250,7 @@ async function applyInvoice(env,row,job,target,read) {
   // and completing the lease all happen in a single transaction.
   const data=stableReviewJson({...invoice,qrValue:job.qrValue,name:number+'.pdf',contentType:'application/pdf',
     size:pdf.length,sha256:sha,sourcePhotoKey:job.sourceKey,sourceSha256:job.sourceSha256,reviewedAt:now,
-    targetedOperationId:job.explicitId,legacyOperationId:job.sourceId});
+    targetedOperationId:job.explicitId,legacyOperationId:job.sourceId,legacySource:job.source});
   const identities=JSON.stringify(identity),time=Date.now();
   const [saved]=await db.batch([
     db.prepare(`INSERT INTO fleet_mutations(operation_id,fingerprint,kind,machine_id,record_id,service_id,revision,deleted,data,committed_at)

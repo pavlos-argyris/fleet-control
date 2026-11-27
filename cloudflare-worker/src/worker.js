@@ -386,8 +386,6 @@ async function decideTargetedInvoiceRead(env, bike, entry, attachment, read, pro
     qrUrl:attachment.qrUrl,supplier:read.supplier,invoiceNumber:read.invoiceNumber,excludeKey:attachment.sourcePhoto?.key||'',includeArchived:true
   });
   if (duplicates.length) return {rejection:{status:409,error:'Το παραστατικό έχει ήδη καταχωρηθεί. Οι υπάρχουσες συνδέσεις διατηρούνται.'}};
-  const plate = invoicePlateKey(read.plate);
-  const km = invoiceOdometer(read.odometerKm);
   const fingerprint=await sha256(stableReviewJson(invoiceReadComparison(read,ServiceModel.cents)));
   return {automatic:false,data:{...read,
     confirmedAt:now,reviewStatus:'confirmed',reviewedBy:targeted.requestedBy,
@@ -397,9 +395,16 @@ async function decideTargetedInvoiceRead(env, bike, entry, attachment, read, pro
     lastReadCanonicalFingerprint:fingerprint,acknowledgedReadCanonicalFingerprint:fingerprint,
     qrUrl:attachment.qrUrl,qrJobId:attachment.renderJobId,qrProcessingStatus:'completed',qrProcessingProgress:'100',
     qrProcessingStage:'Ολοκληρώθηκε',qrProcessingUpdatedAt:now,
+    ...keepTargetedInvoiceService(bike,entry,read)
+  }};
+}
+
+export function keepTargetedInvoiceService(bike,entry,read) {
+  const plate=invoicePlateKey(read.plate),km=invoiceOdometer(read.odometerKm);
+  return {
     ...(plate?{plateResolution:'kept-current',plateResolutionBikeId:String(bike.id),plateResolutionPlate:invoicePlateKey(bike.name),plateResolutionRead:plate}:{}),
     ...(km?{mileageResolution:'keep',mileageResolutionEntryId:String(entry.id),mileageResolutionRead:String(km),mileageResolutionServiceKm:String(entry.km)}:{})
-  }};
+  };
 }
 
 function mergeServiceQrMetadata(entry, qrValue, qrUrl, processing) {

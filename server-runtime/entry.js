@@ -7,6 +7,7 @@ import {FEATURE_SCHEMA,routeFeatures} from './features.js';
 import {bindFileSecurity} from './security.js';
 import {routeStandalone,DIRECT_ADMIN_SCHEMA} from './standalone.js';
 import {beginSharedReads,finishSharedReads} from './shared-reads.js';
+import {restoreFleetCloudInvoice} from './fleet-cloud-invoice.js';
 const native=globalThis.FleetHost;
 const bucket={
   async put(key,value,metadata={}){return native('objects.put',{key,ref:value?.__file?value.ref:null,hex:value?.__file?null:hex(await new Response(value).arrayBuffer()),metadata});},
@@ -41,6 +42,9 @@ globalThis.__fleetRequest=function(serialized){
     globalThis.__fleetPrincipal=await bindFileSecurity(authorizationRequest,environment);
     const form={};for(const [key,item]of Object.entries(value.form||{}))form[key]=item&&typeof item==='object'&&item.ref?native('file.stat',{ref:item.ref}):item;
     const body=value.bodyFile?new NativeFile(native('file.stat',{ref:value.bodyFile})):value.body;
+    if(value.internal===true&&value.fleetCloudReceipt===true&&environment.STANDALONE&&url.pathname==='/api/server/fleet-cloud/invoice'&&value.method==='PUT') {
+      return restoreFleetCloudInvoice(environment,form.mutation,body);
+    }
     const request=new Request(value.url,{method:value.method,headers,body,form});
     request.localInternal=value.internal===true;
     const operation=value.internal?{}:await beginOperation(request,environment,form);if(operation.response)return operation.response;

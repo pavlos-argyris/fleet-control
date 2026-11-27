@@ -1,5 +1,6 @@
 package gr.argyrismitsos.fleetdirect;
 
+import android.content.Context;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sqlite.database.sqlite.SQLiteDatabase;
@@ -16,6 +17,24 @@ import java.util.Set;
 /** Exercises the compiled transfer and replica code on Android's bundled SQLite. */
 final class FleetCloudMigrationChecks {
     private FleetCloudMigrationChecks() { }
+
+    static void checkFleetCloudInvoiceWriter(Context context, File cache, JSONObject config) throws Exception {
+        File directory=new File(cache,"fleet-cloud-working-copy");
+        check(directory.mkdirs(),"Open a separate SQLite database for the active schema");
+        String code=IndependentRuntime.asset(context,"business-runtime/runtime.js");
+        String hash=new JSONObject(IndependentRuntime.asset(context,"business-runtime/manifest.json")).getString("bundleSha256");
+        try (SQLiteDatabase database=SQLiteDatabase.openDatabase(new File(directory,"direct.db").getPath(),null,SQLiteDatabase.CREATE_IF_NECESSARY);
+             NativeBusinessEngine engine=new NativeBusinessEngine(database,new File(directory,"objects"),new File(directory,"transfers"),
+                     config,code,hash,new NativeBusinessEngine.Authority(){
+                 public void beforeRequest(JSONObject request,boolean internal) { }
+                 public void beforeCommit(JSONObject response,boolean internal) { }
+             },(command,value,objects)->{
+                 if (command.equals("health.snapshot")) return new JSONObject();
+                 throw new IOException("Unexpected outbound FleetCloud test capability");
+             })) {
+            FleetCloudInvoiceChecks.run(engine,database,directory,config.getString("realm"));
+        }
+    }
 
     static void checkFleetBaselineScope(SQLiteDatabase db,String generation) throws Exception {
         String shiftId="shift-private-fixture-workforce-id";

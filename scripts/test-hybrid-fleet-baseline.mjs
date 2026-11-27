@@ -377,8 +377,11 @@ try {
   assert.equal(updated.length,3);
   for (const invoice of updated) {
     assert.equal(invoice.kind,'invoice');
+    assert.match(invoice.operationId,/^invoice:[a-f0-9]{64}$/);
     assert.equal(invoice.machineId,machineId);
     assert.equal(invoice.serviceId,invoice.data.qrUrl===job.qrValue?serviceId:secondServiceId);
+    assert.equal(invoice.data.legacySource,invoice.data.qrUrl===manual.qrValue?'targeted-scan':
+      invoice.data.qrUrl===job.qrValue?'legacy-operation':'service-history');
     assert.equal(invoice.data.plate,'HTP-527');
     assert.equal(invoice.data.invoiceDate,'2026-11-25');
     assert.equal(invoice.data.odometerKm,'12456');

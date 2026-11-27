@@ -69,6 +69,11 @@ public final class BusinessObjects {
             try{copy(input,part);if(!digest(part).equals(sha))throw new IOException("Το αρχείο άλλαξε κατά την αποθήκευση.");if(!part.renameTo(target)&&!target.exists())throw new IOException("Δεν ολοκληρώθηκε η αποθήκευση του αρχείου.");}finally{part.delete();}
         }
         if(target.length()!=input.length()||!digest(target).equals(sha))throw new IOException("Δεν επαληθεύτηκε το τοπικό αρχείο τιμολογίου.");
+        if(key.startsWith("service-documents/fleet-cloud/")){
+            try(java.nio.channels.FileChannel directory=java.nio.channels.FileChannel.open(documents.toPath(),java.nio.file.StandardOpenOption.READ)){
+                directory.force(true);
+            }
+        }
         String now=new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX",Locale.US).format(new Date());
         db.execSQL("INSERT INTO native_objects(key,local_name,name,content_type,size,sha256,http_metadata,custom_metadata,updated_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL) ON CONFLICT(key) DO UPDATE SET local_name=excluded.local_name,name=excluded.name,content_type=excluded.content_type,size=excluded.size,sha256=excluded.sha256,http_metadata=excluded.http_metadata,custom_metadata=excluded.custom_metadata,updated_at=excluded.updated_at,deleted_at=NULL",new Object[]{key,local,clean(name,240),type,input.length(),sha,http.toString(),custom.toString(),now});
         return new JSONObject().put("key",key).put("size",input.length()).put("etag",sha);

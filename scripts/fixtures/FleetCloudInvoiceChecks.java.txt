@@ -1,0 +1,190 @@
+package gr.argyrismitsos.fleetserver;
+
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+/** Exercises the private receipt against the real bundled business runtime. */
+final class FleetCloudInvoiceChecks {
+    private static final String PATH="/api/server/fleet-cloud/invoice";
+    private static final String EPOCH="1234567890abcdef1234567890abcdef";
+    private static final String MACHINE="Μηχανή / 7", SERVICE="728013";
+    private static final String JOB="synthetic-original-render-job", QR="https://invoice.fixture.invalid/original";
+    private static final String TARGETED="synthetic-targeted-service-job";
+    private static final String PHOTO_KEY="service-documents/synthetic-recovery.jpg";
+    private static final String NUMBER="ΤΔΑ0000123", ISSUER="ΣΥΝΘΕΤΙΚΟ ΣΥΝΕΡΓΕΙΟ";
+    private FleetCloudInvoiceChecks() { }
+
+    static void run(NativeBusinessEngine engine, SQLiteDatabase db, File directory, String realm) throws Exception {
+        check(engine.request(request(realm,"/api/status","GET"),false,30000).getInt("status")==200,"Fixture schema");
+        File original=new File(directory,"synthetic-photo.jpg");
+        Files.write(original.toPath(),new byte[]{1,2,3,4,5});
+        BusinessObjects objects=new BusinessObjects(db,new File(directory,"objects"),new File(directory,"transfers"));
+        objects.storeObject(PHOTO_KEY,original,new JSONObject().put("httpMetadata",new JSONObject().put("contentType","image/jpeg")));
+        JSONObject photo=new JSONObject().put("id","original-photo").put("key",PHOTO_KEY).put("name","original.jpg")
+                .put("contentType","image/jpeg").put("size",original.length()).put("qrUrl",QR);
+        JSONObject service=new JSONObject().put("id",728013).put("type","service").put("date","2026-11-21")
+                .put("createdAt","2026-11-20T12:00:00Z").put("updatedAt","2026-11-21T12:00:00Z").put("km",9300)
+                .put("notes","Ιστορικές σημειώσεις").put("tasks",new JSONArray().put("Αλλαγή λαδιών").put("Έλεγχος φρένων"))
+                .put("workshop","Τοπικό συνεργείο").put("oilChanged",true).put("cost","30,00")
+                .put("attachments",new JSONArray().put(photo))
+                .put("invoiceData",new JSONObject().put("qrJobId",JOB).put("qrUrl",QR).put("qrProcessingStatus","error"));
+        JSONObject otherMachine=new JSONObject().put("id","another-bike").put("name","ΑΛΛ 321")
+                .put("history",new JSONArray().put(new JSONObject().put("id",728013).put("type","service")
+                        .put("date","2026-11-22").put("km",9400).put("notes","Σημείωση δεύτερου σέρβις")));
+        JSONObject data=new JSONObject().put("bikes",new JSONArray().put(new JSONObject().put("id",MACHINE)
+                .put("name","ΗΤΡ 527").put("history",new JSONArray().put(service))).put(otherMachine)).put("cashFixture","only local");
+        db.execSQL("UPDATE fleet_snapshot SET data=? WHERE id=1",new Object[]{data.toString()});
+        JSONObject input=new JSONObject().put("bikeId",MACHINE).put("entryId",728013).put("qrUrl",QR)
+                .put("sourcePhotoKey",PHOTO_KEY).put("targetedOperationId",TARGETED);
+        db.execSQL("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) "+
+                "VALUES (?,'fixture','service_document_render',?,'error','2026-11-21')",new Object[]{JOB,input.toString()});
+
+        File pdf=new File(directory,"synthetic.pdf");
+        Files.write(pdf.toPath(),"%PDF-1.4\nSynthetic Fleet invoice\n%%EOF".getBytes(StandardCharsets.UTF_8));
+        JSONObject mutation=mutation(pdf,MACHINE,"legacy-operation",JOB,TARGETED,QR);
+        mutation.getJSONObject("change").getJSONObject("data").put("sourcePhotoKey",PHOTO_KEY)
+                .put("sourceSha256",BusinessRuntime.sha256(Files.readAllBytes(original.toPath())));
+        String unchanged=scalar(db,"SELECT data FROM fleet_snapshot WHERE id=1");
+        check(engine.request(request(realm,PATH,"PUT").put("internal",true),false,30000).getInt("status")==403,
+                "External caller cannot access the native receipt route");
+        File bad=new File(directory,"invalid-fixture.pdf");
+        Files.write(bad.toPath(),"Invalid PDF".getBytes(StandardCharsets.UTF_8));
+        check(reason(apply(engine,realm,mutation,bad)).equals("invoice_journal_invalid"),"Reject a different PDF digest");
+        db.execSQL("CREATE TRIGGER test_fleet_cloud_rollback BEFORE UPDATE ON fleet_operations "+
+                "WHEN NEW.status='applied' BEGIN SELECT RAISE(ABORT,'synthetic interrupted invoice'); END");
+        try {
+            check(apply(engine,realm,mutation,pdf).getInt("status")==500,"Failure after attachment staging returns a retryable error");
+            check(scalar(db,"SELECT data FROM fleet_snapshot WHERE id=1").equals(unchanged)&&
+                    scalar(db,"SELECT status FROM fleet_operations WHERE id='"+JOB+"'").equals("error")&&
+                    scalar(db,"SELECT count(*) FROM native_objects").equals("1")&&
+                    scalar(db,"SELECT count(*) FROM idempotency_keys WHERE user_id='fleet-cloud-invoice'").equals("0"),
+                    "Content, invoice receipt, original and failed legacy job roll back together");
+        } finally { db.execSQL("DROP TRIGGER test_fleet_cloud_rollback"); }
+
+        ExecutorService attempts=Executors.newFixedThreadPool(2);
+        try {
+            Future<JSONObject> first=attempts.submit(()->apply(engine,realm,mutation,pdf));
+            Future<JSONObject> second=attempts.submit(()->apply(engine,realm,mutation,pdf));
+            JSONObject one=first.get(),two=second.get();
+            check(one.getInt("status")==200&&two.getInt("status")==200,"Concurrent attempts both acknowledge: "+one+" "+two);
+            check(body(one).optBoolean("reused")!=body(two).optBoolean("reused"),"Only one attempt applies within the native transaction");
+        } finally { attempts.shutdownNow(); }
+        JSONObject after=new JSONObject(scalar(db,"SELECT data FROM fleet_snapshot WHERE id=1"));
+        JSONObject saved=after.getJSONArray("bikes").getJSONObject(0).getJSONArray("history").getJSONObject(0);
+        JSONObject file=saved.getJSONArray("attachments").getJSONObject(0), ocr=file.getJSONObject("ocr");
+        check(saved.getJSONArray("attachments").length()==1&&file.getJSONObject("sourcePhoto").getString("key").equals(PHOTO_KEY)&&
+                ocr.getString("totalAmount").equals("124,00")&&ocr.getString("invoiceDate").equals("2026-10-28")&&
+                ocr.has("confirmedAt"),"Exactly one confirmed PDF retains its original photograph and parsed data");
+        check(ocr.getString("plateResolution").equals("kept-current")&&ocr.getString("mileageResolution").equals("keep")&&
+                ocr.getString("odometerKm").equals("9000"),"A targeted scan keeps documented mismatches away from warnings and service data");
+        check(scalar(db,"SELECT sha256 FROM native_objects WHERE content_type='application/pdf'")
+                .equals(BusinessRuntime.sha256(Files.readAllBytes(pdf.toPath())))&&
+                scalar(db,"SELECT status FROM fleet_operations WHERE id='"+JOB+"'").equals("applied"),
+                "PDF and legacy completion are committed together");
+        check(saved.getJSONObject("invoiceData").getString("qrProcessingStatus").equals("completed"),"Visible legacy failure is cleared");
+        for (String key:new String[]{"id","type","km","date","createdAt","updatedAt","notes","tasks","workshop","oilChanged","cost"}) {
+            check(service.get(key).toString().equals(saved.get(key).toString()),"Preserved service field "+key);
+        }
+        check(after.getJSONArray("bikes").getJSONObject(1).toString().equals(otherMachine.toString())&&
+                after.getString("cashFixture").equals("only local"),"The other bike with the same service ID and unrelated data are unchanged");
+        JSONObject conflicting=new JSONObject(mutation.toString());
+        conflicting.getJSONObject("change").put("machineId","another-bike");
+        check(reason(apply(engine,realm,conflicting,pdf)).equals("invoice_operation_conflict"),"A reused operation cannot change target");
+
+        File otherPdf=new File(directory,"synthetic-different.pdf");
+        Files.write(otherPdf.toPath(),"%PDF-1.4\nSecond export\n%%EOF".getBytes(StandardCharsets.UTF_8));
+        JSONObject duplicate=mutation(otherPdf,"another-bike","targeted-scan","second-synthetic-scan","second-synthetic-scan",
+                "https://invoice.fixture.invalid/another");
+        check(reason(apply(engine,realm,duplicate,otherPdf)).equals("invoice_possible_duplicate"),
+                "The same fiscal identity with a different QR and PDF cannot post to another service");
+        check(scalar(db,"SELECT count(*) FROM audit_log WHERE action='fleet_cloud_invoice_restored'").equals("1"),
+                "One recognized fiscal document produced one audit entry");
+        JSONObject gone=mutation(otherPdf,"missing-bike","targeted-scan","third-synthetic-scan","third-synthetic-scan",
+                "https://invoice.fixture.invalid/unknown");
+        check(reason(apply(engine,realm,gone,otherPdf)).equals("invoice_target_missing"),"Ambiguous or missing target requires review");
+        check(body(apply(engine,realm,mutation,pdf)).optBoolean("reused"),"Later replay returns the durable original receipt");
+        JSONObject newScan=mutation(otherPdf,"another-bike","targeted-scan","fresh-synthetic-scan","fresh-synthetic-scan",
+                "https://invoice.fixture.invalid/fresh");
+        changeInvoiceNumber(newScan,"ΤΔΑ0000934");
+        JSONObject freshlySaved=apply(engine,realm,newScan,otherPdf);
+        check(freshlySaved.getInt("status")==200,"A distinct new invoice attaches to the exact selected service: "+freshlySaved);
+        check(body(freshlySaved).getJSONObject("document").getString("bikeId").equals("another-bike")&&
+                scalar(db,"SELECT count(*) FROM native_objects WHERE content_type='application/pdf'").equals("2"),
+                "Both distinct documents are available once, on their original services");
+        checkRecoveredJob(engine,db,directory,realm);
+        System.out.println("PASS private Cloud invoice receipt, exact original service and files, atomic rollback, legacy completion, concurrent replay and fiscal collision");
+    }
+
+    private static void checkRecoveredJob(NativeBusinessEngine engine,SQLiteDatabase db,File directory,String realm) throws Exception {
+        String id="legacy-synthetic-truncated-job", full="Μηχανή με πλήρες αναγνωριστικό";
+        String qr="https://invoice.fixture.invalid/legacy";
+        JSONObject entry=new JSONObject().put("id",728013).put("type","service").put("km",9000).put("date","2026-10-28")
+                .put("invoiceData",new JSONObject().put("qrJobId",id).put("qrUrl",qr).put("qrProcessingStatus","error"));
+        JSONObject bike=new JSONObject().put("id",full).put("name","ΒΤΟ 756").put("history",new JSONArray().put(entry));
+        db.execSQL("UPDATE fleet_snapshot SET data=json_insert(data,'$.bikes[#]',json(?)) WHERE id=1",new Object[]{bike.toString()});
+        JSONObject original=new JSONObject().put("bikeId","Μηχανή με πλήρες").put("entryId",728013).put("qrUrl",qr);
+        db.execSQL("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) "+
+                "VALUES (?,'fixture','service_document_render',?,'error','2026-10-28')",new Object[]{id,original.toString()});
+        File pdf=new File(directory,"legacy-service-recovery.pdf");
+        Files.write(pdf.toPath(),"%PDF-1.4\nSynthetic repaired identity\n%%EOF".getBytes(StandardCharsets.UTF_8));
+        JSONObject mutation=mutation(pdf,full,"legacy-operation",id,"",qr);
+        changeInvoiceNumber(mutation,"ΤΔΑ0000935");
+        JSONObject response=apply(engine,realm,mutation,pdf);
+        check(response.getInt("status")==200,"A unique old QR and job receipt confirms the repaired pair: "+response);
+        check(body(response).getJSONObject("document").getString("bikeId").equals(full)&&
+                scalar(db,"SELECT status FROM fleet_operations WHERE id='"+id+"'").equals("applied"),
+                "The recovered legacy job keeps the complete machine and service identities");
+    }
+
+    private static void changeInvoiceNumber(JSONObject mutation,String number) throws Exception {
+        JSONObject invoice=mutation.getJSONObject("change").getJSONObject("data");
+        invoice.put("invoiceNumber",number).put("rawText",invoice.getString("rawText").replace(NUMBER,number));
+    }
+
+    private static JSONObject mutation(File pdf,String machine,String source,String sourceId,String targeted,String qr) throws Exception {
+        String proof=String.join("\n","Προμηθευτής: "+ISSUER,"Είδος Παραστατικού Αριθμός Ημερομηνία Έκδοσης",
+                "Τιμολόγιο "+NUMBER+" 28/10/2026","Κωδικός Περιγραφή Ποσότητα Τιμή Αξία",
+                "L0000000001 Εργασία 1 1,00 Τεμάχια 8,07","L0000000002 Εργασία 2 1,00 Τεμάχια 8,07",
+                "Συνέχεια περιγραφής ανταλλακτικού","Εκπτώσεις/Χρεώσεις","Σύνολο Καθαρού Ποσού 100,00",
+                "Σύνολο Φ.Π.Α 24,00","Συνολική Αξία 124,00","Σύνολο γραμμών 2","Σχόλια","ΒΤΟ 756","9000");
+        String sha=BusinessRuntime.sha256(Files.readAllBytes(pdf.toPath()));
+        String operation=source.equals("targeted-scan")?targeted:"legacy:"+hash(new JSONArray().put(source).put(sourceId).toString());
+        JSONObject invoice=new JSONObject().put("sha256",sha).put("size",pdf.length()).put("contentType","application/pdf")
+                .put("qrUrl",qr).put("qrValue",qr).put("legacyOperationId",sourceId).put("legacySource",source)
+                .put("targetedOperationId",targeted).put("sourcePhotoKey","").put("sourceSha256","")
+                .put("invoiceDate","2026-10-28").put("invoiceNumber",NUMBER).put("supplier",ISSUER).put("plate","BTO-756")
+                .put("odometerKm","9000").put("netAmount","100,00").put("vatAmount","24,00").put("totalAmount","124,00").put("rawText",proof)
+                .put("lineItems",new JSONArray().put("Εργασία 1").put("Εργασία 2 Συνέχεια περιγραφής ανταλλακτικού"));
+        JSONObject change=new JSONObject().put("cursor",8).put("kind","invoice").put("operationId","invoice:"+hash(operation))
+                .put("machineId",machine).put("recordId","pdf:"+sha).put("serviceId",SERVICE)
+                .put("revision",1).put("deleted",false).put("data",invoice);
+        return new JSONObject().put("epoch",EPOCH).put("change",change);
+    }
+
+    private static String hash(String text) throws Exception { return BusinessRuntime.sha256(text.getBytes(StandardCharsets.UTF_8)); }
+    private static JSONObject request(String realm,String path,String method) throws Exception {
+        return new JSONObject().put("url",realm+path).put("method",method).put("headers",new JSONObject());
+    }
+    private static JSONObject apply(NativeBusinessEngine engine,String realm,JSONObject mutation,File pdf) throws Exception {
+        return engine.applyFleetCloudInvoice(realm,mutation,pdf);
+    }
+    private static JSONObject body(JSONObject response) throws Exception { return new JSONObject(response.getString("body")); }
+    private static String reason(JSONObject response) throws Exception {
+        check(response.getInt("status")==409,"Expected a review receipt: "+response);
+        return body(response).getString("reason");
+    }
+    private static String scalar(SQLiteDatabase db,String sql) {
+        Cursor row=db.rawQuery(sql,null);
+        try { if (!row.moveToFirst()) throw new AssertionError(sql); return row.getString(0); }
+        finally { row.close(); }
+    }
+    private static void check(boolean valid,String message) { if (!valid) throw new AssertionError(message); }
+}

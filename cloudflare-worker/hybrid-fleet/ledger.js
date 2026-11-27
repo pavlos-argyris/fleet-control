@@ -40,7 +40,7 @@ export async function sha256(value) {
 
 async function mutation(input) {
   const { operationId, kind, machineId, recordId, serviceId = '', expectedRevision, deleted, data } = input ?? {};
-  if (!validOperationId(operationId) || !Object.hasOwn(kinds, kind) ||
+  if (!validOperationId(operationId) || /^(?:baseline|invoice):/.test(operationId) || !Object.hasOwn(kinds, kind) ||
       !validFleetRecordId(machineId) || !validFleetRecordId(recordId) || !isInteger(expectedRevision) || expectedRevision >= Number.MAX_SAFE_INTEGER ||
       typeof deleted !== 'boolean' || (kind === 'machine' && machineId !== recordId) ||
       (kind === 'invoice' ? !validFleetRecordId(serviceId) : serviceId !== '')) throw fleetError(400,'invalid_mutation');

@@ -22,7 +22,7 @@ if unified:
             text=text.replace('IndependentSqlite.requireReady();','IndependentSqlite.requireReady();UnifiedNativeChecks.checkFreshDashboard(base,target);',1)
             schema_check='                check(request(engine,"/api/status","GET",null,null,false).getInt("status")==200,"Actual Rhino engine creates full schema on Android");'
             assert text.count(schema_check)==1
-            text=text.replace(schema_check,schema_check+'\n                FleetCloudMigrationChecks.checkFleetBaselineScope(db,GENERATION);\n                FleetCloudMigrationChecks.checkFleetReplica(source.getCacheDir());')
+            text=text.replace(schema_check,schema_check+'\n                FleetCloudMigrationChecks.checkFleetBaselineScope(db,GENERATION);\n                FleetCloudMigrationChecks.checkFleetReplica(source.getCacheDir());\n                FleetCloudMigrationChecks.checkFleetCloudInvoiceWriter(target,source.getCacheDir(),config);')
             start=text.index('        // Real Activity lifecycle/preferences notification')
             end=text.index('\n    private static Object readField',start)
             text=text[:start]+'''        check(base.getSharedPreferences("issue95_sentinel",0).getString("keep","").equals("cloud-preserved"),"Direct restore preserves unscoped Cloud preferences");
@@ -34,6 +34,9 @@ if unified:
         (fixtures/source.name).write_text(text)
     for source in (root/'scripts/fixtures/android-unified').glob('*.java'):
         (fixtures/source.name).write_text(source.read_text())
+    cloud_invoice_fixture=(root/'scripts/fixtures/FleetCloudInvoiceChecks.java.txt').read_text()
+    (fixtures/'FleetCloudInvoiceChecks.java').write_text(cloud_invoice_fixture.replace(
+        'gr.argyrismitsos.fleetserver','gr.argyrismitsos.fleetdirect').replace('android.database.sqlite.','org.sqlite.database.sqlite.'))
 classes = out / 'classes'
 classes.mkdir(exist_ok=True)
 classpath = os.pathsep.join(map(str, [android, program, sqlite]))

@@ -89,6 +89,8 @@ try {
   expect(await push([make('private',{data:{name:'Synthetic',employeeId:'fixture'}})]),400);
   expect(await push([make(legacyMachineId+' ')]),400);
   expect(await push([make(legacyMachineId,{operationId:'invalid ταυτότητα'})]),400);
+  expect(await push([make(legacyMachineId,{operationId:'invoice:'+'a'.repeat(64)})]),400);
+  expect(await push([make(legacyMachineId,{operationId:'baseline:'+'a'.repeat(64)})]),400);
   expect(await push([make('private',{data:{name:'Synthetic',notes:'x'.repeat(200000)}})]),413);
   const first = sources[0];
   const service=make(first.machineId,{kind:'service',recordId:legacyServiceId,
