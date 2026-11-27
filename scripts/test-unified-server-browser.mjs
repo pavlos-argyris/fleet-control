@@ -16,7 +16,8 @@ try{for(const directOnly of [true,false])for(const mode of ['cloudflare','direct
         fixture.fleetCalls.push({action,value});
         if(action==='interval') minutes=value;
         window.FleetServer.onNativeEvent('fleetCloud',{ok:true,connection:'approved',approved:true,minutes,migration:'baseline_staged',replicaPendingInvoices:2,
-          sourceJournal:{verified:true,cursor:17,pending:2},
+          sourceJournal:{verified:true,cursor:17,pending:2,acknowledgedCursor:13,lastAcknowledgedAt:1795798800000},
+          sourceProgress:{cursor:13,state:'indexed',indexedCursor:13,rows:3},
           baselineProgress:{archive:'staged',projection:{state:'verified'},ledger:{state:'ready'},invoiceImport:{state:'ready'},
             invoices:{queued:1,running:2,review:4}}});
       };
@@ -48,13 +49,18 @@ try{for(const directOnly of [true,false])for(const mode of ['cloudflare','direct
     await page.locator('#settingsFleetCloud > summary').click();
     await page.locator('#fleetCloudMigration').filter({hasText:/σε αναμονή επεξεργασίας 3, για έλεγχο 4/}).waitFor();
     assert.match(await page.locator('#fleetCloudMigration').innerText(),/Επαληθευμένα PDF σε αναμονή δοκιμαστικής καταχώρισης 2/);
-    assert.match(await page.locator('#fleetCloudMigration').innerText(),/Τοπικές εγγραφές μετά την απογραφή 2/);
+    const migration=await page.locator('#fleetCloudMigration').innerText();
+    assert.match(migration,/Τοπικές εγγραφές σε αναμονή αποστολής 2/);
+    assert.match(migration,/Τελευταία επιβεβαιωμένη αποστολή/);
+    assert.match(migration,/Επαληθεύτηκαν οι αλλαγές στο δοκιμαστικό αντίγραφο/);
     assert.equal(await page.locator('#fleetCloudMinutes').inputValue(),'15');
     await page.locator('#fleetCloudMinutes').selectOption('1440');
     assert.deepEqual(await page.evaluate(()=>fixture.fleetCalls.at(-1)),{action:'interval',value:1440});
     await page.evaluate(()=>FleetServer.onNativeEvent('fleetCloud',{ok:true,connection:'approved',approved:true,minutes:1440,
-      migration:'baseline_staged',baselineProgress:{archive:'staged',projection:{state:'blocked',reason:'baseline_document_missing'}}}));
+      migration:'baseline_staged',baselineProgress:{archive:'staged',projection:{state:'blocked',reason:'baseline_document_missing'}},
+      sourceProgress:{cursor:17,state:'blocked',indexedCursor:13,reason:'source_delta_record_conflict'}}));
     assert.match(await page.locator('#fleetCloudMigration').innerText(),/Λείπει συνημμένο από την απογραφή/);
+    assert.match(await page.locator('#fleetCloudMigration').innerText(),/χρειάζονται έλεγχο λόγω ασυμφωνίας/);
   }
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'new controls fit '+width);assert.deepEqual(errors,[]);
   await page.screenshot({path:path.join(out,(directOnly?'direct-only':mode)+'-settings-'+width+'.png'),fullPage:true});await context.close();
