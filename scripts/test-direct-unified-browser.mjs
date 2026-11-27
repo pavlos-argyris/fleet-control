@@ -139,7 +139,10 @@ try{for(const width of [390,1280]){
     assert.equal(await page.locator('#fleetModuleFrame').getAttribute('src'),null);
     const fleet=page.locator('#bottomNav [data-go="fleet"]');if(await fleet.isVisible())await fleet.click();else await page.locator('#sideNav [data-go="fleet"]').click();
     const embedded=page.frameLocator('#fleetModuleFrame');await embedded.locator('#bikeCount').filter({hasText:'29'}).waitFor();
-    assert.equal(requests.filter(p=>p.includes('view=cards')).length,1,'Fleet reuses the warm card request');
+    // The iframe's first live-ready event can check the revision before this assertion runs.
+    const cardReads=requests.filter(p=>p.includes('view=cards'));
+    const versionCheck='/api/sync?paged=1&view=cards&sinceVersion='+fleetRevision;
+    assert.deepEqual(cardReads.filter(p=>p!==versionCheck),prefetches,'Fleet reuses the warm card response and checks only its current revision');
     assert.ok(!requests.includes('/api/workforce/vehicles') && !requests.includes('/api/admin/vehicles/archived'),'closed fleet tools have not loaded');
     assert.equal(await embedded.locator('#fleetLoadNotice').isHidden(),true,'complete same-origin Fleet read clears the loading state even beyond synchronous browser cache capacity');assert.equal(await embedded.locator('.bike-card').count(),29);assert(JSON.stringify(bikes).length>5_000_000,'real Chromium fixture uses multi-megabyte service history');
     await embedded.locator('#qrAttentionBanner').filter({hasText:'2 τιμολόγια'}).waitFor();
