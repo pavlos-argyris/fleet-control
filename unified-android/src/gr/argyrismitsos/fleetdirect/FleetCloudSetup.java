@@ -262,7 +262,8 @@ final class FleetCloudSetup {
         long now=System.currentTimeMillis();
         state.put("replicaPending",progress==null||progress.optBoolean("hasMore"));
         if (progress!=null) {
-            state.put("replicaCursor",progress.getLong("cursor")).put("lastReplicaAt",now);
+            state.put("replicaCursor",progress.getLong("cursor")).put("lastReplicaAt",now)
+                    .put("replicaPendingInvoices",progress.getInt("pendingInvoices"));
             if (!progress.optBoolean("hasMore")) state.put("nextReplayAt",now+state.optInt("minutes",DEFAULT_MINUTES)*60000L);
         }
         SealedLocalState.write(context,STORE,KEY,state);
@@ -316,6 +317,7 @@ final class FleetCloudSetup {
                 .put("backupVerifiedAt",state.optLong("backupVerifiedAt")).put("baselineStagedAt",state.optLong("baselineStagedAt"))
                 .put("lastReplicaAt",state.optLong("lastReplicaAt")).put("replicaCursor",state.optLong("replicaCursor"))
                 .put("replicaPending",state.optBoolean("replicaPending"))
+                .put("replicaPendingInvoices",state.optInt("replicaPendingInvoices"))
                 .put("baselineProgress",state.optJSONObject("baselineProgress"));
     }
 

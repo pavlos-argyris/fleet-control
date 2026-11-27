@@ -32,7 +32,45 @@ final class FleetCloudMigrationChecks {
                  if (command.equals("health.snapshot")) return new JSONObject();
                  throw new IOException("Unexpected outbound FleetCloud test capability");
              })) {
-            FleetCloudInvoiceChecks.run(engine,database,directory,config.getString("realm"));
+            String realm=config.getString("realm");
+            JSONArray receipts=FleetCloudInvoiceChecks.run(engine,database,directory,realm);
+            checkInvoiceDelivery(directory,engine,realm,receipts);
+        }
+    }
+
+    private static void checkInvoiceDelivery(File directory,NativeBusinessEngine engine,String realm,JSONArray receipts) throws Exception {
+        JSONObject valid=receipts.getJSONObject(0),missing=receipts.getJSONObject(1);
+        String epoch=valid.getString("epoch");
+        JSONObject applied=valid.getJSONObject("change"),review=missing.getJSONObject("change").put("cursor",9);
+        JSONObject baseline=new JSONObject(applied.toString()).put("cursor",10).put("recordId","previous-confirmed-document")
+                .put("operationId","baseline:synthetic-confirmed-attachment");
+        JSONObject page=new JSONObject().put("epoch",epoch).put("hasMore",false).put("nextCursor",10)
+                .put("changes",new JSONArray().put(applied).put(review).put(baseline));
+        File replica=new File(directory,"journal.db"),documents=new File(directory,"replica-documents");
+        byte[] bytes=Files.readAllBytes(new File(directory,"synthetic-different.pdf").toPath());
+        try (SQLiteDatabase stored=SQLiteDatabase.openDatabase(replica.getPath(),null,SQLiteDatabase.CREATE_IF_NECESSARY)) {
+            FleetCloudReplica.initialize(stored,epoch);
+            FleetCloudReplica.apply(stored,epoch,0,page,documents,(sha,size,output)->output.write(bytes));
+            check(IndependentSqlite.text(stored,"SELECT cursor FROM fleet_cloud_checkpoint").equals("10")&&
+                    IndependentSqlite.text(stored,"SELECT count(*) FROM fleet_cloud_invoice_delivery WHERE status='pending'").equals("2"),
+                    "The same transaction keeps the journal and both delivery receipts, with the original confirmed file skipped");
+            try {
+                FleetCloudReplica.deliverInvoices(stored,epoch,documents,(mutation,pdf)->{
+                    JSONObject receipt=engine.applyFleetCloudInvoice(realm,mutation,pdf);
+                    check(new JSONObject(receipt.getString("body")).optBoolean("reused"),"Direct received the original operation");
+                    throw new java.io.InterruptedIOException("lost replication receipt");
+                });
+                throw new AssertionError("A lost acknowledgement was treated as a completed delivery");
+            } catch (java.io.InterruptedIOException expected) { }
+        }
+        try (SQLiteDatabase stored=SQLiteDatabase.openDatabase(replica.getPath(),null,SQLiteDatabase.OPEN_READWRITE)) {
+            check(FleetCloudReplica.deliverInvoices(stored,epoch,documents,(mutation,pdf)->engine.applyFleetCloudInvoice(realm,mutation,pdf))==2,
+                    "Resume delivery after the receiver committed and the sender missed the response");
+            check(IndependentSqlite.text(stored,"SELECT count(*) FROM fleet_cloud_invoice_delivery WHERE status='applied'").equals("1")&&
+                    IndependentSqlite.text(stored,"SELECT reason FROM fleet_cloud_invoice_delivery WHERE status='review'").equals("invoice_target_missing"),
+                    "Safe replay records the confirmation and retains the unverified target and its specific reason");
+            check(FleetCloudReplica.deliverInvoices(stored,epoch,documents,(mutation,pdf)->{throw new AssertionError("A delivered invoice was repeated");})==0,
+                    "The apply loop skips confirmed and review receipts on subsequent automatic runs");
         }
     }
 

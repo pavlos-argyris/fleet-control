@@ -25,10 +25,11 @@ final class FleetCloudReplica {
 
     interface Pull { JSONObject page(long cursor) throws Exception; }
     interface DocumentPull { void copy(String sha256,long expectedSize,OutputStream output) throws Exception; }
+    interface InvoiceWriter { JSONObject apply(JSONObject journal,File pdf) throws Exception; }
 
     static JSONObject sync(Context context,String epoch,Pull pull,DocumentPull documents) throws Exception {
         if (!ScopedContext.owns(context)) throw invalidDelta();
-        File location=new File(context.getNoBackupFilesDir(),"fleet-cloud-replica.sqlite");
+        File location=new File(context.getNoBackupFilesDir(),"fleet-cloud-replica-v2.sqlite");
         File directory=new File(context.getNoBackupFilesDir(),"fleet-cloud-documents");
         try (SQLiteDatabase database=SQLiteDatabase.openDatabase(location.getPath(),null,SQLiteDatabase.CREATE_IF_NECESSARY)) {
             initialize(database,epoch);
@@ -40,7 +41,10 @@ final class FleetCloudReplica {
                 more=page.getBoolean("hasMore");
                 if (!more) break;
             }
-            return new JSONObject().put("cursor",cursor).put("hasMore",more);
+            try (Cursor pending=database.rawQuery("SELECT count(*) FROM fleet_cloud_invoice_delivery WHERE status='pending'",null)) {
+                return new JSONObject().put("cursor",cursor).put("hasMore",more)
+                        .put("pendingInvoices",pending.moveToFirst()?pending.getInt(0):0);
+            }
         }
     }
 
@@ -52,6 +56,9 @@ final class FleetCloudReplica {
             db.execSQL("CREATE TABLE IF NOT EXISTS fleet_cloud_replica(kind TEXT NOT NULL,machine_id TEXT NOT NULL,record_id TEXT NOT NULL,"+
                     "service_id TEXT NOT NULL,revision INTEGER NOT NULL,deleted INTEGER NOT NULL,data TEXT,"+
                     "PRIMARY KEY(kind,machine_id,record_id))");
+            db.execSQL("CREATE TABLE IF NOT EXISTS fleet_cloud_invoice_delivery(cursor INTEGER PRIMARY KEY,operation_id TEXT NOT NULL UNIQUE,"+
+                    "mutation TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','applied','review')),reason TEXT NOT NULL DEFAULT '')");
+            db.execSQL("CREATE INDEX IF NOT EXISTS fleet_cloud_invoice_pending ON fleet_cloud_invoice_delivery(cursor) WHERE status='pending'");
             db.execSQL("INSERT OR IGNORE INTO fleet_cloud_checkpoint(id,epoch,cursor) VALUES(1,?,0)",new Object[]{epoch});
             readCursor(db,epoch);
             db.setTransactionSuccessful();
@@ -74,6 +81,7 @@ final class FleetCloudReplica {
                 long cursor=integer(change,"cursor");
                 if (cursor<=position||cursor>next) throw invalidDelta();
                 writeRecord(db,change);
+                enqueueInvoice(db,change,cursor);
                 position=cursor;
             }
             if (position!=next) throw invalidDelta();
@@ -81,6 +89,47 @@ final class FleetCloudReplica {
             db.setTransactionSuccessful();
             return next;
         } finally { db.endTransaction(); }
+    }
+
+    private static void enqueueInvoice(SQLiteDatabase db,JSONObject change,long cursor) throws Exception {
+        String operation=change.optString("operationId");
+        if (!operation.startsWith("invoice:")) return;
+        if (!operation.matches("invoice:[a-f0-9]{64}")||!"invoice".equals(change.getString("kind"))||
+                bool(change,"deleted")||integer(change,"revision")!=1) throw invalidDelta();
+        db.execSQL("INSERT INTO fleet_cloud_invoice_delivery(cursor,operation_id,mutation) VALUES(?,?,?)",
+                new Object[]{cursor,operation,change.toString()});
+    }
+
+    /** Separate SQLite transactions are intentional. A lost acknowledgement
+     * reuses the receipt already committed by the Direct writer. */
+    static int deliverInvoices(SQLiteDatabase db,String epoch,File directory,InvoiceWriter writer) throws Exception {
+        readCursor(db,epoch);
+        JSONArray pending=new JSONArray();
+        try (Cursor rows=db.rawQuery("SELECT mutation FROM fleet_cloud_invoice_delivery WHERE status='pending' ORDER BY cursor LIMIT 4",null)) {
+            while (rows.moveToNext()) pending.put(new JSONObject(rows.getString(0)));
+        }
+        for (int i=0;i<pending.length();i++) {
+            JSONObject change=pending.getJSONObject(i);
+            JSONObject invoice=change.getJSONObject("data");
+            String sha=invoice.getString("sha256");
+            if (!sha.matches("[a-f0-9]{64}")||Files.isSymbolicLink(directory.toPath())) throw invalidDocument();
+            File pdf=new File(directory,sha);
+            if (Files.isSymbolicLink(pdf.toPath())||!matchesDocument(pdf,sha,integer(invoice,"size"))) throw invalidDocument();
+            JSONObject response=writer.apply(new JSONObject().put("epoch",epoch).put("change",change),pdf);
+            JSONObject receipt=new JSONObject(response.getString("body"));
+            int status=response.getInt("status");
+            String reason=receipt.optString("reason");
+            JSONObject saved=receipt.optJSONObject("document");
+            boolean accepted=status==200&&"applied".equals(receipt.optString("status"))&&saved!=null&&
+                    change.getString("machineId").equals(saved.optString("bikeId"))&&change.getString("serviceId").equals(saved.optString("entryId"));
+            boolean review=status==409&&"review".equals(receipt.optString("status"))&&reason.matches("invoice_[a-z_]{1,64}");
+            if (!accepted&&!review) throw new IOException("Η τοπική καταχώριση τιμολογίου δεν επιβεβαιώθηκε.");
+            db.execSQL("UPDATE fleet_cloud_invoice_delivery SET status=?,reason=? WHERE cursor=? AND operation_id=? "+
+                    "AND (status='pending' OR (status='review' AND ?='applied'))",
+                    new Object[]{accepted?"applied":"review",review?reason:"",integer(change,"cursor"),change.getString("operationId"),
+                            accepted?"applied":"review"});
+        }
+        return pending.length();
     }
 
     private static void copyInvoiceFiles(JSONArray changes,File directory,DocumentPull documents) throws Exception {

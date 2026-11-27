@@ -22,7 +22,7 @@ final class FleetCloudInvoiceChecks {
     private static final String NUMBER="ΤΔΑ0000123", ISSUER="ΣΥΝΘΕΤΙΚΟ ΣΥΝΕΡΓΕΙΟ";
     private FleetCloudInvoiceChecks() { }
 
-    static void run(NativeBusinessEngine engine, SQLiteDatabase db, File directory, String realm) throws Exception {
+    static JSONArray run(NativeBusinessEngine engine, SQLiteDatabase db, File directory, String realm) throws Exception {
         check(engine.request(request(realm,"/api/status","GET"),false,30000).getInt("status")==200,"Fixture schema");
         File original=new File(directory,"synthetic-photo.jpg");
         Files.write(original.toPath(),new byte[]{1,2,3,4,5});
@@ -121,6 +121,7 @@ final class FleetCloudInvoiceChecks {
                 "Both distinct documents are available once, on their original services");
         checkRecoveredJob(engine,db,directory,realm);
         System.out.println("PASS private Cloud invoice receipt, exact original service and files, atomic rollback, legacy completion, concurrent replay and fiscal collision");
+        return new JSONArray().put(newScan).put(gone);
     }
 
     private static void checkRecoveredJob(NativeBusinessEngine engine,SQLiteDatabase db,File directory,String realm) throws Exception {

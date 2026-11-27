@@ -15,7 +15,7 @@ try{for(const directOnly of [true,false])for(const mode of ['cloudflare','direct
       window.fixture.fleetCloud=(action,value)=>{
         fixture.fleetCalls.push({action,value});
         if(action==='interval') minutes=value;
-        window.FleetServer.onNativeEvent('fleetCloud',{ok:true,connection:'approved',approved:true,minutes,migration:'baseline_staged',
+        window.FleetServer.onNativeEvent('fleetCloud',{ok:true,connection:'approved',approved:true,minutes,migration:'baseline_staged',replicaPendingInvoices:2,
           baselineProgress:{archive:'staged',projection:{state:'verified'},ledger:{state:'ready'},invoiceImport:{state:'ready'},
             invoices:{queued:1,running:2,review:4}}});
       };
@@ -46,6 +46,7 @@ try{for(const directOnly of [true,false])for(const mode of ['cloudflare','direct
     assert.equal(await page.locator('#settingsPrimary').count(),0,'Independent mode does not offer data synchronization');
     await page.locator('#settingsFleetCloud > summary').click();
     await page.locator('#fleetCloudMigration').filter({hasText:/σε αναμονή επεξεργασίας 3, για έλεγχο 4/}).waitFor();
+    assert.match(await page.locator('#fleetCloudMigration').innerText(),/Επαληθευμένα PDF σε αναμονή δοκιμαστικής καταχώρισης 2/);
     assert.equal(await page.locator('#fleetCloudMinutes').inputValue(),'15');
     await page.locator('#fleetCloudMinutes').selectOption('1440');
     assert.deepEqual(await page.evaluate(()=>fixture.fleetCalls.at(-1)),{action:'interval',value:1440});
