@@ -34,9 +34,10 @@ if unified:
         (fixtures/source.name).write_text(text)
     for source in (root/'scripts/fixtures/android-unified').glob('*.java'):
         (fixtures/source.name).write_text(source.read_text())
-    cloud_invoice_fixture=(root/'scripts/fixtures/FleetCloudInvoiceChecks.java.txt').read_text()
-    (fixtures/'FleetCloudInvoiceChecks.java').write_text(cloud_invoice_fixture.replace(
-        'gr.argyrismitsos.fleetserver','gr.argyrismitsos.fleetdirect').replace('android.database.sqlite.','org.sqlite.database.sqlite.'))
+    for fixture_name in ('FleetCloudInvoiceChecks','FleetCloudSourceJournalChecks'):
+        content=(root/'scripts/fixtures'/(fixture_name+'.java.txt')).read_text()
+        (fixtures/(fixture_name+'.java')).write_text(content.replace(
+            'gr.argyrismitsos.fleetserver','gr.argyrismitsos.fleetdirect').replace('android.database.sqlite.','org.sqlite.database.sqlite.'))
 classes = out / 'classes'
 classes.mkdir(exist_ok=True)
 classpath = os.pathsep.join(map(str, [android, program, sqlite]))

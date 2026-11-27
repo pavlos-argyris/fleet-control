@@ -119,8 +119,10 @@ final class FleetCloudSetup {
     private static void prepareBaselineIfDue(Context context) {
         String checkpoint = null;
         try {
-            checkpoint = reserveBaseline(context);
-            if (checkpoint == null) return;
+            JSONObject baseline = reserveBaseline(context);
+            if (baseline == null) return;
+            checkpoint = baseline.getString("job");
+            IndependentRuntime.get(context).armFleetCloudSource(baseline.getString("epoch"),baseline.getString("generation"));
             try (FleetDataStore store = new FleetDataStore(context)) {
                 JSONObject proof = BackupJobs.fleetMigrationBaseline(context, store, checkpoint);
                 completeBaseline(context, checkpoint, proof, false);
@@ -131,10 +133,11 @@ final class FleetCloudSetup {
         }
     }
 
-    private static synchronized String reserveBaseline(Context context) throws Exception {
+    private static synchronized JSONObject reserveBaseline(Context context) throws Exception {
         JSONObject state=stored(context);
         long now=System.currentTimeMillis();
-        if (!state.has("active") || !state.optString("connection").equals("approved") ||
+        if (state.optInt("baselineVersion")!=1 || !state.has("active") || state.has("candidate") ||
+                !state.optString("connection").equals("approved") ||
                 now-state.optLong("lastContactAt") > (state.optInt("minutes",DEFAULT_MINUTES)+1)*60000L ||
                 !DirectHost.primary(context).optBoolean("ready") || DirectHost.paused(context)) return null;
         String generation=IndependentConfig.read(context).optString("generation");
@@ -143,10 +146,15 @@ final class FleetCloudSetup {
         String checkpoint=UUID.nameUUIDFromBytes(("fleet-cloud-baseline:"+key).getBytes(StandardCharsets.UTF_8)).toString();
         if (checkpoint.equals(state.optString("backupJob")) &&
                 (state.has("backupSha256") || state.optLong("nextBackupAt")>now)) return null;
-        if (!checkpoint.equals(state.optString("backupJob"))) state.remove("backupSha256");
+        if (!checkpoint.equals(state.optString("backupJob"))) {
+            state.remove("backupSha256");
+            state.remove("sourceCursor");
+            state.remove("sourceGeneration");
+            state.remove("sourceJournal");
+        }
         state.put("backupJob",checkpoint).put("migration","preparing_backup").put("nextBackupAt",now+300000L);
         SealedLocalState.write(context, STORE, KEY, state);
-        return checkpoint;
+        return new JSONObject().put("job",checkpoint).put("epoch",state.getString("epoch")).put("generation",generation);
     }
 
     private static synchronized void completeBaseline(Context context,String checkpoint,JSONObject proof,boolean failed) throws Exception {
@@ -169,7 +177,7 @@ final class FleetCloudSetup {
             if (transfer==null) return;
             JSONObject credential=transfer.getJSONObject("credential");
             String epoch=transfer.getString("epoch");
-            FleetCloudArchive.stage(context,transfer.getString("job"),transfer.getString("source"),transfer.getString("generation"),
+            long sourceCursor=FleetCloudArchive.stage(context,transfer.getString("job"),transfer.getString("source"),transfer.getString("generation"),
                     epoch,new FleetCloudBaseline.Transport() {
                 @Override public JSONObject send(String path,JSONObject payload) throws Exception {
                     if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
@@ -181,9 +189,9 @@ final class FleetCloudSetup {
                     return request("/api/fleet-sync/v1/invoice-file?sha256="+sha,credential,epoch,"PUT",type,size,input);
                 }
             });
-            completeTransfer(context,transfer,true);
+            completeTransfer(context,transfer,sourceCursor,true);
         } catch (Exception failure) {
-            if (transfer!=null) try { completeTransfer(context,transfer,false); }
+            if (transfer!=null) try { completeTransfer(context,transfer,-1,false); }
             catch (Exception unavailable) { }
         }
     }
@@ -205,12 +213,15 @@ final class FleetCloudSetup {
                 .put("generation",generation).put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"));
     }
 
-    private static synchronized void completeTransfer(Context context,JSONObject transfer,boolean saved) throws Exception {
+    private static synchronized void completeTransfer(Context context,JSONObject transfer,long sourceCursor,boolean saved) throws Exception {
         JSONObject state=stored(context);
         String job=transfer.getString("job");
-        if (!job.equals(state.optString("backupJob"))||!transfer.getString("epoch").equals(state.optString("epoch"))) return;
+        String generation=transfer.getString("generation");
+        if (!job.equals(state.optString("backupJob"))||!transfer.getString("epoch").equals(state.optString("epoch"))||
+                !generation.equals(IndependentConfig.read(context).optString("generation"))) return;
         if (saved) {
-            state.put("migration","baseline_staged").put("stagedBackupJob",job).put("baselineStagedAt",System.currentTimeMillis());
+            state.put("migration","baseline_staged").put("stagedBackupJob",job).put("baselineStagedAt",System.currentTimeMillis())
+                    .put("sourceGeneration",generation).put("sourceCursor",sourceCursor);
             state.remove("transferFailures");
         } else {
             int attempts=Math.min(10,state.optInt("transferFailures")+1);
@@ -239,6 +250,12 @@ final class FleetCloudSetup {
                 if (DirectHost.paused(context)) throw new java.io.InterruptedIOException();
                 downloadDocument(credential,epoch,sha,size,output);
             });
+            long sourceCursor=replica.getLong("sourceCursor");
+            JSONObject sourceProof=new JSONObject().put("verified",false);
+            if (sourceCursor>=0) try {
+                sourceProof=IndependentRuntime.get(context).fleetCloudSourceProgress(epoch,replica.getString("sourceGeneration"),sourceCursor);
+            } catch (Exception unavailable) { }
+            progress.put("sourceJournal",sourceProof);
             completeReplay(context,epoch,progress);
         } catch (Exception failure) {
             if (replica!=null) try { completeReplay(context,replica.getString("epoch"),null); }
@@ -253,7 +270,8 @@ final class FleetCloudSetup {
                 state.has("candidate")||state.optLong("nextReplayAt")>now||DirectHost.paused(context)) return null;
         state.put("nextReplayAt",now+60000L);
         SealedLocalState.write(context,STORE,KEY,state);
-        return new JSONObject().put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"));
+        return new JSONObject().put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"))
+                .put("sourceCursor",state.optLong("sourceCursor",-1)).put("sourceGeneration",state.optString("sourceGeneration"));
     }
 
     private static synchronized void completeReplay(Context context,String epoch,JSONObject progress) throws Exception {
@@ -263,7 +281,8 @@ final class FleetCloudSetup {
         state.put("replicaPending",progress==null||progress.optBoolean("hasMore"));
         if (progress!=null) {
             state.put("replicaCursor",progress.getLong("cursor")).put("lastReplicaAt",now)
-                    .put("replicaPendingInvoices",progress.getInt("pendingInvoices"));
+                    .put("replicaPendingInvoices",progress.getInt("pendingInvoices"))
+                    .put("sourceJournal",progress.getJSONObject("sourceJournal"));
             if (!progress.optBoolean("hasMore")) state.put("nextReplayAt",now+state.optInt("minutes",DEFAULT_MINUTES)*60000L);
         }
         SealedLocalState.write(context,STORE,KEY,state);
@@ -318,6 +337,7 @@ final class FleetCloudSetup {
                 .put("lastReplicaAt",state.optLong("lastReplicaAt")).put("replicaCursor",state.optLong("replicaCursor"))
                 .put("replicaPending",state.optBoolean("replicaPending"))
                 .put("replicaPendingInvoices",state.optInt("replicaPendingInvoices"))
+                .put("sourceJournal",state.optJSONObject("sourceJournal"))
                 .put("baselineProgress",state.optJSONObject("baselineProgress"));
     }
 

@@ -74,8 +74,11 @@
       ' Τελευταία ενημέρωση αντιγράφου '+new Date(payload.lastReplicaAt).toLocaleString('el-GR')+'.':'';
     const pendingReplica=payload.replicaPending?' Εκκρεμούν αλλαγές στο δοκιμαστικό αντίγραφο.':'';
     const pendingInvoices=Number(payload.replicaPendingInvoices)||0;
+    const source=payload.sourceJournal;
+    const sourceChanges=source?.verified&&Number.isSafeInteger(source.pending)&&source.pending>0?
+      ' Τοπικές εγγραφές μετά την απογραφή '+source.pending+'.':'';
     migration.textContent=(migrationMessages[payload.migration]||'Μετάβαση δεδομένων σε αναμονή επαλήθευσης.')+
-      cloudProgress(payload.baselineProgress)+backupAt+stagedAt+pendingReplica+
+      cloudProgress(payload.baselineProgress)+backupAt+stagedAt+pendingReplica+sourceChanges+
       (pendingInvoices>0?' Επαληθευμένα PDF σε αναμονή δοκιμαστικής καταχώρισης '+pendingInvoices+'.':'');
     minutes.value=String(payload.minutes||15);
     approve.hidden=payload.approved&&!payload.pendingApproval;

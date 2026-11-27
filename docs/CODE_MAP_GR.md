@@ -83,3 +83,5 @@
 ## Δοκιμές μετάβασης #128
 
 Το `cloudflare-worker/hybrid-fleet/` καλύπτει το απομονωμένο journal αλλαγών και τις δοκιμαστικές συνεδρίες PIN. Το `scripts/hybrid-fleet-preflight.mjs` επαληθεύει ιδιωτικό αντίγραφο SQLite και τις αναφορές πληρότητας. Το `targeted-service-qr.js` συνδέει τη ρητή σάρωση στο υπάρχον σέρβις της ροής Direct. Ο οδηγός `HYBRID_FLEET_MIGRATION_GR.md` ορίζει τα σημεία επαλήθευσης και επαναφοράς.
+
+Το `FleetCloudSourceJournal.java` καταγράφει συναλλακτικά αλλαγές στη βάση Android πριν από την απογραφή. Το `server-runtime/fleet-cloud-invoice.js` επαληθεύει την εφαρμογή αποτελεσμάτων τιμολογίων σε απομονωμένη βάση με σχήμα Direct.

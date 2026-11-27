@@ -41,7 +41,7 @@ final class FleetCloudArchive {
 
     private FleetCloudArchive() { }
 
-    static void stage(Context context,String backupId,String sourceSha,String generation,String epoch,
+    static long stage(Context context,String backupId,String sourceSha,String generation,String epoch,
                       FleetCloudBaseline.Transport transport) throws Exception {
         if (!ScopedContext.owns(context)||!backupId.matches("[a-f0-9-]{36}")||!generation.matches("[a-f0-9-]{36}")) {
             throw invalidSource();
@@ -61,12 +61,15 @@ final class FleetCloudArchive {
         try (NativeBackupReader.Prepared backup=open(context,job,generation,sourceSha,workspace);
              ZipFile documents=backup.documents==null?null:new ZipFile(backup.documents)) {
             List<FleetCloudBaseline.Document> files;
+            long sourceCursor;
             try (SQLiteDatabase source=SQLiteDatabase.openDatabase(backup.database.getPath(),null,SQLiteDatabase.OPEN_READONLY);
                  OutputStream output=new BufferedOutputStream(new FileOutputStream(records))) {
+                sourceCursor=FleetCloudSourceJournal.checkpoint(source,epoch,generation);
                 Set<String> keys=project(source,output,generation);
                 files=documents(backup.manifest,documents,output,keys);
             }
             FleetCloudBaseline.stage(epoch,sourceSha,records,files,transport);
+            return sourceCursor;
         } finally {
             cleanup(workspace);
         }

@@ -35,6 +35,7 @@ final class FleetCloudMigrationChecks {
             String realm=config.getString("realm");
             JSONArray receipts=FleetCloudInvoiceChecks.run(engine,database,directory,realm);
             checkInvoiceDelivery(directory,engine,realm,receipts);
+            FleetCloudSourceJournalChecks.run(database,directory);
         }
     }
 

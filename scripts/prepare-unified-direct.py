@@ -186,6 +186,25 @@ for name,p in sources.items():
         value=change(value,'.put("testOrdexa",saved.optBoolean("testOrdexa"))','.put("testOrdexa",OrdexaSync.status(context).optBoolean("enabled"))')
         value=change(value,'if(state.optString("phase").equals("needs_recovery"))','if(state.optString("phase").equals("needs_recovery")||state.optString("phase").equals("recovering")&&NativeColdRuntime.core(c).state().optString("phase").equals("installed"))')
         value=change(value,'    JSONObject localLogin(','''    JSONObject dashboard()throws Exception{return serialized(()->store.getStats());}
+    void armFleetCloudSource(String epoch,String generation)throws Exception{
+        serialized(()->{
+            try(BackendMode.Guard ignored=BackendMode.guard(context)){
+                checkAuthority();
+                if(!config.getString("generation").equals(generation)||!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context))
+                    throw new IOException("Η ενεργή βάση Android χρειάζεται επανέλεγχο πριν αρχίσει η καταγραφή Fleet.");
+                FleetCloudSourceJournal.arm(db,epoch,generation);
+            }
+            return null;
+        },2);
+    }
+    JSONObject fleetCloudSourceProgress(String epoch,String generation,long cursor)throws Exception{
+        return serialized(()->{
+            checkAuthority();
+            if(!config.getString("generation").equals(generation))
+                return new JSONObject().put("verified",false);
+            return FleetCloudSourceJournal.progress(db,epoch,generation,cursor);
+        },2);
+    }
     JSONObject switchReadiness()throws Exception{return serialized(()->{
         JSONArray rows=query("SELECT created_at,actor_id FROM independent_readiness WHERE id=1");
         long now=System.currentTimeMillis();boolean ready=rows.length()==1&&rows.getJSONObject(0).optString("actor_id").equals(config.getString("ownerId"))&&now>=rows.getJSONObject(0).optLong("created_at")&&now-rows.getJSONObject(0).optLong("created_at")<600000;

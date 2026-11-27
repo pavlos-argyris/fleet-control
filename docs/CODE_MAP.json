@@ -792,7 +792,9 @@
         "cloudflare-worker/hybrid-fleet/",
         "cloudflare-worker/wrangler.hybrid-rehearsal.example.jsonc",
         "scripts/hybrid-fleet-*.mjs",
+        "scripts/fixtures/FleetCloud*.java.txt",
         "server-android/assets/www/fleet-cloud-setup.js",
+        "server-runtime/fleet-cloud-invoice.js",
         "unified-android/src/gr/argyrismitsos/fleetdirect/FleetCloud*.java"
       ],
       "tests": [
@@ -800,6 +802,9 @@
         "scripts/test-hybrid-fleet-preflight.mjs",
         "scripts/test-hybrid-fleet-invoice-recovery.mjs",
         "scripts/test-hybrid-fleet-baseline.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-independent-android.sh",
+        "scripts/test-unified-server-browser.mjs",
         "scripts/test-targeted-service-qr-d1.mjs",
         "scripts/test-service-workflow.mjs"
       ],

@@ -67,6 +67,7 @@ public class BusinessTest{
        },(command,value,storage)->{if(command.equals("health.snapshot"))return new JSONObject();
          throw new IOException("unexpected native Fleet cloud capability "+command);})){
        FleetCloudInvoiceChecks.run(direct,isolated,fleetCloudDir,"https://fleet.fixture.invalid");
+       FleetCloudSourceJournalChecks.run(isolated,fleetCloudDir);
    }finally{isolated.close();}
    check(call("/api/admin/employees","GET",null,false,null).getInt("status")==401,"native API preserves login gate");
    JSONObject owner=new JSONObject().put("fullName","Συνθετικός ιδιοκτήτης").put("username","owner.fixture").put("password","Fixture-Secret-2026!").put("deviceId","native-fixture");
@@ -125,7 +126,11 @@ public class BusinessTest{
  write('BusinessFeatureChecks.java',fs.readFileSync('scripts/fixtures/BusinessFeatureChecks.java.txt','utf8'));
  write('BusinessFileChecks.java',fs.readFileSync('scripts/fixtures/BusinessFileChecks.java.txt','utf8'));
  write('FleetCloudInvoiceChecks.java',fs.readFileSync('scripts/fixtures/FleetCloudInvoiceChecks.java.txt','utf8'));
- files.push(path.join(dir,'FleetCloudInvoiceChecks.java'));
+ write('FleetCloudSourceJournalChecks.java',fs.readFileSync('scripts/fixtures/FleetCloudSourceJournalChecks.java.txt','utf8'));
+ write('FleetCloudSourceJournal.java',fs.readFileSync('unified-android/src/gr/argyrismitsos/fleetdirect/FleetCloudSourceJournal.java','utf8')
+   .replace('package gr.argyrismitsos.fleetdirect;','package gr.argyrismitsos.fleetserver;')
+   .replace('org.sqlite.database.sqlite.','android.database.sqlite.'));
+ files.push(...['FleetCloudInvoiceChecks','FleetCloudSourceJournalChecks','FleetCloudSourceJournal'].map(name=>path.join(dir,name+'.java')));
  write('BusinessPrimaryChecks.java',fs.readFileSync('scripts/fixtures/BusinessPrimaryChecks.java.txt','utf8'));
  write('NativeMigrationFlowTest.java',fs.readFileSync('scripts/fixtures/NativeMigrationFlowTest.java.txt','utf8'));
  write('NativeColdRestoreChecks.java',fs.readFileSync('scripts/fixtures/NativeColdRestoreChecks.java.txt','utf8'));

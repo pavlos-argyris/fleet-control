@@ -13,7 +13,7 @@ public final class CloudReturnSnapshot {
     public interface Progress{void stage(String table,long copied,long total)throws Exception;}
     private CloudReturnSnapshot(){}
     public static String q(String name)throws IOException{if(name==null||!name.matches("[A-Za-z_][A-Za-z0-9_]{0,120}"))throw new IOException("Μη έγκυρο όνομα πίνακα μεταφοράς.");return "\""+name+"\"";}
-    public static boolean transferable(String name){return name.matches("[A-Za-z_][A-Za-z0-9_]{0,120}")&&!EXCLUDED.contains(name)&&!name.matches("(?i)(?:_cf_|__cf|sqlite_|server_|_cloud_|cloud_source_).*?");}
+    public static boolean transferable(String name){return name.matches("[A-Za-z_][A-Za-z0-9_]{0,120}")&&!EXCLUDED.contains(name)&&!name.matches("(?i)(?:_cf_|__cf|sqlite_|server_|_cloud_|cloud_source_|fleet_cloud_source_).*?");}
     private static JSONArray rows(SQLiteDatabase db,String query,Object...args)throws Exception{return new BusinessSqlite(db).call("sql.query",new JSONObject().put("sql",query).put("params",new JSONArray(Arrays.asList(args)))).getJSONArray("results");}
     private static String hex(byte[] data){StringBuilder s=new StringBuilder();for(byte b:data){s.append(Character.forDigit((b>>>4)&15,16));s.append(Character.forDigit(b&15,16));}return s.toString();}
     public static String rowHash(String table,String rowid,JSONArray values)throws Exception{
