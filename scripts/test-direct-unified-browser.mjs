@@ -55,7 +55,10 @@ try{for(const width of [390,1280]){
           backup:{enabled:false,hour:3,retention:30,frequency:'daily',revision:'false:3:30:daily'},device:{storageFreeBytes:100000000},
           commands:adminPosts?[{action:'check-update',state:'queued',created_at:Date.now()}]:[]}});
       }
-      if(url.pathname==='/api/independent/events')return route.fulfill({contentType:'text/event-stream',body:'event: ready\ndata: {}\n\n'});
+      if(url.pathname==='/api/independent/events'){
+        // Playwright closes the fulfilled response immediately. Android holds this stream open for five minutes.
+        return route.fulfill({contentType:'text/event-stream',body:'retry: 300000\nevent: ready\ndata: {}\n\n'});
+      }
       if(url.pathname==='/api/sync'){
         const view=url.searchParams.get('view');
         if(url.searchParams.get('sinceVersion')===String(fleetRevision)&&view!=='qr-attention')return route.fulfill({json:{unchanged:true,version:fleetRevision}});
