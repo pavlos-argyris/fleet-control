@@ -155,7 +155,7 @@ console.log("OK invoice batch: all files, QR belongs to first file, partial fail
   const { ctx, elements, trace } = fixture();
   const first = deferred();
   const requests = [];
-  const imported = [];
+  const queued = [];
   ctx.remoteHistoryAction = async (bikeId, entryId, _action, payload) => {
     requests.push({ bikeId, entryId, payload: plain(payload) });
     if (requests.length === 1) await first.promise;
@@ -163,15 +163,20 @@ console.log("OK invoice batch: all files, QR belongs to first file, partial fail
     Object.assign(result.history.find((entry) => entry.id === entryId), payload, { updatedAt: new Date().toISOString() });
     return { bike: result };
   };
-  ctx.importQrDocument = async (bikeId, entryId, value) => {
-    imported.push({ bikeId, entryId, value });
-    return { queued: true, jobId: "qr-" + entryId, progress: 5 };
+  const firstStored=deferred();
+  ctx.queueExistingServiceQr = async (bike, entry, value) => {
+    if (!queued.length) await firstStored.promise;
+    queued.push({bikeId:bike.id,entryId:entry.id,value});
   };
+  ctx.processServiceOutbox=()=>{};
+  ctx.importQrDocument=()=>{throw new Error("An existing service scan bypassed the durable QR queue.");};
   ctx.waitForQrDocumentJob = () => { throw new Error("Form saves must not wait for Server rendering."); };
   elements.historyEntryInvoiceQrValue.value = "https://einvoice.example/first";
   const submit = ctx.handleHistoryEntrySubmit(event);
-  assert.equal(trace.includes("close-history"), true, "Dialog closes before an API request completes.");
+  assert.equal(trace.includes("close-history"), false, "The service stays open until the QR is stored on the device.");
+  firstStored.resolve();
   await submit;
+  assert.equal(trace.includes("close-history"), true, "The dialog closes after local storage and before the remote edit completes.");
   assert.equal(requests.length, 1);
   elements.historyEntryId.value = "entry-2";
   elements.historyEntryKm.value = "9100";
@@ -186,7 +191,7 @@ console.log("OK invoice batch: all files, QR belongs to first file, partial fail
   assert.deepEqual(requests.map((item) => item.entryId), ["entry-1", "entry-2"]);
   assert.equal(requests[0].payload.km, 9000);
   assert.equal(requests[1].payload.km, 9100);
-  assert.deepEqual(imported.map((item) => [item.entryId, item.value]), [
+  assert.deepEqual(queued.map((item) => [item.entryId, item.value]), [
     ["entry-1", "https://einvoice.example/first"], ["entry-2", "https://einvoice.example/second"]]);
   assert.equal(ctx.backgroundHistorySaves.size, 0);
 }
@@ -259,3 +264,49 @@ console.log("OK historical service impact: confirmation occurs before odometer/o
  assert.equal(job.status,'error');assert.equal(job.requiresPreview,true);assert.match(ctx.backgroundHistorySaveMarkup('bike','entry-1'),/Επανέλεγχος αλλαγών/);
 }
 console.log('OK stale background edits retain their job and request a fresh consequence preview instead of replaying an old confirmation.');
+
+{
+  const first = deferred(), calls = [], pending = new Map();
+  let uploads = 0, active = true;
+  const ctx = vm.createContext({ URL, URLSearchParams, apiBase:'https://test.invalid',requestHeaders:()=>({}),
+    syncFlight:null,syncQueued:false,dirtyBikeIds:new Set(),activeBikeId:'bike',
+    runFleetSync:async()=>{
+      if (++uploads===1) return first.promise;
+      calls.push('history-write-ack');
+      ctx.dirtyBikeIds.delete('bike');
+    },
+    loadBikeRecord:async()=>bike(),getHistoryEntry:(bike,id)=>bike.history.find(entry=>entry.id===id),
+    window:{FleetServiceStorage:{put:async(scope,kind,key,data)=>pending.set(key,plain(data)),remove:async(scope,kind,key)=>pending.delete(key)}},
+    fetch:async url=>{
+      calls.push('verify-target');
+      assert.equal(new URL(url).searchParams.get('entryId'),'entry-1');
+      return {ok:true,status:200,json:async()=>({bikeId:'bike',entryId:'entry-1',version:20})};
+    },
+    attachInvoicesToEntry:async(machine,entry,files,qr)=>{
+      calls.push('invoice');
+      assert.deepEqual([machine,entry,qr],['bike','entry-1','https://test.invalid/saved-qr']);
+      return {failures:[],attachments:[],queued:[{jobId:'confirmed-receipt'}]};
+    },renderHome:noop,renderDetail:noop,showToast:noop
+  });
+  vm.runInContext(['syncNow','verifyQueuedServiceTarget','processLegacyServiceOutbox'].map(name=>extract(app,name)).join('\n'),ctx);
+  ctx.syncNow(); // the in-flight refresh began before the local edit
+  ctx.dirtyBikeIds.add('bike');
+  const row={key:'old-unsent',data:{bikeId:'bike',entryId:'entry-1',items:[{done:false,qr:'https://test.invalid/saved-qr'}]}};
+  const finishing=ctx.processLegacyServiceOutbox('scope',row,()=>active,false);
+  await Promise.resolve();
+  assert.deepEqual(calls,[]);
+  first.resolve();
+  await finishing;
+  assert.deepEqual(calls,['history-write-ack','verify-target','invoice']);
+  assert.equal(pending.size,0);
+
+  ctx.fetch=async()=>({ok:false,status:404,json:async()=>({code:'invoice_target_missing',error:'Απαιτείται έλεγχος του σέρβις.'})});
+  row.data.items[0].done=false;
+  await ctx.processLegacyServiceOutbox('scope',row,()=>active,true);
+  assert.equal(pending.get(row.key).items[0].qr,row.data.items[0].qr);
+  assert.match(pending.get(row.key).error,/έλεγχος/);
+  active=false;
+  await ctx.processLegacyServiceOutbox('scope',row,()=>active,true);
+  assert.equal(calls.filter(value=>value==='invoice').length,1);
+}
+console.log('OK old invoice outbox waits for the exact durable service write, and preserves QR and target on a real missing service.');

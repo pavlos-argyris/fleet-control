@@ -30,6 +30,12 @@ public final class NativeBusinessEngine implements Closeable, BusinessRuntime.Ho
     }
     public synchronized JSONObject request(JSONObject request,boolean internal,long budget)throws Exception{return runtime.request(request,internal,budget);}
     public synchronized JSONObject sandboxStatus()throws Exception{return runtime.sandboxStatus();}
+    JSONObject applyFleetCloudInvoice(String realm,JSONObject journal,File pdf)throws Exception{
+        JSONObject request=new JSONObject().put("url",realm+"/api/server/fleet-cloud/invoice").put("method","PUT")
+                .put("headers",new JSONObject()).put("fleetCloudReceipt",true)
+                .put("form",new JSONObject().put("mutation",journal.toString()));
+        return requestWithFile(request,pdf,null,"invoice.pdf","application/pdf");
+    }
     public synchronized JSONObject requestWithFile(JSONObject request,File input,String field,String name,String type)throws Exception{
         authority.beforeRequest(request,true);
         objects.context("server",generation,request.getString("url"));objects.security(BusinessRuntime.sha256("native-internal".getBytes("UTF-8")));

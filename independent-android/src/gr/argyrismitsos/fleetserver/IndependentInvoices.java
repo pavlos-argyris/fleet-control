@@ -44,12 +44,37 @@ public final class IndependentInvoices {
     if(offline){queue.patch(id,new JSONObject().put("directAttempts",Math.max(0,attempt-1)).put("directState","offline").put("retryAt",System.currentTimeMillis()+5000));stage("Χωρίς δίκτυο · οι προσπάθειες δεν καταναλώνονται.");}
     else if(!DirectInvoiceRetry.transientFailure(error)||attempt>=6){
      if(batch){queue.patch(id,new JSONObject().put("retryAt",Long.MAX_VALUE).put("directState","review"));JSONObject state=runtime.internal("/api/server/service-documents/reprocess-batch","GET",null);JSONObject b=state.optJSONObject("batch");if(b!=null)runtime.internal("/api/server/service-documents/reprocess-batch","POST",new JSONObject().put("action","pause").put("batchId",b.getString("id")).put("error","Η τοπική ανάγνωση χρειάζεται έλεγχο."));}
-     else terminal(job,attempt,attempt>=6?"retry-exhausted":"invalid-input");
+     else {
+      String code=attempt>=6?"retry-exhausted":"invalid-input";
+      if(job.getJSONObject("payload").has("targetedOperationId")&&error instanceof FleetHttp.HttpStatusException){
+       int status=((FleetHttp.HttpStatusException)error).statusCode;
+       if(status==409)code="targeted-invoice-conflict";
+       if(status==422)code="targeted-invoice-unreadable";
+      }
+      terminal(job,attempt,code);
+     }
     }else{queue.patch(id,new JSONObject().put("directState","waiting").put("directLastError","temporary").put("retryAt",System.currentTimeMillis()+DirectInvoiceRetry.delay(attempt)));if(!batch)runtime.internal("/api/server/operation-error","POST",new JSONObject().put("jobId",id).put("error","Προσωρινή αποτυχία τοπικής ανάγνωσης· προγραμματίστηκε νέα προσπάθεια.").put("retryable",true).put("directAttemptCount",attempt));stage("Προγραμματίστηκε νέα τοπική προσπάθεια.");}
    }catch(Exception ignored){stage("Η ουρά διατηρήθηκε. Δεν επιβεβαιώθηκε η τελευταία προσπάθεια.");}
   }finally{ServerWorkTracker.finish(lane);synchronized(this){running.remove(id);closeStoreWhenIdle();}}
  }
- private void terminal(JSONObject job,int attempt,String code)throws Exception{String id=job.getString("id");queue.patch(id,new JSONObject().put("directAttempts",attempt).put("directState","review").put("directLastError",code).put("retryAt",Long.MAX_VALUE));if(job.optString("type").equals("service_document_reprocess_batch")){JSONObject state=runtime.internal("/api/server/service-documents/reprocess-batch","GET",null),batch=state.optJSONObject("batch");if(batch!=null)runtime.internal("/api/server/service-documents/reprocess-batch","POST",new JSONObject().put("action","pause").put("batchId",batch.getString("id")).put("error","Εξαντλήθηκαν οι τοπικές προσπάθειες. Η θέση και τα αρχεία διατηρούνται."));return;}runtime.internal("/api/server/operation-error","POST",new JSONObject().put("jobId",id).put("error",code.equals("retry-exhausted")?"Εξαντλήθηκαν οι 6 τοπικές προσπάθειες. Το αρχικό αρχείο και οι επιβεβαιώσεις διατηρούνται.":"Το αρχείο ή η πρόσβαση χρειάζεται ανθρώπινο έλεγχο. Το αρχικό τιμολόγιο διατηρείται.").put("retryable",false).put("terminal",true).put("directAttemptCount",attempt).put("code",code));}
+ private void terminal(JSONObject job,int attempt,String code)throws Exception{
+  String id=job.getString("id");
+  queue.patch(id,new JSONObject().put("directAttempts",attempt).put("directState","review").put("directLastError",code).put("retryAt",Long.MAX_VALUE));
+  if(job.optString("type").equals("service_document_reprocess_batch")){
+   JSONObject state=runtime.internal("/api/server/service-documents/reprocess-batch","GET",null),batch=state.optJSONObject("batch");
+   if(batch!=null)runtime.internal("/api/server/service-documents/reprocess-batch","POST",new JSONObject().put("action","pause").put("batchId",batch.getString("id")).put("error","Εξαντλήθηκαν οι τοπικές προσπάθειες. Η θέση και τα αρχεία διατηρούνται."));
+   return;
+  }
+  String message;
+  switch(code){
+   case "retry-exhausted": message="Εξαντλήθηκαν οι 6 τοπικές προσπάθειες. Το αρχικό αρχείο και οι επιβεβαιώσεις διατηρούνται.";break;
+   case "targeted-invoice-conflict": message="Το τιμολόγιο έχει ήδη καταχωρηθεί ή άλλαξε η σύνδεσή του. Οι υπάρχουσες καταχωρήσεις διατηρούνται.";break;
+   case "targeted-invoice-unreadable": message="Η ανάγνωση του τιμολογίου δεν ολοκληρώθηκε. Το QR διατηρείται στην ουρά για επανάληψη.";break;
+   default: message="Το αρχείο ή η πρόσβαση χρειάζεται ανθρώπινο έλεγχο. Το αρχικό τιμολόγιο διατηρείται.";
+  }
+  runtime.internal("/api/server/operation-error","POST",new JSONObject().put("jobId",id).put("error",message)
+   .put("retryable",false).put("terminal",true).put("directAttemptCount",attempt).put("code",code));
+ }
  private void stage(String text){context.getSharedPreferences("independent_ui",Context.MODE_PRIVATE).edit().putString("invoice",text).apply();}
  private JSONObject read(String key,String name,boolean force)throws Exception{
   if(!key.startsWith("service-documents/")||key.contains(".."))throw new DirectInvoiceRetry.InvalidInput("Invalid local invoice key");File file=ServiceDocumentStore.localFile(context,key,name);if(!file.isFile())FleetHttp.downloadToFile(runtime.realm()+"/api/service-documents/"+android.net.Uri.encode(key,"/"),file,headers());

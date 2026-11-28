@@ -1,0 +1,80 @@
+package gr.argyrismitsos.fleetserver;
+
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import java.io.File;
+import org.json.JSONObject;
+
+final class FleetCloudSourceJournalChecks {
+    private static final String EPOCH="0123456789abcdef0123456789abcdef";
+    private static final String OTHER="fedcba9876543210fedcba9876543210";
+    private static final String GENERATION="00000000-0000-4000-8000-000000000090";
+    private static final String JOB="παλιά εργασία QR με πλήρες ID";
+    private FleetCloudSourceJournalChecks() { }
+
+    static void run(SQLiteDatabase db,File directory) throws Exception {
+        check(FleetCloudSourceJournal.checkpoint(db,EPOCH,GENERATION)==-1,"Old Android schema has no approved cursor");
+        FleetCloudSourceJournal.arm(db,EPOCH,GENERATION);
+        db.execSQL("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) "+
+                "VALUES('unrelated-shift-operation','fixture','clockout','{}','pending','2026-11-27')");
+        check(FleetCloudSourceJournal.checkpoint(db,EPOCH,GENERATION)==0,"An unrelated operation makes no Fleet entry");
+        db.execSQL("INSERT INTO fleet_operations(id,source,type,payload,status,created_at) "+
+                "VALUES(?,'fixture','service_document_render',?,'error','2026-11-27')",new Object[]{
+                        JOB,new JSONObject().put("bikeId","Μηχανή / 7").put("entryId",728013).put("qrValue","synthetic private QR").toString()});
+        updateSnapshot(db);
+        long baseline=FleetCloudSourceJournal.checkpoint(db,EPOCH,GENERATION);
+        check(baseline>0&&FleetCloudSourceJournal.progress(db,EPOCH,GENERATION,0).getInt("pending")==2,
+                "Exactly the Fleet snapshot and the full legacy invoice operation ID are queued");
+        check(exists(db,"SELECT 1 FROM fleet_cloud_source_changes WHERE scope='invoice-job' AND record_id=?",JOB),
+                "The queue records the exact old invoice operation ID");
+        check(!exists(db,"SELECT 1 FROM fleet_cloud_source_changes WHERE record_id LIKE '%synthetic private QR%'"),
+                "QR and documents remain in the original private tables");
+
+        File backup=new File(directory,"fleet-journal-capture.sqlite");
+        db.execSQL("VACUUM main INTO ?",new Object[]{backup.getPath()});
+        db.beginTransaction();
+        try {
+            db.execSQL("UPDATE fleet_operations SET status='applied' WHERE id=?",new Object[]{JOB});
+            updateSnapshot(db);
+        } finally { db.endTransaction(); }
+        check(FleetCloudSourceJournal.checkpoint(db,EPOCH,GENERATION)==baseline&&
+                exists(db,"SELECT 1 FROM fleet_operations WHERE id=? AND status='error'",JOB),
+                "Failed business work rolls back both the original and the journal");
+
+        db.execSQL("UPDATE fleet_operations SET status='applied' WHERE id=?",new Object[]{JOB});
+        updateSnapshot(db);
+        updateSnapshot(db);
+        FleetCloudSourceJournal.arm(db,EPOCH,GENERATION);
+        JSONObject replay=FleetCloudSourceJournal.progress(db,EPOCH,GENERATION,baseline);
+        check(replay.getBoolean("verified")&&replay.getInt("pending")==2&&replay.getLong("cursor")>baseline,
+                "The preserved baseline still has two dirty records after retry and coalesced writes");
+        long head=replay.getLong("cursor");
+        check(FleetCloudSourceJournal.progress(db,EPOCH,GENERATION,head).getInt("pending")==0&&
+                !FleetCloudSourceJournal.progress(db,EPOCH,GENERATION,head+1).getBoolean("verified"),
+                "Uncaptured cursors fail verification");
+        SQLiteDatabase captured=SQLiteDatabase.openDatabase(backup.getPath(),null,SQLiteDatabase.OPEN_READONLY);
+        try {
+            check(FleetCloudSourceJournal.checkpoint(captured,EPOCH,GENERATION)==baseline&&
+                    exists(captured,"SELECT 1 FROM fleet_operations WHERE id=? AND status='error'",JOB),
+                    "The snapshot contains the pre-write cursor and pre-write invoice state together");
+        } finally { captured.close(); }
+        FleetCloudSourceJournal.arm(db,OTHER,GENERATION);
+        check(FleetCloudSourceJournal.checkpoint(db,OTHER,GENERATION)==0&&
+                !FleetCloudSourceJournal.progress(db,EPOCH,GENERATION,baseline).getBoolean("verified")&&
+                exists(db,"SELECT 1 FROM fleet_cloud_source_changes WHERE scope='invoice-job' AND record_id=?",JOB),
+                "A different cloud epoch starts independently and retains previous evidence");
+        check(!CloudReturnSnapshot.transferable("fleet_cloud_source_changes")&&!CloudReturnSnapshot.transferable("fleet_cloud_source_state"),
+                "Existing Cloud exports exclude the local catch-up journal");
+        System.out.println("PASS Android Fleet source journal: exact legacy IDs, bounded dirty keys, transaction rollback, VACUUM snapshot proof, retry and epoch isolation");
+    }
+
+    private static void updateSnapshot(SQLiteDatabase db) {
+        db.execSQL("UPDATE fleet_snapshot SET version=version+1, data=json_set(data,'$.synthetic',version+1) WHERE id=1");
+    }
+
+    private static boolean exists(SQLiteDatabase db,String sql,String... args) {
+        Cursor row=db.rawQuery(sql,args);
+        try { return row.moveToFirst(); } finally { row.close(); }
+    }
+    private static void check(boolean valid,String message) { if (!valid) throw new AssertionError(message); }
+}

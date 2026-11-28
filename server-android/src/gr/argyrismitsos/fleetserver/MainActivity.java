@@ -444,6 +444,41 @@ public final class MainActivity extends Activity {
         }
     }
     public final class ServerBridge {
+        @JavascriptInterface public void fleetCloud(final String action, final int minutes) {
+            backendWork.execute(() -> {
+                try {
+                    Bundle input = new Bundle();
+                    input.putInt("minutes", minutes);
+                    Bundle result = directControl("fleetCloud", action, input);
+                    if (!result.getBoolean("ok")) throw new IllegalStateException(result.getString("error"));
+                    JSONObject state = new JSONObject(result.getString("json"));
+                    String setup = state.optString("setupUrl"), code = state.optString("approvalCode");
+                    String deviceApproval = state.optString("deviceApproval");
+                    state.remove("setupUrl");
+                    state.remove("approvalCode");
+                    state.remove("deviceApproval");
+                    if (deviceApproval.matches("[A-Za-z0-9_-]{32}:[a-f0-9]{64}(:[A-Za-z0-9_-]{32})?")) {
+                        runOnUiThread(() -> new android.app.AlertDialog.Builder(MainActivity.this)
+                                .setTitle("Έγκριση Server Fleet")
+                                .setMessage("Αντίγραψε τον κωδικό για την εφάπαξ έγκριση αυτής της συσκευής στο Cloudflare.")
+                                .setNegativeButton("Κλείσιμο", null)
+                                .setPositiveButton("Αντιγραφή κωδικού", (dialog, button) -> {
+                                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                                    if (clipboard != null) clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Έγκριση Fleet", deviceApproval));
+                                }).show());
+                    } else if (!setup.isEmpty()) runOnUiThread(() -> {
+                        Runnable open = () -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(setup)));
+                        if (code.isEmpty()) open.run();
+                        else new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Έγκριση Server Fleet")
+                                .setMessage("Κωδικός σύγκρισης " + code).setNegativeButton("Άκυρο", null)
+                                .setPositiveButton("Άνοιγμα έγκρισης", (dialog, button) -> open.run()).show();
+                    });
+                    emit("fleetCloud",state.put("ok",true));
+                } catch (Exception error) {
+                    emitError("fleetCloud",error.getMessage());
+                }
+            });
+        }
         @JavascriptInterface public String getBackendMode(){try{return directControl("status","",null).getString("json");}catch(Exception e){return "{\"error\":\"Η κατάσταση λειτουργίας δεν φορτώθηκε.\"}";}}
         @JavascriptInterface public void prepareDirect(){runOnUiThread(()->startActivity(new Intent().setClassName(MainActivity.this,"gr.argyrismitsos.fleetdirect.IndependentActivity")));}
         @JavascriptInterface public void backendLogin(final String username,final String password){backendWork.execute(()->{try{Bundle input=new Bundle();input.putString("username",username);input.putString("password",password);Bundle result=directControl("login","",input);input.clear();if(!result.getBoolean("ok"))throw new Exception(result.getString("error"));backendOwnerToken=result.getString("token","");emit("backendMode",new JSONObject().put("ok",true).put("message","Συνδέθηκες ως ιδιοκτήτης για την επιλογή λειτουργίας."));}catch(Exception e){emitError("backendMode",e.getMessage());}});}

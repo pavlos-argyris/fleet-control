@@ -79,3 +79,13 @@
 ## Direct-only δημοσίευση107
 
 Το ενεργό Worker entrypoint είναι το redirect.js, χωρίς business bindings/assets/cron. Η παλιά business example config διατηρείται μόνο για ιστορικούς ελέγχους. Η release.yml καλεί publish-direct-release/verify-direct-publication, ενώ το GitHub manifest τροφοδοτεί την υπάρχουσα Direct OTA διαδρομή. StoreBillingSync κρατά durable ημέρες προόδου και privacy-safe stage timings. Οδηγός ISSUE_107_DIRECT_PUBLICATION_GR.md· υποχρεωτικά redirect/publication tests, store pipeline, πλήρες source CI και physical gates.
+
+## Μετάβαση μηχανών #128
+
+Το `cloudflare-worker/hybrid-fleet/` καλύπτει το απομονωμένο journal αλλαγών και τις δοκιμαστικές συνεδρίες PIN. Το `scripts/hybrid-fleet-preflight.mjs` επαληθεύει ιδιωτικό αντίγραφο SQLite και τις αναφορές πληρότητας. Το `targeted-service-qr.js` συνδέει τη ρητή σάρωση στο υπάρχον σέρβις της ροής Direct. Ο οδηγός `HYBRID_FLEET_MIGRATION_GR.md` ορίζει τα σημεία επαλήθευσης και επαναφοράς.
+
+Το `FleetCloudSourceJournal.java` καταγράφει συναλλακτικά αλλαγές στη βάση Android πριν από την απογραφή. Το `server-runtime/fleet-cloud-invoice.js` επαληθεύει την εφαρμογή αποτελεσμάτων τιμολογίων σε απομονωμένη βάση με σχήμα Direct.
+
+Το `FleetCloudCatchUp.java` κρατά ιδιωτική παρτίδα αλλαγών και αρχεία ως την επιβεβαίωση. Τα `source-delta.js` και `source-projection.js` επαληθεύουν τις παρτίδες και την προβολή του αντίστοιχου σημείου στη χωριστή βάση D1.
+
+Το `wrangler.hybrid-transfer.example.jsonc` περιγράφει τον χωριστό παραλήπτη της αρχικής απογραφής του κανονικού Server. Το `initial-transfer.js` ελέγχει τον προορισμό και τα όρια εγγραφών και συνημμένων. Η ενεργοποίηση της καθημερινής λειτουργίας ακολουθεί τους ελέγχους του οδηγού μετάβασης.

@@ -31,7 +31,7 @@ export async function commitInvoiceReview(env, options) {
     const located = update.located;
     if (!Number.isInteger(located.bikeIndex) || !Number.isInteger(located.entryIndex)) throw new Error('Invalid review location');
     const bikePath = '$.bikes[' + located.bikeIndex + ']', entryPath = bikePath + '.history[' + located.entryIndex + ']';
-    guards.push('json_extract(s.data,?)=?','json_extract(s.data,?)=?',
+    guards.push('CAST(json_extract(s.data,?) AS TEXT)=?','json_extract(s.data,?)=?',
       'NOT EXISTS (SELECT 1 FROM vehicle_archives WHERE bike_id=? AND active=1)');
     args.push(bikePath+'.id',String(located.bike.id),entryPath,located.entryJson,String(located.bike.id));
     if (update.bikeJson) { guards.push('json_extract(s.data,?)=?'); args.push(bikePath,update.bikeJson); }
@@ -48,12 +48,12 @@ export async function commitInvoiceReview(env, options) {
     // transaction guard closes the race between two different invoices.
     guards.push(`NOT EXISTS(SELECT 1 FROM json_each(s.data,'$.bikes') ab,
       json_each(ab.value,'$.history') ah,json_each(ah.value,'$.attachments') aa
-      WHERE json_extract(aa.value,'$.key')!=? AND
+      WHERE json_extract(aa.value,'$.key')!=? AND json_extract(aa.value,'$.key')!=? AND
       ((?!='' AND COALESCE(json_extract(aa.value,'$.qrUrl'),json_extract(aa.value,'$.qrValue'))=?)
        OR (?!='' AND ?!='' AND lower(trim(json_extract(aa.value,'$.ocr.supplier')))=lower(trim(?))
            AND upper(trim(json_extract(aa.value,'$.ocr.invoiceNumber')))=upper(trim(?))))
-      AND NOT EXISTS(SELECT 1 FROM vehicle_archives av WHERE av.active=1 AND av.bike_id=json_extract(ab.value,'$.id')))`);
-    args.push(String(identity.key),String(identity.qrUrl||''),String(identity.qrUrl||''),String(identity.supplier||''),String(identity.invoiceNumber||''),String(identity.supplier||''),String(identity.invoiceNumber||''));
+      AND (?=1 OR NOT EXISTS(SELECT 1 FROM vehicle_archives av WHERE av.active=1 AND av.bike_id=json_extract(ab.value,'$.id'))))`);
+    args.push(String(identity.key),String(identity.excludeSourcePhoto||''),String(identity.qrUrl||''),String(identity.qrUrl||''),String(identity.supplier||''),String(identity.invoiceNumber||''),String(identity.supplier||''),String(identity.invoiceNumber||''),identity.includeArchived?1:0);
   }
   const destination = String(initialResult.document.bikeId);
   const result = { ...initialResult, operationId: changed && options.syncBike!==false ? bikes.get(destination).operationId : '' };
@@ -84,14 +84,14 @@ export async function commitInvoiceReview(env, options) {
     for (const [bikeId,bike] of options.syncBike===false?[]:bikes) {
       statements.push(env.DB.prepare(`INSERT INTO vehicle_registry(bike_id,name,odometer,status,version,updated_at)
         SELECT ?,json_extract(b.value,'$.name'),json_extract(b.value,'$.currentKm'),'available',1,?
-        FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? AND ${marker}
+        FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND CAST(json_extract(b.value,'$.id') AS TEXT)=? AND ${marker}
         ON CONFLICT(bike_id) DO UPDATE SET name=excluded.name,odometer=excluded.odometer,
         version=vehicle_registry.version+1,updated_at=excluded.updated_at`).bind(bikeId,now,bikeId,...markerArgs));
       // Serialize affected bikes inside D1. Queue by DB commit time (rowid
       // breaks timestamp ties), not by the earlier request start time.
       statements.push(env.DB.prepare(`INSERT INTO fleet_operations(id,source,type,payload,status,created_at)
         SELECT ?,'authenticated-client','snapshot_replace_bike',json_object('bike',json(b.value)),'pending',strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND json_extract(b.value,'$.id')=? AND ${marker}`)
+        FROM fleet_snapshot s,json_each(s.data,'$.bikes') b WHERE s.id=1 AND CAST(json_extract(b.value,'$.id') AS TEXT)=? AND ${marker}`)
         .bind(bike.operationId,bikeId,...markerArgs));
     }
     if(audit!==false)statements.push(env.DB.prepare(`INSERT INTO audit_log

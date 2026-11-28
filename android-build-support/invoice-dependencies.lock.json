@@ -13,7 +13,8 @@
       "sha256": "30277f879cfd571db2a137582c95516a0d4ea6778e945519bc58ca93d57d88c7",
       "sizeBytes": 3254019,
       "mirrors": [
-        "https://repo1.maven.org/maven2/com/tom-roush/pdfbox-android/2.0.27.0/pdfbox-android-2.0.27.0.aar"
+        "https://repo1.maven.org/maven2/com/tom-roush/pdfbox-android/2.0.27.0/pdfbox-android-2.0.27.0.aar",
+        "https://maven-central.storage-download.googleapis.com/maven2/com/tom-roush/pdfbox-android/2.0.27.0/pdfbox-android-2.0.27.0.aar"
       ]
     },
     {
@@ -38,19 +39,28 @@
       "file": "bcprov.jar",
       "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/1.83/bcprov-jdk18on-1.83.jar",
       "sha256": "82cf3a2af766c3bc874f6d36b9f20a8b99a8f09762dc776e8a227a45d8daaafb",
-      "sizeBytes": 8492458
+      "sizeBytes": 8492458,
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/bouncycastle/bcprov-jdk18on/1.83/bcprov-jdk18on-1.83.jar"
+      ]
     },
     {
       "file": "bcpkix.jar",
       "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcpkix-jdk18on/1.83/bcpkix-jdk18on-1.83.jar",
       "sha256": "d3c4c6b700c74ef8164bb15e549d939721b8f14fc0ff89fe19b220243bcfcbd8",
-      "sizeBytes": 1161454
+      "sizeBytes": 1161454,
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/bouncycastle/bcpkix-jdk18on/1.83/bcpkix-jdk18on-1.83.jar"
+      ]
     },
     {
       "file": "bcutil.jar",
       "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcutil-jdk18on/1.83/bcutil-jdk18on-1.83.jar",
       "sha256": "ee7d0eb4e74de70a735f7fb36b604dd5c6ad35720d50b914604db042114a0185",
-      "sizeBytes": 707261
+      "sizeBytes": 707261,
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/bouncycastle/bcutil-jdk18on/1.83/bcutil-jdk18on-1.83.jar"
+      ]
     }
   ]
 }

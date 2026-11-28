@@ -40,11 +40,15 @@ FLEET_ANDROID_BOOTED=false
 FLEET_BOOT_DEADLINE=$((SECONDS+240))
 while ((SECONDS<FLEET_BOOT_DEADLINE)); do
   kill -0 "$FLEET_EMULATOR_PID" 2>/dev/null || { tail -80 ${FLEET_TEST_DIR}/emulator.log; exit 1; }
-  if [[ "$(timeout 5 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" == 1 ]]; then FLEET_ANDROID_BOOTED=true; break; fi
+  if [[ "$(timeout 5 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" == 1 ]] &&
+      timeout 5 adb shell service check package 2>/dev/null | rg -q '^Service package: found' &&
+      timeout 10 adb shell input keyevent 82 >> "${FLEET_TEST_DIR}/emulator-unlock.log" 2>&1; then
+    FLEET_ANDROID_BOOTED=true
+    break
+  fi
   sleep 2
 done
 test "$FLEET_ANDROID_BOOTED" = true
-adb shell input keyevent 82
 timeout 60 adb install -r "$FLEET_TEST_SERVER"
 timeout 30 adb install -r ${FLEET_TEST_DIR}/sqlite-tests.apk
 timeout 360 adb shell am instrument -w -r "$FLEET_TEST_COMPONENT" | tee ${FLEET_TEST_DIR}/instrumentation.txt

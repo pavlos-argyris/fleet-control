@@ -227,17 +227,20 @@
         "server-android/src/gr/argyrismitsos/fleetserver/LocalInvoiceReader.java",
         "server-android/src/gr/argyrismitsos/fleetserver/ServiceDocument*.java",
         "independent-android/src/gr/argyrismitsos/fleetserver/IndependentInvoices.java",
-        "independent-android/src/gr/argyrismitsos/fleetserver/DirectInvoiceRetry.java"
+        "independent-android/src/gr/argyrismitsos/fleetserver/DirectInvoiceRetry.java",
+        "cloudflare-worker/src/targeted-service-qr.js"
       ],
       "tests": [
         "scripts/test-invoice-*.mjs",
         "scripts/test-local-invoice-reader.mjs",
         "scripts/test-pdf-evidence.mjs",
-        "scripts/test-direct-invoice-policy.mjs"
+        "scripts/test-direct-invoice-policy.mjs",
+        "scripts/test-targeted-service-qr-d1.mjs"
       ],
       "related": [
         "vehicle-service",
-        "backups"
+        "backups",
+        "hybrid-fleet"
       ],
       "docs": [
         "docs/ISSUE_37_INVOICE_RECOVERY_GR.md",
@@ -780,6 +783,40 @@
       ],
       "docs": [
         "docs/ISSUE_95_UNIFIED_MODE_GR.md"
+      ]
+    },
+    {
+      "id": "hybrid-fleet",
+      "title": "D1, PIN και μετάβαση των μηχανών #128",
+      "paths": [
+        "cloudflare-worker/hybrid-fleet/",
+        "cloudflare-worker/wrangler.hybrid-rehearsal.example.jsonc",
+        "cloudflare-worker/wrangler.hybrid-transfer.example.jsonc",
+        "scripts/hybrid-fleet-*.mjs",
+        "scripts/fixtures/FleetCloud*.java.txt",
+        "server-android/assets/www/fleet-cloud-setup.js",
+        "server-runtime/fleet-cloud-invoice.js",
+        "unified-android/src/gr/argyrismitsos/fleetdirect/FleetCloud*.java"
+      ],
+      "tests": [
+        "scripts/test-hybrid-fleet-ledger.mjs",
+        "scripts/test-hybrid-fleet-preflight.mjs",
+        "scripts/test-hybrid-fleet-invoice-recovery.mjs",
+        "scripts/test-hybrid-fleet-baseline.mjs",
+        "scripts/test-business-runtime-native.mjs",
+        "scripts/test-independent-android.sh",
+        "scripts/test-unified-server-browser.mjs",
+        "scripts/test-targeted-service-qr-d1.mjs",
+        "scripts/test-service-workflow.mjs"
+      ],
+      "related": [
+        "invoices",
+        "vehicle-service",
+        "backups",
+        "worker-core"
+      ],
+      "docs": [
+        "docs/HYBRID_FLEET_MIGRATION_GR.md"
       ]
     }
   ]

@@ -37,7 +37,11 @@ public final class DirectControlProvider extends ContentProvider {
                 result.putBoolean("ok",true);return result;
             }
             stage="startup";initialize();stage="runtime";IndependentRuntime runtime=IndependentRuntime.get(scope);stage="command";
-            if(method.equals("login")){
+            if(method.equals("fleetCloud")){
+                RememberedOwner.session(scope);
+                if(DirectHost.paused(scope))throw new java.io.IOException("Εκκρεμεί ενημέρωση ή ανάκτηση Direct.");
+                result.putString("json",FleetCloudSetup.configure(scope,argument,extras==null?0:extras.getInt("minutes")).toString());
+            }else if(method.equals("login")){
                 JSONObject body=RememberedOwner.login(scope,extras.getString("username",""),extras.getString("password",""));
                 result.putString("token",body.getString("token"));
             }else if(method.equals("check")){

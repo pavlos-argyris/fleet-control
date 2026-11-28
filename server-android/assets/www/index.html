@@ -205,6 +205,23 @@
           <p id="backendModeMessage" class="action-message" role="status" aria-live="polite"></p>
         </div></details>
         <h3 class="server-category">Συνδέσεις και συγχρονισμός</h3>
+        <details class="server-group" id="settingsFleetCloud" hidden>
+          <summary><span><strong>Fleet Cloudflare</strong><small>Πρόσβαση και κατάσταση μετάβασης</small></span></summary>
+          <div class="server-group-body">
+            <p id="fleetCloudStatus" role="status" aria-live="polite"></p>
+            <div id="fleetCloudControls" hidden>
+              <p id="fleetCloudMigration"></p>
+              <label><span>Συχνότητα συγχρονισμού</span><select id="fleetCloudMinutes"><option value="5">5 λεπτά</option><option value="15" selected>15 λεπτά</option><option value="30">30 λεπτά</option><option value="60">1 ώρα</option><option value="1440">24 ώρες</option></select></label>
+              <div class="settings-actions">
+                <button id="fleetCloudApprove" type="button" class="secondary-action">Προετοιμασία μεταφοράς</button>
+                <button id="fleetCloudRotate" type="button" class="secondary-action">Αλλαγή πρόσβασης Server</button>
+                <button id="fleetCloudPin" type="button" class="secondary-action">PIN και συσκευές</button>
+                <button id="fleetCloudRefresh" type="button" class="secondary-action">Έλεγχος σύνδεσης</button>
+                <button id="fleetCloudReplay" type="button" class="secondary-action" hidden>Συγχρονισμός τώρα</button>
+              </div>
+            </div>
+          </div>
+        </details>
         <section id="ordexaServerPanel" class="ordexa-panel" aria-label="Σύνδεση Ordexa"></section>
         <form id="settingsForm" class="settings-form">
           <details class="server-group" id="settingsConnection"><summary><span><strong>Σύνδεση Fleet</strong><small>Διεύθυνση και ρυθμός συγχρονισμού</small></span></summary><div class="server-group-body">
@@ -290,6 +307,7 @@
   <script src="./ordexa-server.js"></script>
   <script src="./server-ui.js"></script>
   <script src="./backend-mode.js"></script>
+  <script src="./fleet-cloud-setup.js"></script>
 
 
 </body></html>

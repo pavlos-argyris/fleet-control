@@ -7,7 +7,7 @@ CREATE INDEX IF NOT EXISTS invoice_import_drafts_active_qr ON invoice_import_dra
 
 export async function invoiceDuplicates(
   env,
-  { qrUrl = "", supplier = "", invoiceNumber = "", excludeKey = "" },
+  { qrUrl = "", supplier = "", invoiceNumber = "", excludeKey = "", includeArchived = false },
 ) {
   if (!qrUrl && !(supplier && invoiceNumber)) return [];
   const rows = await env.DB.prepare(
@@ -17,7 +17,7 @@ export async function invoiceDuplicates(
     json_each(b.value,'$.history') h,json_each(h.value,'$.attachments') a
     WHERE s.id=1 AND json_extract(a.value,'$.key')!=? AND ((?!='' AND COALESCE(json_extract(a.value,'$.qrUrl'),json_extract(a.value,'$.qrValue'))=?)
     OR (?!='' AND ?!='' AND lower(trim(json_extract(a.value,'$.ocr.supplier')))=lower(trim(?)) AND upper(trim(json_extract(a.value,'$.ocr.invoiceNumber')))=upper(trim(?))))
-    AND NOT EXISTS(SELECT 1 FROM vehicle_archives v WHERE v.active=1 AND v.bike_id=json_extract(b.value,'$.id')) LIMIT 10`,
+    AND (?=1 OR NOT EXISTS(SELECT 1 FROM vehicle_archives v WHERE v.active=1 AND v.bike_id=json_extract(b.value,'$.id'))) LIMIT 10`,
   )
     .bind(
       excludeKey,
@@ -27,6 +27,7 @@ export async function invoiceDuplicates(
       invoiceNumber,
       supplier,
       invoiceNumber,
+      includeArchived ? 1 : 0,
     )
     .all();
   return rows.results || [];
