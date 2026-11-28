@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { recordIdentity } from '../cloudflare-worker/hybrid-fleet/baseline-projection.js';
 import { BASELINE_CHUNK_BYTES } from '../cloudflare-worker/hybrid-fleet/baseline.js';
 import { INITIAL_TRANSFER_HOST } from '../cloudflare-worker/hybrid-fleet/initial-transfer.js';
 import { sha256 } from '../cloudflare-worker/hybrid-fleet/ledger.js';
@@ -25,6 +26,17 @@ const hashChain=items=>items.reduce((chain,hash)=>digest(chain+':'+hash),'0'.rep
 const fileBytes=Buffer.from('Synthetic private photo bytes', 'utf8'), fileSha=digest(fileBytes);
 const machineId='Μηχανή / 21',otherId='42',serviceId='712389',deletedId='old-service';
 const secondServiceId='second-service';
+// Regression: Android history trash uses a machine-scoped recordId within its payload.
+const trashEntryId='11111111-2222-4333-8444-555555555555';
+const trashMachineId='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const trashRow={kind:'history-trash',machineId:trashMachineId,recordId:'trash-event',
+  data:{entry:{id:trashEntryId,type:'check'},recordId:trashMachineId+':'+trashEntryId}};
+assert.equal(recordIdentity(trashRow,false).details.serviceId,trashEntryId);
+assert.equal(recordIdentity({...trashRow,data:{...trashRow.data,recordId:trashEntryId}},false).details.serviceId,trashEntryId);
+for(const bad of ['another-machine:'+trashEntryId,trashMachineId+':another-entry','',trashMachineId+':'+trashEntryId+':extra']) {
+  assert.throws(()=>recordIdentity({...trashRow,data:{...trashRow.data,recordId:bad}},false),error=>error.code==='invalid_baseline_record');
+}
+
 const invoiceOrigin='https://invoice.fixture.invalid/';
 const fileKey='service-documents/fixture/original.jpg';
 const confirmedKey='service-documents/fixture/confirmed.pdf';

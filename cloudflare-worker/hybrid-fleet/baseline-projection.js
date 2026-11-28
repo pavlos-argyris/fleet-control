@@ -61,11 +61,15 @@ export function recordIdentity(row,first) {
           identity(data.id)!==recordId||!['service','check'].includes(data.type)) throw invalid();
       details=historyDetails(data);
       break;
-    case 'history-trash':
-      if (!validFleetRecordId(machineId)||!validFleetRecordId(recordId)||!isObject(data.entry)||
-          !identity(data.entry.id)||identity(data.recordId)!==identity(data.entry.id)) throw invalid();
+    case 'history-trash': {
+      if (!validFleetRecordId(machineId)||!validFleetRecordId(recordId)||!isObject(data.entry)) throw invalid();
+      const entryId=identity(data.entry.id),storedId=identity(data.recordId);
+      // Android stores trash record identities as machineId:entryId; older exports use entryId.
+      // Verify both components rather than stripping the prefix unconditionally.
+      if (!entryId||(storedId!==entryId&&storedId!==`${machineId}:${entryId}`)) throw invalid();
       details=historyDetails(data.entry);
       break;
+    }
     case 'invoice-job':
     case 'invoice-draft':
       if (machineId||!validFleetRecordId(recordId)) throw invalid();
