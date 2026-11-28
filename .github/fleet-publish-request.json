@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "mode": "publish",
-  "requestId": "fleet-2129b367-c350-4e83-a2fa-71c0a58a2d8c",
-  "sourceCommit": "7aeba29872455b8c478e332723bc66c90ca3acaf",
-  "releaseVersion": "5.67.5",
-  "requestedAt": "2026-11-24T14:24:33.639Z",
-  "reason": "Ρητή εντολή ιδιοκτήτη για απευθείας δημοσίευση του Client 5.67.5 και του Server 2.16.4 στις Ενημερώσεις στις 24/11/2026"
+  "requestId": "fleet-78e3795f-ed27-4e53-888b-a6b060267a4b",
+  "sourceCommit": "2267f8dbd48eeeba93b5c1c8063a8765c4ba00da",
+  "releaseVersion": "5.67.6",
+  "requestedAt": "2026-11-28T12:14:38.196Z",
+  "reason": "Ο ιδιοκτήτης ζήτησε την κανονική ενημέρωση Server 2.16.5 για το επαληθευμένο τοπικό αντίγραφο και την εφάπαξ έγκριση της αρχικής αντιγραφής του #128."
 }
