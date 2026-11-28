@@ -41,7 +41,7 @@ final class FleetCloudArchive {
 
     private FleetCloudArchive() { }
 
-    static long stage(Context context,String backupId,String sourceSha,String generation,String epoch,boolean sourceDeltas,
+    static long stage(Context context,String backupId,String sourceSha,String generation,String epoch,String journalId,boolean sourceDeltas,
                       FleetCloudBaseline.Transport transport) throws Exception {
         if (!ScopedContext.owns(context)||!backupId.matches("[a-f0-9-]{36}")||!generation.matches("[a-f0-9-]{36}")) {
             throw invalidSource();
@@ -64,7 +64,7 @@ final class FleetCloudArchive {
             long sourceCursor;
             try (SQLiteDatabase source=SQLiteDatabase.openDatabase(backup.database.getPath(),null,SQLiteDatabase.OPEN_READONLY);
                  OutputStream output=new BufferedOutputStream(new FileOutputStream(records))) {
-                sourceCursor=FleetCloudSourceJournal.checkpoint(source,epoch,generation);
+                sourceCursor=FleetCloudSourceJournal.checkpoint(source,journalId,generation);
                 Set<String> keys=project(source,output,generation);
                 files=documents(backup.manifest,documents,output,keys);
             }

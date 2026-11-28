@@ -28,8 +28,8 @@ final class FleetCloudReplica {
     interface InvoiceWriter { JSONObject apply(JSONObject journal,File pdf) throws Exception; }
 
     static JSONObject sync(Context context,String epoch,Pull pull,DocumentPull documents) throws Exception {
-        if (!ScopedContext.owns(context)) throw invalidDelta();
-        File location=new File(context.getNoBackupFilesDir(),"fleet-cloud-replica-v2.sqlite");
+        if (!ScopedContext.owns(context)||!epoch.matches("[a-f0-9]{32}")) throw invalidDelta();
+        File location=new File(context.getNoBackupFilesDir(),"fleet-cloud-replica-"+epoch+".sqlite");
         File directory=new File(context.getNoBackupFilesDir(),"fleet-cloud-documents");
         try (SQLiteDatabase database=SQLiteDatabase.openDatabase(location.getPath(),null,SQLiteDatabase.CREATE_IF_NECESSARY)) {
             initialize(database,epoch);

@@ -45,13 +45,13 @@ final class FleetCloudCatchUp {
         }
     }
 
-    static void capture(File root,SQLiteDatabase live,File objects,String epoch,String source,String generation,long initial) throws Exception {
+    static void capture(File root,SQLiteDatabase live,File objects,String epoch,String journalId,String source,String generation,long initial) throws Exception {
         try (SQLiteDatabase index=open(root,epoch,false)) {
             State saved=requireState(index,source,initial);
             if (saved.pending>0) return;
             live.beginTransactionNonExclusive();
             try {
-                long through=FleetCloudSourceJournal.checkpoint(live,epoch,generation);
+                long through=FleetCloudSourceJournal.checkpoint(live,journalId,generation);
                 if (through<saved.cursor) throw invalid();
                 if (through>saved.cursor) {
                     File files=files(root,epoch);

@@ -205,14 +205,14 @@ for name,p in sources.items():
             return FleetCloudSourceJournal.progress(db,epoch,generation,cursor);
         },2);
     }
-    void captureFleetCloudChanges(String epoch,String source,String generation,long initial)throws Exception{
+    void captureFleetCloudChanges(String epoch,String journalId,String source,String generation,long initial)throws Exception{
         serialized(()->{
             try(BackendMode.Guard ignored=BackendMode.guard(context)){
                 checkAuthority();
                 if(!config.getString("generation").equals(generation)||!BackendMode.direct(context)||!BackendMode.approved(context)||DirectHost.paused(context))
                     throw new IOException("Η ενεργή βάση Android χρειάζεται επανέλεγχο πριν αντιγραφούν αλλαγές Fleet.");
                 FleetCloudCatchUp.capture(context.getNoBackupFilesDir(),db,new File(context.getFilesDir(),"service-documents"),
-                    epoch,source,generation,initial);
+                    epoch,journalId,source,generation,initial);
             }
             return null;
         },2);

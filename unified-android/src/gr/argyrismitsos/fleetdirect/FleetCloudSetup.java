@@ -4,7 +4,6 @@ import android.content.Context;
 import android.net.Uri;
 import android.util.Base64;
 import gr.argyrismitsos.fleetserver.SealedLocalState;
-import gr.argyrismitsos.fleetserver.ServerConfig;
 import org.json.JSONObject;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -24,9 +23,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class FleetCloudSetup {
-    private static final String STORE = "direct.hybrid-fleet.device.v1";
-    private static final String KEY = "fleet.direct.hybrid.device.v1";
-    private static final String BASE = ServerConfig.DEFAULT_WORKER_URL;
+    private static final String STORE = "direct.fleet-initial-transfer.device.v1";
+    private static final String KEY = "fleet.direct.initial-transfer.device.v1";
+    private static final String BASE = "https://fleet-control-fleet.pavlosargyris.workers.dev";
+    private static final String MODE = "initial-transfer";
     private static final String SETUP = "/fleet-cloud/setup";
     private static final String STATE = "/api/fleet-sync/v1/state";
     private static final String DELTA = "/api/fleet-sync/v1/delta?cursor=";
@@ -56,13 +56,14 @@ final class FleetCloudSetup {
             return status(state);
         }
         if ("settings".equals(action)) {
-            requireDeployment();
+            if (!deploymentInfo().optBoolean("enrollmentAvailable")) {
+                throw new IOException("Η ρύθμιση PIN θα είναι διαθέσιμη όταν εγκριθεί η πρόσβαση Fleet στο Cloudflare.");
+            }
             JSONObject result = status(state);
             result.put("setupUrl", BASE + SETUP);
             return result;
         }
         if ("approve".equals(action) || "rotate".equals(action)) {
-            requireDeployment();
             JSONObject active = state.optJSONObject("active");
             JSONObject candidate = state.optJSONObject("candidate");
             if ("rotate".equals(action) && active == null) throw new IOException("Εκκρεμεί η πρώτη έγκριση του Server.");
@@ -71,9 +72,19 @@ final class FleetCloudSetup {
                 candidate = new JSONObject().put("id", token(24)).put("secret", token(32));
                 if (active != null) candidate.put("replaces", active.getString("id"));
                 state.put("candidate", candidate);
+                if (!state.has("journalId")) state.put("journalId", UUID.randomUUID().toString().replace("-", ""));
+                state.put("connection","awaiting_approval");
                 SealedLocalState.write(context, STORE, KEY, state);
             }
+            schedule(context);
             String digest = digest(candidate.getString("secret"));
+            if (active == null || !deploymentInfo().optBoolean("enrollmentAvailable")) {
+                String approval = candidate.getString("id") + ":" + digest;
+                if (candidate.has("replaces")) approval += ":" + candidate.getString("replaces");
+                boolean ready=state.has("backupSha256")&&state.optString("backupGeneration")
+                        .equals(IndependentConfig.read(context).optString("generation"));
+                return ready?status(state).put("deviceApproval", approval):status(state);
+            }
             Uri.Builder fragment = new Uri.Builder().appendQueryParameter("device", candidate.getString("id"))
                     .appendQueryParameter("proof", digest);
             if (candidate.has("replaces")) fragment.appendQueryParameter("replace", candidate.getString("replaces"));
@@ -81,7 +92,7 @@ final class FleetCloudSetup {
                     .put("approvalCode", digest.substring(0, 8).toUpperCase(Locale.ROOT));
         }
         if ("replay".equals(action)) {
-            if (!isStaged(state)) throw new IOException("Εκκρεμεί η δοκιμαστική μεταφορά Fleet.");
+            if (!isStaged(state)) throw new IOException("Εκκρεμεί η αρχική μεταφορά Fleet.");
             state.put("nextReplayAt",0);
             SealedLocalState.write(context,STORE,KEY,state);
             schedule(context);
@@ -89,6 +100,7 @@ final class FleetCloudSetup {
         }
         if (!"status".equals(action)) throw new IOException("Η ενέργεια Fleet δεν αναγνωρίστηκε.");
         refresh(context, state, true);
+        schedule(context);
         return status(state);
     }
 
@@ -97,8 +109,8 @@ final class FleetCloudSetup {
         worker.execute(() -> {
             try {
                 if (!DirectHost.paused(context)) {
-                    refreshIfDue(context);
                     prepareBaselineIfDue(context);
+                    refreshIfDue(context);
                     stageBaselineIfDue(context);
                     replayIfDue(context);
                 }
@@ -122,7 +134,7 @@ final class FleetCloudSetup {
             JSONObject baseline = reserveBaseline(context);
             if (baseline == null) return;
             checkpoint = baseline.getString("job");
-            IndependentRuntime.get(context).armFleetCloudSource(baseline.getString("epoch"),baseline.getString("generation"));
+            IndependentRuntime.get(context).armFleetCloudSource(baseline.getString("journalId"),baseline.getString("generation"));
             try (FleetDataStore store = new FleetDataStore(context)) {
                 JSONObject proof = BackupJobs.fleetMigrationBaseline(context, store, checkpoint);
                 completeBaseline(context, checkpoint, proof, false);
@@ -136,26 +148,27 @@ final class FleetCloudSetup {
     private static synchronized JSONObject reserveBaseline(Context context) throws Exception {
         JSONObject state=stored(context);
         long now=System.currentTimeMillis();
-        if (state.optInt("baselineVersion")!=1 || !state.has("active") || state.has("candidate") ||
-                !state.optString("connection").equals("approved") ||
-                now-state.optLong("lastContactAt") > (state.optInt("minutes",DEFAULT_MINUTES)+1)*60000L ||
-                !DirectHost.primary(context).optBoolean("ready") || DirectHost.paused(context)) return null;
+        String journalId=state.optString("journalId");
+        if (journalId.isEmpty() || (!state.has("candidate")&&!state.has("active")) ||
+                DirectHost.paused(context) || !DirectHost.primary(context).optBoolean("ready")) return null;
         String generation=IndependentConfig.read(context).optString("generation");
         if (generation.isEmpty()) return null;
-        String key=state.getString("epoch")+":"+generation;
+        String key=journalId+":"+generation;
         String checkpoint=UUID.nameUUIDFromBytes(("fleet-cloud-baseline:"+key).getBytes(StandardCharsets.UTF_8)).toString();
         if (checkpoint.equals(state.optString("backupJob")) &&
                 (state.has("backupSha256") || state.optLong("nextBackupAt")>now)) return null;
         if (!checkpoint.equals(state.optString("backupJob"))) {
             state.remove("backupSha256");
+            state.remove("backupVerifiedAt");
             state.remove("sourceCursor");
             state.remove("sourceGeneration");
             state.remove("sourceJournal");
             state.remove("sourceDeltaPrepared");
         }
         state.put("backupJob",checkpoint).put("migration","preparing_backup").put("nextBackupAt",now+300000L);
+        state.put("backupGeneration",generation);
         SealedLocalState.write(context, STORE, KEY, state);
-        return new JSONObject().put("job",checkpoint).put("epoch",state.getString("epoch")).put("generation",generation);
+        return new JSONObject().put("job",checkpoint).put("journalId",journalId).put("generation",generation);
     }
 
     private static synchronized void completeBaseline(Context context,String checkpoint,JSONObject proof,boolean failed) throws Exception {
@@ -179,10 +192,10 @@ final class FleetCloudSetup {
             JSONObject credential=transfer.getJSONObject("credential");
             String epoch=transfer.getString("epoch"),generation=transfer.getString("generation");
             long sourceCursor=FleetCloudArchive.stage(context,transfer.getString("job"),transfer.getString("source"),generation,
-                    epoch,transfer.getBoolean("sourceDeltas"),transport(context,credential,epoch,generation));
-            completeTransfer(context,transfer,sourceCursor,true);
+                    epoch,transfer.getString("journalId"),transfer.getBoolean("sourceDeltas"),transport(context,credential,epoch,generation));
+            completeTransfer(context,transfer,sourceCursor,true,false);
         } catch (Exception failure) {
-            if (transfer!=null) try { completeTransfer(context,transfer,-1,false); }
+            if (transfer!=null) try { completeTransfer(context,transfer,-1,false,failure instanceof CapacityExceeded); }
             catch (Exception unavailable) { }
         }
     }
@@ -216,15 +229,16 @@ final class FleetCloudSetup {
         String job=state.getString("backupJob");
         if (job.equals(state.optString("stagedBackupJob"))) return null;
         String generation=IndependentConfig.read(context).optString("generation");
-        if (generation.isEmpty()) return null;
+        if (!generation.equals(state.optString("backupGeneration"))) return null;
         state.put("migration","copying_baseline").put("nextTransferAt",now+60000L);
         SealedLocalState.write(context,STORE,KEY,state);
         return new JSONObject().put("job",job).put("source",state.getString("backupSha256"))
                 .put("sourceDeltas",state.optInt("sourceDeltaVersion")==1)
+                .put("journalId",state.getString("journalId"))
                 .put("generation",generation).put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"));
     }
 
-    private static synchronized void completeTransfer(Context context,JSONObject transfer,long sourceCursor,boolean saved) throws Exception {
+    private static synchronized void completeTransfer(Context context,JSONObject transfer,long sourceCursor,boolean saved,boolean capacity) throws Exception {
         JSONObject state=stored(context);
         String job=transfer.getString("job");
         String generation=transfer.getString("generation");
@@ -237,8 +251,8 @@ final class FleetCloudSetup {
             state.remove("transferFailures");
         } else {
             int attempts=Math.min(10,state.optInt("transferFailures")+1);
-            state.put("migration","baseline_retry").put("transferFailures",attempts)
-                    .put("nextTransferAt",System.currentTimeMillis()+Math.min(3600000L,30000L<<attempts));
+            state.put("migration",capacity?"baseline_capacity":"baseline_retry").put("transferFailures",attempts)
+                    .put("nextTransferAt",System.currentTimeMillis()+(capacity?3600000L:Math.min(3600000L,30000L<<attempts)));
         }
         SealedLocalState.write(context,STORE,KEY,state);
     }
@@ -264,20 +278,22 @@ final class FleetCloudSetup {
             });
             long sourceCursor=replica.getLong("sourceCursor");
             String generation=replica.getString("sourceGeneration");
+            String journalId=replica.getString("journalId");
             JSONObject sourceProof=new JSONObject().put("verified",false);
             if (sourceCursor>=0) try {
                 IndependentRuntime direct=IndependentRuntime.get(context);
                 if (replica.getBoolean("sourceDeltas")) {
                     String source=replica.getString("source");
-                    direct.captureFleetCloudChanges(epoch,source,generation,sourceCursor);
+                    direct.captureFleetCloudChanges(epoch,journalId,source,generation,sourceCursor);
                     JSONObject receipt=FleetCloudCatchUp.send(context.getNoBackupFilesDir(),epoch,source,sourceCursor,
                             transport(context,credential,epoch,generation));
                     long acknowledged=receipt.getLong("cursor");
-                    sourceProof=direct.fleetCloudSourceProgress(epoch,generation,acknowledged).put("acknowledgedCursor",acknowledged);
+                    sourceProof=direct.fleetCloudSourceProgress(journalId,generation,acknowledged).put("acknowledgedCursor",acknowledged);
                     if (receipt.getBoolean("acknowledged")) sourceProof.put("lastAcknowledgedAt",System.currentTimeMillis());
-                } else sourceProof=direct.fleetCloudSourceProgress(epoch,generation,sourceCursor);
+                } else sourceProof=direct.fleetCloudSourceProgress(journalId,generation,sourceCursor);
             } catch (Exception unavailable) {
                 sourceProof.put("retry",true);
+                if (unavailable instanceof CapacityExceeded) sourceProof.put("capacity",true);
             }
             progress.put("sourceJournal",sourceProof);
             completeReplay(context,epoch,progress);
@@ -296,6 +312,7 @@ final class FleetCloudSetup {
         SealedLocalState.write(context,STORE,KEY,state);
         return new JSONObject().put("epoch",state.getString("epoch")).put("credential",state.getJSONObject("active"))
                 .put("sourceCursor",state.optLong("sourceCursor",-1)).put("sourceGeneration",state.optString("sourceGeneration"))
+                .put("journalId",state.getString("journalId"))
                 .put("source",state.optString("backupSha256"))
                 .put("sourceDeltas",state.optInt("sourceDeltaVersion")==1&&state.optBoolean("sourceDeltaPrepared"));
     }
@@ -314,7 +331,8 @@ final class FleetCloudSetup {
             state.put("replicaCursor",progress.getLong("cursor")).put("lastReplicaAt",now)
                     .put("replicaPendingInvoices",progress.getInt("pendingInvoices"))
                     .put("sourceJournal",source);
-            if (!progress.optBoolean("hasMore")&&!source.optBoolean("retry")&&source.optLong("pending",0)==0) {
+            if (source.optBoolean("capacity")) state.put("nextReplayAt",now+3600000L);
+            else if (!progress.optBoolean("hasMore")&&!source.optBoolean("retry")&&source.optLong("pending",0)==0) {
                 state.put("nextReplayAt",now+state.optInt("minutes",DEFAULT_MINUTES)*60000L);
             }
         }
@@ -322,13 +340,14 @@ final class FleetCloudSetup {
     }
 
     private static void refresh(Context context, JSONObject state, boolean manual) throws Exception {
+        if (!state.has("backupSha256")) return;
         JSONObject candidate = state.optJSONObject("candidate");
         JSONObject active = state.optJSONObject("active"), credential = candidate == null ? active : candidate;
         long interval=state.optInt("minutes", DEFAULT_MINUTES) * 60000L;
         JSONObject progress=state.optJSONObject("baselineProgress");
-        JSONObject invoiceImport=progress==null?null:progress.optJSONObject("invoiceImport");
+        JSONObject ledger=progress==null?null:progress.optJSONObject("ledger");
         boolean preparing=state.optInt("baselineVersion")==1&&
-                (invoiceImport==null||!"ready".equals(invoiceImport.optString("state")));
+                (ledger==null||!"ready".equals(ledger.optString("state")));
         if (candidate!=null||preparing||"offline".equals(state.optString("connection"))) interval=Math.min(interval,300000L);
         if (credential == null || (!manual && System.currentTimeMillis() - state.optLong("lastCheckedAt") < interval)) return;
         long started = System.currentTimeMillis();
@@ -336,8 +355,10 @@ final class FleetCloudSetup {
         try {
             JSONObject remote = request(STATE, credential);
             String epoch = remote.optString("epoch");
-            if (remote.optInt("schemaVersion") != 1 || !remote.optString("mode").equals("rehearsal") ||
-                    !epoch.matches("[a-f0-9]{32}")) throw new IOException("Δεν επιβεβαιώθηκε ο δοκιμαστικός Worker Fleet.");
+            if (remote.optInt("schemaVersion") != 1 || !MODE.equals(remote.optString("mode")) || !epoch.matches("[a-f0-9]{32}") ||
+                    remote.optInt("baselineVersion")!=1 || remote.optInt("sourceDeltaVersion")!=1) {
+                throw new IOException("Δεν επιβεβαιώθηκε ο προορισμός της αρχικής μεταφοράς Fleet.");
+            }
             String previous = state.optString("epoch");
             if (!previous.isEmpty() && !previous.equals(epoch)) {
                 state.put("connection", "epoch_changed");
@@ -356,7 +377,7 @@ final class FleetCloudSetup {
         } catch (Rejected unapproved) {
             state.put("connection", candidate == null ? "revoked" : "awaiting_approval");
         } catch (Exception unavailable) {
-            state.put("connection", "offline");
+            state.put("connection",active==null&&candidate!=null?"awaiting_approval":"offline");
         }
         SealedLocalState.write(context, STORE, KEY, state);
     }
@@ -377,11 +398,12 @@ final class FleetCloudSetup {
                 .put("baselineProgress",state.optJSONObject("baselineProgress"));
     }
 
-    private static void requireDeployment() throws Exception {
+    private static JSONObject deploymentInfo() throws Exception {
         JSONObject info = request("/api/fleet-web/v1/setup-info", null);
-        if (info.optInt("protocol") != 1 || !info.optString("mode").equals("rehearsal") || !info.optString("setupPath").equals(SETUP)) {
+        if (info.optInt("protocol") != 1 || !MODE.equals(info.optString("mode")) || !info.optString("setupPath").equals(SETUP)) {
             throw new IOException("Εκκρεμεί η επαλήθευση του Cloudflare Fleet.");
         }
+        return info;
     }
 
     private static JSONObject request(String path, JSONObject credential) throws Exception {
@@ -405,6 +427,17 @@ final class FleetCloudSetup {
     private static void requireResponse(HttpsURLConnection connection) throws Exception {
         int status=connection.getResponseCode();
         if (status==401||status==403) throw new Rejected();
+        if (status==409) {
+            try (InputStream stream=connection.getErrorStream()) {
+                if (stream!=null) {
+                    byte[] bytes=new byte[512];
+                    int count=0;
+                    for (int length;count<bytes.length&&(length=stream.read(bytes,count,bytes.length-count))>0;) count+=length;
+                    String error=new JSONObject(new String(bytes,0,count,StandardCharsets.UTF_8)).optString("error");
+                    if ("initial_transfer_capacity".equals(error)||"initial_transfer_media_not_admitted".equals(error)) throw new CapacityExceeded();
+                }
+            } catch (org.json.JSONException malformed) { }
+        }
         if (status!=200) throw new IOException("Εκκρεμεί η διαθεσιμότητα του Cloudflare Fleet.");
     }
 
@@ -479,4 +512,5 @@ final class FleetCloudSetup {
     }
 
     private static final class Rejected extends IOException { }
+    private static final class CapacityExceeded extends IOException { }
 }

@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { BASELINE_CHUNK_BYTES } from '../cloudflare-worker/hybrid-fleet/baseline.js';
+import { INITIAL_TRANSFER_HOST } from '../cloudflare-worker/hybrid-fleet/initial-transfer.js';
 import { sha256 } from '../cloudflare-worker/hybrid-fleet/ledger.js';
 import { invoiceText } from './fixtures/invoice-layout.mjs';
 
@@ -15,7 +16,8 @@ const require=createRequire(new URL('../cloudflare-worker/package.json',import.m
 const {Miniflare,convertV4MiniflareOptions}=require('miniflare');
 const {build}=require('esbuild');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fleet-baseline-'));
-const api='/api/fleet-sync/v1', origin='https://fleet-baseline-fixture.invalid';
+const api='/api/fleet-sync/v1', fixtureOrigin='https://fleet-baseline-fixture.invalid';
+let origin=fixtureOrigin;
 const initialCursor=7;
 const rw='fixture-baseline-writer.'+'W'.repeat(43), ro='fixture-baseline-reader.'+'R'.repeat(43);
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -68,13 +70,13 @@ const encodeRows=rows=>Buffer.from(rows.map(row=>JSON.stringify(row)).join('\n')
 const scoped=encodeRows(records);
 let runtime,db,epoch;const readJobs=[];
 
-async function start(enabled,workspace='state') {
+async function start(enabled,workspace='state',overrides={}) {
   runtime=new Miniflare(convertV4MiniflareOptions({
     modules:true,script:fs.readFileSync(path.join(dir,'worker.mjs'),'utf8'),compatibilityDate:'2026-09-05',
     d1Databases:{FLEET_DB:'fleet-baseline-fixture'},r2Buckets:['FLEET_DOCUMENTS'],
     resourcePersistencePath:path.join(dir,workspace),
     bindings:{FLEET_REHEARSAL_ENABLED:'1',FLEET_BASELINE_TRANSFER:enabled?'1':'0',FLEET_SOURCE_DELTA_TRANSFER:'1',FLEET_INVOICE_PROCESSING:'1',
-      FLEET_INVOICE_HOSTS:'invoice.fixture.invalid'},
+      FLEET_INVOICE_HOSTS:'invoice.fixture.invalid',...overrides},
     serviceBindings:{FLEET_INVOICE_READER:async request=>{
       const {qrUrl}=await request.json();
       readJobs.push(qrUrl);
@@ -235,6 +237,78 @@ async function testSourceCatchUp() {
   assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_source_projection_rows WHERE cursor=17').first()).n,0);
   expect(await request(shadow(17),{token:ro}),409);
   assert.equal(expect(await request(shadow(through),{token:ro}),200).recordSha256,digest(JSON.stringify(later)));
+}
+
+async function testRegularInitialTransfer() {
+  const workerOrigin='https://'+INITIAL_TRANSFER_HOST;
+  const android=fs.readFileSync('unified-android/src/gr/argyrismitsos/fleetdirect/FleetCloudSetup.java','utf8');
+  assert(android.includes('BASE = "'+workerOrigin+'"'));
+  const fixture=[snapshot,{...machine,data:{id:machineId}},historyOnly,records.find(row=>row.recordId==='legacy-job'),
+    records.find(row=>row.recordId===fileKey)];
+  const raw=encodeRows(fixture),dataSha=digest(raw);
+  const bindings={FLEET_REHEARSAL_ENABLED:'0',FLEET_INITIAL_TRANSFER:'1',
+    FLEET_INITIAL_TRANSFER_RECORD_BYTES:String(raw.length+1024),FLEET_INITIAL_TRANSFER_MEDIA_BYTES:String(fileBytes.length)};
+  await runtime.dispose();
+  await start(true,'regular-initial-transfer',{...bindings,FLEET_INITIAL_TRANSFER_MEDIA_BYTES:'0'});
+  origin=workerOrigin;
+  const setup='/api/fleet-web/v1/setup-info';
+  expect(await request(setup,{token:''}),404);
+  await runtime.dispose();
+  await start(true,'regular-initial-transfer',bindings);
+  await install();
+  assert.deepEqual(expect(await request(setup,{token:''}),200),
+    {protocol:1,mode:'initial-transfer',setupPath:'/fleet-cloud/setup',enrollmentAvailable:false});
+  assert.equal((await runtime.dispatchFetch(fixtureOrigin+setup)).status,404);
+  expect(await request(api+'/state',{token:''}),401);
+  assert.equal(expect(await request(api+'/state'),200).mode,'initial-transfer');
+  for (const path of ['/mutations','/invoice-jobs','/invoice-stage']) {
+    assert.equal(expect(await post(path,{}),409).error,'initial_transfer_only');
+  }
+  const upload=(sha,bytes,overrides)=>request(api+'/invoice-file?sha256='+sha,{
+    method:'PUT',body:bytes,headers:{'Content-Type':'image/jpeg','Content-Length':String(bytes.length)},...overrides});
+  const manifest={format:'fleet-baseline-v1',sourceSha256:sourceSha,sourceCursor:initialCursor,dataBytes:raw.length,
+    dataChain:hashChain([dataSha]),files:1,fileBytes:fileBytes.length,fileChain:hashChain([digest(fileSha+':'+fileBytes.length)])};
+  const {sourceCursor,...missingCursor}=manifest;
+  expect(await post('/baseline/begin',missingCursor),400);
+  assert.equal(expect(await post('/baseline/begin',{...manifest,fileBytes:fileBytes.length+1}),409).error,'initial_transfer_capacity');
+  assert.equal(expect(await post('/baseline/begin',{...manifest,dataBytes:raw.length+1025}),409).error,'initial_transfer_capacity');
+  assert.equal(expect(await upload(fileSha,fileBytes),409).error,'initial_transfer_media_not_admitted');
+  expect(await post('/baseline/begin',manifest),200);
+  expect(await upload(fileSha,fileBytes,{token:ro}),403);
+  expect(await upload(fileSha,Buffer.alloc(fileBytes.length)),422);
+  assert.equal(expect(await upload(fileSha,fileBytes),200).replayed,false);
+  assert.equal(expect(await upload(fileSha,fileBytes),200).replayed,true);
+  const extra=Buffer.from('x'),extraSha=digest(extra);
+  assert.equal(expect(await upload(extraSha,extra),409).error,'initial_transfer_media_not_admitted');
+  const bucket=await runtime.getR2Bucket('FLEET_DOCUMENTS');
+  assert.equal(await bucket.head('sha256/'+extraSha),null);
+  assert.equal((await db.prepare('SELECT bytes FROM fleet_initial_media_usage WHERE id=1').first()).bytes,fileBytes.length);
+  expect(await post('/baseline/records',{ordinal:0,sha256:dataSha,data:raw.toString('base64')}),200);
+  expect(await post('/baseline/files',{ordinal:0,sha256:fileSha,size:fileBytes.length}),200);
+  expect(await post('/baseline/seal',{}),200);
+  const reads=readJobs.length;
+  for (let page=0;page<8;page++) await tick();
+  assert.equal((await projection()).state,'verified');
+  assert.equal((await working()).state,'ready');
+  assert.deepEqual(expect(await request(servicePath(machineId,secondServiceId),{token:ro}),200).service,historyOnly.data);
+  const through=9,path='/source-delta/'+through;
+  const later={...historyOnly,data:{...historyOnly.data,notes:'Ενημερωμένη σημείωση'}};
+  const delta=encodeRows([{kind:'source-checkpoint',afterCursor:initialCursor,sourceCursor:through},changed(historyOnly,later)]);
+  const deltaSha=digest(delta);
+  const change={format:'fleet-source-delta-v1',sourceSha256:sourceSha,afterCursor:initialCursor,sourceCursor:through,
+    dataBytes:delta.length,dataChain:hashChain([deltaSha]),files:0,fileBytes:0,fileChain:hashChain([])};
+  assert.equal(expect(await post(path+'/begin',{...change,dataBytes:1025}),409).error,'initial_transfer_capacity');
+  expect(await post(path+'/begin',change),200);
+  expect(await post(path+'/records',{ordinal:0,sha256:deltaSha,data:delta.toString('base64')}),200);
+  expect(await post(path+'/seal',{}),200);
+  const source=async()=>expect(await request(api+'/state',{token:ro}),200).sourceProgress;
+  for (let page=0;page<4&&(await source()).state!=='indexed';page++) await tick();
+  assert.deepEqual(await source(),{cursor:through,state:'indexed',indexedCursor:through,rows:1,reason:''});
+  const shadow=api+path+'/service?'+new URLSearchParams({machineId,serviceId:secondServiceId});
+  assert.deepEqual(expect(await request(shadow,{token:ro}),200).service,later.data);
+  assert.deepEqual(expect(await request(servicePath(machineId,secondServiceId),{token:ro}),200).service,historyOnly.data);
+  assert.equal(readJobs.length,reads);
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM fleet_invoice_jobs').first()).n,0);
 }
 
 const sourceSha=digest('synthetic verified backup');
@@ -477,6 +551,7 @@ try {
   await testBlocked('duplicate-after-progress',[snapshot,machine,compactMachine],'baseline_duplicate_record',2);
   await testBlocked('missing-parent',[snapshot,{...service,data:{...service.data,attachments:[]}}],'baseline_parent_missing',2);
   await testBlocked('missing-file-proof',[snapshot,records.at(-1)],'baseline_document_proof_mismatch',0);
+  await testRegularInitialTransfer();
   console.log('PASS actual Android transfer with Workerd/D1/R2: lost ACK, restart, verified baseline and source deltas, retained conflicts, exact service scope, preserved original invoice and recovered QR.');
 } finally {
   if(runtime) await runtime.dispose();

@@ -1,6 +1,7 @@
 import { fleetError, readBody, sha256 } from './ledger.js';
 import { stableReviewJson } from '../src/invoice-review-store.js';
 import { BASELINE_CHUNK_BYTES, verifiedBaselineService } from './baseline-projection.js';
+import { initialTransferLimits, transferMode } from './initial-transfer.js';
 
 export const EMPTY_CHAIN='0'.repeat(64);
 export { BASELINE_CHUNK_BYTES } from './baseline-projection.js';
@@ -87,10 +88,17 @@ export const transferOffset=result=>{
   return row?{next:row.ordinal+1,bytes:row.end_offset,chain:row.chain}:emptyProgress();
 };
 
-async function open(db,credential,epoch,input) {
+async function open(env,credential,epoch,input) {
+  const db=env.FLEET_DB;
   const scoped=Object.hasOwn(input??{},'sourceCursor');
   if (scoped&&!validNumber(input.sourceCursor,Number.MAX_SAFE_INTEGER)) throw fleetError(400,'invalid_source_cursor');
   const manifest=stableReviewJson(readTransferManifest(input,schema,scoped?['sourceCursor']:[]));
+  if (transferMode(env)==='initial-transfer') {
+    if (!scoped) throw fleetError(400,'initial_transfer_cursor_required');
+    const limits=initialTransferLimits(env);
+    const saved=await db.prepare('SELECT manifest FROM fleet_baseline WHERE id=1 AND epoch=?').bind(epoch).first('manifest');
+    if (saved!==manifest&&(input.dataBytes>limits.records||input.fileBytes>limits.media)) throw fleetError(409,'initial_transfer_capacity');
+  }
   await db.prepare(`INSERT INTO fleet_baseline(id,epoch,manifest) SELECT 1,?,? WHERE ${transferGrant}
     ON CONFLICT(id) DO NOTHING`).bind(epoch,manifest,...transferGrantArgs(credential,epoch)).run();
   const current=await status(db,epoch);
@@ -209,7 +217,7 @@ export async function routeBaseline(request,env,credential,epoch,respond) {
     if (url.pathname.endsWith('/seal')) value=await seal(env.FLEET_DB,credential,epoch);
     else {
       const input=await readBody(request);
-      if (url.pathname.endsWith('/begin')) value=await open(env.FLEET_DB,credential,epoch,input);
+      if (url.pathname.endsWith('/begin')) value=await open(env,credential,epoch,input);
       else value=await append(env,credential,epoch,url.pathname.endsWith('/files')?'files':'records',input);
     }
   }

@@ -13,16 +13,17 @@
     approved:'Επιβεβαιώθηκε η σύνδεση του Server.',
     offline:'Εκκρεμεί επικοινωνία με το Cloudflare.',
     revoked:'Η πρόσβαση του Server χρειάζεται νέα έγκριση.',
-    awaiting_approval:'Εκκρεμεί η έγκριση της συσκευής.',
-    waiting_for_setup:'Ο Server περιμένει έγκριση.',
+    awaiting_approval:'Εκκρεμεί η έγκριση της συσκευής στο Cloudflare.',
+    waiting_for_setup:'Έτοιμο για προετοιμασία της αρχικής μεταφοράς.',
     epoch_changed:'Άλλαξε το περιβάλλον του Cloudflare. Απαιτείται έλεγχος του αντιγράφου.'
   };
   const migrationMessages={
     preparing_backup:'Δημιουργείται και ελέγχεται το τοπικό backup.',
-    backup_verified:'Το τοπικό backup επαληθεύτηκε. Εκκρεμεί η συμφιλίωση της μεταφοράς.',
-    copying_baseline:'Μεταφέρονται τα επαληθευμένα δεδομένα των μηχανών στο δοκιμαστικό Cloudflare.',
+    backup_verified:'Το τοπικό backup επαληθεύτηκε.',
+    copying_baseline:'Μεταφέρονται τα επαληθευμένα δεδομένα των μηχανών στο Cloudflare.',
     baseline_retry:'Η μεταφορά διακόπηκε. Θα συνεχιστεί από την τελευταία επιβεβαιωμένη παρτίδα.',
-    baseline_staged:'Η δοκιμαστική μεταφορά της αρχικής απογραφής επαληθεύτηκε.',
+    baseline_capacity:'Η μεταφορά περιμένει επαλήθευση της διαθέσιμης χωρητικότητας στο Cloudflare.',
+    baseline_staged:'Η αποστολή της αρχικής απογραφής επιβεβαιώθηκε.',
     waiting_for_backup_slot:'Η προετοιμασία περιμένει να ολοκληρωθεί το τρέχον backup.',
     backup_verification_failed:'Χρειάζεται νέος έλεγχος του τοπικού backup.'
   };
@@ -31,24 +32,19 @@
     baseline_parent_missing:'Λείπει η μηχανή στην οποία ανήκει εγγραφή ιστορικού.',
     baseline_document_missing:'Λείπει συνημμένο από την απογραφή.',
     baseline_document_proof_mismatch:'Το αποτύπωμα ενός συνημμένου δεν συμφωνεί.',
-    baseline_working_ledger_not_empty:'Η βάση δοκιμής έχει ήδη δεδομένα.',
-    baseline_working_count_mismatch:'Το πλήθος των εγγραφών στη βάση δοκιμής δεν συμφωνεί.',
-    baseline_invoice_queue_not_empty:'Βρέθηκαν προϋπάρχουσες εργασίες στην ουρά δοκιμής.',
-    invoice_manifest_mismatch:'Το πλήθος ή το αποτύπωμα των εκκρεμοτήτων δεν συμφωνεί.'
+    baseline_working_ledger_not_empty:'Ο προορισμός έχει ήδη δεδομένα.',
+    baseline_working_count_mismatch:'Το πλήθος των εγγραφών στον προορισμό δεν συμφωνεί.'
   };
   function cloudProgress(progress) {
     if (progress?.archive!=='staged') return '';
-    const {projection,ledger,invoiceImport,invoices}=progress;
-    const blocked=[projection,ledger,invoiceImport].find(stage=>stage?.state==='blocked');
+    const {projection,ledger}=progress;
+    const blocked=[projection,ledger].find(stage=>stage?.state==='blocked');
     if (blocked) return ' '+(migrationProblems[blocked.reason]||'Η προετοιμασία της απογραφής χρειάζεται έλεγχο.');
     if (projection?.state!=='verified') return ' Ελέγχεται η πληρότητα της απογραφής.';
-    if (ledger?.state!=='ready') return ' Προετοιμάζεται η βάση δοκιμής.';
-    if (invoiceImport?.state!=='ready') return ' Ανακτώνται οι παλιές εκκρεμότητες τιμολογίων.';
-    const pending=(Number(invoices?.queued)||0)+(Number(invoices?.running)||0), review=Number(invoices?.review)||0;
-    if (!pending&&!review) return ' Η δοκιμαστική ουρά τιμολογίων είναι ενημερωμένη.';
-    return ' Τιμολόγια σε αναμονή επεξεργασίας '+pending+', για έλεγχο '+review+'.';
+    if (ledger?.state!=='ready') return ' Επαληθεύονται οι μεταφερμένες εγγραφές.';
+    return ' Η επεξεργασία των τιμολογίων περιμένει την ολοκλήρωση της μετάβασης.';
   }
-  let pending=false;
+  let pending=false,backupTimer;
   const request=(action,value=0)=>{
     if (pending) return;
     pending=true;
@@ -61,6 +57,7 @@
     previous.call(this,event,payload);
     if (event!=='fleetCloud') return;
     pending=false;
+    clearTimeout(backupTimer);
     if (!payload?.ok) {
       status.textContent=payload?.message||'Η σύνδεση χρειάζεται έλεγχο από τον ιδιοκτήτη.';
       return;
@@ -72,24 +69,29 @@
       ' Έλεγχος '+new Date(payload.backupVerifiedAt).toLocaleString('el-GR')+'.':'';
     const stagedAt=payload.migration==='baseline_staged'&&payload.lastReplicaAt?
       ' Τελευταία ενημέρωση αντιγράφου '+new Date(payload.lastReplicaAt).toLocaleString('el-GR')+'.':'';
-    const pendingReplica=payload.replicaPending?' Εκκρεμούν αλλαγές στο δοκιμαστικό αντίγραφο.':'';
-    const pendingInvoices=Number(payload.replicaPendingInvoices)||0;
+    const pendingReplica=payload.replicaPending?' Εκκρεμούν αλλαγές στο αντίγραφο.':'';
     const source=payload.sourceJournal;
     const sourceChanges=source?.verified&&Number.isSafeInteger(source.pending)&&source.pending>0?
       ' Τοπικές εγγραφές σε αναμονή αποστολής '+source.pending+'.':'';
     const lastSource=source?.lastAcknowledgedAt?' Τελευταία επιβεβαιωμένη αποστολή '+new Date(source.lastAcknowledgedAt).toLocaleString('el-GR')+'.':'';
     const sourceProgress=payload.sourceProgress?.state;
-    const sourceCheck=sourceProgress==='blocked'?' Οι αλλαγές της δοκιμής χρειάζονται έλεγχο λόγω ασυμφωνίας.':
+    const sourceCheck=sourceProgress==='blocked'?' Οι αλλαγές χρειάζονται έλεγχο λόγω ασυμφωνίας.':
+      source?.capacity?' Η αποστολή αλλαγών περιμένει επαλήθευση χωρητικότητας.':
       source?.retry?' Η αποστολή αλλαγών θα επαναληφθεί.':
-      sourceProgress==='indexed'?' Επαληθεύτηκαν οι αλλαγές στο δοκιμαστικό αντίγραφο.':
-      sourceProgress?' Ελέγχονται οι αλλαγές στο δοκιμαστικό αντίγραφο.':'';
+      sourceProgress==='indexed'?' Επαληθεύτηκαν οι αλλαγές στο αντίγραφο.':
+      sourceProgress?' Ελέγχονται οι αλλαγές στο αντίγραφο.':'';
     migration.textContent=(migrationMessages[payload.migration]||'Μετάβαση δεδομένων σε αναμονή επαλήθευσης.')+
-      cloudProgress(payload.baselineProgress)+backupAt+stagedAt+pendingReplica+sourceChanges+lastSource+sourceCheck+
-      (pendingInvoices>0?' Επαληθευμένα PDF σε αναμονή δοκιμαστικής καταχώρισης '+pendingInvoices+'.':'');
+      cloudProgress(payload.baselineProgress)+backupAt+stagedAt+pendingReplica+sourceChanges+lastSource+sourceCheck;
     minutes.value=String(payload.minutes||15);
     approve.hidden=payload.approved&&!payload.pendingApproval;
+    approve.textContent=payload.pendingApproval&&!payload.approved?
+      (payload.backupVerifiedAt?'Κωδικός έγκρισης Server':'Έλεγχος προετοιμασίας'):'Προετοιμασία μεταφοράς';
     rotate.hidden=!payload.approved||payload.pendingApproval;
     replay.hidden=payload.migration!=='baseline_staged'||payload.connection!=='approved';
+    if (payload.pendingApproval&&!payload.approved&&!payload.backupVerifiedAt&&section.open&&
+        payload.migration!=='backup_verification_failed') {
+      backupTimer=setTimeout(()=>{if(section.open)request('status');},5000);
+    }
   };
   section.addEventListener('toggle',()=>{if(section.open)request('status');});
   approve.addEventListener('click',()=>request('approve'));

@@ -453,9 +453,20 @@ public final class MainActivity extends Activity {
                     if (!result.getBoolean("ok")) throw new IllegalStateException(result.getString("error"));
                     JSONObject state = new JSONObject(result.getString("json"));
                     String setup = state.optString("setupUrl"), code = state.optString("approvalCode");
+                    String deviceApproval = state.optString("deviceApproval");
                     state.remove("setupUrl");
                     state.remove("approvalCode");
-                    if (!setup.isEmpty()) runOnUiThread(() -> {
+                    state.remove("deviceApproval");
+                    if (deviceApproval.matches("[A-Za-z0-9_-]{32}:[a-f0-9]{64}(:[A-Za-z0-9_-]{32})?")) {
+                        runOnUiThread(() -> new android.app.AlertDialog.Builder(MainActivity.this)
+                                .setTitle("Έγκριση Server Fleet")
+                                .setMessage("Αντίγραψε τον κωδικό για την εφάπαξ έγκριση αυτής της συσκευής στο Cloudflare.")
+                                .setNegativeButton("Κλείσιμο", null)
+                                .setPositiveButton("Αντιγραφή κωδικού", (dialog, button) -> {
+                                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                                    if (clipboard != null) clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Έγκριση Fleet", deviceApproval));
+                                }).show());
+                    } else if (!setup.isEmpty()) runOnUiThread(() -> {
                         Runnable open = () -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(setup)));
                         if (code.isEmpty()) open.run();
                         else new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Έγκριση Server Fleet")

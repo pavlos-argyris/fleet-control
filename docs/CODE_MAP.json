@@ -787,10 +787,11 @@
     },
     {
       "id": "hybrid-fleet",
-      "title": "Δοκιμές D1, PIN και μετάβασης των μηχανών #128",
+      "title": "D1, PIN και μετάβαση των μηχανών #128",
       "paths": [
         "cloudflare-worker/hybrid-fleet/",
         "cloudflare-worker/wrangler.hybrid-rehearsal.example.jsonc",
+        "cloudflare-worker/wrangler.hybrid-transfer.example.jsonc",
         "scripts/hybrid-fleet-*.mjs",
         "scripts/fixtures/FleetCloud*.java.txt",
         "server-android/assets/www/fleet-cloud-setup.js",

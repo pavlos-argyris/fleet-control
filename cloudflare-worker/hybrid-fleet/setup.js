@@ -124,13 +124,14 @@ function setupScript() {
   });
 }
 
-export function routeFleetSetup(request) {
+export function routeFleetSetup(request,mode='rehearsal',enrollmentAvailable=false) {
   const path=new URL(request.url).pathname;
   if (![setupPath,setupPath+'.js',api+'/setup-info'].includes(path)) return null;
   if (request.method!=='GET') return new Response(null,{status:405});
   const headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff',
     'Content-Security-Policy':"default-src 'none'; script-src 'self'; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'"};
-  if (path===api+'/setup-info') return Response.json({protocol:1,mode:'rehearsal',setupPath},{headers});
+  if (path===api+'/setup-info') return Response.json({protocol:1,mode,setupPath,
+    ...(mode==='initial-transfer'?{enrollmentAvailable}:{})},{headers});
   if (path.endsWith('.js')) return new Response('('+setupScript.toString()+')();',{headers:{...headers,'Content-Type':scriptType}});
   return new Response(page,{headers:{...headers,'Content-Type':'text/html; charset=utf-8'}});
 }

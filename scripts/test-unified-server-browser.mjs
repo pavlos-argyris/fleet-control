@@ -15,11 +15,10 @@ try{for(const directOnly of [true,false])for(const mode of ['cloudflare','direct
       window.fixture.fleetCloud=(action,value)=>{
         fixture.fleetCalls.push({action,value});
         if(action==='interval') minutes=value;
-        window.FleetServer.onNativeEvent('fleetCloud',{ok:true,connection:'approved',approved:true,minutes,migration:'baseline_staged',replicaPendingInvoices:2,
+        window.FleetServer.onNativeEvent('fleetCloud',{ok:true,connection:'approved',approved:true,minutes,migration:'baseline_staged',
           sourceJournal:{verified:true,cursor:17,pending:2,acknowledgedCursor:13,lastAcknowledgedAt:1795798800000},
           sourceProgress:{cursor:13,state:'indexed',indexedCursor:13,rows:3},
-          baselineProgress:{archive:'staged',projection:{state:'verified'},ledger:{state:'ready'},invoiceImport:{state:'ready'},
-            invoices:{queued:1,running:2,review:4}}});
+          baselineProgress:{archive:'staged',projection:{state:'verified'},ledger:{state:'ready'}}});
       };
     }
     const noop=()=>{};
@@ -47,12 +46,17 @@ try{for(const directOnly of [true,false])for(const mode of ['cloudflare','direct
     assert(await page.getByLabel('Κωδικός σύζευξης').isHidden(),'Direct login does not require a pairing key');
     assert.equal(await page.locator('#settingsPrimary').count(),0,'Independent mode does not offer data synchronization');
     await page.locator('#settingsFleetCloud > summary').click();
-    await page.locator('#fleetCloudMigration').filter({hasText:/σε αναμονή επεξεργασίας 3, για έλεγχο 4/}).waitFor();
-    assert.match(await page.locator('#fleetCloudMigration').innerText(),/Επαληθευμένα PDF σε αναμονή δοκιμαστικής καταχώρισης 2/);
+    await page.locator('#fleetCloudMigration').filter({hasText:/Η επεξεργασία των τιμολογίων περιμένει/}).waitFor();
     const migration=await page.locator('#fleetCloudMigration').innerText();
     assert.match(migration,/Τοπικές εγγραφές σε αναμονή αποστολής 2/);
     assert.match(migration,/Τελευταία επιβεβαιωμένη αποστολή/);
-    assert.match(migration,/Επαληθεύτηκαν οι αλλαγές στο δοκιμαστικό αντίγραφο/);
+    assert.match(migration,/Επαληθεύτηκαν οι αλλαγές στο αντίγραφο/);
+    await page.evaluate(()=>FleetServer.onNativeEvent('fleetCloud',{ok:true,connection:'awaiting_approval',pendingApproval:true,
+      migration:'backup_verified',backupVerifiedAt:1795798800000,minutes:15}));
+    assert.match(await page.locator('#fleetCloudMigration').innerText(),/Το τοπικό backup επαληθεύτηκε/);
+    assert.equal(await page.locator('#fleetCloudApprove').innerText(),'Κωδικός έγκρισης Server');
+    await page.locator('#fleetCloudApprove').click();
+    assert.deepEqual(await page.evaluate(()=>fixture.fleetCalls.at(-1)),{action:'approve',value:0});
     assert.equal(await page.locator('#fleetCloudMinutes').inputValue(),'15');
     await page.locator('#fleetCloudMinutes').selectOption('1440');
     assert.deepEqual(await page.evaluate(()=>fixture.fleetCalls.at(-1)),{action:'interval',value:1440});

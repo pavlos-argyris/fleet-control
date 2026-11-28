@@ -1,10 +1,11 @@
 import { fleetError } from './ledger.js';
+import { reserveInitialMedia } from './initial-transfer.js';
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const contentTypes=new Set(['application/pdf','image/jpeg','image/png','image/webp','image/heic','image/heif','application/octet-stream']);
 const hex=value=>Array.from(new Uint8Array(value),byte=>byte.toString(16).padStart(2,'0')).join('');
 
-export async function storeInvoiceFile(request,env,credential,sha256) {
+export async function storeInvoiceFile(request,env,credential,sha256,initialEpoch=null) {
   if (credential.scope!=='sync-read-write') throw fleetError(403,'sync_write_scope_required');
   if (!/^[a-f0-9]{64}$/.test(sha256||'')) throw fleetError(400,'invalid_attachment_digest');
   if (!env.FLEET_DOCUMENTS) throw fleetError(503,'private_documents_unavailable');
@@ -25,6 +26,7 @@ export async function storeInvoiceFile(request,env,credential,sha256) {
   } catch (error) { await reader.cancel().catch(()=>{}); throw error; }
   if (offset!==size) throw fleetError(422,'attachment_size_mismatch');
   if (hex(await crypto.subtle.digest('SHA-256',bytes))!==sha256) throw fleetError(422,'attachment_digest_mismatch');
+  if (initialEpoch) await reserveInitialMedia(env,credential,initialEpoch,sha256,size);
   const key='sha256/'+sha256;
   const stored=await env.FLEET_DOCUMENTS.put(key,bytes,{sha256,onlyIf:{etagDoesNotMatch:'*'},httpMetadata:{contentType:type}});
   const object=stored||await env.FLEET_DOCUMENTS.head(key);

@@ -3,6 +3,7 @@ import { fleetError, readBody, sha256 } from './ledger.js';
 import { baselineEnabled, completeTransfer, EMPTY_CHAIN, readTransferManifest, readTransferPart,
   transferGrant, transferGrantArgs, transferOffset } from './baseline.js';
 import { verifiedSourceService } from './source-projection.js';
+import { initialTransferLimits, transferMode } from './initial-transfer.js';
 
 export const SOURCE_DELTA_ROUTE='/api/fleet-sync/v1/source-delta/';
 const schema='fleet-source-delta-v1';
@@ -25,7 +26,8 @@ async function status(db,epoch,cursor) {
     records:transferOffset(records),files:transferOffset(files)};
 }
 
-async function begin(db,credential,epoch,cursor,input) {
+async function begin(env,credential,epoch,cursor,input) {
+  const db=env.FLEET_DB,initial=transferMode(env)==='initial-transfer',limits=initialTransferLimits(env);
   readTransferManifest(input,schema,['afterCursor','sourceCursor']);
   const previous=input.afterCursor;
   if (!validCursor(previous)||previous>=cursor||cursor!==input.sourceCursor) throw fleetError(400,'invalid_source_cursor');
@@ -37,9 +39,20 @@ async function begin(db,credential,epoch,cursor,input) {
       AND COALESCE((SELECT cursor FROM fleet_source_deltas WHERE epoch=? ORDER BY cursor DESC LIMIT 1),
         json_extract(b.manifest,'$.sourceCursor'))=?
       AND NOT EXISTS(SELECT 1 FROM fleet_source_deltas WHERE epoch=? AND verified_at IS NULL)
-      AND NOT EXISTS(SELECT 1 FROM fleet_source_projection WHERE state='blocked'))
+      AND NOT EXISTS(SELECT 1 FROM fleet_source_projection WHERE state='blocked')
+      AND (?=0 OR (?<=? AND json_extract(b.manifest,'$.dataBytes')+?+COALESCE((SELECT sum(json_extract(manifest,'$.dataBytes'))
+        FROM fleet_source_deltas WHERE epoch=?),0)<=?)))
     ON CONFLICT DO NOTHING`).bind(cursor,epoch,previous,manifest,...transferGrantArgs(credential,epoch),
-      epoch,input.sourceSha256,epoch,previous,epoch).run();
+      epoch,input.sourceSha256,epoch,previous,epoch,initial?1:0,input.fileBytes,limits.media,input.dataBytes,epoch,limits.records).run();
+  if (initial) {
+    const saved=await db.prepare('SELECT manifest FROM fleet_source_deltas WHERE cursor=? AND epoch=?').bind(cursor,epoch).first('manifest');
+    if (!saved) {
+      const capacity=await db.prepare(`SELECT json_extract(b.manifest,'$.dataBytes')+?+
+        COALESCE((SELECT sum(json_extract(manifest,'$.dataBytes')) FROM fleet_source_deltas WHERE epoch=?),0) AS total
+        FROM fleet_baseline b WHERE b.id=1 AND b.epoch=?`).bind(input.dataBytes,epoch,epoch).first('total');
+      if (capacity>limits.records||input.fileBytes>limits.media) throw fleetError(409,'initial_transfer_capacity');
+    }
+  }
   const saved=await status(db,epoch,cursor);
   if (stableReviewJson(saved.manifest)!==manifest) throw fleetError(409,'source_delta_manifest_conflict');
   return saved;
@@ -95,6 +108,6 @@ export async function routeSourceDelta(request,pathname,env,credential,epoch,res
   if (credential.scope!=='sync-read-write') throw fleetError(403,'sync_write_scope_required');
   if (operation==='seal') return respond(await seal(db,credential,epoch,cursor));
   const input=await readBody(request);
-  if (operation==='begin') return respond(await begin(db,credential,epoch,cursor,input));
+  if (operation==='begin') return respond(await begin(env,credential,epoch,cursor,input));
   return respond(await append(env,credential,epoch,cursor,operation,input));
 }

@@ -44,6 +44,7 @@ final class FleetCloudMigrationChecks {
 
     private static void checkSourceCatchUp(File directory,String generation) throws Exception {
         String epoch="6789abcdef0123456789abcdef012345",source=FleetCloudBaseline.digest("synthetic backup".getBytes(StandardCharsets.UTF_8));
+        String journalId="019239abcdef0123456789abcdef0123";
         String machineId="Μηχανή / 8",key="service-documents/added.pdf";
         byte[] pdf="%PDF-1.4\nPost-backup synthetic file\n%%EOF".getBytes(StandardCharsets.UTF_8);
         String sha=FleetCloudBaseline.digest(pdf),localName=sha+"-"+sha+".pdf";
@@ -65,12 +66,12 @@ final class FleetCloudMigrationChecks {
                     .put("name","Μηχανάκι").put("history",new JSONArray().put(service)))).put("payroll","unrelated synthetic salary");
             db.execSQL("INSERT INTO fleet_snapshot VALUES(1,1,?,'2026-11-20')",new Object[]{fixture.toString()});
             db.execSQL("INSERT INTO fleet_operations VALUES('legacy-job','service_document_render','{}','error','2026-11-20')");
-            FleetCloudSourceJournal.arm(db,epoch,generation);
+            FleetCloudSourceJournal.arm(db,journalId,generation);
             File baseline=new File(directory,"source-baseline.ndjson");
             try (java.io.FileOutputStream output=new java.io.FileOutputStream(baseline)) { FleetCloudArchive.project(db,output,generation); }
             FleetCloudCatchUp.seed(directory,epoch,source,0,baseline);
             DeltaReceipts noChange=new DeltaReceipts(false,pdf);
-            FleetCloudCatchUp.capture(directory,db,objects,epoch,source,generation,0);
+            FleetCloudCatchUp.capture(directory,db,objects,epoch,journalId,source,generation,0);
             check(!FleetCloudCatchUp.send(directory,epoch,source,0,noChange).getBoolean("acknowledged")&&noChange.manifest==null,
                     "Unmodified SQLite starts no Cloud transaction");
             service.put("notes","Σημείωση μετά το αντίγραφο").put("attachments",new JSONArray().put(new JSONObject().put("key",key)));
@@ -78,8 +79,8 @@ final class FleetCloudMigrationChecks {
             db.execSQL("UPDATE fleet_operations SET status='completed' WHERE id='legacy-job'");
             Files.write(new File(objects,localName).toPath(),pdf);
             db.execSQL("INSERT INTO native_objects VALUES(?,?,?,?,?,?,'2026-11-21',NULL)",new Object[]{key,localName,"added.pdf","application/pdf",pdf.length,sha});
-            FleetCloudCatchUp.capture(directory,db,objects,epoch,source,generation,0);
-            long older=FleetCloudSourceJournal.checkpoint(db,epoch,generation);
+            FleetCloudCatchUp.capture(directory,db,objects,epoch,journalId,source,generation,0);
+            long older=FleetCloudSourceJournal.checkpoint(db,journalId,generation);
             DeltaReceipts receiver=new DeltaReceipts(true,pdf);
             try {
                 FleetCloudCatchUp.send(directory,epoch,source,0,receiver);
@@ -87,7 +88,7 @@ final class FleetCloudMigrationChecks {
             } catch (java.io.InterruptedIOException expected) { }
             service.put("notes","Η πιο πρόσφατη σημείωση");
             db.execSQL("UPDATE fleet_snapshot SET data=?,version=3 WHERE id=1",new Object[]{fixture.toString()});
-            FleetCloudCatchUp.capture(directory,db,objects,epoch,source,generation,0);
+            FleetCloudCatchUp.capture(directory,db,objects,epoch,journalId,source,generation,0);
             check(FleetCloudCatchUp.send(directory,epoch,source,0,receiver).getLong("cursor")==older&&receiver.uploads==1,
                     "The durable pending batch resumes before staging later changes and does not upload the same file twice");
             JSONObject staged=new JSONObject(receiver.change("history",machineId,"728014").getString("record"));
@@ -98,7 +99,7 @@ final class FleetCloudMigrationChecks {
                     receiver.change("invoice-job","","legacy-job").isNull("record")&&
                     !receiver.records.contains("unrelated synthetic salary"),
                     "Only expected Fleet data and the original stable IDs are staged");
-            FleetCloudCatchUp.capture(directory,db,objects,epoch,source,generation,0);
+            FleetCloudCatchUp.capture(directory,db,objects,epoch,journalId,source,generation,0);
             DeltaReceipts newer=new DeltaReceipts(false,pdf);
             check(FleetCloudCatchUp.send(directory,epoch,source,0,newer).getLong("cursor")>older&&newer.uploads==0&&
                     newer.manifest.getLong("afterCursor")==older&&new JSONObject(newer.change("history",machineId,"728014").getString("record"))
